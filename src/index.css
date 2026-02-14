@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+@theme {
+  --color-void: #0a0a0f;
+  --color-void-light: #12121a;
+  --color-void-lighter: #1a1a26;
+  --color-terminal: #39FF14;
+  --color-terminal-dim: #1a7a0a;
+  --color-ember: #FF6B00;
+  --color-ember-dim: #993f00;
+  --color-ice: #00E5FF;
+  --color-ice-dim: #006b77;
+  --color-danger: #FF1744;
+  --color-surface: #16161e;
+  --color-border: #2a2a3a;
+  --color-text-primary: #e0e0e0;
+  --color-text-dim: #6a6a7a;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: var(--font-mono);
+    background: var(--color-void);
+    color: var(--color-text-primary);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  #root {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* CRT scan-line overlay */
+  #root::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.08) 2px,
+        rgba(0, 0, 0, 0.08) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--color-void);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 0;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-terminal-dim);
+  }
+
+  textarea:focus,
+  input:focus {
+    outline: 1px solid var(--color-terminal);
+    outline-offset: -1px;
+  }
+}
+
+@layer utilities {
+  .glow-green {
+    text-shadow: 0 0 8px rgba(57, 255, 20, 0.5);
+  }
+
+  .glow-border {
+    box-shadow: 0 0 6px rgba(57, 255, 20, 0.15), inset 0 0 6px rgba(57, 255, 20, 0.05);
+  }
+
+  .animate-pulse-slow {
+    animation: pulse-slow 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse-slow {
+
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.7;
+    }
+  }
+}
