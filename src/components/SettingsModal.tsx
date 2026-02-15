@@ -91,7 +91,7 @@ export function SettingsModal() {
                         <input
                             type="range"
                             min={1024}
-                            max={32768}
+                            max={131072}
                             step={512}
                             value={settings.contextLimit}
                             onChange={(e) => updateSettings({ contextLimit: Number(e.target.value) })}
@@ -99,9 +99,29 @@ export function SettingsModal() {
                         />
                         <div className="flex justify-between text-[10px] text-text-dim">
                             <span>1K</span>
-                            <span>32K</span>
+                            <span>128K</span>
                         </div>
                     </div>
+
+                    {/* Auto-Condense */}
+                    <div className="flex items-center justify-between">
+                        <label className="text-[11px] text-text-dim uppercase tracking-wider">
+                            Auto-Condense
+                        </label>
+                        <button
+                            onClick={() => updateSettings({ autoCondenseEnabled: !settings.autoCondenseEnabled })}
+                            className={`relative w-9 h-4.5 rounded-full transition-colors ${settings.autoCondenseEnabled ? 'bg-terminal' : 'bg-border'}`}
+                        >
+                            <div
+                                className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white transition-transform ${settings.autoCondenseEnabled ? 'translate-x-4.5' : 'translate-x-0.5'}`}
+                            />
+                        </button>
+                    </div>
+                    {settings.autoCondenseEnabled && (
+                        <p className="text-[9px] text-text-dim/50 -mt-2">
+                            Automatically compresses old history when tokens exceed 40% of context limit
+                        </p>
+                    )}
                 </div>
 
                 {/* Test Connection */}
@@ -124,8 +144,8 @@ export function SettingsModal() {
                     {testResult && (
                         <div
                             className={`mt-3 flex items-center gap-2 text-xs px-3 py-2 border ${testResult.ok
-                                    ? 'border-terminal/30 text-terminal bg-terminal/5'
-                                    : 'border-danger/30 text-danger bg-danger/5'
+                                ? 'border-terminal/30 text-terminal bg-terminal/5'
+                                : 'border-danger/30 text-danger bg-danger/5'
                                 }`}
                         >
                             {testResult.ok ? <CheckCircle size={14} /> : <XCircle size={14} />}

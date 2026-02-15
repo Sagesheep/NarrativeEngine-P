@@ -1,7 +1,7 @@
 import { useAppStore } from '../store/useAppStore';
 
 export function TokenGauge() {
-    const { context, messages, settings } = useAppStore();
+    const { context, messages, settings, condenser } = useAppStore();
 
     const systemParts: string[] = [];
     if (context.loreRaw) systemParts.push(context.loreRaw);
@@ -14,6 +14,7 @@ export function TokenGauge() {
     if (context.headerIndexActive && context.headerIndex) systemParts.push(context.headerIndex);
     if (context.starterActive && context.starter) systemParts.push(context.starter);
     if (context.continuePromptActive && context.continuePrompt) systemParts.push(context.continuePrompt);
+    if (condenser.condensedSummary) systemParts.push(condenser.condensedSummary);
     const systemText = systemParts.join('\n\n');
     const systemTokens = Math.ceil(systemText.length / 4);
 

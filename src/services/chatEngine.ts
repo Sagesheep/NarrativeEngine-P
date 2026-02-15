@@ -1,4 +1,5 @@
 import type { AppSettings, ChatMessage, GameContext } from '../types';
+import { getVerbatimWindow } from './condenser';
 
 type OpenAIMessage = {
     role: 'system' | 'user' | 'assistant';
@@ -9,19 +10,20 @@ function estimateTokens(text: string): number {
     return Math.ceil(text.length / 4);
 }
 
+
 export function buildPayload(
     settings: AppSettings,
     context: GameContext,
     history: ChatMessage[],
-    userMessage: string
+    userMessage: string,
+    condensedSummary?: string
 ): OpenAIMessage[] {
+    // === 1. Build system prompt (protected — never compressed) ===
     const systemParts: string[] = [];
 
-    // Core context (always included)
     if (context.loreRaw) systemParts.push(context.loreRaw);
     if (context.rulesRaw) systemParts.push(context.rulesRaw);
 
-    // Template fields (only when toggled on)
     if (context.saveFormat1Active && context.saveFormat1) systemParts.push(context.saveFormat1);
     if (context.saveFormat2Active && context.saveFormat2) systemParts.push(context.saveFormat2);
     if (context.saveInstructionActive && context.saveInstruction) systemParts.push(context.saveInstruction);
@@ -31,22 +33,33 @@ export function buildPayload(
     if (context.starterActive && context.starter) systemParts.push(context.starter);
     if (context.continuePromptActive && context.continuePrompt) systemParts.push(context.continuePrompt);
 
-    const systemContent = systemParts.join('\n\n');
+    // === 2. Inject condensed history into system prompt (if available) ===
+    if (condensedSummary) {
+        systemParts.push(`[CONDENSED SESSION HISTORY]\n${condensedSummary}\n[END CONDENSED HISTORY]`);
+    }
 
+    const systemContent = systemParts.join('\n\n');
     const systemTokens = estimateTokens(systemContent);
     const userTokens = estimateTokens(userMessage);
     const budget = settings.contextLimit - systemTokens - userTokens;
 
-    // Walk history backwards, fitting as many as possible
+    // === 3. Select which history messages to include ===
+    // When condensed: ONLY send the verbatim window (last 5 messages)
+    // When not condensed: walk backwards from full history until budget runs out
+    const candidateMessages = condensedSummary
+        ? history.slice(-getVerbatimWindow())
+        : history;
+
     const fitted: OpenAIMessage[] = [];
     let used = 0;
-    for (let i = history.length - 1; i >= 0; i--) {
-        const cost = estimateTokens(history[i].content);
+    for (let i = candidateMessages.length - 1; i >= 0; i--) {
+        const cost = estimateTokens(candidateMessages[i].content);
         if (used + cost > budget) break;
-        fitted.unshift({ role: history[i].role, content: history[i].content });
+        fitted.unshift({ role: candidateMessages[i].role, content: candidateMessages[i].content });
         used += cost;
     }
 
+    // === 4. Assemble final payload: system → history → user (bottom) ===
     const messages: OpenAIMessage[] = [];
     if (systemContent) {
         messages.push({ role: 'system', content: systemContent });

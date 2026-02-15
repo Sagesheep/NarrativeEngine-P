@@ -3,6 +3,13 @@ export type AppSettings = {
     apiKey: string;
     modelName: string;
     contextLimit: number;
+    autoCondenseEnabled: boolean;
+};
+
+export type CondenserState = {
+    condensedSummary: string;
+    condensedUpToIndex: number;
+    isCondensing: boolean;
 };
 
 export type GameContext = {

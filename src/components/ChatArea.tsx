@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Dices, Save, Loader2 } from 'lucide-react';
+import { Send, Dices, Save, Loader2, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useAppStore } from '../store/useAppStore';
 import { buildPayload, sendMessage } from '../services/chatEngine';
+import { shouldCondense, condenseHistory } from '../services/condenser';
 
 function uid(): string {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -14,9 +15,12 @@ export function ChatArea() {
         settings,
         context,
         isStreaming,
+        condenser,
         addMessage,
         updateLastAssistant,
         setStreaming,
+        setCondensed,
+        setCondensing,
     } = useAppStore();
 
     const [input, setInput] = useState('');
@@ -27,6 +31,25 @@ export function ChatArea() {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    const triggerCondense = async () => {
+        if (condenser.isCondensing) return;
+        setCondensing(true);
+        try {
+            const result = await condenseHistory(
+                settings,
+                messages,
+                context,
+                condenser.condensedUpToIndex,
+                condenser.condensedSummary
+            );
+            setCondensed(result.summary, result.upToIndex);
+        } catch (err) {
+            console.error('[Condenser]', err);
+        } finally {
+            setCondensing(false);
+        }
+    };
+
     const handleSend = async () => {
         const text = input.trim();
         if (!text || isStreaming) return;
@@ -35,7 +58,7 @@ export function ChatArea() {
         addMessage(userMsg);
         setInput('');
 
-        const payload = buildPayload(settings, context, messages, text);
+        const payload = buildPayload(settings, context, messages, text, condenser.condensedSummary || undefined);
 
         const assistantMsg = { id: uid(), role: 'assistant' as const, content: '', timestamp: Date.now() };
         addMessage(assistantMsg);
@@ -45,7 +68,14 @@ export function ChatArea() {
             settings,
             payload,
             (fullText) => updateLastAssistant(fullText),
-            () => setStreaming(false),
+            () => {
+                setStreaming(false);
+                // Auto-condense check (non-blocking)
+                const allMessages = useAppStore.getState().messages;
+                if (settings.autoCondenseEnabled && shouldCondense(allMessages, settings.contextLimit, condenser.condensedUpToIndex)) {
+                    triggerCondense();
+                }
+            },
             (err) => {
                 updateLastAssistant(`⚠ Error: ${err}`);
                 setStreaming(false);
@@ -163,6 +193,19 @@ export function ChatArea() {
                     <Save size={13} />
                     Save State
                 </button>
+                <button
+                    onClick={triggerCondense}
+                    disabled={condenser.isCondensing || messages.length < 6}
+                    className="flex items-center gap-1.5 bg-void border border-terminal/30 hover:border-terminal text-terminal text-[11px] uppercase tracking-wider px-3 py-1.5 transition-all hover:bg-terminal/5 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                    {condenser.isCondensing ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
+                    {condenser.isCondensing ? 'Condensing...' : 'Condense'}
+                </button>
+                {condenser.condensedSummary && (
+                    <span className="text-[9px] text-terminal/60 self-center ml-1">
+                        ● condensed
+                    </span>
+                )}
             </div>
 
             {/* Input */}

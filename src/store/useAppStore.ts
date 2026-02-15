@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppSettings, GameContext, ChatMessage } from '../types';
+import type { AppSettings, GameContext, ChatMessage, CondenserState } from '../types';
 
 type AppState = {
     // Settings
@@ -19,6 +19,12 @@ type AppState = {
     setStreaming: (v: boolean) => void;
     clearChat: () => void;
 
+    // Condenser
+    condenser: CondenserState;
+    setCondensed: (summary: string, upToIndex: number) => void;
+    setCondensing: (v: boolean) => void;
+    resetCondenser: () => void;
+
     // UI
     settingsOpen: boolean;
     drawerOpen: boolean;
@@ -35,6 +41,7 @@ export const useAppStore = create<AppState>()(
                 apiKey: '',
                 modelName: 'llama3',
                 contextLimit: 4096,
+                autoCondenseEnabled: true,
             },
             updateSettings: (patch) =>
                 set((s) => ({ settings: { ...s.settings, ...patch } })),
@@ -62,6 +69,19 @@ export const useAppStore = create<AppState>()(
             },
             updateContext: (patch) =>
                 set((s) => ({ context: { ...s.context, ...patch } })),
+
+            // Condenser defaults
+            condenser: {
+                condensedSummary: '',
+                condensedUpToIndex: -1,
+                isCondensing: false,
+            },
+            setCondensed: (summary, upToIndex) =>
+                set((s) => ({ condenser: { ...s.condenser, condensedSummary: summary, condensedUpToIndex: upToIndex } })),
+            setCondensing: (v) =>
+                set((s) => ({ condenser: { ...s.condenser, isCondensing: v } })),
+            resetCondenser: () =>
+                set({ condenser: { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false } }),
 
             // Chat defaults
             messages: [],
@@ -92,6 +112,7 @@ export const useAppStore = create<AppState>()(
                 settings: state.settings,
                 context: state.context,
                 messages: state.messages,
+                condenser: state.condenser,
             }),
         }
     )
