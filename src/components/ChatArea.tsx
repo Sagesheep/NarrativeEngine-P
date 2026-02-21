@@ -102,7 +102,27 @@ export function ChatArea() {
         const relevantLore = loreChunks.length > 0
             ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex)
             : undefined;
-        const payload = buildPayload(settings, context, messages, text, condenser.condensedSummary || undefined, relevantLore);
+
+        let newDC = context.surpriseDC ?? 95;
+        const roll = Math.floor(Math.random() * 100) + 1;
+        let finalInput = text;
+
+        if (roll >= newDC) {
+            const slot1 = ["ENVIRONMENTAL_HAZARD", "NPC_ACTION", "WEATHER_CHANGE", "ITEM_COMPLICATION", "SUDDEN_DANGER", "FACTION_INTERVENTION", "STRANGE_DISCOVERY", "MAGIC_ANOMALY", "BEAST_BEHAVIOR", "STRUCTURAL_COLLAPSE", "SUDDEN_ARRIVAL", "LOST_ITEM", "MISUNDERSTANDING", "REVELATION", "TRAP_TRIGGERED", "OPPORTUNITY"];
+            const slot2 = ["GOOD", "BAD", "NEUTRAL", "WEIRD", "HILARIOUS", "TERRIFYING", "AWKWARD", "MYSTERIOUS", "CHAOTIC", "GROTESQUE", "WHOLESOME", "EPIC", "MUNDANE"];
+            const type = slot1[Math.floor(Math.random() * slot1.length)];
+            const tone = slot2[Math.floor(Math.random() * slot2.length)];
+
+            finalInput += `\n\n[SYSTEM OVERRIDE: SURPRISE EVENT TRIGGERED! Constraints: Event Type = [${type}], Tone = [${tone}]. You MUST inject an unexpected event matching these exact constraints into your immediate narrative response, based strictly on the CURRENT location and situation.]`;
+            newDC = 95;
+            console.log(`[Surprise Engine] Triggered! Type: ${type}, Tone: ${tone}`);
+        } else {
+            console.log(`[Surprise Engine] Roll: ${roll} < DC: ${newDC}. Decreasing DC.`);
+            newDC = Math.max(5, newDC - 5);
+        }
+        updateContext({ surpriseDC: newDC });
+
+        const payload = buildPayload(settings, context, messages, finalInput, condenser.condensedSummary || undefined, relevantLore);
 
         const assistantMsg = { id: uid(), role: 'assistant' as const, content: '', timestamp: Date.now() };
         addMessage(assistantMsg);

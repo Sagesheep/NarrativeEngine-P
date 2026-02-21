@@ -104,6 +104,7 @@ const defaultContext: GameContext = {
     headerIndex: '',
     starter: '',
     continuePrompt: '',
+    surpriseDC: 95,
     saveFormat1Active: false,
     saveFormat2Active: false,
     saveInstructionActive: false,

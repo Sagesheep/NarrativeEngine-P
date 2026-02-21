@@ -33,6 +33,7 @@ export type GameContext = {
     headerIndex: string;
     starter: string;
     continuePrompt: string;
+    surpriseDC?: number;
     // Toggles: whether each field is appended to context
     saveFormat1Active: boolean;
     saveFormat2Active: boolean;
