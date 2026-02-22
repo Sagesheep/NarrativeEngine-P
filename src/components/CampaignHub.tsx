@@ -3,7 +3,8 @@ import { Plus, Trash2, Play, Clock, BookOpen, Pencil } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import {
     listCampaigns, deleteCampaign, loadCampaignState,
-    saveCampaign, saveCampaignState, saveLoreChunks, getLoreChunks
+    saveCampaign, saveCampaignState, saveLoreChunks, getLoreChunks,
+    getNPCLedger
 } from '../store/campaignStore';
 import { chunkLoreFile } from '../services/loreChunker';
 import type { Campaign } from '../types';
@@ -144,6 +145,7 @@ export function CampaignHub() {
         // Load campaign state and flush into Zustand
         const state = await loadCampaignState(campaign.id);
         const chunks = await getLoreChunks(campaign.id);
+        const npcs = await getNPCLedger(campaign.id);
 
         // Batch-set all state at once to avoid partial renders
         useAppStore.setState({
@@ -151,6 +153,7 @@ export function CampaignHub() {
             messages: state?.messages ?? [],
             condenser: state?.condenser ?? DEFAULT_CONDENSER,
             loreChunks: chunks,
+            npcLedger: npcs,
             activeCampaignId: campaign.id,
         });
     };

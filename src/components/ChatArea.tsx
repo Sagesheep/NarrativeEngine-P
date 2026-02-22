@@ -2,10 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { Send, Dices, Loader2, Zap, ChevronDown, Scroll } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useAppStore } from '../store/useAppStore';
-import { buildPayload, sendMessage } from '../services/chatEngine';
+import { buildPayload, sendMessage, generateNPCProfile, updateExistingNPCs } from '../services/chatEngine';
+import type { NPCEntry } from '../types';
 import { shouldCondense, condenseHistory } from '../services/condenser';
 import { runSaveFilePipeline } from '../services/saveFileEngine';
-import { retrieveRelevantLore } from '../services/loreRetriever';
+import { retrieveRelevantLore, searchLoreByQuery } from '../services/loreRetriever';
 
 function uid(): string {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -19,6 +20,7 @@ export function ChatArea() {
         isStreaming,
         condenser,
         loreChunks,
+        npcLedger,
         addMessage,
         updateLastAssistant,
         setStreaming,
@@ -32,6 +34,7 @@ export function ChatArea() {
 
     const [input, setInput] = useState('');
     const [dropdownOpen, setDropdownOpen] = useState(false);
+    const [isCheckingNotes, setIsCheckingNotes] = useState(false);
     const bottomRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -95,15 +98,13 @@ export function ChatArea() {
 
         const provider = useAppStore.getState().getActiveProvider();
 
-        const userMsg = { id: uid(), role: 'user' as const, content: text, timestamp: Date.now() };
-        addMessage(userMsg);
         setInput('');
 
         const relevantLore = loreChunks.length > 0
-            ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex)
+            ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex, text)
             : undefined;
 
-        let newDC = context.surpriseDC ?? 95;
+        let newDC = context.surpriseDC ?? 98;
         const roll = Math.floor(Math.random() * 100) + 1;
         let finalInput = text;
 
@@ -114,11 +115,11 @@ export function ChatArea() {
             const tone = slot2[Math.floor(Math.random() * slot2.length)];
 
             finalInput += `\n\n[SYSTEM OVERRIDE: SURPRISE EVENT TRIGGERED! Constraints: Event Type = [${type}], Tone = [${tone}]. You MUST inject an unexpected event matching these exact constraints into your immediate narrative response, based strictly on the CURRENT location and situation.]`;
-            newDC = 95;
+            newDC = 98;
             console.log(`[Surprise Engine] Triggered! Type: ${type}, Tone: ${tone}`);
         } else {
             console.log(`[Surprise Engine] Roll: ${roll} < DC: ${newDC}. Decreasing DC.`);
-            newDC = Math.max(5, newDC - 5);
+            newDC = Math.max(5, newDC - 3);
         }
         updateContext({ surpriseDC: newDC });
 
@@ -164,35 +165,181 @@ Interpret the chosen number STRICTLY according to this scale. Do NOT invent a DC
         finalInput += `\n\n${diceBlock}`;
         // <----------------------!>
 
-        const payload = buildPayload(settings, context, messages, finalInput, condenser.condensedSummary || undefined, relevantLore);
+        const payload = buildPayload(settings, context, messages, finalInput, condenser.condensedSummary || undefined, relevantLore, npcLedger);
 
-        const assistantMsg = { id: uid(), role: 'assistant' as const, content: '', timestamp: Date.now() };
-        addMessage(assistantMsg);
-        setStreaming(true);
-
-        await sendMessage(
-            provider,
-            payload,
-            (fullText) => updateLastAssistant(fullText),
-            () => {
-                setStreaming(false);
-                // Archive the exchange (non-blocking)
-                const allMsgs = useAppStore.getState().messages;
-                const lastAssistant = allMsgs[allMsgs.length - 1];
-                if (lastAssistant?.role === 'assistant' && lastAssistant.content) {
-                    appendToArchive(text, lastAssistant.content);
-                }
-                // Auto-condense check (non-blocking)
-                const allMessages = useAppStore.getState().messages;
-                if (settings.autoCondenseEnabled && shouldCondense(allMessages, settings.contextLimit, condenser.condensedUpToIndex)) {
-                    triggerCondense();
-                }
-            },
-            (err) => {
-                updateLastAssistant(`⚠ Error: ${err}`);
-                setStreaming(false);
+        const executeTurn = async (currentPayload: any[], toolCallCount = 0) => {
+            if (toolCallCount === 0) {
+                const userMsg = { id: uid(), role: 'user' as const, content: text, timestamp: Date.now(), debugPayload: payload };
+                addMessage(userMsg);
             }
-        );
+
+            const assistantMsgId = uid();
+            addMessage({ id: assistantMsgId, role: 'assistant' as const, content: '', timestamp: Date.now() });
+            setStreaming(true);
+
+            // Limit recursion: only provide tools if we haven't looped too many times
+            const tools = toolCallCount < 2 ? [{
+                type: 'function',
+                function: {
+                    name: 'query_campaign_lore',
+                    description: 'Search the Game Master notes for specific lore, rules, characters, or locations. Do NOT call this sequentially or spam it. If no relevant lore is found, immediately proceed with the narrative response. IMPORTANT: You MUST use the standard JSON tool call format. NEVER output raw XML <|DSML|> tags in your response text.',
+                    parameters: {
+                        type: 'object',
+                        properties: { query: { type: 'string', description: 'The specific search query' } },
+                        required: ['query']
+                    }
+                }
+            }] : undefined;
+
+            await sendMessage(
+                provider,
+                currentPayload,
+                (fullText) => updateLastAssistant(fullText),
+                async (toolCall) => {
+                    if (toolCall && toolCall.name === 'query_campaign_lore') {
+                        setIsCheckingNotes(true);
+                        setStreaming(false);
+
+                        // Save tool call block to assistant message
+                        const { updateLastMessage } = useAppStore.getState();
+                        updateLastMessage({
+                            tool_calls: [{
+                                id: toolCall.id,
+                                type: 'function' as const,
+                                function: { name: toolCall.name, arguments: toolCall.arguments }
+                            }]
+                        });
+
+                        currentPayload.push({
+                            role: 'assistant',
+                            content: null,
+                            tool_calls: [{ id: toolCall.id, type: 'function', function: { name: toolCall.name, arguments: toolCall.arguments } }]
+                        });
+
+                        // Execute Tool locally
+                        let query = '';
+                        try { query = JSON.parse(toolCall.arguments).query || ''; } catch { }
+
+                        let toolResult = "No relevant lore found.";
+                        if (query) {
+                            const found = searchLoreByQuery(loreChunks, query);
+                            if (found.length > 0) {
+                                toolResult = found.map(c => `### ${c.header}\n${c.content}`).join('\n\n');
+                            }
+                        }
+
+                        // Save tool response
+                        const toolMsgId = uid();
+                        addMessage({
+                            id: toolMsgId,
+                            role: 'tool' as const,
+                            content: toolResult,
+                            timestamp: Date.now(),
+                            name: toolCall.name,
+                            tool_call_id: toolCall.id
+                        });
+
+                        currentPayload.push({
+                            role: 'tool',
+                            content: toolResult,
+                            name: toolCall.name,
+                            tool_call_id: toolCall.id
+                        });
+
+                        // Loop back to LLM after short visual delay
+                        setTimeout(() => {
+                            setIsCheckingNotes(false);
+                            executeTurn(currentPayload, toolCallCount + 1);
+                        }, 800);
+                        return;
+                    }
+
+                    // Normal Completion
+                    setStreaming(false);
+                    setIsCheckingNotes(false);
+                    const allMsgs = useAppStore.getState().messages;
+                    const lastAssistant = allMsgs[allMsgs.length - 1];
+                    if (lastAssistant?.role === 'assistant' && lastAssistant.content) {
+                        appendToArchive(text, lastAssistant.content);
+
+                        // ── NPC Auto-Generation: Parse AI response for character name tags ──
+                        // Supports 3 formats:
+                        //   1. [Name]        — plain brackets
+                        //   2. [**Name**]    — bold brackets
+                        //   3. [SYSTEM: NPC_ENTRY - NAME] — explicit system tag
+                        const content = lastAssistant.content;
+                        const extractedNames: string[] = [];
+
+                        // Pattern 1 & 2: [Name] or [**Name**] — no colons allowed inside (filters out [SYSTEM: ...])
+                        const bracketMatches = Array.from(content.matchAll(/\[\*{0,2}([A-Za-z][A-Za-z0-9 _'-]*[A-Za-z0-9])\*{0,2}\]/g));
+                        for (const m of bracketMatches) {
+                            const raw = m[1].trim();
+                            // Skip if it contains a colon (system tags) or is too short
+                            if (raw.includes(':') || raw.length < 2) continue;
+                            // Skip multi-word ALL-CAPS tags like "END RECORD" or "ACTIVE NPC CONTEXT"
+                            if (raw.includes(' ') && raw === raw.toUpperCase()) continue;
+                            extractedNames.push(raw);
+                        }
+
+                        // Pattern 3: [SYSTEM: NPC_ENTRY - NAME]
+                        const entryMatches = Array.from(content.matchAll(/\[SYSTEM:\s*NPC_ENTRY\s*[-–—]\s*([A-Za-z][A-Za-z0-9 _'-]*)\]/gi));
+                        for (const m of entryMatches) {
+                            extractedNames.push(m[1].trim());
+                        }
+
+                        if (extractedNames.length > 0) {
+                            const { npcLedger, addNPC, updateNPC } = useAppStore.getState();
+                            // Normalize: title-case all-caps single words (e.g., ORIN -> Orin)
+                            const normalized = extractedNames.map(n =>
+                                n === n.toUpperCase() ? n.charAt(0).toUpperCase() + n.slice(1).toLowerCase() : n
+                            );
+                            const uniqueNames = Array.from(new Set(normalized));
+
+                            const existingNpcsToUpdate: NPCEntry[] = [];
+
+                            for (const potentialName of uniqueNames) {
+                                // Check if already in ledger (case-insensitive against name + aliases)
+                                const existingNpc = npcLedger.find(npc => {
+                                    if (!npc.name) return false;
+                                    const aliasesRaw = npc.aliases || '';
+                                    const allNames = [npc.name.toLowerCase(), ...aliasesRaw.split(',').map(a => a.trim().toLowerCase())];
+                                    return allNames.includes(potentialName.toLowerCase());
+                                });
+
+                                if (!existingNpc) {
+                                    console.log(`[NPC Auto-Gen] New character detected: "${potentialName}" — spawning background profile generation...`);
+                                    const provider = settings.providers.find(p => p.id === settings.activeProviderId);
+                                    if (provider) {
+                                        generateNPCProfile(provider, allMsgs, potentialName, addNPC);
+                                    }
+                                } else {
+                                    existingNpcsToUpdate.push(existingNpc);
+                                }
+                            }
+
+                            // Trigger batched background update for existing NPCs
+                            if (existingNpcsToUpdate.length > 0) {
+                                const provider = settings.providers.find(p => p.id === settings.activeProviderId);
+                                if (provider) {
+                                    updateExistingNPCs(provider, allMsgs, existingNpcsToUpdate, updateNPC);
+                                }
+                            }
+                        }
+                    }
+                    if (settings.autoCondenseEnabled && shouldCondense(allMsgs, settings.contextLimit, condenser.condensedUpToIndex)) {
+                        triggerCondense();
+                    }
+                },
+                (err) => {
+                    updateLastAssistant(`⚠ Error: ${err}`);
+                    setStreaming(false);
+                    setIsCheckingNotes(false);
+                },
+                tools
+            );
+        };
+
+        await executeTurn(payload);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -259,7 +406,7 @@ Interpret the chosen number STRICTLY according to this scale. Do NOT invent a DC
                     </div>
                 )}
 
-                {messages.map((msg) => (
+                {messages.filter(msg => msg.role !== 'tool').map((msg) => (
                     <div
                         key={msg.id}
                         className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -281,8 +428,13 @@ Interpret the chosen number STRICTLY according to this scale. Do NOT invent a DC
                                             : 'text-ice'
                                         }`}
                                 >
-                                    {msg.role === 'user' ? '► YOU' : msg.role === 'system' ? '◆ SYS' : '◇ GM'}
+                                    {msg.role === 'user' ? '► YOU' : msg.role === 'tool' ? '◈ TOOL' : msg.role === 'system' ? '◆ SYS' : '◇ GM'}
                                 </span>
+                                {msg.role === 'tool' && msg.name && (
+                                    <span className="text-[9px] text-terminal font-bold tracking-wider opacity-80">
+                                        [{msg.name}]
+                                    </span>
+                                )}
                                 <span className="text-[9px] text-text-dim">
                                     {new Date(msg.timestamp).toLocaleTimeString()}
                                 </span>
@@ -291,11 +443,27 @@ Interpret the chosen number STRICTLY according to this scale. Do NOT invent a DC
                             <div className="gm-prose">
                                 <ReactMarkdown>{msg.content}</ReactMarkdown>
                             </div>
+
+                            {settings.debugMode && msg.debugPayload && (
+                                <details className="mt-2 border-t border-border/50 pt-2 text-[10px]">
+                                    <summary className="cursor-pointer text-terminal/60 hover:text-terminal transition-colors select-none">
+                                        [View Raw Payload]
+                                    </summary>
+                                    <pre className="mt-2 bg-void p-2 overflow-x-auto text-text-dim text-[9px] font-mono leading-tight whitespace-pre-wrap break-all">
+                                        {JSON.stringify(msg.debugPayload, null, 2)}
+                                    </pre>
+                                </details>
+                            )}
                         </div>
                     </div>
                 ))}
 
-                {isStreaming && (
+                {isCheckingNotes ? (
+                    <div className="flex items-center gap-2 text-terminal/80 text-xs px-4">
+                        <Loader2 size={12} className="animate-spin" />
+                        <span className="animate-pulse-slow">The GM is checking their notes...</span>
+                    </div>
+                ) : isStreaming && (
                     <div className="flex items-center gap-2 text-terminal text-xs px-4">
                         <Loader2 size={12} className="animate-spin" />
                         <span className="animate-pulse-slow">Generating...</span>

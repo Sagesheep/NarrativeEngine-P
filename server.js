@@ -55,7 +55,7 @@ app.put('/api/settings', (req, res) => {
 
 app.get('/api/campaigns', (_req, res) => {
     ensureDirs();
-    const files = fs.readdirSync(CAMPAIGNS_DIR).filter(f => f.endsWith('.json') && !f.includes('.state') && !f.includes('.lore'));
+    const files = fs.readdirSync(CAMPAIGNS_DIR).filter(f => f.endsWith('.json') && !f.includes('.state') && !f.includes('.lore') && !f.includes('.npcs'));
     const campaigns = files.map(f => readJson(path.join(CAMPAIGNS_DIR, f))).filter(Boolean);
     campaigns.sort((a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0));
     res.json(campaigns);
@@ -81,6 +81,7 @@ app.delete('/api/campaigns/:id', (req, res) => {
         path.join(CAMPAIGNS_DIR, `${id}.json`),
         path.join(CAMPAIGNS_DIR, `${id}.state.json`),
         path.join(CAMPAIGNS_DIR, `${id}.lore.json`),
+        path.join(CAMPAIGNS_DIR, `${id}.npcs.json`),
         path.join(CAMPAIGNS_DIR, `${id}.archive.md`),
     ];
     for (const f of files) {
@@ -123,6 +124,24 @@ app.put('/api/campaigns/:id/lore', (req, res) => {
     writeJson(filePath, req.body);
     res.json({ ok: true });
 });
+
+// ═══════════════════════════════════════════
+//  NPC Ledger
+// ═══════════════════════════════════════════
+
+app.get('/api/campaigns/:id/npcs', (req, res) => {
+    const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
+    const npcs = readJson(filePath, []);
+    res.json(npcs);
+});
+
+app.put('/api/campaigns/:id/npcs', (req, res) => {
+    ensureDirs();
+    const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
+    writeJson(filePath, req.body);
+    res.json({ ok: true });
+});
+
 
 // ═══════════════════════════════════════════
 //  Archive (verbatim chat log)

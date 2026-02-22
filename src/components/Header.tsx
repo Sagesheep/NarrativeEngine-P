@@ -1,4 +1,4 @@
-import { Settings, PanelLeftOpen, PanelLeftClose, Trash2, LogOut } from 'lucide-react';
+import { Settings, PanelLeftOpen, PanelLeftClose, Trash2, LogOut, Users } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { TokenGauge } from './TokenGauge';
 import { saveCampaignState } from '../store/campaignStore';
@@ -7,6 +7,7 @@ export function Header() {
     const {
         toggleSettings,
         toggleDrawer,
+        toggleNPCLedger,
         drawerOpen,
         clearChat,
         activeCampaignId,
@@ -46,6 +47,14 @@ export function Header() {
                 title="Clear chat history"
             >
                 <Trash2 size={16} />
+            </button>
+
+            <button
+                onClick={toggleNPCLedger}
+                className="text-text-dim hover:text-terminal transition-colors p-1"
+                title="NPC Ledger"
+            >
+                <Users size={18} />
             </button>
 
             <button

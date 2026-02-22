@@ -6,6 +6,7 @@ import { Header } from './components/Header';
 import { ContextDrawer } from './components/ContextDrawer';
 import { ChatArea } from './components/ChatArea';
 import { SettingsModal } from './components/SettingsModal';
+import { NPCLedgerModal } from './components/NPCLedgerModal';
 
 export default function App() {
   const activeCampaignId = useAppStore((s) => s.activeCampaignId);
@@ -36,6 +37,7 @@ export default function App() {
         <ChatArea />
       </div>
       <SettingsModal />
+      <NPCLedgerModal />
     </>
   );
 }

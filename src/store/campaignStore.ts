@@ -1,4 +1,4 @@
-import type { Campaign, LoreChunk, GameContext, ChatMessage, CondenserState } from '../types';
+import type { Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry } from '../types';
 
 const API = '/api';
 
@@ -65,3 +65,20 @@ export async function getLoreChunks(campaignId: string): Promise<LoreChunk[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/lore`);
     return res.json();
 }
+
+// ─── NPC Ledger ───
+
+export async function saveNPCLedger(campaignId: string, npcs: NPCEntry[]): Promise<void> {
+    await fetch(`${API}/campaigns/${campaignId}/npcs`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(npcs),
+    });
+}
+
+export async function getNPCLedger(campaignId: string): Promise<NPCEntry[]> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/npcs`);
+    if (!res.ok) return [];
+    return res.json();
+}
+

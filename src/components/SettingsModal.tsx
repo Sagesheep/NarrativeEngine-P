@@ -239,6 +239,21 @@ export function SettingsModal() {
                             Automatically compresses old history when tokens exceed 40% of context limit
                         </p>
                     )}
+
+                    {/* Debug Mode */}
+                    <div className="flex items-center justify-between">
+                        <label className="text-[11px] text-text-dim uppercase tracking-wider">
+                            Debug Payload Viewer
+                        </label>
+                        <button
+                            onClick={() => updateSettings({ debugMode: !settings.debugMode })}
+                            className={`relative w-9 h-4.5 rounded-full transition-colors ${settings.debugMode ? 'bg-terminal' : 'bg-border'}`}
+                        >
+                            <div
+                                className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-surface transition-transform ${settings.debugMode ? 'translate-x-4.5' : 'translate-x-0.5'}`}
+                            />
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

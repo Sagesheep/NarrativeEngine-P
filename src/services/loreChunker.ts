@@ -1,8 +1,11 @@
 import type { LoreChunk } from '../types';
 
-const ALWAYS_INCLUDE_KEYWORDS = [
-    'economy', 'currency', 'gold', 'income', 'cost', 'price', 'reward',
-    'power level', 'rank', 'f rank', 'e rank', 'd rank', 'c rank', 'b rank', 'a rank', 's rank',
+const ALWAYS_INCLUDE_PREFIXES = [
+    'wl-meta', 'wl-econ', 'wl-power'
+];
+
+const GENERIC_OBVIOUS_RULES = [
+    'economy', 'currency', 'power level', 'global rules', 'mechanics'
 ];
 
 function estimateTokens(text: string): number {
@@ -16,9 +19,14 @@ function slugify(text: string): string {
         .replace(/(^-|-$)/g, '');
 }
 
-function shouldAlwaysInclude(header: string, content: string): boolean {
-    const combined = (header + ' ' + content).toLowerCase();
-    return ALWAYS_INCLUDE_KEYWORDS.some((kw) => combined.includes(kw));
+/**
+ * Only searches the *header* for rule-designating keywords to prevent
+ * huge swaths of regular lore (like NPCs with 'Rank: B') from being always-included.
+ */
+function shouldAlwaysInclude(header: string): boolean {
+    const headerLower = header.toLowerCase();
+    if (ALWAYS_INCLUDE_PREFIXES.some((prefix) => headerLower.includes(prefix))) return true;
+    return GENERIC_OBVIOUS_RULES.some((kw) => headerLower.includes(kw));
 }
 
 /**
@@ -27,12 +35,13 @@ function shouldAlwaysInclude(header: string, content: string): boolean {
  * Each chunk = { id, header, content, tokens, alwaysInclude }
  */
 export function chunkLoreFile(markdown: string): LoreChunk[] {
-    const lines = markdown.split(/\r?\n/);
+    // Normalize escaped headers (e.g. \### -> \n### ) that occur from bad copy-pasting
+    const normalizedMarkdown = markdown.replace(/\\(#{2,3})\s*/g, '\n$1 ');
+    const lines = normalizedMarkdown.split(/\r?\n/);
     const chunks: LoreChunk[] = [];
 
-    // Detect granularity: use ### if present, else ##
-    const hasH3 = lines.some((l) => /^###\s/.test(l));
-    const headerRegex = hasH3 ? /^###\s+(.+)/ : /^##\s+(.+)/;
+    // Split on ANY ## or ### header to prevent massive chunks (allow leading whitespace)
+    const headerRegex = /^\s*(?:#{2,3})\s+(.+)/;
 
     let currentHeader = '';
     let currentLines: string[] = [];
@@ -50,7 +59,7 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
                         header: currentHeader,
                         content,
                         tokens: estimateTokens(currentHeader + '\n' + content),
-                        alwaysInclude: shouldAlwaysInclude(currentHeader, content),
+                        alwaysInclude: shouldAlwaysInclude(currentHeader),
                     });
                 }
             } else if (currentLines.length > 0) {
@@ -73,7 +82,7 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
                 header: currentHeader,
                 content,
                 tokens: estimateTokens(currentHeader + '\n' + content),
-                alwaysInclude: shouldAlwaysInclude(currentHeader, content),
+                alwaysInclude: shouldAlwaysInclude(currentHeader),
             });
         }
     }

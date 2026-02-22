@@ -1,12 +1,12 @@
 import type { LoreChunk } from '../types';
 
 /**
- * Extract proper nouns and key terms from Canon State + Header Index.
+ * Extract proper nouns and key terms from Canon State, Header Index, and User Message.
  * Returns lowercase tokens for matching.
  */
-function extractKeywords(canonState: string, headerIndex: string): Set<string> {
+function extractKeywords(canonState: string, headerIndex: string, userMessage: string): Set<string> {
     const keywords = new Set<string>();
-    const combined = canonState + '\n' + headerIndex;
+    const combined = canonState + '\n' + headerIndex + '\n' + userMessage;
 
     // Extract values after known field labels
     const fieldPatterns = [
@@ -52,6 +52,16 @@ function extractKeywords(canonState: string, headerIndex: string): Set<string> {
         }
     }
 
+    // Fallback/enhancement: extract any notable words from user message even if lowercase
+    const stopWords = new Set(['about', 'retrieve', 'information', 'please', 'tell', 'what', 'where', 'when', 'who', 'how', 'why', 'there', 'their', 'they', 'this', 'that', 'from', 'with']);
+    const userWords = userMessage.toLowerCase().split(/\s+/);
+    for (const w of userWords) {
+        const clean = w.replace(/[^a-z]/g, '');
+        if (clean.length > 3 && !stopWords.has(clean)) {
+            keywords.add(clean);
+        }
+    }
+
     return keywords;
 }
 
@@ -85,11 +95,12 @@ export function retrieveRelevantLore(
     chunks: LoreChunk[],
     canonState: string,
     headerIndex: string,
-    tokenBudget = 3000
+    userMessage: string,
+    tokenBudget = 1200
 ): LoreChunk[] {
     if (chunks.length === 0) return [];
 
-    const keywords = extractKeywords(canonState, headerIndex);
+    const keywords = extractKeywords(canonState, headerIndex, userMessage);
     const results: LoreChunk[] = [];
     let usedTokens = 0;
 
@@ -110,6 +121,50 @@ export function retrieveRelevantLore(
     // Fill remaining budget
     for (const { chunk } of dynamic) {
         if (usedTokens + chunk.tokens > tokenBudget) continue;
+        results.push(chunk);
+        usedTokens += chunk.tokens;
+    }
+
+    return results;
+}
+
+/**
+ * Specifically search lore chunks based on an explicit query string (from LLM tool call).
+ * Enforces a strict maximum of 3 results or 1500 tokens.
+ */
+export function searchLoreByQuery(
+    chunks: LoreChunk[],
+    query: string,
+    tokenBudget = 1500,
+    maxResults = 3
+): LoreChunk[] {
+    if (chunks.length === 0 || !query.trim()) return [];
+
+    const stopWords = new Set(['about', 'retrieve', 'information', 'please', 'tell', 'what', 'where', 'when', 'who', 'how', 'why', 'there', 'their', 'they', 'this', 'that', 'from', 'with', 'the', 'and', 'for']);
+    const keywords = new Set<string>();
+
+    // Extract keywords from the explicit query
+    const words = query.toLowerCase().split(/\s+/);
+    for (const w of words) {
+        const clean = w.replace(/[^a-z0-9]/g, '');
+        if (clean.length > 2 && !stopWords.has(clean)) {
+            keywords.add(clean);
+        }
+    }
+
+    // Score all chunks (including alwaysInclude, so we can return the top matches)
+    const scoredChunks = chunks
+        .map((c) => ({ chunk: c, score: scoreChunk(c, keywords) }))
+        .filter((s) => s.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+    const results: LoreChunk[] = [];
+    let usedTokens = 0;
+
+    for (const { chunk } of scoredChunks) {
+        if (results.length >= maxResults) break;
+        if (usedTokens + chunk.tokens > tokenBudget) continue;
+
         results.push(chunk);
         usedTokens += chunk.tokens;
     }

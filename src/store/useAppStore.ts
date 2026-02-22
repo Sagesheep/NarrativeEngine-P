@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppSettings, GameContext, ChatMessage, CondenserState, LoreChunk, ProviderConfig } from '../types';
+import type { AppSettings, GameContext, ChatMessage, CondenserState, LoreChunk, ProviderConfig, NPCEntry } from '../types';
 
 const API = '/api';
 
@@ -34,6 +34,11 @@ type AppState = {
     setActiveCampaign: (id: string | null) => void;
     loreChunks: LoreChunk[];
     setLoreChunks: (chunks: LoreChunk[]) => void;
+    npcLedger: NPCEntry[];
+    setNPCLedger: (npcs: NPCEntry[]) => void;
+    addNPC: (npc: NPCEntry) => void;
+    updateNPC: (id: string, patch: Partial<NPCEntry>) => void;
+    removeNPC: (id: string) => void;
 
     // Context
     context: GameContext;
@@ -44,6 +49,7 @@ type AppState = {
     isStreaming: boolean;
     addMessage: (msg: ChatMessage) => void;
     updateLastAssistant: (content: string) => void;
+    updateLastMessage: (patch: Partial<ChatMessage>) => void;
     setStreaming: (v: boolean) => void;
     clearChat: () => void;
 
@@ -56,8 +62,10 @@ type AppState = {
     // UI
     settingsOpen: boolean;
     drawerOpen: boolean;
+    npcLedgerOpen: boolean;
     toggleSettings: () => void;
     toggleDrawer: () => void;
+    toggleNPCLedger: () => void;
 };
 
 // Debounced save to avoid hammering the API on rapid changes
@@ -87,11 +95,26 @@ function debouncedSaveCampaignState(campaignId: string | null, state: { context:
     }, 1000);
 }
 
+// Debounced save for NPC Ledger
+let npcTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedSaveNPCLedger(campaignId: string | null, npcs: NPCEntry[]) {
+    if (!campaignId) return;
+    if (npcTimer) clearTimeout(npcTimer);
+    npcTimer = setTimeout(() => {
+        fetch(`${API}/campaigns/${campaignId}/npcs`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(npcs),
+        }).catch(console.error);
+    }, 1000);
+}
+
 const defaultSettings: AppSettings = {
     providers: [defaultProvider],
     activeProviderId: defaultProvider.id,
     contextLimit: 4096,
     autoCondenseEnabled: true,
+    debugMode: false,
 };
 
 const defaultContext: GameContext = {
@@ -125,6 +148,7 @@ function migrateSettings(data: Record<string, unknown>): AppSettings {
             activeProviderId: (raw.activeProviderId as string) || (raw.providers as ProviderConfig[])[0].id,
             contextLimit: (raw.contextLimit as number) ?? 4096,
             autoCondenseEnabled: (raw.autoCondenseEnabled as boolean) ?? true,
+            debugMode: (raw.debugMode as boolean) ?? false,
         };
     }
 
@@ -143,6 +167,7 @@ function migrateSettings(data: Record<string, unknown>): AppSettings {
         activeProviderId: legacyId,
         contextLimit: (raw.contextLimit as number) ?? 4096,
         autoCondenseEnabled: (raw.autoCondenseEnabled as boolean) ?? true,
+        debugMode: (raw.debugMode as boolean) ?? false,
     };
 }
 
@@ -238,6 +263,23 @@ export const useAppStore = create<AppState>()((set, get) => ({
     },
     loreChunks: [],
     setLoreChunks: (chunks) => set({ loreChunks: chunks }),
+    npcLedger: [],
+    setNPCLedger: (npcs) => set({ npcLedger: npcs }),
+    addNPC: (npc) => set((s) => {
+        const newLedger = [...s.npcLedger, npc];
+        debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
+        return { npcLedger: newLedger };
+    }),
+    updateNPC: (id, patch) => set((s) => {
+        const newLedger = s.npcLedger.map(n => n.id === id ? { ...n, ...patch } : n);
+        debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
+        return { npcLedger: newLedger };
+    }),
+    removeNPC: (id) => set((s) => {
+        const newLedger = s.npcLedger.filter(n => n.id !== id);
+        debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
+        return { npcLedger: newLedger };
+    }),
 
     // Context defaults
     context: { ...defaultContext },
@@ -275,12 +317,23 @@ export const useAppStore = create<AppState>()((set, get) => ({
             }
             return { messages: msgs };
         }),
+    updateLastMessage: (patch) =>
+        set((s) => {
+            const msgs = [...s.messages];
+            const lastIdx = msgs.length - 1;
+            if (lastIdx >= 0) {
+                msgs[lastIdx] = { ...msgs[lastIdx], ...patch };
+            }
+            return { messages: msgs };
+        }),
     setStreaming: (v) => set({ isStreaming: v }),
     clearChat: () => set({ messages: [] }),
 
     // UI defaults
     settingsOpen: false,
     drawerOpen: true,
+    npcLedgerOpen: false,
     toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
     toggleDrawer: () => set((s) => ({ drawerOpen: !s.drawerOpen })),
+    toggleNPCLedger: () => set((s) => ({ npcLedgerOpen: !s.npcLedgerOpen })),
 }));

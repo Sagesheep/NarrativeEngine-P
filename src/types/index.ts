@@ -11,6 +11,7 @@ export type AppSettings = {
     activeProviderId: string;
     contextLimit: number;
     autoCondenseEnabled: boolean;
+    debugMode?: boolean; // Toggles inline payload viewer
     // Legacy fields kept for migration only
     endpoint?: string;
     apiKey?: string;
@@ -46,9 +47,17 @@ export type GameContext = {
 
 export type ChatMessage = {
     id: string;
-    role: 'system' | 'user' | 'assistant';
+    role: 'system' | 'user' | 'assistant' | 'tool';
     content: string;
     timestamp: number;
+    debugPayload?: any; // Stores the exact JSON LLM payload
+    name?: string;
+    tool_calls?: {
+        id: string;
+        type: 'function';
+        function: { name: string; arguments: string };
+    }[];
+    tool_call_id?: string;
 };
 
 export type Campaign = {
@@ -65,4 +74,34 @@ export type LoreChunk = {
     content: string;
     tokens: number;
     alwaysInclude: boolean;
+};
+
+export type NPCEntry = {
+    id: string;
+    name: string;
+    aliases: string;
+    appearance: string;
+    disposition: string;
+    status: string;
+    goals: string;
+    nature: number;   // 1-10
+    training: number; // 1-10
+    emotion: number;  // 1-10
+    social: number;   // 1-10
+    belief: number;   // 1-10
+    ego: number;      // 1-10
+};
+
+
+export type OpenAITool = {
+    type: 'function';
+    function: {
+        name: string;
+        description: string;
+        parameters: {
+            type: 'object';
+            properties: Record<string, any>;
+            required?: string[];
+        };
+    };
 };
