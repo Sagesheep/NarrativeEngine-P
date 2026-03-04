@@ -1,11 +1,12 @@
 import type { ChatMessage, GameContext, ProviderConfig } from '../types';
 
-const VERBATIM_WINDOW = 5;
-const CONDENSE_BUDGET_RATIO = 0.4;
+import { countTokens } from './tokenizer';
+import { buildArchiveChunk } from './archiveMemory';
+import { saveArchiveChunk } from '../store/campaignStore';
 
-function estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
-}
+const VERBATIM_WINDOW = 8;
+const CONDENSE_BUDGET_RATIO = 0.75;
+const META_SUMMARY_THRESHOLD = 6000;
 
 export function shouldCondense(
     messages: ChatMessage[],
@@ -15,7 +16,7 @@ export function shouldCondense(
     const uncondensedMessages = messages.slice(condensedUpToIndex + 1);
     if (uncondensedMessages.length <= VERBATIM_WINDOW) return false;
 
-    const historyTokens = estimateTokens(
+    const historyTokens = countTokens(
         uncondensedMessages.map((m) => m.content).join('')
     );
     return historyTokens > contextLimit * CONDENSE_BUDGET_RATIO;
@@ -68,7 +69,9 @@ export async function condenseHistory(
     messages: ChatMessage[],
     context: GameContext,
     condensedUpToIndex: number,
-    existingSummary: string
+    existingSummary: string,
+    campaignId: string,
+    npcNames: string[]
 ): Promise<{ summary: string; upToIndex: number }> {
     const uncondensed = messages.slice(condensedUpToIndex + 1);
     const toCondense = uncondensed.slice(0, -VERBATIM_WINDOW);
@@ -77,18 +80,45 @@ export async function condenseHistory(
         return { summary: existingSummary, upToIndex: condensedUpToIndex };
     }
 
+    let finalExistingSummary = existingSummary;
+    const url = `${provider.endpoint.replace(/\/+$/, '')}/chat/completions`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
+
+    // --- Phase 4: T3 → T4 Promotion ---
+    if (finalExistingSummary && countTokens(finalExistingSummary) > META_SUMMARY_THRESHOLD) {
+        console.log('[Archive Memory] Promoting T3 summary to T4 archive chunk...', { tokens: countTokens(finalExistingSummary) });
+        const chunk = buildArchiveChunk(finalExistingSummary, context.headerIndex || 'Unknown Scene', npcNames);
+        await saveArchiveChunk(campaignId, chunk);
+
+        const metaPrompt = `You are a TTRPG session scribe. Compress the following older session summary into a highly condensed story-arc level summary (max 3 paragraphs). Preserve major character deaths, epic loot, unresolved plot hooks, and major quest completions.\n\nOLDER SUMMARY:\n${finalExistingSummary}`;
+
+        const metaRes = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                model: provider.modelName,
+                messages: [{ role: 'user', content: metaPrompt }],
+                stream: false,
+            }),
+        });
+
+        if (metaRes.ok) {
+            const metaData = await metaRes.json();
+            finalExistingSummary = metaData.choices?.[0]?.message?.content ?? '';
+            console.log('[Archive Memory] T3 successfully meta-summarized.');
+        } else {
+            console.error('[Archive Memory] Meta-summary API failed, retaining old T3 summary.');
+        }
+    }
+
+    // --- Standard Condensation ---
     const prompt = buildCondenserPrompt(
         toCondense,
         context.canonState,
         context.headerIndex,
-        existingSummary
+        finalExistingSummary
     );
-
-    const url = `${provider.endpoint.replace(/\/+$/, '')}/chat/completions`;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (provider.apiKey) {
-        headers['Authorization'] = `Bearer ${provider.apiKey}`;
-    }
 
     const res = await fetch(url, {
         method: 'POST',

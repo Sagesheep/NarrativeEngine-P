@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Dices, Loader2, Zap, ChevronDown, Scroll, Edit2, RotateCcw, Trash2, Check, X } from 'lucide-react';
+import { Send, Save, Loader2, Zap, ChevronDown, Scroll, Edit2, RotateCcw, Trash2, Check, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { useAppStore } from '../store/useAppStore';
+import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_WORLD_WHAT, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHY } from '../store/useAppStore';
 import { buildPayload, sendMessage, generateNPCProfile, updateExistingNPCs } from '../services/chatEngine';
 import type { NPCEntry, ChatMessage } from '../types';
 import { shouldCondense, condenseHistory } from '../services/condenser';
 import { runSaveFilePipeline } from '../services/saveFileEngine';
 import { retrieveRelevantLore, searchLoreByQuery } from '../services/loreRetriever';
+import { retrieveArchiveMemory } from '../services/archiveMemory';
 
 function uid(): string {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -20,6 +21,7 @@ export function ChatArea() {
         condenser,
         loreChunks,
         npcLedger,
+        archiveChunks,
         updateLastAssistant,
         updateContext,
         setCondensed,
@@ -80,12 +82,16 @@ export function ChatArea() {
 
             // Step 3: Condense history (using fresh context with updated glossary)
             const freshCtx = useAppStore.getState().context;
+            const npcLedger = useAppStore.getState().npcLedger;
+            const campaignId = useAppStore.getState().activeCampaignId || '';
             const result = await condenseHistory(
                 provider,
                 messages,
                 freshCtx,
                 condenser.condensedUpToIndex,
-                condenser.condensedSummary
+                condenser.condensedSummary,
+                campaignId,
+                npcLedger.map(n => n.name)
             );
             setCondensed(result.summary, result.upToIndex);
         } catch (err) {
@@ -107,37 +113,100 @@ export function ChatArea() {
             ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex, textToUse, 1200, messages)
             : undefined;
 
+        const archiveRecall = archiveChunks.length > 0
+            ? retrieveArchiveMemory(archiveChunks, textToUse, messages, 3000)
+            : undefined;
+
         let newDC = context.surpriseDC ?? 98;
-        const roll = Math.floor(Math.random() * 100) + 1;
         let finalInput = textToUse;
 
-        if (roll >= newDC) {
-            const slot1 = ["ENVIRONMENTAL_HAZARD", "NPC_ACTION", "WEATHER_CHANGE", "ITEM_COMPLICATION", "SUDDEN_DANGER", "FACTION_INTERVENTION", "STRANGE_DISCOVERY", "MAGIC_ANOMALY", "BEAST_BEHAVIOR", "STRUCTURAL_COLLAPSE", "SUDDEN_ARRIVAL", "LOST_ITEM", "MISUNDERSTANDING", "REVELATION", "TRAP_TRIGGERED", "OPPORTUNITY"];
-            const slot2 = ["GOOD", "BAD", "NEUTRAL", "WEIRD", "HILARIOUS", "TERRIFYING", "AWKWARD", "MYSTERIOUS", "CHAOTIC", "GROTESQUE", "WHOLESOME", "EPIC", "MUNDANE"];
-            const type = slot1[Math.floor(Math.random() * slot1.length)];
-            const tone = slot2[Math.floor(Math.random() * slot2.length)];
+        if (context.surpriseEngineActive !== false) {
+            const roll = Math.floor(Math.random() * 100) + 1;
+            if (roll >= newDC) {
+                const typesList = context.surpriseConfig?.types || DEFAULT_SURPRISE_TYPES;
+                const tonesList = context.surpriseConfig?.tones || DEFAULT_SURPRISE_TONES;
+                const type = typesList[Math.floor(Math.random() * typesList.length)];
+                const tone = tonesList[Math.floor(Math.random() * tonesList.length)];
 
-            finalInput += `\n[SURPRISE: TYPE=${type}, TONE=${tone}]`;
-            newDC = 98;
-            console.log(`[Surprise Engine] Triggered! Type: ${type}, Tone: ${tone}`);
-        } else {
-            console.log(`[Surprise Engine] Roll: ${roll} < DC: ${newDC}. Decreasing DC.`);
-            newDC = Math.max(5, newDC - 3);
+                finalInput += `\n[SURPRISE EVENT: ${type} (${tone})]`;
+                newDC = context.surpriseConfig?.initialDC || 98;
+                console.log(`[Surprise Engine] Triggered! Type: ${type}, Tone: ${tone}. Resetting DC to ${newDC}`);
+            } else {
+                console.log(`[Surprise Engine] Roll: ${roll} < DC: ${newDC}. Decreasing DC.`);
+                newDC = Math.max(5, newDC - (context.surpriseConfig?.dcReduction || 3));
+            }
         }
-        updateContext({ surpriseDC: newDC });
 
-        // <--- DICE FAIRNESS ENGINE ---!>
-        const generatePool = () => {
-            const rolls = [
-                Math.floor(Math.random() * 20) + 1,
-                Math.floor(Math.random() * 20) + 1,
-                Math.floor(Math.random() * 20) + 1
-            ].sort((a, b) => a - b);
-            return `${rolls[0]},${rolls[1]},${rolls[2]}`;
+        // <--- WORLD ENGINE ---!>
+        const checkWorldEvent = (currentDC: number, initialDC: number, reduction: number) => {
+            const roll = Math.floor(Math.random() * 100) + 1;
+            if (roll >= currentDC) {
+                return { hit: true, roll, newDC: initialDC };
+            }
+            return { hit: false, roll, newDC: Math.max(5, currentDC - reduction) };
         };
 
-        finalInput += `\n[DICE: COMBAT=${generatePool()} | PERCEPTION=${generatePool()} | STEALTH=${generatePool()} | SOCIAL=${generatePool()} | MOVEMENT=${generatePool()} | KNOWLEDGE=${generatePool()} | MUNDANE=20,20,20]`;
-        // <----------------------!>
+        const generateWorldEventTag = () => {
+            const who = DEFAULT_WORLD_WHO[Math.floor(Math.random() * DEFAULT_WORLD_WHO.length)];
+            const where = DEFAULT_WORLD_WHERE[Math.floor(Math.random() * DEFAULT_WORLD_WHERE.length)];
+            const why = DEFAULT_WORLD_WHY[Math.floor(Math.random() * DEFAULT_WORLD_WHY.length)];
+            const what = DEFAULT_WORLD_WHAT[Math.floor(Math.random() * DEFAULT_WORLD_WHAT.length)];
+            return `[WORLD_EVENT: ${who} ${what} ${why} ${where}]`;
+        };
+
+        const worldEventConfig = context.worldEventConfig || { initialDC: 198, dcReduction: 3, who: [], where: [], why: [], what: [] };
+        let currentWorldEventDC = context.worldEventDC ?? worldEventConfig.initialDC;
+
+        if (context.worldEngineActive !== false) {
+            const worldEventCheck = checkWorldEvent(currentWorldEventDC, worldEventConfig.initialDC, worldEventConfig.dcReduction);
+            if (worldEventCheck.hit) {
+                const hasCustomTags = worldEventConfig.who && worldEventConfig.who.length >= 3 &&
+                    worldEventConfig.where && worldEventConfig.where.length >= 3 &&
+                    worldEventConfig.why && worldEventConfig.why.length >= 3 &&
+                    worldEventConfig.what && worldEventConfig.what.length >= 3;
+
+                const tag = hasCustomTags
+                    ? `[WORLD_EVENT: ${worldEventConfig.who![Math.floor(Math.random() * worldEventConfig.who!.length)]} ${worldEventConfig.what![Math.floor(Math.random() * worldEventConfig.what!.length)]} ${worldEventConfig.why![Math.floor(Math.random() * worldEventConfig.why!.length)]} ${worldEventConfig.where![Math.floor(Math.random() * worldEventConfig.where!.length)]}]`
+                    : generateWorldEventTag();
+
+                finalInput += `\n${tag}`;
+                console.log(`[World Engine] Roll: ${worldEventCheck.roll} >= DC: ${currentWorldEventDC}. Triggered! Tag: ${tag}`);
+            } else {
+                console.log(`[World Engine] Roll: ${worldEventCheck.roll} < DC: ${currentWorldEventDC}. Missed. New DC: ${worldEventCheck.newDC}`);
+            }
+            currentWorldEventDC = worldEventCheck.newDC;
+        }
+
+        updateContext({ surpriseDC: newDC, worldEventDC: currentWorldEventDC });
+
+        // <--- DICE FAIRNESS ENGINE ---!>
+        if (context.diceFairnessActive !== false) {
+            const getOutcomeWord = (rollResult: number) => {
+                const config = context.diceConfig || {
+                    catastrophe: 2,
+                    failure: 6,
+                    success: 15,
+                    triumph: 19,
+                    crit: 20
+                };
+                if (rollResult <= config.catastrophe) return "Catastrophe";
+                if (rollResult <= config.failure) return "Failure";
+                if (rollResult <= config.success) return "Success";
+                if (rollResult <= config.triumph) return "Triumph";
+                return "Narrative Boon";
+            };
+
+            const generatePool = () => {
+                const rolls = [
+                    Math.floor(Math.random() * 20) + 1,
+                    Math.floor(Math.random() * 20) + 1,
+                    Math.floor(Math.random() * 20) + 1
+                ].sort((a, b) => a - b);
+                return `Disadvantage: ${getOutcomeWord(rolls[0])}, Normal: ${getOutcomeWord(rolls[1])}, Advantage: ${getOutcomeWord(rolls[2])}`;
+            };
+
+            finalInput += `\n[DICE OUTCOMES: COMBAT=(${generatePool()}) | PERCEPTION=(${generatePool()}) | STEALTH=(${generatePool()}) | SOCIAL=(${generatePool()}) | MOVEMENT=(${generatePool()}) | KNOWLEDGE=(${generatePool()}) | MUNDANE=(Narrative Boon)]`;
+        }
 
         const payload = buildPayload(
             settings,
@@ -147,10 +216,11 @@ export function ChatArea() {
             condenser.condensedSummary || undefined,
             condenser.condensedUpToIndex,
             relevantLore,
-            npcLedger
+            npcLedger,
+            archiveRecall
         );
 
-        const executeTurn = async (currentPayload: any[], toolCallCount = 0) => {
+        const executeTurn = async (currentPayload: unknown[], toolCallCount = 0, apiRetryCount = 0) => {
             if (toolCallCount === 0) {
                 const userMsg = { id: uid(), role: 'user' as const, content: finalInput, displayContent: textToUse, timestamp: Date.now(), debugPayload: payload };
                 useAppStore.getState().addMessage(userMsg);
@@ -168,7 +238,7 @@ export function ChatArea() {
                     description: 'Search the Game Master notes for specific lore, rules, characters, or locations. Do NOT call this sequentially or spam it. If no relevant lore is found, immediately proceed with the narrative response. IMPORTANT: You MUST use the standard JSON tool call format. NEVER output raw XML <|DSML|> tags in your response text.',
                     parameters: {
                         type: 'object',
-                        properties: { query: { type: 'string', description: 'The specific search query' } },
+                        properties: { query: { type: 'string', "description": 'The specific search query' } },
                         required: ['query']
                     }
                 }
@@ -197,11 +267,11 @@ export function ChatArea() {
                             role: 'assistant',
                             content: null,
                             tool_calls: [{ id: toolCall.id, type: 'function', function: { name: toolCall.name, arguments: toolCall.arguments } }]
-                        });
+                        } as unknown as import('../services/chatEngine').OpenAIMessage);
 
                         // Execute Tool locally
                         let query = '';
-                        try { query = JSON.parse(toolCall.arguments).query || ''; } catch { }
+                        try { query = JSON.parse(toolCall.arguments).query || ''; } catch { /* Ignore missing query */ }
 
                         let toolResult = "No relevant lore found.";
                         if (query) {
@@ -227,7 +297,7 @@ export function ChatArea() {
                             content: toolResult,
                             name: toolCall.name,
                             tool_call_id: toolCall.id
-                        });
+                        } as unknown as import('../services/chatEngine').OpenAIMessage);
 
                         // Loop back to LLM after short visual delay
                         setTimeout(() => {
@@ -253,21 +323,32 @@ export function ChatArea() {
                         const content = lastAssistant.content;
                         const extractedNames: string[] = [];
 
+                        // Pattern to exclude generic roles like "Guard A" or "Scout 1"
+                        const GENERIC_ROLE_PATTERN = /^(guard|scout|merchant|soldier|bandit|thug|villager|citizen|patron|cultist|goblin|orc|skeleton|zombie|enemy|monster|creature)\s+[a-z0-9]$/i;
+                        const NPC_NAME_BLOCKLIST = new Set(["you", "i", "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "with", "by", "about", "like", "through", "over", "before", "between", "after", "since", "without", "under", "within", "along", "following", "across", "behind", "beyond", "plus", "except", "but", "up", "out", "around", "down", "off", "above", "near"]);
+
                         // Pattern 1 & 2: [Name] or [**Name**] — no colons allowed inside (filters out [SYSTEM: ...])
-                        const bracketMatches = Array.from(content.matchAll(/\[\*{0,2}([A-Za-z][A-Za-z0-9 _'-]*[A-Za-z0-9])\*{0,2}\]/g));
+                        // Now allows periods for honorifics like Mr. / Mrs. / Dr.
+                        const bracketMatches = Array.from(content.matchAll(/\[\*{0,2}([A-Za-z][A-Za-z0-9 _.'-]*[A-Za-z0-9.])\*{0,2}\]/g));
                         for (const m of bracketMatches) {
                             const raw = m[1].trim();
-                            // Skip if it contains a colon (system tags) or is too short
-                            if (raw.includes(':') || raw.length < 2) continue;
-                            // Skip multi-word ALL-CAPS tags like "END RECORD" or "ACTIVE NPC CONTEXT"
+                            // Skip common false positives
+                            if (raw.length < 2) continue;
                             if (raw.includes(' ') && raw === raw.toUpperCase()) continue;
+                            // Skip blocklisted words
+                            if (NPC_NAME_BLOCKLIST.has(raw.toLowerCase())) continue;
+                            // Skip generic roles
+                            if (GENERIC_ROLE_PATTERN.test(raw)) continue;
                             extractedNames.push(raw);
                         }
 
                         // Pattern 3: [SYSTEM: NPC_ENTRY - NAME]
                         const entryMatches = Array.from(content.matchAll(/\[SYSTEM:\s*NPC_ENTRY\s*[-–—]\s*([A-Za-z][A-Za-z0-9 _'-]*)\]/gi));
                         for (const m of entryMatches) {
-                            extractedNames.push(m[1].trim());
+                            const raw = m[1].trim();
+                            if (NPC_NAME_BLOCKLIST.has(raw.toLowerCase())) continue;
+                            if (GENERIC_ROLE_PATTERN.test(raw)) continue;
+                            extractedNames.push(raw);
                         }
 
                         if (extractedNames.length > 0) {
@@ -318,9 +399,17 @@ export function ChatArea() {
                     }
                 },
                 (err) => {
-                    updateLastAssistant(`⚠ Error: ${err}`);
-                    setStreaming(false);
-                    setIsCheckingNotes(false);
+                    if (apiRetryCount === 0) {
+                        updateLastAssistant(`⚠️ Error: ${err}. Retrying...`);
+                        setTimeout(() => executeTurn(currentPayload, toolCallCount, 1), 2000);
+                    } else if (apiRetryCount === 1) {
+                        updateLastAssistant(`⚠️ Error: ${err}. Retrying without tools...`);
+                        setTimeout(() => executeTurn(currentPayload, 999, 2), 2000);
+                    } else {
+                        updateLastAssistant(`⚠️ Error: ${err}`);
+                        setStreaming(false);
+                        setIsCheckingNotes(false);
+                    }
                 },
                 tools
             );
@@ -340,14 +429,21 @@ export function ChatArea() {
         }
     };
 
-    const insertMacro = (text: string) => {
-        setInput((prev) => prev + text);
-        inputRef.current?.focus();
-    };
+    const [isSaving, setIsSaving] = useState(false);
 
-    const rollD20 = () => {
-        const result = Math.floor(Math.random() * 20) + 1;
-        insertMacro(`[SYSTEM: User rolled D20: ${result}]`);
+    const handleForceSave = () => {
+        setIsSaving(true);
+        const state = useAppStore.getState();
+        if (state.activeCampaignId) {
+            try {
+                localStorage.setItem(`nn_settings`, JSON.stringify({ settings: state.settings, activeCampaignId: state.activeCampaignId }));
+                localStorage.setItem(`nn_campaign_${state.activeCampaignId}_state`, JSON.stringify({ context: state.context, messages: state.messages, condenser: state.condenser }));
+                localStorage.setItem(`nn_campaign_${state.activeCampaignId}_npcs`, JSON.stringify(state.npcLedger));
+            } catch (e) {
+                console.error("[Save] Failed to force save to localStorage:", e);
+            }
+        }
+        setTimeout(() => setIsSaving(false), 2000);
     };
 
     // ─── Archive helpers ───
@@ -540,11 +636,13 @@ export function ChatArea() {
             {/* Macro Bar */}
             <div className="px-2 md:px-4 pb-1 flex gap-2 overflow-x-auto">
                 <button
-                    onClick={rollD20}
-                    className="flex items-center gap-1.5 bg-void border border-ember/30 hover:border-ember text-ember text-[10px] sm:text-[11px] uppercase tracking-wider px-2 sm:px-3 py-1.5 transition-all hover:bg-ember/5"
+                    onClick={handleForceSave}
+                    disabled={isSaving}
+                    className="flex items-center gap-1.5 bg-void border border-emerald-500/30 hover:border-emerald-500 text-emerald-500 text-[10px] sm:text-[11px] uppercase tracking-wider px-2 sm:px-3 py-1.5 transition-all hover:bg-emerald-500/5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    <Dices size={13} />
-                    <span className="hidden xs:inline">Roll</span> D20
+                    {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                    <span className="hidden xs:inline">{isSaving ? 'SAVING...' : 'SAVE CAMPAIGN'}</span>
+                    {!isSaving && <span className="inline xs:hidden">SAVE</span>}
                 </button>
                 <button
                     onClick={triggerCondense}

@@ -1,4 +1,5 @@
 import type { LoreChunk } from '../types';
+import { countTokens } from './tokenizer';
 
 const ALWAYS_INCLUDE_PREFIXES = [
     'wl-meta', 'wl-econ', 'wl-power'
@@ -23,9 +24,7 @@ const STOP_WORDS = new Set([
     'currently', 'known', 'anyone', 'power', 'none', 'variable',
 ]);
 
-function estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
-}
+
 
 function slugify(text: string): string {
     return text
@@ -124,7 +123,7 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
                         id: slugify(currentHeader),
                         header: currentHeader,
                         content,
-                        tokens: estimateTokens(currentHeader + '\n' + content),
+                        tokens: countTokens(currentHeader + '\n' + content),
                         alwaysInclude: shouldAlwaysInclude(currentHeader),
                         triggerKeywords: extractTriggerKeywords(currentHeader, content),
                         scanDepth: 2,
@@ -148,7 +147,7 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
                 id: slugify(currentHeader),
                 header: currentHeader,
                 content,
-                tokens: estimateTokens(currentHeader + '\n' + content),
+                tokens: countTokens(currentHeader + '\n' + content),
                 alwaysInclude: shouldAlwaysInclude(currentHeader),
                 triggerKeywords: extractTriggerKeywords(currentHeader, content),
                 scanDepth: 3,
@@ -158,12 +157,12 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
 
     // Preamble chunk
     const preamble = preambleLines.join('\n').trim();
-    if (preamble && estimateTokens(preamble) > 20) {
+    if (preamble && countTokens(preamble) > 20) {
         chunks.unshift({
             id: 'preamble',
             header: 'World Overview',
             content: preamble,
-            tokens: estimateTokens('World Overview\n' + preamble),
+            tokens: countTokens('World Overview\n' + preamble),
             alwaysInclude: true,
             triggerKeywords: extractTriggerKeywords('World Overview', preamble),
             scanDepth: 3,

@@ -17,12 +17,45 @@ export type AppSettings = {
     endpoint?: string;
     apiKey?: string;
     modelName?: string;
+
+    // Image API
+    imageApiEndpoint?: string;
+    imageApiKey?: string;
+    imageApiModel?: string;
 };
 
 export type CondenserState = {
     condensedSummary: string;
     condensedUpToIndex: number;
     isCondensing: boolean;
+};
+
+export type DiceConfig = {
+    catastrophe: number; // e.g. 2 (1-2 is catastrophe)
+    failure: number;     // e.g. 6 (3-6 is failure)
+    success: number;     // e.g. 15 (7-15 is success)
+    triumph: number;     // e.g. 19 (16-19 is triumph)
+    crit: number;        // e.g. 20 (20 is crit)
+};
+
+export type SurpriseConfig = {
+    initialDC: number;
+    dcReduction: number;
+    types: string[];
+    tones: string[];
+    who?: string[]; // The custom 'who' table
+    where?: string[]; // The custom 'where' table
+    why?: string[]; // The custom 'why' table
+    what?: string[]; // The custom 'what' table
+};
+
+export type WorldEventConfig = {
+    initialDC: number; // Starting DC (default: 198)
+    dcReduction: number; // Amount DC drops per turn (default: 3)
+    who?: string[]; // The custom 'who' table
+    where?: string[]; // The custom 'where' table
+    why?: string[]; // The custom 'why' table
+    what?: string[]; // The custom 'what' table
 };
 
 export type GameContext = {
@@ -32,12 +65,23 @@ export type GameContext = {
     headerIndex: string;
     starter: string;
     continuePrompt: string;
+    inventory: string;
+    characterProfile: string;
     surpriseDC?: number;
+    worldEventDC?: number;
+    diceConfig?: DiceConfig;
+    worldEventConfig?: WorldEventConfig;
     // Toggles: whether each field is appended to context
     canonStateActive: boolean;
     headerIndexActive: boolean;
     starterActive: boolean;
     continuePromptActive: boolean;
+    inventoryActive: boolean;
+    characterProfileActive: boolean;
+    surpriseEngineActive: boolean;
+    worldEngineActive: boolean;
+    diceFairnessActive: boolean;
+    surpriseConfig?: SurpriseConfig;
 };
 
 export type ChatMessage = {
@@ -46,7 +90,7 @@ export type ChatMessage = {
     content: string;
     displayContent?: string; // Clean text for UI (without dice/surprise blocks)
     timestamp: number;
-    debugPayload?: any; // Stores the exact JSON LLM payload
+    debugPayload?: unknown; // Stores the exact JSON LLM payload
     name?: string;
     tool_calls?: {
         id: string;
@@ -54,6 +98,15 @@ export type ChatMessage = {
         function: { name: string; arguments: string };
     }[];
     tool_call_id?: string;
+};
+
+export type ArchiveChunk = {
+    id: string;                   // unique ID (uid())
+    sceneRange: string;           // e.g. "SCENE 012–018" or scene ID from Header Index
+    timestamp: number;            // Date.now() when this chunk was created
+    summary: string;              // the condensed bullet-point text (from T3 promotion)
+    keywords: string[];           // extracted proper nouns for retrieval matching
+    tokens: number;               // estimated token count of summary field
 };
 
 export type Campaign = {
@@ -88,6 +141,8 @@ export type NPCEntry = {
     social: number;   // 1-10
     belief: number;   // 1-10
     ego: number;      // 1-10
+    affinity: number; // 0-100
+    portrait?: string; // Image path or base64
 };
 
 
@@ -98,7 +153,7 @@ export type OpenAITool = {
         description: string;
         parameters: {
             type: 'object';
-            properties: Record<string, any>;
+            properties: Record<string, unknown>;
             required?: string[];
         };
     };

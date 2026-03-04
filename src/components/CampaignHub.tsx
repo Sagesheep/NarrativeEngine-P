@@ -4,7 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import {
     listCampaigns, deleteCampaign, loadCampaignState,
     saveCampaign, saveCampaignState, saveLoreChunks, getLoreChunks,
-    getNPCLedger
+    getNPCLedger, loadArchiveChunks
 } from '../store/campaignStore';
 import { chunkLoreFile } from '../services/loreChunker';
 import type { Campaign } from '../types';
@@ -16,10 +16,17 @@ const DEFAULT_CONTEXT = {
     headerIndex: '',
     starter: '',
     continuePrompt: '',
+    inventory: '',
+    characterProfile: '',
     canonStateActive: false,
     headerIndexActive: false,
     starterActive: false,
     continuePromptActive: false,
+    inventoryActive: false,
+    characterProfileActive: false,
+    surpriseEngineActive: true,
+    worldEngineActive: true,
+    diceFairnessActive: true,
 };
 
 const DEFAULT_CONDENSER = { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false };
@@ -47,7 +54,11 @@ export function CampaignHub() {
         setCampaigns(list);
     }, []);
 
-    useEffect(() => { refresh(); }, [refresh]);
+    useEffect(() => {
+        let mounted = true;
+        listCampaigns().then(list => { if (mounted) setCampaigns(list); });
+        return () => { mounted = false; };
+    }, []);
 
     const resetForm = () => {
         setName('');
@@ -132,14 +143,15 @@ export function CampaignHub() {
     };
 
     const handleSelectCampaign = async (campaign: Campaign) => {
-        // Update last played
-        campaign.lastPlayedAt = Date.now();
-        await saveCampaign(campaign);
+        const now = new Date().getTime();
+        const updatedCampaign = { ...campaign, lastPlayedAt: now };
+        await saveCampaign(updatedCampaign);
 
         // Load campaign state and flush into Zustand
         const state = await loadCampaignState(campaign.id);
         const chunks = await getLoreChunks(campaign.id);
         const npcs = await getNPCLedger(campaign.id);
+        const archiveChunks = await loadArchiveChunks(campaign.id);
 
         // Batch-set all state at once to avoid partial renders
         useAppStore.setState({
@@ -148,6 +160,7 @@ export function CampaignHub() {
             condenser: state?.condenser ?? DEFAULT_CONDENSER,
             loreChunks: chunks,
             npcLedger: npcs,
+            archiveChunks,
             activeCampaignId: campaign.id,
         });
     };
@@ -159,7 +172,8 @@ export function CampaignHub() {
     };
 
     const timeAgo = (ts: number) => {
-        const diff = Date.now() - ts;
+        const now = new Date().getTime();
+        const diff = now - ts;
         const mins = Math.floor(diff / 60000);
         if (mins < 60) return `${mins}m ago`;
         const hrs = Math.floor(mins / 60);

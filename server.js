@@ -196,6 +196,25 @@ app.get('/api/campaigns/:id/archive', (req, res) => {
     res.json({ exists: true, sceneCount: nextScene - 1 });
 });
 
+// ═══════════════════════════════════════════
+//  Archive (Structured Tier 4 Memory)
+// ═══════════════════════════════════════════
+
+app.get('/api/campaigns/:id/archive/chunks', (req, res) => {
+    const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.archive.json`);
+    const chunks = readJson(filePath, []);
+    res.json(chunks);
+});
+
+app.post('/api/campaigns/:id/archive/chunk', (req, res) => {
+    ensureDirs();
+    const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.archive.json`);
+    const chunks = readJson(filePath, []);
+    chunks.push(req.body); // append the new ArchiveChunk
+    writeJson(filePath, chunks);
+    res.json({ ok: true });
+});
+
 // Open archive in OS default app
 app.get('/api/campaigns/:id/archive/open', (req, res) => {
     const fp = archivePath(req.params.id);

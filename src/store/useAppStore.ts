@@ -1,7 +1,40 @@
 import { create } from 'zustand';
-import type { AppSettings, GameContext, ChatMessage, CondenserState, LoreChunk, ProviderConfig, NPCEntry } from '../types';
+import type { AppSettings, GameContext, ChatMessage, CondenserState, LoreChunk, ProviderConfig, NPCEntry, ArchiveChunk } from '../types';
 
 const API = '/api';
+
+export const DEFAULT_SURPRISE_TYPES = [
+    "ENVIRONMENTAL_HAZARD", "NPC_ACTION", "BEAST_BEHAVIOR",
+    "SYSTEM_FAILURE", "SUDDEN_WEATHER", "MAGIC_SURGE"
+];
+
+export const DEFAULT_SURPRISE_TONES = [
+    "MYSTERIOUS", "CHAOTIC", "GROTESQUE", "WHOLESOME", "EPIC", "MUNDANE"
+];
+
+export const DEFAULT_WORLD_WHO = [
+    "a major faction/organization", "a rogue splinter group", "a powerful leader/executive",
+    "a dangerous anomaly", "a fanatic cult/extremist group", "a prominent conglomerate/merchant guild",
+    "a desperate individual", "a completely random nobody", "an ancient/forgotten entity", "a chaotic force of nature"
+];
+
+export const DEFAULT_WORLD_WHERE = [
+    "in a neighboring city/sector", "across the nearest border", "deep underground/in the lower levels",
+    "in a remote outpost/village", "in the capital/central hub", "in a forgotten ruin/abandoned zone",
+    "along a main trade/travel route", "in an uncharted area", "in a highly secure/restricted area", "in the wilderness/wasteland"
+];
+
+export const DEFAULT_WORLD_WHY = [
+    "to seize power/control", "for brutal vengeance", "to protect a dangerous secret",
+    "driven by a radical ideology/prophecy", "for untold wealth/resources", "due to an escalating misunderstanding",
+    "out of pure desperation", "because someone dumb got lucky and found a legendary asset", "acting on an old grudge", "to reclaim lost glory/territory"
+];
+
+export const DEFAULT_WORLD_WHAT = [
+    "declared open hostilities/war", "formed an unexpected alliance", "destroyed an important landmark/facility",
+    "discovered a game-changing asset/relic", "assassinated/eliminated a key figure", "triggered a massive disaster",
+    "monopolized a critical resource", "initiated a complete blockade/lockdown", "caused a mass exodus/evacuation", "staged a violent coup/takeover"
+];
 
 function uid(): string {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -35,6 +68,8 @@ type AppState = {
     loreChunks: LoreChunk[];
     setLoreChunks: (chunks: LoreChunk[]) => void;
     updateLoreChunk: (id: string, patch: Partial<LoreChunk>) => void;
+    archiveChunks: ArchiveChunk[];
+    setArchiveChunks: (chunks: ArchiveChunk[]) => void;
     npcLedger: NPCEntry[];
     setNPCLedger: (npcs: NPCEntry[]) => void;
     addNPC: (npc: NPCEntry) => void;
@@ -190,11 +225,40 @@ const defaultContext: GameContext = {
     headerIndex: '',
     starter: '',
     continuePrompt: '',
+    inventory: '',
+    characterProfile: '',
     surpriseDC: 95,
+    worldEventDC: 198,
     canonStateActive: false,
     headerIndexActive: false,
     starterActive: false,
     continuePromptActive: false,
+    inventoryActive: false,
+    characterProfileActive: false,
+    surpriseEngineActive: true,
+    worldEngineActive: true,
+    diceFairnessActive: true,
+    diceConfig: {
+        catastrophe: 2,
+        failure: 6,
+        success: 15,
+        triumph: 19,
+        crit: 20
+    },
+    surpriseConfig: {
+        initialDC: 98,
+        dcReduction: 3,
+        types: [...DEFAULT_SURPRISE_TYPES],
+        tones: [...DEFAULT_SURPRISE_TONES],
+    },
+    worldEventConfig: {
+        initialDC: 198,
+        dcReduction: 3,
+        who: [...DEFAULT_WORLD_WHO],
+        where: [...DEFAULT_WORLD_WHERE],
+        why: [...DEFAULT_WORLD_WHY],
+        what: [...DEFAULT_WORLD_WHAT],
+    },
 };
 
 /** Migrate old single-provider settings to providers[] format */
@@ -210,6 +274,9 @@ function migrateSettings(data: Record<string, unknown>): AppSettings {
             autoCondenseEnabled: (raw.autoCondenseEnabled as boolean) ?? true,
             debugMode: (raw.debugMode as boolean) ?? false,
             theme: (raw.theme as 'light' | 'dark') ?? 'light',
+            imageApiEndpoint: (raw.imageApiEndpoint as string) || '',
+            imageApiKey: (raw.imageApiKey as string) || '',
+            imageApiModel: (raw.imageApiModel as string) || '',
         };
     }
 
@@ -230,6 +297,9 @@ function migrateSettings(data: Record<string, unknown>): AppSettings {
         autoCondenseEnabled: (raw.autoCondenseEnabled as boolean) ?? true,
         debugMode: (raw.debugMode as boolean) ?? false,
         theme: (raw.theme as 'light' | 'dark') ?? 'light',
+        imageApiEndpoint: (raw.imageApiEndpoint as string) || '',
+        imageApiKey: (raw.imageApiKey as string) || '',
+        imageApiModel: (raw.imageApiModel as string) || '',
     };
 }
 
@@ -338,6 +408,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
         }
         return { loreChunks: newChunks };
     }),
+    archiveChunks: [],
+    setArchiveChunks: (chunks) => set({ archiveChunks: chunks }),
     npcLedger: [],
     setNPCLedger: (npcs) => set({ npcLedger: npcs }),
     addNPC: (npc) => set((s) => {
