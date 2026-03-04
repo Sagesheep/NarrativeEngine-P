@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, ProviderConfig, NPCEntry, ArchiveChunk } from '../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, EndpointConfig, ProviderConfig, NPCEntry, ArchiveChunk } from '../types';
 import { countTokens } from './tokenizer';
 
 export type OpenAIMessage = {
@@ -94,7 +94,7 @@ export function buildPayload(
             console.log(`[NPC Ledger] Injected ${activeNPCs.length} active NPC(s):`, activeNPCs.map(n => n.name).join(', '));
             const npcLines = activeNPCs.map(npc => {
                 const aliases = npc.aliases ? ` (${npc.aliases})` : '';
-                return `[${npc.name.toUpperCase()}${aliases}] ${npc.status || 'Alive'} | ${npc.appearance || '?'} | ${npc.disposition || '?'} | Goals: ${npc.goals || '?'} | N:${npc.nature} T:${npc.training} E:${npc.emotion} S:${npc.social} B:${npc.belief} G:${npc.ego}`;
+                return `[${npc.name.toUpperCase()}${aliases}] Faction: ${npc.faction || '?'} | Relevance: ${npc.storyRelevance || '?'} | Status: ${npc.status || 'Alive'} | Disp: ${npc.disposition || '?'} | Goals: ${npc.goals || '?'} | N:${npc.nature} T:${npc.training} E:${npc.emotion} S:${npc.social} B:${npc.belief} G:${npc.ego}`;
             });
             dynamicSystemParts.push(`[ACTIVE NPC CONTEXT]\n${npcLines.join('\n')}\n[END NPC CONTEXT]`);
         }
@@ -166,7 +166,7 @@ export function buildPayload(
 }
 
 export async function sendMessage(
-    provider: ProviderConfig,
+    provider: EndpointConfig | ProviderConfig,
     messages: OpenAIMessage[],
     onChunk: (text: string) => void,
     onDone: (toolCall?: { id: string, name: string, arguments: string }) => void,
@@ -310,7 +310,7 @@ export async function sendMessage(
     }
 }
 
-export async function testConnection(provider: ProviderConfig): Promise<{ ok: boolean; detail: string }> {
+export async function testConnection(provider: EndpointConfig | ProviderConfig): Promise<{ ok: boolean; detail: string }> {
     const url = `${provider.endpoint.replace(/\/+$/, '')}/models`;
     const headers: Record<string, string> = {};
     if (provider.apiKey) {
@@ -329,7 +329,7 @@ export async function testConnection(provider: ProviderConfig): Promise<{ ok: bo
 }
 
 export async function generateNPCProfile(
-    provider: ProviderConfig,
+    provider: EndpointConfig | ProviderConfig,
     history: ChatMessage[],
     npcName: string,
     addNPCToStore: (npc: NPCEntry) => void
@@ -351,7 +351,21 @@ The JSON must perfectly match this structure:
   "name": "String (The primary name)",
   "aliases": "String (Comma separated aliases or titles)",
   "status": "String (Alive, Deceased, Missing, or Unknown)",
-  "appearance": "String (Square profile prompt: [Facial geometry/Attractiveness archetype], [Detailed hair style/texture], [Expression], [Centering: 'Centered headshot, square composition'], [Lighting/Art style]. Use keywords like: 'symmetrical features' for beauty, 'asymmetrical/pockmarked' for ugly, 'close-up portrait', 'voluminous waves' or 'receding hairline'.)",
+  "faction": "String (The faction, group, or origin this NPC belongs to)",
+  "storyRelevance": "String (Why this NPC matters to the current story)",
+  "visualProfile": {
+    "race": "String (e.g. Human, Elf)",
+    "gender": "String",
+    "ageRange": "String",
+    "build": "String",
+    "symmetry": "String (e.g. symmetrical features for handsome, rugged, asymmetrical/pockmarked for ugly)",
+    "hairStyle": "String",
+    "eyeColor": "String",
+    "skinTone": "String",
+    "gait": "String",
+    "distinctMarks": "String",
+    "clothing": "String"
+  },
   "disposition": "String (Helpful, Hostile, Suspicion, etc)",
   "goals": "String (Core motive)",
   "nature": 5,
@@ -385,13 +399,17 @@ Note: the 6 axes (nature...ego) MUST be integers from 1 to 10.`;
             try {
                 const parsed = JSON.parse(cleanStr);
 
-                // Construct the full object with a new ID
                 const newEntry: NPCEntry = {
                     id: uid(),
                     name: parsed.name || npcName,
                     aliases: parsed.aliases || '',
                     status: parsed.status || 'Alive',
-                    appearance: parsed.appearance || 'Unknown',
+                    faction: parsed.faction || 'Unknown',
+                    storyRelevance: parsed.storyRelevance || 'Unknown',
+                    appearance: '', // legacy
+                    visualProfile: parsed.visualProfile || {
+                        race: 'Unknown', gender: 'Unknown', ageRange: 'Unknown', build: 'Unknown', symmetry: 'Unknown', hairStyle: 'Unknown', eyeColor: 'Unknown', skinTone: 'Unknown', gait: 'Unknown', distinctMarks: 'None', clothing: 'Unknown'
+                    },
                     disposition: parsed.disposition || 'Neutral',
                     goals: parsed.goals || 'Unknown',
                     nature: Number(parsed.nature) || 5,
@@ -421,7 +439,7 @@ Note: the 6 axes (nature...ego) MUST be integers from 1 to 10.`;
  * Sends current tags + world lore to the AI, returns 3-12 contextually relevant tags.
  */
 export async function populateEngineTags(
-    provider: ProviderConfig,
+    provider: EndpointConfig | ProviderConfig,
     worldLore: string,
     currentTags: string[],
     field: 'surpriseTypes' | 'surpriseTones' | 'worldWho' | 'worldWhere' | 'worldWhy' | 'worldWhat'
@@ -490,7 +508,7 @@ Example output: ["TAG_ONE", "TAG_TWO", "TAG_THREE"]`;
  * Asks the LLM if any relevant attributes have changed based on recent context.
  */
 export async function updateExistingNPCs(
-    provider: ProviderConfig,
+    provider: EndpointConfig | ProviderConfig,
     history: ChatMessage[],
     npcsToCheck: NPCEntry[],
     updateNPCStore: (id: string, updates: Partial<NPCEntry>) => void
@@ -508,10 +526,12 @@ export async function updateExistingNPCs(
             `Disposition: ${npc.disposition || 'Unknown'}\n` +
             `Goals: ${npc.goals || 'Unknown'}\n` +
             `Affinity: ${npc.affinity ?? 50}/100\n` +
-            `Axes: Nature=${npc.nature}/10, Training=${npc.training}/10, Emotion=${npc.emotion}/10, Social=${npc.social}/10, Belief=${npc.belief}/10, Ego=${npc.ego}/10\n`
+            `Axes: Nature=${npc.nature}/10, Training=${npc.training}/10, Emotion=${npc.emotion}/10, Social=${npc.social}/10, Belief=${npc.belief}/10, Ego=${npc.ego}/10\n` +
+            `Faction: ${npc.faction || 'Unknown'}\n` +
+            `Story Relevance: ${npc.storyRelevance || 'Unknown'}\n`
     }).join('\n\n');
 
-    const prompt = `You are a background game state analyzer. Your job is to read the RECENT CONTEXT of an RPG session and determine if any of the provided NPCs have undergone a shift in their status, appearance, personality axes, goals, or disposition.
+    const prompt = `You are a background game state analyzer. Your job is to read the RECENT CONTEXT of an RPG session and determine if any of the provided NPCs have undergone a shift in their status, psychological axes, goals, disposition, faction, or relevance.
 
 [RECENT CONTEXT]
 ${recentContext}
@@ -524,13 +544,12 @@ ${npcDatas}
 If NO changes occurred for ANY of these NPCs, respond EXACTLY with:
 {"updates": []}
 
-If ANY changes occurred, respond with a JSON object containing an "updates" array. Each update must include the basic "name" and ANY attributes that have fundamentally changed (status, appearance, disposition, goals, nature, training, emotion, social, belief, ego, affinity). DO NOT include attributes that stayed the same.
-For "appearance", if it has changed, use this format: String (Square profile prompt: [Facial geometry/Attractiveness archetype], [Detailed hair style/texture], [Expression], [Centering: 'Centered headshot, square composition'], [Lighting/Art style]. Use keywords like: 'symmetrical features' for beauty, 'asymmetrical/pockmarked' for ugly, 'close-up portrait', 'voluminous waves' or 'receding hairline'.)
+If ANY changes occurred, respond with a JSON object containing an "updates" array. Each update must include the basic "name" and ANY attributes that have fundamentally changed (status, disposition, goals, nature, training, emotion, social, belief, ego, affinity, faction, storyRelevance, visualProfile). DO NOT include attributes that stayed the same.
 Valid statuses: Alive, Deceased, Missing, Unknown.
 Note: "affinity" is a 0-100 scale of how much they like the player (0=Nemesis, 50=Neutral, 100=Ally). Update this if the player did something to gain or lose favor.
 
 Example of an NPC dying and getting angry:
-{"updates": [{"name": "Captain Vorin", "changes": {"status": "Deceased", "emotion": 9}}]}
+{"updates": [{"name": "Captain Vorin", "changes": {"status": "Deceased", "emotion": 9, "storyRelevance": "His death sparked a rebellion"}}]}
 
 RESPOND ONLY WITH VALID JSON.`;
 

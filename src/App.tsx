@@ -26,7 +26,12 @@ export default function App() {
   }
 
   if (!activeCampaignId) {
-    return <CampaignHub />;
+    return (
+      <>
+        <CampaignHub />
+        <SettingsModal />
+      </>
+    );
   }
 
   return (

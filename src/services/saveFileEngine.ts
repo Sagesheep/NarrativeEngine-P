@@ -1,4 +1,4 @@
-import type { ChatMessage, GameContext, ProviderConfig } from '../types';
+import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig } from '../types';
 
 // ─── Canon State Section Headers (from canon_state.md template) ───
 const CANON_STATE_SECTIONS = [
@@ -45,7 +45,7 @@ export function validateHeaderIndex(output: string): { valid: boolean; missing: 
 
 // ─── LLM Call Helper ───
 
-async function llmCall(provider: ProviderConfig, prompt: string): Promise<string> {
+async function llmCall(provider: ProviderConfig | EndpointConfig, prompt: string): Promise<string> {
     const url = `${provider.endpoint.replace(/\/+$/, '')}/chat/completions`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (provider.apiKey) {

@@ -1,6 +1,6 @@
 import type { ChatMessage, ProviderConfig } from '../types';
 
-async function callLLM(provider: ProviderConfig, prompt: string): Promise<string> {
+async function callLLM(provider: ProviderConfig | EndpointConfig, prompt: string): Promise<string> {
     const url = `${provider.endpoint.replace(/\/+$/, '')}/chat/completions`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (provider.apiKey) {

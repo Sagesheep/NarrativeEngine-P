@@ -105,7 +105,7 @@ function TemplateField({ icon, label, color, value, onChange, placeholder, rows,
 }
 
 export function ContextDrawer() {
-    const { context, updateContext, drawerOpen, toggleDrawer, loreChunks, updateLoreChunk, messages, getActiveProvider } = useAppStore();
+    const { context, updateContext, drawerOpen, toggleDrawer, loreChunks, updateLoreChunk, messages, getActiveStoryEndpoint } = useAppStore();
     const [newKeyword, setNewKeyword] = useState<Record<string, string>>({});
     const [isScanningInventory, setIsScanningInventory] = useState(false);
     const [isScanningProfile, setIsScanningProfile] = useState(false);
@@ -117,7 +117,8 @@ export function ContextDrawer() {
         if (isScanningInventory) return;
         setIsScanningInventory(true);
         try {
-            const provider = getActiveProvider();
+            const provider = getActiveStoryEndpoint();
+            if (!provider) return;
             const newInventory = await scanInventory(provider, messages, context.inventory);
             updateContext({ inventory: newInventory });
         } catch (e) {
@@ -132,7 +133,8 @@ export function ContextDrawer() {
         if (isScanningProfile) return;
         setIsScanningProfile(true);
         try {
-            const provider = getActiveProvider();
+            const provider = getActiveStoryEndpoint();
+            if (!provider) return;
             const newProfile = await scanCharacterProfile(provider, messages, context.characterProfile);
             updateContext({ characterProfile: newProfile });
         } catch (e) {
@@ -377,7 +379,8 @@ export function ContextDrawer() {
                                                 <button
                                                     onClick={async () => {
                                                         setPopulatingField('surpriseTypes');
-                                                        const provider = useAppStore.getState().getActiveProvider();
+                                                        const provider = useAppStore.getState().getActiveStoryEndpoint();
+                                                        if (!provider) { setPopulatingField(null); return; }
                                                         const lore = context.loreRaw || context.rulesRaw || '';
                                                         const current = context.surpriseConfig?.types || DEFAULT_SURPRISE_TYPES;
                                                         const result = await populateEngineTags(provider, lore, current, 'surpriseTypes');
@@ -420,7 +423,8 @@ export function ContextDrawer() {
                                                 <button
                                                     onClick={async () => {
                                                         setPopulatingField('surpriseTones');
-                                                        const provider = useAppStore.getState().getActiveProvider();
+                                                        const provider = useAppStore.getState().getActiveStoryEndpoint();
+                                                        if (!provider) { setPopulatingField(null); return; }
                                                         const lore = context.loreRaw || context.rulesRaw || '';
                                                         const current = context.surpriseConfig?.tones || DEFAULT_SURPRISE_TONES;
                                                         const result = await populateEngineTags(provider, lore, current, 'surpriseTones');
@@ -515,7 +519,8 @@ export function ContextDrawer() {
                                                     <button
                                                         onClick={async () => {
                                                             setPopulatingField('worldWho');
-                                                            const provider = useAppStore.getState().getActiveProvider();
+                                                            const provider = useAppStore.getState().getActiveStoryEndpoint();
+                                                            if (!provider) { setPopulatingField(null); return; }
                                                             const lore = context.loreRaw || context.rulesRaw || '';
                                                             const current = context.worldEventConfig?.who || DEFAULT_WORLD_WHO;
                                                             const result = await populateEngineTags(provider, lore, current, 'worldWho');
@@ -558,7 +563,8 @@ export function ContextDrawer() {
                                                     <button
                                                         onClick={async () => {
                                                             setPopulatingField('worldWhere');
-                                                            const provider = useAppStore.getState().getActiveProvider();
+                                                            const provider = useAppStore.getState().getActiveStoryEndpoint();
+                                                            if (!provider) { setPopulatingField(null); return; }
                                                             const lore = context.loreRaw || context.rulesRaw || '';
                                                             const current = context.worldEventConfig?.where || DEFAULT_WORLD_WHERE;
                                                             const result = await populateEngineTags(provider, lore, current, 'worldWhere');
@@ -601,7 +607,8 @@ export function ContextDrawer() {
                                                     <button
                                                         onClick={async () => {
                                                             setPopulatingField('worldWhy');
-                                                            const provider = useAppStore.getState().getActiveProvider();
+                                                            const provider = useAppStore.getState().getActiveStoryEndpoint();
+                                                            if (!provider) { setPopulatingField(null); return; }
                                                             const lore = context.loreRaw || context.rulesRaw || '';
                                                             const current = context.worldEventConfig?.why || DEFAULT_WORLD_WHY;
                                                             const result = await populateEngineTags(provider, lore, current, 'worldWhy');
@@ -644,7 +651,8 @@ export function ContextDrawer() {
                                                     <button
                                                         onClick={async () => {
                                                             setPopulatingField('worldWhat');
-                                                            const provider = useAppStore.getState().getActiveProvider();
+                                                            const provider = useAppStore.getState().getActiveStoryEndpoint();
+                                                            if (!provider) { setPopulatingField(null); return; }
                                                             const lore = context.loreRaw || context.rulesRaw || '';
                                                             const current = context.worldEventConfig?.what || DEFAULT_WORLD_WHAT;
                                                             const result = await populateEngineTags(provider, lore, current, 'worldWhat');
@@ -695,9 +703,9 @@ export function ContextDrawer() {
                                     {[
                                         { label: 'Catastrophe (<=)', key: 'catastrophe' as const, def: 2 },
                                         { label: 'Failure (<=)', key: 'failure' as const, def: 6 },
-                                        { label: 'Mixed Success (<=)', key: 'mixedSuccess' as const, def: 11 },
-                                        { label: 'Clean Success (<=)', key: 'cleanSuccess' as const, def: 17 },
-                                        { label: 'Exceptional (<=)', key: 'exceptionalSuccess' as const, def: 19 },
+                                        { label: 'Success (<=)', key: 'success' as const, def: 15 },
+                                        { label: 'Triumph (<=)', key: 'triumph' as const, def: 19 },
+                                        { label: 'Critical (<=)', key: 'crit' as const, def: 20 },
                                     ].map(({ label, key, def }) => (
                                         <div key={key} className="flex flex-col">
                                             <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1" title={`Default: ${def} (Min:1, Max:20)`}>
@@ -715,7 +723,7 @@ export function ContextDrawer() {
                                                     updateContext({
                                                         diceConfig: {
                                                             ...(context.diceConfig || {
-                                                                catastrophe: 2, failure: 6, mixedSuccess: 11, cleanSuccess: 17, exceptionalSuccess: 19
+                                                                catastrophe: 2, failure: 6, success: 15, triumph: 19, crit: 20
                                                             }),
                                                             [key]: isNaN(val) ? 0 : val
                                                         }

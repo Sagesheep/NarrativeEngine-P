@@ -1,4 +1,4 @@
-import type { ChatMessage, GameContext, ProviderConfig } from '../types';
+import type { ChatMessage, GameContext, EndpointConfig, ProviderConfig } from '../types';
 
 import { countTokens } from './tokenizer';
 import { buildArchiveChunk } from './archiveMemory';
@@ -65,7 +65,7 @@ function buildCondenserPrompt(
 }
 
 export async function condenseHistory(
-    provider: ProviderConfig,
+    provider: EndpointConfig | ProviderConfig,
     messages: ChatMessage[],
     context: GameContext,
     condensedUpToIndex: number,

@@ -1,4 +1,4 @@
-import { Settings, PanelLeftOpen, PanelLeftClose, Trash2, LogOut, Users } from 'lucide-react';
+import { Settings, PanelLeftOpen, PanelLeftClose, Trash2, LogOut, Users, Cpu } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { TokenGauge } from './TokenGauge';
 import { saveCampaignState } from '../store/campaignStore';
@@ -15,6 +15,8 @@ export function Header() {
         context,
         messages,
         condenser,
+        settings,
+        setActivePreset,
     } = useAppStore();
 
     const handleExit = async () => {
@@ -39,8 +41,22 @@ export function Header() {
                 AI GM COCKPIT
             </h1>
 
-            <div className="hidden md:block flex-1">
+            <div className="hidden md:flex flex-1 items-center gap-4">
                 <TokenGauge />
+                {/* Preset Switcher */}
+                <div className="flex items-center gap-2 text-xs">
+                    <Cpu size={14} className="text-text-dim" />
+                    <select
+                        value={settings.activePresetId}
+                        onChange={(e) => setActivePreset(e.target.value)}
+                        className="bg-void border border-border text-text-primary px-2 py-1 rounded focus:outline-none focus:border-terminal max-w-[150px] truncate"
+                        title="Active AI Preset"
+                    >
+                        {settings.presets.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                    </select>
+                </div>
             </div>
 
             <button

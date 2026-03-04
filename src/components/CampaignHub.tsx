@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Play, Clock, BookOpen, Pencil } from 'lucide-react';
+import { Plus, Trash2, Play, Clock, BookOpen, Pencil, Settings } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import {
     listCampaigns, deleteCampaign, loadCampaignState,
@@ -183,7 +183,15 @@ export function CampaignHub() {
     };
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-void p-4 md:p-8">
+        <div className="flex flex-col items-center justify-center min-h-screen bg-void p-4 md:p-8 relative">
+            <button
+                onClick={() => useAppStore.getState().toggleSettings()}
+                className="absolute top-4 right-4 sm:top-8 sm:right-8 p-3 text-text-dim hover:text-terminal transition-colors bg-surface border border-border rounded-full hover:border-terminal z-50"
+                title="Global Settings"
+            >
+                <Settings size={20} />
+            </button>
+
             {/* Title */}
             <h1 className="text-terminal text-lg sm:text-2xl font-bold tracking-[0.2em] sm:tracking-[0.4em] uppercase glow-green mb-2">
                 AI GM COCKPIT

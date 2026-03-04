@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppSettings, GameContext, ChatMessage, CondenserState, LoreChunk, ProviderConfig, NPCEntry, ArchiveChunk } from '../types';
+import type { AppSettings, GameContext, ChatMessage, CondenserState, LoreChunk, ProviderConfig, AIPreset, EndpointConfig, NPCEntry, ArchiveChunk } from '../types';
 
 const API = '/api';
 
@@ -40,12 +40,20 @@ function uid(): string {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-const defaultProvider: ProviderConfig = {
+const defaultPreset: AIPreset = {
     id: uid(),
-    label: 'Local',
-    endpoint: 'http://localhost:11434/v1',
-    apiKey: '',
-    modelName: 'llama3',
+    name: 'Default Setting',
+    storyAI: {
+        endpoint: 'http://localhost:11434/v1',
+        apiKey: '',
+        modelName: 'llama3',
+    },
+    imageAI: { endpoint: '', apiKey: '', modelName: '' },
+    summarizerAI: {
+        endpoint: 'http://localhost:11434/v1',
+        apiKey: '',
+        modelName: 'llama3',
+    }
 };
 
 type AppState = {
@@ -55,12 +63,15 @@ type AppState = {
     updateSettings: (patch: Partial<AppSettings>) => void;
     loadSettings: () => Promise<void>;
 
-    // Providers
-    addProvider: (provider: ProviderConfig) => void;
-    updateProvider: (id: string, patch: Partial<ProviderConfig>) => void;
-    removeProvider: (id: string) => void;
-    setActiveProvider: (id: string) => void;
-    getActiveProvider: () => ProviderConfig;
+    // Presets
+    addPreset: (preset: AIPreset) => void;
+    updatePreset: (id: string, patch: Partial<AIPreset>) => void;
+    removePreset: (id: string) => void;
+    setActivePreset: (id: string) => void;
+    getActivePreset: () => AIPreset | undefined;
+    getActiveStoryEndpoint: () => EndpointConfig | undefined;
+    getActiveImageEndpoint: () => EndpointConfig | undefined;
+    getActiveSummarizerEndpoint: () => EndpointConfig | undefined;
 
     // Campaign
     activeCampaignId: string | null;
@@ -206,8 +217,8 @@ function dedupeNPCLedger(ledger: NPCEntry[]): NPCEntry[] {
 }
 
 const defaultSettings: AppSettings = {
-    providers: [defaultProvider],
-    activeProviderId: defaultProvider.id,
+    presets: [defaultPreset],
+    activePresetId: defaultPreset.id,
     contextLimit: 4096,
     autoCondenseEnabled: true,
     debugMode: false,
@@ -261,45 +272,62 @@ const defaultContext: GameContext = {
     },
 };
 
-/** Migrate old single-provider settings to providers[] format */
+/** Migrate old single-provider/multi-provider settings to presets format */
 function migrateSettings(data: Record<string, unknown>): AppSettings {
     const raw = (data.settings || {}) as Record<string, unknown>;
 
-    // Already migrated — has providers array
-    if (Array.isArray(raw.providers) && raw.providers.length > 0) {
+    // Already migrated — has presets array
+    if (Array.isArray(raw.presets) && raw.presets.length > 0) {
         return {
-            providers: raw.providers as ProviderConfig[],
-            activeProviderId: (raw.activeProviderId as string) || (raw.providers as ProviderConfig[])[0].id,
+            presets: raw.presets as AIPreset[],
+            activePresetId: (raw.activePresetId as string) || (raw.presets as AIPreset[])[0].id,
             contextLimit: (raw.contextLimit as number) ?? 4096,
             autoCondenseEnabled: (raw.autoCondenseEnabled as boolean) ?? true,
             debugMode: (raw.debugMode as boolean) ?? false,
             theme: (raw.theme as 'light' | 'dark') ?? 'light',
-            imageApiEndpoint: (raw.imageApiEndpoint as string) || '',
-            imageApiKey: (raw.imageApiKey as string) || '',
-            imageApiModel: (raw.imageApiModel as string) || '',
         };
     }
 
-    // Legacy format — single endpoint/apiKey/modelName
+    // Migration from old provider structure
+    let migratedStoryProvider: EndpointConfig = { ...defaultPreset.storyAI };
+
+    if (Array.isArray(raw.providers) && raw.providers.length > 0) {
+        // Upgrade from multi-provider to single default preset
+        const oldActive = (raw.providers as ProviderConfig[]).find(p => p.id === raw.activeProviderId) || (raw.providers as ProviderConfig[])[0];
+        migratedStoryProvider = {
+            endpoint: oldActive.endpoint || defaultPreset.storyAI.endpoint,
+            apiKey: oldActive.apiKey || '',
+            modelName: oldActive.modelName || defaultPreset.storyAI.modelName
+        };
+    } else {
+        // Legacy fallback from single fields
+        migratedStoryProvider = {
+            endpoint: (raw.endpoint as string) || defaultPreset.storyAI.endpoint,
+            apiKey: (raw.apiKey as string) || '',
+            modelName: (raw.modelName as string) || defaultPreset.storyAI.modelName
+        };
+    }
+
     const legacyId = uid();
-    const migratedProvider: ProviderConfig = {
+    const migratedPreset: AIPreset = {
         id: legacyId,
-        label: 'Default',
-        endpoint: (raw.endpoint as string) || defaultProvider.endpoint,
-        apiKey: (raw.apiKey as string) || '',
-        modelName: (raw.modelName as string) || defaultProvider.modelName,
+        name: 'Default Preset',
+        storyAI: migratedStoryProvider,
+        imageAI: {
+            endpoint: (raw.imageApiEndpoint as string) || '',
+            apiKey: (raw.imageApiKey as string) || '',
+            modelName: (raw.imageApiModel as string) || '',
+        },
+        summarizerAI: { ...migratedStoryProvider } // Fall back to using story AI for summaries
     };
 
     return {
-        providers: [migratedProvider],
-        activeProviderId: legacyId,
+        presets: [migratedPreset],
+        activePresetId: legacyId,
         contextLimit: (raw.contextLimit as number) ?? 4096,
         autoCondenseEnabled: (raw.autoCondenseEnabled as boolean) ?? true,
         debugMode: (raw.debugMode as boolean) ?? false,
         theme: (raw.theme as 'light' | 'dark') ?? 'light',
-        imageApiEndpoint: (raw.imageApiEndpoint as string) || '',
-        imageApiKey: (raw.imageApiKey as string) || '',
-        imageApiModel: (raw.imageApiModel as string) || '',
     };
 }
 
@@ -343,53 +371,68 @@ export const useAppStore = create<AppState>()((set, get) => ({
         });
     },
 
-    // Provider management
-    addProvider: (provider) => {
+    // Preset management
+    addPreset: (preset) => {
         set((s) => {
             const newSettings = {
                 ...s.settings,
-                providers: [...s.settings.providers, provider],
+                presets: [...s.settings.presets, preset],
             };
             debouncedSaveSettings(newSettings, s.activeCampaignId);
             return { settings: newSettings };
         });
     },
 
-    updateProvider: (id, patch) => {
+    updatePreset: (id, patch) => {
         set((s) => {
-            const newProviders = s.settings.providers.map((p) =>
+            const newPresets = s.settings.presets.map((p) =>
                 p.id === id ? { ...p, ...patch } : p
             );
-            const newSettings = { ...s.settings, providers: newProviders };
+            const newSettings = { ...s.settings, presets: newPresets };
             debouncedSaveSettings(newSettings, s.activeCampaignId);
             return { settings: newSettings };
         });
     },
 
-    removeProvider: (id) => {
+    removePreset: (id) => {
         set((s) => {
-            const newProviders = s.settings.providers.filter((p) => p.id !== id);
-            if (newProviders.length === 0) return {}; // Can't remove last provider
-            const newActiveId = s.settings.activeProviderId === id
-                ? newProviders[0].id
-                : s.settings.activeProviderId;
-            const newSettings = { ...s.settings, providers: newProviders, activeProviderId: newActiveId };
+            const newPresets = s.settings.presets.filter((p) => p.id !== id);
+            if (newPresets.length === 0) return {}; // Can't remove last preset
+            const newActiveId = s.settings.activePresetId === id
+                ? newPresets[0].id
+                : s.settings.activePresetId;
+            const newSettings = { ...s.settings, presets: newPresets, activePresetId: newActiveId };
             debouncedSaveSettings(newSettings, s.activeCampaignId);
             return { settings: newSettings };
         });
     },
 
-    setActiveProvider: (id) => {
+    setActivePreset: (id) => {
         set((s) => {
-            const newSettings = { ...s.settings, activeProviderId: id };
+            const newSettings = { ...s.settings, activePresetId: id };
             debouncedSaveSettings(newSettings, s.activeCampaignId);
             return { settings: newSettings };
         });
     },
 
-    getActiveProvider: () => {
+    getActivePreset: () => {
         const s = get();
-        return s.settings.providers.find((p) => p.id === s.settings.activeProviderId) || s.settings.providers[0];
+        return s.settings.presets.find((p) => p.id === s.settings.activePresetId) || s.settings.presets[0];
+    },
+
+    getActiveStoryEndpoint: () => {
+        const preset = get().getActivePreset();
+        return preset?.storyAI;
+    },
+
+    getActiveImageEndpoint: () => {
+        const preset = get().getActivePreset();
+        return preset?.imageAI;
+    },
+
+    getActiveSummarizerEndpoint: () => {
+        const preset = get().getActivePreset();
+        return preset?.summarizerAI;
     },
 
     // Campaign defaults

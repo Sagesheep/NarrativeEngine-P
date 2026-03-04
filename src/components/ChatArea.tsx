@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Save, Loader2, Zap, ChevronDown, Scroll, Edit2, RotateCcw, Trash2, Check, X } from 'lucide-react';
+import { Send, Save, Loader2, Zap, Scroll, Edit2, RotateCcw, Trash2, Check, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_WORLD_WHAT, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHY } from '../store/useAppStore';
 import { buildPayload, sendMessage, generateNPCProfile, updateExistingNPCs } from '../services/chatEngine';
@@ -26,15 +26,12 @@ export function ChatArea() {
         updateContext,
         setCondensed,
         setCondensing,
-        getActiveProvider,
-        setActiveProvider,
         activeCampaignId,
         deleteMessage,
         deleteMessagesFrom,
     } = useAppStore();
 
     const [input, setInput] = useState('');
-    const [dropdownOpen, setDropdownOpen] = useState(false);
     const [isStreaming, setStreaming] = useState(false); // Moved from store to local state
     const [isCheckingNotes, setIsCheckingNotes] = useState(false);
     const [visibleCount, setVisibleCount] = useState(20);
@@ -52,20 +49,19 @@ export function ChatArea() {
     useEffect(() => {
         const handleClick = (e: MouseEvent) => {
             if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-                setDropdownOpen(false);
+                // do nothing now since it's removed, but keeping ref intact in case
             }
         };
         document.addEventListener('mousedown', handleClick);
         return () => document.removeEventListener('mousedown', handleClick);
     }, []);
 
-    const activeProvider = getActiveProvider();
-
     const triggerCondense = async () => {
         if (condenser.isCondensing) return;
         setCondensing(true);
         try {
-            const provider = useAppStore.getState().getActiveProvider();
+            const provider = useAppStore.getState().getActiveStoryEndpoint();
+            if (!provider) return;
             // Step 1 & 2: Generate Canon State + Header Index BEFORE condensing
             const currentCtx = useAppStore.getState().context;
             const saveResult = await runSaveFilePipeline(provider, messages, currentCtx);
@@ -107,7 +103,8 @@ export function ChatArea() {
 
         if (!overrideText) setInput('');
 
-        const provider = useAppStore.getState().getActiveProvider();
+        const provider = useAppStore.getState().getActiveStoryEndpoint();
+        if (!provider) return;
 
         const relevantLore = loreChunks.length > 0
             ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex, textToUse, 1200, messages)
@@ -220,7 +217,7 @@ export function ChatArea() {
             archiveRecall
         );
 
-        const executeTurn = async (currentPayload: unknown[], toolCallCount = 0, apiRetryCount = 0) => {
+        const executeTurn = async (currentPayload: any[], toolCallCount = 0, apiRetryCount = 0) => {
             if (toolCallCount === 0) {
                 const userMsg = { id: uid(), role: 'user' as const, content: finalInput, displayContent: textToUse, timestamp: Date.now(), debugPayload: payload };
                 useAppStore.getState().addMessage(userMsg);
@@ -376,9 +373,9 @@ export function ChatArea() {
 
                                 if (!existingNpc) {
                                     console.log(`[NPC Auto-Gen] New character detected: "${potentialName}" — spawning background profile generation...`);
-                                    const provider = settings.providers.find(p => p.id === settings.activeProviderId);
-                                    if (provider) {
-                                        generateNPCProfile(provider, allMsgs, potentialName, addNPC);
+                                    const genProvider = useAppStore.getState().getActiveStoryEndpoint();
+                                    if (genProvider) {
+                                        generateNPCProfile(genProvider, allMsgs, potentialName, addNPC);
                                     }
                                 } else {
                                     existingNpcsToUpdate.push(existingNpc);
@@ -387,9 +384,9 @@ export function ChatArea() {
 
                             // Trigger batched background update for existing NPCs
                             if (existingNpcsToUpdate.length > 0) {
-                                const provider = settings.providers.find(p => p.id === settings.activeProviderId);
-                                if (provider) {
-                                    updateExistingNPCs(provider, allMsgs, existingNpcsToUpdate, updateNPC);
+                                const updateProvider = useAppStore.getState().getActiveStoryEndpoint();
+                                if (updateProvider) {
+                                    updateExistingNPCs(updateProvider, allMsgs, existingNpcsToUpdate, updateNPC);
                                 }
                             }
                         }
@@ -601,7 +598,7 @@ export function ChatArea() {
                             </div>
 
                             <div className="gm-prose">
-                                <ReactMarkdown>{msg.displayContent || msg.content}</ReactMarkdown>
+                                <ReactMarkdown>{`${msg.displayContent || msg.content || ''}`}</ReactMarkdown>
                             </div>
 
                             {settings.debugMode && msg.debugPayload && (
@@ -684,40 +681,6 @@ export function ChatArea() {
                 )}
                 <div className="px-2 sm:px-4 pb-3 sm:pb-4 pt-3 sm:pt-4">
                     <div className="flex gap-0 border border-border bg-void focus-within:border-terminal transition-colors">
-                        {/* Provider Dropdown */}
-                        <div ref={dropdownRef} className="relative flex-shrink-0">
-                            <button
-                                onClick={() => setDropdownOpen(!dropdownOpen)}
-                                className="flex items-center gap-1 px-3 h-full text-[11px] text-ice uppercase tracking-wider border-r border-border hover:bg-ice/5 transition-colors whitespace-nowrap"
-                            >
-                                {activeProvider.label}
-                                <ChevronDown size={12} className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
-                            </button>
-
-                            {dropdownOpen && settings.providers.length > 1 && (
-                                <div className="absolute bottom-full left-0 mb-1 bg-surface border border-border min-w-[160px] z-50 shadow-lg">
-                                    {settings.providers.map((p) => (
-                                        <button
-                                            key={p.id}
-                                            onClick={() => {
-                                                setActiveProvider(p.id);
-                                                setDropdownOpen(false);
-                                            }}
-                                            className={`w-full text-left px-3 py-2 text-[11px] uppercase tracking-wider transition-colors ${p.id === activeProvider.id
-                                                ? 'text-ice bg-ice/10'
-                                                : 'text-text-dim hover:text-text-primary hover:bg-void'
-                                                }`}
-                                        >
-                                            <span className="font-mono">{p.label}</span>
-                                            <span className="block text-[9px] text-text-dim/50 normal-case tracking-normal">
-                                                {p.modelName}
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
                         <textarea
                             ref={inputRef}
                             value={input}

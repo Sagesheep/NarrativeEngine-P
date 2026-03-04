@@ -1,3 +1,17 @@
+export type EndpointConfig = {
+    endpoint: string;
+    apiKey: string;
+    modelName: string;
+};
+
+export type AIPreset = {
+    id: string;
+    name: string;
+    storyAI: EndpointConfig;
+    imageAI: EndpointConfig;
+    summarizerAI: EndpointConfig;
+};
+
 export type ProviderConfig = {
     id: string;
     label: string;
@@ -7,18 +21,19 @@ export type ProviderConfig = {
 };
 
 export type AppSettings = {
-    providers: ProviderConfig[];
-    activeProviderId: string;
+    presets: AIPreset[];
+    activePresetId: string;
     contextLimit: number;
     autoCondenseEnabled: boolean;
     debugMode?: boolean; // Toggles inline payload viewer
     theme?: 'light' | 'dark'; // UI theme
+
     // Legacy fields kept for migration only
+    providers?: ProviderConfig[];
+    activeProviderId?: string;
     endpoint?: string;
     apiKey?: string;
     modelName?: string;
-
-    // Image API
     imageApiEndpoint?: string;
     imageApiKey?: string;
     imageApiModel?: string;
@@ -127,11 +142,28 @@ export type LoreChunk = {
     scanDepth: number;          // how many recent messages to scan (default: 3)
 };
 
+export type NPCVisualProfile = {
+    race: string;
+    gender: string;
+    ageRange: string;
+    build: string;
+    symmetry: string; // ugly / pretty / handsome etc.
+    hairStyle: string;
+    eyeColor: string;
+    skinTone: string;
+    gait: string;
+    distinctMarks: string;
+    clothing: string;
+};
+
 export type NPCEntry = {
     id: string;
     name: string;
     aliases: string;
-    appearance: string;
+    appearance: string; // Legacy fallback or raw notes
+    visualProfile?: NPCVisualProfile; // Structured AI-ready fields
+    faction: string;
+    storyRelevance: string;
     disposition: string;
     status: string;
     goals: string;
