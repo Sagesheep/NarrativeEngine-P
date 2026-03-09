@@ -6,12 +6,25 @@ import { encryptSettingsPresets, decryptSettingsPresets } from '../services/sett
 const API = '/api';
 
 export const DEFAULT_SURPRISE_TYPES = [
-    "ENVIRONMENTAL_HAZARD", "NPC_ACTION", "BEAST_BEHAVIOR",
-    "SYSTEM_FAILURE", "SUDDEN_WEATHER", "MAGIC_SURGE"
+    "WEATHER_SHIFT", "ODD_SOUND", "NPC_QUIRK", "EQUIPMENT_HICCUP",
+    "SCENERY_CHANGE", "ANIMAL_BEHAVIOR", "RUMOR_OVERHEARD",
+    "STRANGE_SENSATION", "MINOR_MISHAP", "UNEXPECTED_KINDNESS"
 ];
 
 export const DEFAULT_SURPRISE_TONES = [
-    "MYSTERIOUS", "CHAOTIC", "GROTESQUE", "WHOLESOME", "EPIC", "MUNDANE"
+    "CURIOUS", "UNSETTLING", "AMUSING", "EERIE",
+    "MUNDANE", "WHOLESOME", "OMINOUS", "BIZARRE"
+];
+
+export const DEFAULT_ENCOUNTER_TYPES = [
+    "AMBUSH", "RIVAL_APPEARANCE", "RESOURCE_CRISIS", "MORAL_DILEMMA",
+    "UNEXPECTED_ALLY", "TRAP_TRIGGERED", "FACTION_CONFRONTATION",
+    "BOUNTY_HUNTER", "SUPPLY_SHORTAGE", "BETRAYAL_HINT"
+];
+
+export const DEFAULT_ENCOUNTER_TONES = [
+    "TENSE", "DESPERATE", "MYSTERIOUS", "AGGRESSIVE",
+    "CHAOTIC", "CALCULATED", "GROTESQUE", "EPIC"
 ];
 
 export const DEFAULT_WORLD_WHO = [
@@ -252,7 +265,8 @@ const defaultContext: GameContext = {
     inventory: '',
     characterProfile: '',
     surpriseDC: 95,
-    worldEventDC: 198,
+    encounterDC: 198,
+    worldEventDC: 498,
     canonStateActive: false,
     headerIndexActive: false,
     starterActive: false,
@@ -260,6 +274,7 @@ const defaultContext: GameContext = {
     inventoryActive: false,
     characterProfileActive: false,
     surpriseEngineActive: true,
+    encounterEngineActive: true,
     worldEngineActive: true,
     diceFairnessActive: true,
     diceConfig: {
@@ -270,14 +285,20 @@ const defaultContext: GameContext = {
         crit: 20
     },
     surpriseConfig: {
-        initialDC: 98,
+        initialDC: 95,
         dcReduction: 3,
         types: [...DEFAULT_SURPRISE_TYPES],
         tones: [...DEFAULT_SURPRISE_TONES],
     },
-    worldEventConfig: {
+    encounterConfig: {
         initialDC: 198,
-        dcReduction: 3,
+        dcReduction: 2,
+        types: [...DEFAULT_ENCOUNTER_TYPES],
+        tones: [...DEFAULT_ENCOUNTER_TONES],
+    },
+    worldEventConfig: {
+        initialDC: 498,
+        dcReduction: 2,
         who: [...DEFAULT_WORLD_WHO],
         where: [...DEFAULT_WORLD_WHERE],
         why: [...DEFAULT_WORLD_WHY],

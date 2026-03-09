@@ -59,15 +59,18 @@ export type SurpriseConfig = {
     dcReduction: number;
     types: string[];
     tones: string[];
-    who?: string[]; // The custom 'who' table
-    where?: string[]; // The custom 'where' table
-    why?: string[]; // The custom 'why' table
-    what?: string[]; // The custom 'what' table
+};
+
+export type EncounterConfig = {
+    initialDC: number;
+    dcReduction: number;
+    types: string[];
+    tones: string[];
 };
 
 export type WorldEventConfig = {
-    initialDC: number; // Starting DC (default: 198)
-    dcReduction: number; // Amount DC drops per turn (default: 3)
+    initialDC: number; // Starting DC (default: 498)
+    dcReduction: number; // Amount DC drops per turn (default: 2)
     who?: string[]; // The custom 'who' table
     where?: string[]; // The custom 'where' table
     why?: string[]; // The custom 'why' table
@@ -84,6 +87,7 @@ export type GameContext = {
     inventory: string;
     characterProfile: string;
     surpriseDC?: number;
+    encounterDC?: number;
     worldEventDC?: number;
     diceConfig?: DiceConfig;
     worldEventConfig?: WorldEventConfig;
@@ -95,9 +99,11 @@ export type GameContext = {
     inventoryActive: boolean;
     characterProfileActive: boolean;
     surpriseEngineActive: boolean;
+    encounterEngineActive: boolean;
     worldEngineActive: boolean;
     diceFairnessActive: boolean;
     surpriseConfig?: SurpriseConfig;
+    encounterConfig?: EncounterConfig;
 };
 
 export type ChatMessage = {

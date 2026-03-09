@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Save, Loader2, Zap, Scroll, Edit2, RotateCcw, Trash2, Check, X, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_WORLD_WHAT, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHY } from '../store/useAppStore';
+import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_ENCOUNTER_TYPES, DEFAULT_ENCOUNTER_TONES, DEFAULT_WORLD_WHAT, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHY } from '../store/useAppStore';
 import { buildPayload, sendMessage, generateNPCProfile, updateExistingNPCs } from '../services/chatEngine';
 import type { NPCEntry, ChatMessage, EndpointConfig, ProviderConfig } from '../types';
 import { shouldCondense, condenseHistory } from '../services/condenser';
@@ -161,67 +161,71 @@ export function ChatArea() {
             ? await recallArchiveScenes(activeCampaignId, archiveIndex, textToUse, messages, 3000)
             : undefined;
 
-        let newDC = context.surpriseDC ?? 98;
+        let newSurpriseDC = context.surpriseDC ?? 95;
+        let newEncounterDC = context.encounterDC ?? 198;
+        let newWorldDC = context.worldEventDC ?? 498;
         let finalInput = textToUse;
 
+        // Tier 1: Surprise Engine (Color/Ambient)
         if (context.surpriseEngineActive !== false) {
             const roll = Math.floor(Math.random() * 100) + 1;
-            if (roll >= newDC) {
+            if (roll >= newSurpriseDC) {
                 const typesList = context.surpriseConfig?.types || DEFAULT_SURPRISE_TYPES;
                 const tonesList = context.surpriseConfig?.tones || DEFAULT_SURPRISE_TONES;
                 const type = typesList[Math.floor(Math.random() * typesList.length)];
                 const tone = tonesList[Math.floor(Math.random() * tonesList.length)];
 
                 finalInput += `\n[SURPRISE EVENT: ${type} (${tone})]`;
-                newDC = context.surpriseConfig?.initialDC || 98;
-                console.log(`[Surprise Engine] Triggered! Type: ${type}, Tone: ${tone}. Resetting DC to ${newDC}`);
+                newSurpriseDC = context.surpriseConfig?.initialDC || 95;
+                console.log(`[Surprise Engine] Triggered! Type: ${type}, Tone: ${tone}. Resetting DC to ${newSurpriseDC}`);
             } else {
-                console.log(`[Surprise Engine] Roll: ${roll} < DC: ${newDC}. Decreasing DC.`);
-                newDC = Math.max(5, newDC - (context.surpriseConfig?.dcReduction || 3));
+                console.log(`[Surprise Engine] Roll: ${roll} < DC: ${newSurpriseDC}. Decreasing DC.`);
+                newSurpriseDC = Math.max(5, newSurpriseDC - (context.surpriseConfig?.dcReduction || 3));
             }
         }
 
-        // <--- WORLD ENGINE ---!>
-        const checkWorldEvent = (currentDC: number, initialDC: number, reduction: number) => {
-            const roll = Math.floor(Math.random() * 100) + 1;
-            if (roll >= currentDC) {
-                return { hit: true, roll, newDC: initialDC };
+        // Tier 2: Encounter Engine (Challenges/Hooks)
+        if (context.encounterEngineActive !== false) {
+            const roll = Math.floor(Math.random() * 200) + 1;
+            if (roll >= newEncounterDC) {
+                const typesList = context.encounterConfig?.types || DEFAULT_ENCOUNTER_TYPES;
+                const tonesList = context.encounterConfig?.tones || DEFAULT_ENCOUNTER_TONES;
+                const type = typesList[Math.floor(Math.random() * typesList.length)];
+                const tone = tonesList[Math.floor(Math.random() * tonesList.length)];
+
+                finalInput += `\n[ENCOUNTER EVENT: ${type} (${tone})]`;
+                newEncounterDC = context.encounterConfig?.initialDC || 198;
+                console.log(`[Encounter Engine] Triggered! Type: ${type}, Tone: ${tone}. Resetting DC to ${newEncounterDC}`);
+            } else {
+                console.log(`[Encounter Engine] Roll: ${roll} < DC: ${newEncounterDC}. Decreasing DC.`);
+                newEncounterDC = Math.max(5, newEncounterDC - (context.encounterConfig?.dcReduction || 2));
             }
-            return { hit: false, roll, newDC: Math.max(5, currentDC - reduction) };
-        };
+        }
 
-        const generateWorldEventTag = () => {
-            const who = DEFAULT_WORLD_WHO[Math.floor(Math.random() * DEFAULT_WORLD_WHO.length)];
-            const where = DEFAULT_WORLD_WHERE[Math.floor(Math.random() * DEFAULT_WORLD_WHERE.length)];
-            const why = DEFAULT_WORLD_WHY[Math.floor(Math.random() * DEFAULT_WORLD_WHY.length)];
-            const what = DEFAULT_WORLD_WHAT[Math.floor(Math.random() * DEFAULT_WORLD_WHAT.length)];
-            return `[WORLD_EVENT: ${who} ${what} ${why} ${where}]`;
-        };
-
-        const worldEventConfig = context.worldEventConfig || { initialDC: 198, dcReduction: 3, who: [], where: [], why: [], what: [] };
-        let currentWorldEventDC = context.worldEventDC ?? worldEventConfig.initialDC;
-
+        // Tier 3: World Engine (Seismic/Global)
         if (context.worldEngineActive !== false) {
-            const worldEventCheck = checkWorldEvent(currentWorldEventDC, worldEventConfig.initialDC, worldEventConfig.dcReduction);
-            if (worldEventCheck.hit) {
-                const hasCustomTags = worldEventConfig.who && worldEventConfig.who.length >= 3 &&
-                    worldEventConfig.where && worldEventConfig.where.length >= 3 &&
-                    worldEventConfig.why && worldEventConfig.why.length >= 3 &&
-                    worldEventConfig.what && worldEventConfig.what.length >= 3;
+            const worldRoll = Math.floor(Math.random() * 500) + 1;
+            if (worldRoll >= newWorldDC) {
+                const cfg = context.worldEventConfig || { initialDC: 498, dcReduction: 2, who: [], where: [], why: [], what: [] };
+                const hasCustomTags = cfg.who && cfg.who.length >= 3 &&
+                    cfg.where && cfg.where.length >= 3 &&
+                    cfg.why && cfg.why.length >= 3 &&
+                    cfg.what && cfg.what.length >= 3;
 
                 const tag = hasCustomTags
-                    ? `[WORLD_EVENT: ${worldEventConfig.who![Math.floor(Math.random() * worldEventConfig.who!.length)]} ${worldEventConfig.what![Math.floor(Math.random() * worldEventConfig.what!.length)]} ${worldEventConfig.why![Math.floor(Math.random() * worldEventConfig.why!.length)]} ${worldEventConfig.where![Math.floor(Math.random() * worldEventConfig.where!.length)]}]`
-                    : generateWorldEventTag();
+                    ? `[WORLD_EVENT: ${cfg.who![Math.floor(Math.random() * cfg.who!.length)]} ${cfg.what![Math.floor(Math.random() * cfg.what!.length)]} ${cfg.why![Math.floor(Math.random() * cfg.why!.length)]} ${cfg.where![Math.floor(Math.random() * cfg.where!.length)]}]`
+                    : `[WORLD_EVENT: ${DEFAULT_WORLD_WHO[Math.floor(Math.random() * DEFAULT_WORLD_WHO.length)]} ${DEFAULT_WORLD_WHAT[Math.floor(Math.random() * DEFAULT_WORLD_WHAT.length)]} ${DEFAULT_WORLD_WHY[Math.floor(Math.random() * DEFAULT_WORLD_WHY.length)]} ${DEFAULT_WORLD_WHERE[Math.floor(Math.random() * DEFAULT_WORLD_WHERE.length)]}]`;
 
                 finalInput += `\n${tag}`;
-                console.log(`[World Engine] Roll: ${worldEventCheck.roll} >= DC: ${currentWorldEventDC}. Triggered! Tag: ${tag}`);
+                newWorldDC = cfg.initialDC || 498;
+                console.log(`[World Engine] Triggered! Tag: ${tag}. Resetting DC to ${newWorldDC}`);
             } else {
-                console.log(`[World Engine] Roll: ${worldEventCheck.roll} < DC: ${currentWorldEventDC}. Missed. New DC: ${worldEventCheck.newDC}`);
+                console.log(`[World Engine] Roll: ${worldRoll} < DC: ${newWorldDC}. Decreasing DC.`);
+                newWorldDC = Math.max(5, newWorldDC - (context.worldEventConfig?.dcReduction || 2));
             }
-            currentWorldEventDC = worldEventCheck.newDC;
         }
 
-        updateContext({ surpriseDC: newDC, worldEventDC: currentWorldEventDC });
+        updateContext({ surpriseDC: newSurpriseDC, encounterDC: newEncounterDC, worldEventDC: newWorldDC });
 
         // <--- DICE FAIRNESS ENGINE ---!>
         if (context.diceFairnessActive !== false) {

@@ -171,7 +171,8 @@ export function CampaignHub() {
         refresh();
     };
 
-    const timeAgo = (ts: number) => {
+    const timeAgo = (ts: number | undefined) => {
+        if (!ts) return 'Never played';
         const now = new Date().getTime();
         const diff = now - ts;
         const mins = Math.floor(diff / 60000);
@@ -181,6 +182,8 @@ export function CampaignHub() {
         const days = Math.floor(hrs / 24);
         return `${days}d ago`;
     };
+    // Alias to catch potential case-sensitivity issues in older builds or templates
+    const timeago = timeAgo;
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-void p-4 md:p-8 relative">
@@ -202,7 +205,7 @@ export function CampaignHub() {
 
             {/* Campaign Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 max-w-4xl w-full mb-6 sm:mb-8">
-                {campaigns.map((c) => (
+                {campaigns.filter(c => c && c.id && c.name && c.id !== 'undefined').map((c) => (
                     <div
                         key={c.id}
                         className="group relative bg-surface border border-border rounded-lg overflow-hidden hover:border-terminal transition-all duration-300 cursor-pointer"

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ScrollText, ChevronDown, ChevronRight, Database, List, Briefcase, RefreshCw, User, Loader2, Sparkles } from 'lucide-react';
-import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHY, DEFAULT_WORLD_WHAT } from '../store/useAppStore';
+import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_ENCOUNTER_TYPES, DEFAULT_ENCOUNTER_TONES, DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHY, DEFAULT_WORLD_WHAT } from '../store/useAppStore';
 import { scanInventory } from '../services/inventoryParser';
 import { scanCharacterProfile } from '../services/characterProfileParser';
 import { populateEngineTags } from '../services/chatEngine';
@@ -335,17 +335,17 @@ export function ContextDrawer() {
                                     <div className="grid grid-cols-2 gap-2">
                                         <div className="flex flex-col">
                                             <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">
-                                                Initial DC (Default 98)
+                                                Initial DC (Default 95)
                                             </label>
                                             <input
                                                 type="number"
-                                                value={context.surpriseConfig?.initialDC ?? 98}
+                                                value={context.surpriseConfig?.initialDC ?? 95}
                                                 onChange={(e) => {
                                                     const val = parseInt(e.target.value);
                                                     updateContext({
                                                         surpriseConfig: {
-                                                            ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 98, dcReduction: 3 }),
-                                                            initialDC: isNaN(val) ? 98 : val
+                                                            ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }),
+                                                            initialDC: isNaN(val) ? 95 : val
                                                         }
                                                     });
                                                 }}
@@ -363,7 +363,7 @@ export function ContextDrawer() {
                                                     const val = parseInt(e.target.value);
                                                     updateContext({
                                                         surpriseConfig: {
-                                                            ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 98, dcReduction: 3 }),
+                                                            ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }),
                                                             dcReduction: isNaN(val) ? 3 : val
                                                         }
                                                     });
@@ -429,7 +429,7 @@ export function ContextDrawer() {
                                                         const lore = context.loreRaw || context.rulesRaw || '';
                                                         const current = context.surpriseConfig?.tones || DEFAULT_SURPRISE_TONES;
                                                         const result = await populateEngineTags(provider, lore, current, 'surpriseTones');
-                                                        updateContext({ surpriseConfig: { ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 98, dcReduction: 3 }), tones: result } });
+                                                        updateContext({ surpriseConfig: { ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }), tones: result } });
                                                         setPopulatingField(null);
                                                     }}
                                                     disabled={populatingField !== null}
@@ -451,7 +451,7 @@ export function ContextDrawer() {
                                                 const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
                                                 updateContext({
                                                     surpriseConfig: {
-                                                        ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 98, dcReduction: 3 }),
+                                                        ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }),
                                                         tones: tags
                                                     }
                                                 });
@@ -460,6 +460,148 @@ export function ContextDrawer() {
                                             rows={2}
                                             className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
                                         />
+                                    </div>
+                                </div>
+
+                                {/* Encounter Engine Tuning */}
+                                <div className="space-y-2 mt-4">
+                                    <div className="text-[10px] text-ember uppercase tracking-wider font-bold border-b border-ember/20 pb-1 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-ember" />
+                                            Encounter Engine
+                                        </div>
+                                        <Toggle active={context.encounterEngineActive ?? true} onChange={() => updateContext({ encounterEngineActive: !(context.encounterEngineActive ?? true) })} />
+                                    </div>
+                                    <div className="bg-void border border-border p-3 space-y-3">
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="flex flex-col">
+                                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">
+                                                    Initial DC (Default 198)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={context.encounterConfig?.initialDC ?? 198}
+                                                    onChange={(e) => {
+                                                        const val = parseInt(e.target.value);
+                                                        updateContext({
+                                                            encounterConfig: {
+                                                                ...(context.encounterConfig || { types: DEFAULT_ENCOUNTER_TYPES, tones: DEFAULT_ENCOUNTER_TONES, initialDC: 198, dcReduction: 2 }),
+                                                                initialDC: isNaN(val) ? 198 : val
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                                />
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">
+                                                    DC Drop per turn (Def 2)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={context.encounterConfig?.dcReduction ?? 2}
+                                                    onChange={(e) => {
+                                                        const val = parseInt(e.target.value);
+                                                        updateContext({
+                                                            encounterConfig: {
+                                                                ...(context.encounterConfig || { types: DEFAULT_ENCOUNTER_TYPES, tones: DEFAULT_ENCOUNTER_TONES, initialDC: 198, dcReduction: 2 }),
+                                                                dcReduction: isNaN(val) ? 2 : val
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-col">
+                                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
+                                                <span>Event Types (Comma Separated)</span>
+                                                <span className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={async () => {
+                                                            setPopulatingField('encounterTypes');
+                                                            const provider = useAppStore.getState().getActiveStoryEndpoint();
+                                                            if (!provider) { setPopulatingField(null); return; }
+                                                            const lore = context.loreRaw || context.rulesRaw || '';
+                                                            const current = context.encounterConfig?.types || DEFAULT_ENCOUNTER_TYPES;
+                                                            const result = await populateEngineTags(provider, lore, current, 'encounterTypes');
+                                                            updateContext({ encounterConfig: { ...(context.encounterConfig || { types: DEFAULT_ENCOUNTER_TYPES, tones: DEFAULT_ENCOUNTER_TONES, initialDC: 198, dcReduction: 2 }), types: result } });
+                                                            setPopulatingField(null);
+                                                        }}
+                                                        disabled={populatingField !== null}
+                                                        className="flex items-center gap-1 text-[9px] text-terminal hover:text-text-primary transition-colors disabled:opacity-30"
+                                                        title="AI-populate tags based on campaign lore"
+                                                    >
+                                                        {populatingField === 'encounterTypes' ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
+                                                        Populate
+                                                    </button>
+                                                    <span className={(context.encounterConfig?.types?.length ?? 0) < 3 ? 'text-danger' : 'text-terminal'}>
+                                                        Min 3 tags
+                                                    </span>
+                                                </span>
+                                            </label>
+                                            <textarea
+                                                value={context.encounterConfig?.types.join(', ') ?? DEFAULT_ENCOUNTER_TYPES.join(', ')}
+                                                onChange={(e) => {
+                                                    const raw = e.target.value;
+                                                    const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
+                                                    updateContext({
+                                                        encounterConfig: {
+                                                            ...(context.encounterConfig || { types: DEFAULT_ENCOUNTER_TYPES, tones: DEFAULT_ENCOUNTER_TONES, initialDC: 198, dcReduction: 2 }),
+                                                            types: tags
+                                                        }
+                                                    });
+                                                }}
+                                                placeholder="AMBUSH, RIVAL_APPEARANCE..."
+                                                rows={3}
+                                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
+                                            />
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
+                                                <span>Event Tones (Comma Separated)</span>
+                                                <span className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={async () => {
+                                                            setPopulatingField('encounterTones');
+                                                            const provider = useAppStore.getState().getActiveStoryEndpoint();
+                                                            if (!provider) { setPopulatingField(null); return; }
+                                                            const lore = context.loreRaw || context.rulesRaw || '';
+                                                            const current = context.encounterConfig?.tones || DEFAULT_ENCOUNTER_TONES;
+                                                            const result = await populateEngineTags(provider, lore, current, 'encounterTones');
+                                                            updateContext({ encounterConfig: { ...(context.encounterConfig || { types: DEFAULT_ENCOUNTER_TYPES, tones: DEFAULT_ENCOUNTER_TONES, initialDC: 198, dcReduction: 2 }), tones: result } });
+                                                            setPopulatingField(null);
+                                                        }}
+                                                        disabled={populatingField !== null}
+                                                        className="flex items-center gap-1 text-[9px] text-terminal hover:text-text-primary transition-colors disabled:opacity-30"
+                                                        title="AI-populate tones based on campaign lore"
+                                                    >
+                                                        {populatingField === 'encounterTones' ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
+                                                        Populate
+                                                    </button>
+                                                    <span className={(context.encounterConfig?.tones?.length ?? 0) < 3 ? 'text-danger' : 'text-terminal'}>
+                                                        Min 3 tags
+                                                    </span>
+                                                </span>
+                                            </label>
+                                            <textarea
+                                                value={context.encounterConfig?.tones.join(', ') ?? DEFAULT_ENCOUNTER_TONES.join(', ')}
+                                                onChange={(e) => {
+                                                    const raw = e.target.value;
+                                                    const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
+                                                    updateContext({
+                                                        encounterConfig: {
+                                                            ...(context.encounterConfig || { types: DEFAULT_ENCOUNTER_TYPES, tones: DEFAULT_ENCOUNTER_TONES, initialDC: 198, dcReduction: 2 }),
+                                                            tones: tags
+                                                        }
+                                                    });
+                                                }}
+                                                placeholder="TENSE, DESPERATE, EPICK..."
+                                                rows={2}
+                                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 
@@ -476,17 +618,17 @@ export function ContextDrawer() {
                                         <div className="grid grid-cols-2 gap-2">
                                             <div className="flex flex-col">
                                                 <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">
-                                                    Initial DC (Default 198)
+                                                    Initial DC (Default 498)
                                                 </label>
                                                 <input
                                                     type="number"
-                                                    value={context.worldEventConfig?.initialDC ?? 198}
+                                                    value={context.worldEventConfig?.initialDC ?? 498}
                                                     onChange={(e) => {
                                                         const val = parseInt(e.target.value);
                                                         updateContext({
                                                             worldEventConfig: {
-                                                                ...(context.worldEventConfig || { initialDC: 198, dcReduction: 3 }),
-                                                                initialDC: isNaN(val) ? 198 : val
+                                                                ...(context.worldEventConfig || { initialDC: 498, dcReduction: 2 }),
+                                                                initialDC: isNaN(val) ? 498 : val
                                                             }
                                                         });
                                                     }}
@@ -495,17 +637,17 @@ export function ContextDrawer() {
                                             </div>
                                             <div className="flex flex-col">
                                                 <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">
-                                                    DC Drop per turn (Def 3)
+                                                    DC Drop per turn (Def 2)
                                                 </label>
                                                 <input
                                                     type="number"
-                                                    value={context.worldEventConfig?.dcReduction ?? 3}
+                                                    value={context.worldEventConfig?.dcReduction ?? 2}
                                                     onChange={(e) => {
                                                         const val = parseInt(e.target.value);
                                                         updateContext({
                                                             worldEventConfig: {
-                                                                ...(context.worldEventConfig || { initialDC: 198, dcReduction: 3 }),
-                                                                dcReduction: isNaN(val) ? 3 : val
+                                                                ...(context.worldEventConfig || { initialDC: 498, dcReduction: 2 }),
+                                                                dcReduction: isNaN(val) ? 2 : val
                                                             }
                                                         });
                                                     }}
@@ -525,7 +667,7 @@ export function ContextDrawer() {
                                                             const lore = context.loreRaw || context.rulesRaw || '';
                                                             const current = context.worldEventConfig?.who || DEFAULT_WORLD_WHO;
                                                             const result = await populateEngineTags(provider, lore, current, 'worldWho');
-                                                            updateContext({ worldEventConfig: { ...(context.worldEventConfig || { initialDC: 198, dcReduction: 3, who: [], where: [], why: [], what: [] }), who: result } });
+                                                            updateContext({ worldEventConfig: { ...(context.worldEventConfig || { initialDC: 498, dcReduction: 2, who: [], where: [], why: [], what: [] }), who: result } });
                                                             setPopulatingField(null);
                                                         }}
                                                         disabled={populatingField !== null}
@@ -547,7 +689,7 @@ export function ContextDrawer() {
                                                     const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
                                                     updateContext({
                                                         worldEventConfig: {
-                                                            ...(context.worldEventConfig || { initialDC: 198, dcReduction: 3, who: [], where: [], why: [], what: [] }),
+                                                            ...(context.worldEventConfig || { initialDC: 498, dcReduction: 2, who: [], where: [], why: [], what: [] }),
                                                             who: tags
                                                         }
                                                     });
@@ -569,7 +711,7 @@ export function ContextDrawer() {
                                                             const lore = context.loreRaw || context.rulesRaw || '';
                                                             const current = context.worldEventConfig?.where || DEFAULT_WORLD_WHERE;
                                                             const result = await populateEngineTags(provider, lore, current, 'worldWhere');
-                                                            updateContext({ worldEventConfig: { ...(context.worldEventConfig || { initialDC: 198, dcReduction: 3, who: [], where: [], why: [], what: [] }), where: result } });
+                                                            updateContext({ worldEventConfig: { ...(context.worldEventConfig || { initialDC: 498, dcReduction: 2, who: [], where: [], why: [], what: [] }), where: result } });
                                                             setPopulatingField(null);
                                                         }}
                                                         disabled={populatingField !== null}
@@ -591,7 +733,7 @@ export function ContextDrawer() {
                                                     const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
                                                     updateContext({
                                                         worldEventConfig: {
-                                                            ...(context.worldEventConfig || { initialDC: 198, dcReduction: 3, who: [], where: [], why: [], what: [] }),
+                                                            ...(context.worldEventConfig || { initialDC: 498, dcReduction: 2, who: [], where: [], why: [], what: [] }),
                                                             where: tags
                                                         }
                                                     });
@@ -613,7 +755,7 @@ export function ContextDrawer() {
                                                             const lore = context.loreRaw || context.rulesRaw || '';
                                                             const current = context.worldEventConfig?.why || DEFAULT_WORLD_WHY;
                                                             const result = await populateEngineTags(provider, lore, current, 'worldWhy');
-                                                            updateContext({ worldEventConfig: { ...(context.worldEventConfig || { initialDC: 198, dcReduction: 3, who: [], where: [], why: [], what: [] }), why: result } });
+                                                            updateContext({ worldEventConfig: { ...(context.worldEventConfig || { initialDC: 498, dcReduction: 2, who: [], where: [], why: [], what: [] }), why: result } });
                                                             setPopulatingField(null);
                                                         }}
                                                         disabled={populatingField !== null}
@@ -635,7 +777,7 @@ export function ContextDrawer() {
                                                     const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
                                                     updateContext({
                                                         worldEventConfig: {
-                                                            ...(context.worldEventConfig || { initialDC: 198, dcReduction: 3, who: [], where: [], why: [], what: [] }),
+                                                            ...(context.worldEventConfig || { initialDC: 498, dcReduction: 2, who: [], where: [], why: [], what: [] }),
                                                             why: tags
                                                         }
                                                     });
@@ -657,7 +799,7 @@ export function ContextDrawer() {
                                                             const lore = context.loreRaw || context.rulesRaw || '';
                                                             const current = context.worldEventConfig?.what || DEFAULT_WORLD_WHAT;
                                                             const result = await populateEngineTags(provider, lore, current, 'worldWhat');
-                                                            updateContext({ worldEventConfig: { ...(context.worldEventConfig || { initialDC: 198, dcReduction: 3, who: [], where: [], why: [], what: [] }), what: result } });
+                                                            updateContext({ worldEventConfig: { ...(context.worldEventConfig || { initialDC: 498, dcReduction: 2, who: [], where: [], why: [], what: [] }), what: result } });
                                                             setPopulatingField(null);
                                                         }}
                                                         disabled={populatingField !== null}
@@ -679,7 +821,7 @@ export function ContextDrawer() {
                                                     const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
                                                     updateContext({
                                                         worldEventConfig: {
-                                                            ...(context.worldEventConfig || { initialDC: 198, dcReduction: 3, who: [], where: [], why: [], what: [] }),
+                                                            ...(context.worldEventConfig || { initialDC: 498, dcReduction: 2, who: [], where: [], why: [], what: [] }),
                                                             what: tags
                                                         }
                                                     });

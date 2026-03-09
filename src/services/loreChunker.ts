@@ -106,6 +106,18 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
     const normalizedMarkdown = markdown.replace(/\\(#{2,3})\s*/g, '\n$1 ');
     const lines = normalizedMarkdown.split(/\r?\n/);
     const chunks: LoreChunk[] = [];
+    const usedIds = new Set<string>();
+
+    function getUniqueId(baseId: string): string {
+        let uniqueId = baseId;
+        let counter = 1;
+        while (usedIds.has(uniqueId)) {
+            uniqueId = `${baseId}-${counter}`;
+            counter++;
+        }
+        usedIds.add(uniqueId);
+        return uniqueId;
+    }
 
     const headerRegex = /^\s*(?:#{2,3})\s+(.+)/;
 
@@ -119,8 +131,10 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
             if (currentHeader) {
                 const content = currentLines.join('\n').trim();
                 if (content) {
+                    const baseId = slugify(currentHeader);
+                    const id = getUniqueId(baseId);
                     chunks.push({
-                        id: slugify(currentHeader),
+                        id,
                         header: currentHeader,
                         content,
                         tokens: countTokens(currentHeader + '\n' + content),
@@ -143,8 +157,10 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
     if (currentHeader) {
         const content = currentLines.join('\n').trim();
         if (content) {
+            const baseId = slugify(currentHeader);
+            const id = getUniqueId(baseId);
             chunks.push({
-                id: slugify(currentHeader),
+                id,
                 header: currentHeader,
                 content,
                 tokens: countTokens(currentHeader + '\n' + content),

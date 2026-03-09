@@ -532,11 +532,13 @@ export async function populateEngineTags(
     provider: EndpointConfig | ProviderConfig,
     worldLore: string,
     currentTags: string[],
-    field: 'surpriseTypes' | 'surpriseTones' | 'worldWho' | 'worldWhere' | 'worldWhy' | 'worldWhat'
+    field: 'surpriseTypes' | 'surpriseTones' | 'encounterTypes' | 'encounterTones' | 'worldWho' | 'worldWhere' | 'worldWhy' | 'worldWhat'
 ): Promise<string[]> {
     const fieldDescriptions: Record<typeof field, string> = {
-        surpriseTypes: 'surprise event TYPES (e.g. ENVIRONMENTAL_HAZARD, NPC_ACTION, BEAST_BEHAVIOR). These are categories of unexpected events that can occur during gameplay.',
-        surpriseTones: 'surprise event TONES (e.g. TERRIFYING, HILARIOUS, MYSTERIOUS). These describe the emotional flavor of the surprise.',
+        surpriseTypes: 'surprise event TYPES (e.g. WEATHER_SHIFT, ODD_SOUND, NPC_QUIRK). These are categories of unexpected ambient flavor events.',
+        surpriseTones: 'surprise event TONES (e.g. CURIOUS, EERIE, AMUSING). These describe the emotional flavor of the surprise.',
+        encounterTypes: 'encounter event TYPES (e.g. AMBUSH, RIVAL_APPEARANCE, RESOURCE_CRISIS). These are mid-stakes challenges or hooks requiring immediate player response.',
+        encounterTones: 'encounter event TONES (e.g. TENSE, DESPERATE, MYSTERIOUS). These describe the emotional flavor of the encounter.',
         worldWho: '"Who" elements for world events — the actors/instigators (e.g. "a rogue splinter group", "a powerful leader").',
         worldWhere: '"Where" elements for world events — the locations (e.g. "in a neighboring city", "deep underground").',
         worldWhy: '"Why" elements for world events — the motivations (e.g. "to seize power", "for brutal vengeance").',

@@ -71,9 +71,29 @@ app.put('/api/settings', (req, res) => {
 
 app.get('/api/campaigns', (_req, res) => {
     ensureDirs();
-    const files = fs.readdirSync(CAMPAIGNS_DIR).filter(f => f.endsWith('.json') && !f.includes('.state') && !f.includes('.lore') && !f.includes('.npcs'));
-    const campaigns = files.map(f => readJson(path.join(CAMPAIGNS_DIR, f))).filter(Boolean);
-    campaigns.sort((a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0));
+    const files = fs.readdirSync(CAMPAIGNS_DIR).filter(f =>
+        f.endsWith('.json') &&
+        !f.includes('.state') &&
+        !f.includes('.lore') &&
+        !f.includes('.npcs') &&
+        !f.includes('.archive') &&
+        !f.includes('.index')
+    );
+    const campaigns = files
+        .map(f => {
+            const data = readJson(path.join(CAMPAIGNS_DIR, f));
+            if (data && data.id && data.name && data.id !== 'undefined' && data.id !== 'null') {
+                return {
+                    ...data,
+                    lastPlayedAt: Number(data.lastPlayedAt) || 0
+                };
+            }
+            return null;
+        })
+        .filter(c => c !== null);
+
+    console.log(`[API] Returning ${campaigns.length} campaigns:`, campaigns.map(c => c.id).join(', '));
+    campaigns.sort((a, b) => (Number(b.lastPlayedAt) || 0) - (Number(a.lastPlayedAt) || 0));
     res.json(campaigns);
 });
 
