@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ScrollText, ChevronDown, ChevronRight, Database, List, Briefcase, RefreshCw, User, Loader2, Sparkles } from 'lucide-react';
+import { ScrollText, Database, List, Briefcase, RefreshCw, User, Loader2, Sparkles } from 'lucide-react';
 import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_ENCOUNTER_TYPES, DEFAULT_ENCOUNTER_TONES, DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHY, DEFAULT_WORLD_WHAT } from '../store/useAppStore';
 import { scanInventory } from '../services/inventoryParser';
 import { scanCharacterProfile } from '../services/characterProfileParser';
@@ -43,32 +43,6 @@ function Toggle({ active, onChange }: { active: boolean; onChange: () => void })
                 className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-surface transition-transform ${active ? 'translate-x-3.5' : 'translate-x-0.5'}`}
             />
         </button>
-    );
-}
-
-function Section({ title, color, defaultOpen, children }: {
-    title: string;
-    color: string;
-    defaultOpen: boolean;
-    children: React.ReactNode;
-}) {
-    const [open, setOpen] = useState(defaultOpen);
-
-    return (
-        <div className="border-b border-border last:border-b-0">
-            <button
-                onClick={() => setOpen(!open)}
-                className={`w-full flex items-center gap-2 px-4 py-2.5 text-[11px] uppercase tracking-[0.2em] font-bold hover:bg-void-lighter transition-colors ${color}`}
-            >
-                {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                {title}
-            </button>
-            {open && (
-                <div className="px-4 pb-4 pt-1 space-y-4">
-                    {children}
-                </div>
-            )}
-        </div>
     );
 }
 
@@ -126,6 +100,14 @@ function latestQuestNote(quest: QuestEntry): string {
     return quest.notes.length > 0 ? quest.notes[quest.notes.length - 1].text : 'No progress notes yet.';
 }
 
+const TABS = [
+    { key: 'sys'   as const, Icon: ScrollText, label: 'System Context' },
+    { key: 'world' as const, Icon: Database,   label: 'World Info' },
+    { key: 'eng'   as const, Icon: Sparkles,   label: 'Engine Tuning' },
+    { key: 'narr'  as const, Icon: List,       label: 'Save File' },
+    { key: 'chr'   as const, Icon: User,       label: 'Bookkeeping' },
+];
+
 export function ContextDrawer() {
     const { context, updateContext, drawerOpen, toggleDrawer, loreChunks, updateLoreChunk, messages, getActiveStoryEndpoint, settings } = useAppStore();
     const [newKeyword, setNewKeyword] = useState<Record<string, string>>({});
@@ -133,6 +115,7 @@ export function ContextDrawer() {
     const [isScanningProfile, setIsScanningProfile] = useState(false);
     const [isScanningQuests, setIsScanningQuests] = useState(false);
     const [populatingField, setPopulatingField] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<'sys' | 'world' | 'eng' | 'narr' | 'chr'>('sys');
 
     if (!drawerOpen) return null;
 
@@ -146,7 +129,6 @@ export function ContextDrawer() {
             updateContext({ inventory: newInventory });
         } catch (e) {
             console.error('Failed to scan inventory:', e);
-            // Optionally, we could show a toast here. For now, it fails silently in UI.
         } finally {
             setIsScanningInventory(false);
         }
@@ -223,6 +205,7 @@ export function ContextDrawer() {
                 fixed inset-0 z-50 w-full bg-surface flex flex-col overflow-hidden
                 md:static md:w-80 md:z-auto md:border-r md:border-border md:shrink-0
             ">
+                {/* Header */}
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                     <h2 className="text-[11px] text-terminal uppercase tracking-[0.25em] font-bold glow-green">
                         ◆ CONTEXT BANK
@@ -235,301 +218,332 @@ export function ContextDrawer() {
                     </button>
                 </div>
 
+                {/* Tab Bar */}
+                <div className="flex border-b border-border shrink-0">
+                    {TABS.map(({ key, Icon: TabIcon, label }) => (
+                        <button
+                            key={key}
+                            onClick={() => setActiveTab(key)}
+                            className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[9px] uppercase tracking-wider transition-colors ${
+                                activeTab === key
+                                    ? 'text-terminal border-b-2 border-terminal -mb-px'
+                                    : 'text-text-dim hover:text-text-primary'
+                            }`}
+                            title={label}
+                        >
+                            <TabIcon size={13} />
+                            {key.toUpperCase()}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Tab Panels */}
                 <div className="flex-1 overflow-y-auto">
-                    {/* Context Section */}
-                    <Section title="◆ System Context" color="text-ice" defaultOpen={true}>
-                        <div>
-                            <label className="flex items-center gap-2 text-[11px] text-ice uppercase tracking-wider mb-2">
-                                <ScrollText size={13} />
-                                Rules / Mechanics
-                            </label>
-                            <textarea
-                                value={context.rulesRaw}
-                                onChange={(e) => updateContext({ rulesRaw: e.target.value })}
-                                placeholder="Paste game rules, mechanics, character stats..."
-                                rows={6}
-                                className="w-full bg-void border border-border px-3 py-2 text-xs text-text-primary placeholder:text-text-dim/40 font-mono resize-y"
-                            />
-                            <TokenCounter text={context.rulesRaw} limit={RULES_LIMIT} />
-                        </div>
 
-                        <div className="mt-4 pt-4 border-t border-border/50">
-                            <SceneNoteEditor />
-                        </div>
+                    {/* SYS — System Context */}
+                    {activeTab === 'sys' && (
+                        <div className="px-4 py-4 space-y-4">
+                            <div>
+                                <label className="flex items-center gap-2 text-[11px] text-ice uppercase tracking-wider mb-2">
+                                    <ScrollText size={13} />
+                                    Rules / Mechanics
+                                </label>
+                                <textarea
+                                    value={context.rulesRaw}
+                                    onChange={(e) => updateContext({ rulesRaw: e.target.value })}
+                                    placeholder="Paste game rules, mechanics, character stats..."
+                                    rows={6}
+                                    className="w-full bg-void border border-border px-3 py-2 text-xs text-text-primary placeholder:text-text-dim/40 font-mono resize-y"
+                                />
+                                <TokenCounter text={context.rulesRaw} limit={RULES_LIMIT} />
+                            </div>
 
-                        {settings.debugMode && (
-                            <div className="mt-4 pt-4 border-t border-border">
-                                <div className="text-[10px] text-terminal uppercase tracking-widest font-bold mb-2 flex items-center gap-2">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-terminal animate-pulse" />
-                                    Diagnostics
+                            <div className="pt-4 border-t border-border/50">
+                                <SceneNoteEditor />
+                            </div>
+
+                            {settings.debugMode && (
+                                <div className="pt-4 border-t border-border">
+                                    <div className="text-[10px] text-terminal uppercase tracking-widest font-bold mb-2 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-terminal animate-pulse" />
+                                        Diagnostics
+                                    </div>
+                                    <PayloadTraceView />
                                 </div>
-                                <PayloadTraceView />
-                            </div>
-                        )}
-                    </Section>
-
-                    {/* World Info Section */}
-                    {loreChunks.length > 0 && (
-                        <Section title="◆ World Info" color="text-ice" defaultOpen={false}>
-                            <p className="text-[9px] text-text-dim/50 -mt-1 mb-2">
-                                Chunks trigger when keywords appear in recent messages
-                            </p>
-                            <div className="space-y-3">
-                                {(() => {
-                                    const alwaysOn = loreChunks.filter(c => c.alwaysInclude);
-                                    const conditional = loreChunks.filter(c => !c.alwaysInclude);
-
-                                    const renderChunk = (chunk: typeof loreChunks[0]) => (
-                                        <div key={chunk.id} className={`bg-void rounded border p-2 transition-colors ${chunk.alwaysInclude ? 'border-terminal/40 shadow-[0_0_10px_rgba(74,222,128,0.05)]' : 'border-border'}`}>
-                                            {/* Header row */}
-                                            <div className="flex items-center justify-between mb-1.5">
-                                                <span className="text-[10px] text-text-primary font-bold truncate flex-1 mr-2" title={chunk.header}>
-                                                    {chunk.header}
-                                                </span>
-                                                <span className="text-[9px] text-text-dim shrink-0">
-                                                    {chunk.tokens}tk
-                                                </span>
-                                            </div>
-
-                                            {/* Controls row */}
-                                            <div className="flex items-center gap-2 mb-1.5">
-                                                <label className="flex items-center gap-1 text-[9px] text-text-dim cursor-pointer">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={chunk.alwaysInclude}
-                                                        onChange={() => updateLoreChunk(chunk.id, { alwaysInclude: !chunk.alwaysInclude })}
-                                                        className="w-3 h-3 accent-terminal"
-                                                    />
-                                                    Always
-                                                </label>
-                                                <label className="flex items-center gap-1 text-[9px] text-text-dim">
-                                                    Depth:
-                                                    <select
-                                                        value={chunk.scanDepth || 3}
-                                                        onChange={(e) => updateLoreChunk(chunk.id, { scanDepth: parseInt(e.target.value) })}
-                                                        className="bg-surface border border-border rounded px-1 py-0.5 text-[9px] text-text-primary"
-                                                    >
-                                                        <option value={1}>1</option>
-                                                        <option value={2}>2</option>
-                                                        <option value={3}>3</option>
-                                                        <option value={5}>5</option>
-                                                        <option value={10}>10</option>
-                                                    </select>
-                                                </label>
-                                            </div>
-
-                                            {/* Keywords */}
-                                            <div className="flex flex-wrap gap-1 mb-1.5">
-                                                {(chunk.triggerKeywords || []).map((kw) => (
-                                                    <span
-                                                        key={kw}
-                                                        className="inline-flex items-center gap-0.5 bg-surface border border-border rounded px-1.5 py-0.5 text-[9px] text-text-dim hover:border-danger group cursor-pointer"
-                                                        onClick={() => removeKeyword(chunk.id, kw)}
-                                                        title="Click to remove"
-                                                    >
-                                                        {kw}
-                                                        <span className="text-danger opacity-0 group-hover:opacity-100 text-[8px]">×</span>
-                                                    </span>
-                                                ))}
-                                            </div>
-
-                                            {/* Add keyword input */}
-                                            <div className="flex gap-1">
-                                                <input
-                                                    type="text"
-                                                    value={newKeyword[chunk.id] || ''}
-                                                    onChange={(e) => setNewKeyword(prev => ({ ...prev, [chunk.id]: e.target.value }))}
-                                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(chunk.id); } }}
-                                                    placeholder="+ keyword"
-                                                    className="flex-1 bg-surface border border-border rounded px-1.5 py-0.5 text-[9px] text-text-primary placeholder:text-text-dim/40"
-                                                />
-                                                <button
-                                                    onClick={() => addKeyword(chunk.id)}
-                                                    className="text-[9px] text-terminal hover:text-text-primary px-1"
-                                                >
-                                                    +
-                                                </button>
-                                            </div>
-                                        </div>
-                                    );
-
-                                    return (
-                                        <>
-                                            {alwaysOn.length > 0 && (
-                                                <div className="space-y-2 mb-4">
-                                                    <div className="text-[10px] text-terminal uppercase tracking-wider font-bold mb-1 border-b border-terminal/20 pb-1 flex items-center gap-2">
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-terminal animate-pulse" />
-                                                        Always On
-                                                    </div>
-                                                    {alwaysOn.map(renderChunk)}
-                                                </div>
-                                            )}
-                                            {conditional.length > 0 && (
-                                                <div className="space-y-2">
-                                                    <div className="text-[10px] text-text-dim uppercase tracking-wider font-bold mb-1 border-b border-border/50 pb-1 flex items-center gap-2">
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-text-dim/50" />
-                                                        Conditional Triggers
-                                                    </div>
-                                                    {conditional.map(renderChunk)}
-                                                </div>
-                                            )}
-                                        </>
-                                    );
-                                })()}
-                            </div>
-                        </Section>
+                            )}
+                        </div>
                     )}
 
-                    {/* Engine Tuning Section */}
-                    <Section title="◇ Engine Tuning" color="text-ice" defaultOpen={false}>
-                        <p className="text-[9px] text-text-dim/50 -mt-1 mb-2">
-                            Configure thresholds and tags for the local narrative engines.
-                        </p>
+                    {/* WORLD — World Info */}
+                    {activeTab === 'world' && (
+                        <div className="px-4 py-4 space-y-4">
+                            <p className="text-[9px] text-text-dim/50">
+                                Chunks trigger when keywords appear in recent messages
+                            </p>
+                            {loreChunks.length === 0 ? (
+                                <p className="text-text-dim/50 text-xs text-center mt-8">
+                                    No lore uploaded for this campaign.
+                                </p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {(() => {
+                                        const alwaysOn = loreChunks.filter(c => c.alwaysInclude);
+                                        const conditional = loreChunks.filter(c => !c.alwaysInclude);
 
-                        <div className="space-y-4">
-                            {/* Surprise Engine Tuning */}
-                            <div className="space-y-2">
-                                <div className="text-[10px] text-terminal uppercase tracking-wider font-bold border-b border-terminal/20 pb-1 flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-terminal" />
-                                        Surprise Engine
-                                    </div>
-                                    <Toggle active={context.surpriseEngineActive ?? true} onChange={() => updateContext({ surpriseEngineActive: !(context.surpriseEngineActive ?? true) })} />
+                                        const renderChunk = (chunk: typeof loreChunks[0]) => (
+                                            <div key={chunk.id} className={`bg-void rounded border p-2 transition-colors ${chunk.alwaysInclude ? 'border-terminal/40 shadow-[0_0_10px_rgba(74,222,128,0.05)]' : 'border-border'}`}>
+                                                {/* Header row */}
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <span className="text-[10px] text-text-primary font-bold truncate flex-1 mr-2" title={chunk.header}>
+                                                        {chunk.header}
+                                                    </span>
+                                                    <span className="text-[9px] text-text-dim shrink-0">
+                                                        {chunk.tokens}tk
+                                                    </span>
+                                                </div>
+
+                                                {/* Controls row */}
+                                                <div className="flex items-center gap-2 mb-1.5">
+                                                    <label className="flex items-center gap-1 text-[9px] text-text-dim cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={chunk.alwaysInclude}
+                                                            onChange={() => updateLoreChunk(chunk.id, { alwaysInclude: !chunk.alwaysInclude })}
+                                                            className="w-3 h-3 accent-terminal"
+                                                        />
+                                                        Always
+                                                    </label>
+                                                    <label className="flex items-center gap-1 text-[9px] text-text-dim">
+                                                        Depth:
+                                                        <select
+                                                            value={chunk.scanDepth || 3}
+                                                            onChange={(e) => updateLoreChunk(chunk.id, { scanDepth: parseInt(e.target.value) })}
+                                                            className="bg-surface border border-border rounded px-1 py-0.5 text-[9px] text-text-primary"
+                                                        >
+                                                            <option value={1}>1</option>
+                                                            <option value={2}>2</option>
+                                                            <option value={3}>3</option>
+                                                            <option value={5}>5</option>
+                                                            <option value={10}>10</option>
+                                                        </select>
+                                                    </label>
+                                                </div>
+
+                                                {/* Keywords */}
+                                                <div className="flex flex-wrap gap-1 mb-1.5">
+                                                    {(chunk.triggerKeywords || []).map((kw) => (
+                                                        <span
+                                                            key={kw}
+                                                            className="inline-flex items-center gap-0.5 bg-surface border border-border rounded px-1.5 py-0.5 text-[9px] text-text-dim hover:border-danger group cursor-pointer"
+                                                            onClick={() => removeKeyword(chunk.id, kw)}
+                                                            title="Click to remove"
+                                                        >
+                                                            {kw}
+                                                            <span className="text-danger opacity-0 group-hover:opacity-100 text-[8px]">×</span>
+                                                        </span>
+                                                    ))}
+                                                </div>
+
+                                                {/* Add keyword input */}
+                                                <div className="flex gap-1">
+                                                    <input
+                                                        type="text"
+                                                        value={newKeyword[chunk.id] || ''}
+                                                        onChange={(e) => setNewKeyword(prev => ({ ...prev, [chunk.id]: e.target.value }))}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(chunk.id); } }}
+                                                        placeholder="+ keyword"
+                                                        className="flex-1 bg-surface border border-border rounded px-1.5 py-0.5 text-[9px] text-text-primary placeholder:text-text-dim/40"
+                                                    />
+                                                    <button
+                                                        onClick={() => addKeyword(chunk.id)}
+                                                        className="text-[9px] text-terminal hover:text-text-primary px-1"
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+
+                                        return (
+                                            <>
+                                                {alwaysOn.length > 0 && (
+                                                    <div className="space-y-2 mb-4">
+                                                        <div className="text-[10px] text-terminal uppercase tracking-wider font-bold mb-1 border-b border-terminal/20 pb-1 flex items-center gap-2">
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-terminal animate-pulse" />
+                                                            Always On
+                                                        </div>
+                                                        {alwaysOn.map(renderChunk)}
+                                                    </div>
+                                                )}
+                                                {conditional.length > 0 && (
+                                                    <div className="space-y-2">
+                                                        <div className="text-[10px] text-text-dim uppercase tracking-wider font-bold mb-1 border-b border-border/50 pb-1 flex items-center gap-2">
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-text-dim/50" />
+                                                            Conditional Triggers
+                                                        </div>
+                                                        {conditional.map(renderChunk)}
+                                                    </div>
+                                                )}
+                                            </>
+                                        );
+                                    })()}
                                 </div>
-                                <div className="bg-void border border-border p-3 space-y-3">
-                                    <div className="grid grid-cols-2 gap-2">
+                            )}
+                        </div>
+                    )}
+
+                    {/* ENG — Engine Tuning */}
+                    {activeTab === 'eng' && (
+                        <div className="px-4 py-4 space-y-4">
+                            <p className="text-[9px] text-text-dim/50">
+                                Configure thresholds and tags for the local narrative engines.
+                            </p>
+
+                            <div className="space-y-4">
+                                {/* Surprise Engine */}
+                                <div className="space-y-2">
+                                    <div className="text-[10px] text-terminal uppercase tracking-wider font-bold border-b border-terminal/20 pb-1 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-terminal" />
+                                            Surprise Engine
+                                        </div>
+                                        <Toggle active={context.surpriseEngineActive ?? true} onChange={() => updateContext({ surpriseEngineActive: !(context.surpriseEngineActive ?? true) })} />
+                                    </div>
+                                    <div className="bg-void border border-border p-3 space-y-3">
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="flex flex-col">
+                                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">
+                                                    Initial DC (Default 95)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={context.surpriseConfig?.initialDC ?? 95}
+                                                    onChange={(e) => {
+                                                        const val = parseInt(e.target.value);
+                                                        updateContext({
+                                                            surpriseConfig: {
+                                                                ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }),
+                                                                initialDC: isNaN(val) ? 95 : val
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                                />
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">
+                                                    DC Drop per turn (Def 3)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={context.surpriseConfig?.dcReduction ?? 3}
+                                                    onChange={(e) => {
+                                                        const val = parseInt(e.target.value);
+                                                        updateContext({
+                                                            surpriseConfig: {
+                                                                ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }),
+                                                                dcReduction: isNaN(val) ? 3 : val
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                                />
+                                            </div>
+                                        </div>
+
                                         <div className="flex flex-col">
-                                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">
-                                                Initial DC (Default 95)
+                                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
+                                                <span>Event Types (Comma Separated)</span>
+                                                <span className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={async () => {
+                                                            setPopulatingField('surpriseTypes');
+                                                            const provider = useAppStore.getState().getActiveStoryEndpoint();
+                                                            if (!provider) { setPopulatingField(null); return; }
+                                                            const lore = context.loreRaw || context.rulesRaw || '';
+                                                            const current = context.surpriseConfig?.types || DEFAULT_SURPRISE_TYPES;
+                                                            const result = await populateEngineTags(provider, lore, current, 'surpriseTypes');
+                                                            updateContext({ surpriseConfig: { ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 98, dcReduction: 3 }), types: result } });
+                                                            setPopulatingField(null);
+                                                        }}
+                                                        disabled={populatingField !== null}
+                                                        className="flex items-center gap-1 text-[9px] text-terminal hover:text-text-primary transition-colors disabled:opacity-30"
+                                                        title="AI-populate tags based on campaign lore"
+                                                    >
+                                                        {populatingField === 'surpriseTypes' ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
+                                                        Populate
+                                                    </button>
+                                                    <span className={(context.surpriseConfig?.types?.length ?? 0) < 3 ? 'text-danger' : 'text-terminal'}>
+                                                        Min 3 tags
+                                                    </span>
+                                                </span>
                                             </label>
-                                            <input
-                                                type="number"
-                                                value={context.surpriseConfig?.initialDC ?? 95}
+                                            <textarea
+                                                value={context.surpriseConfig?.types.join(', ') ?? DEFAULT_SURPRISE_TYPES.join(', ')}
                                                 onChange={(e) => {
-                                                    const val = parseInt(e.target.value);
+                                                    const raw = e.target.value;
+                                                    const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
                                                     updateContext({
                                                         surpriseConfig: {
-                                                            ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }),
-                                                            initialDC: isNaN(val) ? 95 : val
+                                                            ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 98, dcReduction: 3 }),
+                                                            types: tags
                                                         }
                                                     });
                                                 }}
-                                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                                placeholder="ENVIRONMENTAL_HAZARD, NPC_ACTION..."
+                                                rows={3}
+                                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
                                             />
                                         </div>
                                         <div className="flex flex-col">
-                                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">
-                                                DC Drop per turn (Def 3)
+                                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
+                                                <span>Event Tones (Comma Separated)</span>
+                                                <span className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={async () => {
+                                                            setPopulatingField('surpriseTones');
+                                                            const provider = useAppStore.getState().getActiveStoryEndpoint();
+                                                            if (!provider) { setPopulatingField(null); return; }
+                                                            const lore = context.loreRaw || context.rulesRaw || '';
+                                                            const current = context.surpriseConfig?.tones || DEFAULT_SURPRISE_TONES;
+                                                            const result = await populateEngineTags(provider, lore, current, 'surpriseTones');
+                                                            updateContext({ surpriseConfig: { ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }), tones: result } });
+                                                            setPopulatingField(null);
+                                                        }}
+                                                        disabled={populatingField !== null}
+                                                        className="flex items-center gap-1 text-[9px] text-terminal hover:text-text-primary transition-colors disabled:opacity-30"
+                                                        title="AI-populate tones based on campaign lore"
+                                                    >
+                                                        {populatingField === 'surpriseTones' ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
+                                                        Populate
+                                                    </button>
+                                                    <span className={(context.surpriseConfig?.tones?.length ?? 0) < 3 ? 'text-danger' : 'text-terminal'}>
+                                                        Min 3 tags
+                                                    </span>
+                                                </span>
                                             </label>
-                                            <input
-                                                type="number"
-                                                value={context.surpriseConfig?.dcReduction ?? 3}
+                                            <textarea
+                                                value={context.surpriseConfig?.tones.join(', ') ?? DEFAULT_SURPRISE_TONES.join(', ')}
                                                 onChange={(e) => {
-                                                    const val = parseInt(e.target.value);
+                                                    const raw = e.target.value;
+                                                    const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
                                                     updateContext({
                                                         surpriseConfig: {
                                                             ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }),
-                                                            dcReduction: isNaN(val) ? 3 : val
+                                                            tones: tags
                                                         }
                                                     });
                                                 }}
-                                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                                placeholder="GOOD, BAD, NEUTRAL..."
+                                                rows={2}
+                                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
                                             />
                                         </div>
                                     </div>
-
-                                    <div className="flex flex-col">
-                                        <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
-                                            <span>Event Types (Comma Separated)</span>
-                                            <span className="flex items-center gap-2">
-                                                <button
-                                                    onClick={async () => {
-                                                        setPopulatingField('surpriseTypes');
-                                                        const provider = useAppStore.getState().getActiveStoryEndpoint();
-                                                        if (!provider) { setPopulatingField(null); return; }
-                                                        const lore = context.loreRaw || context.rulesRaw || '';
-                                                        const current = context.surpriseConfig?.types || DEFAULT_SURPRISE_TYPES;
-                                                        const result = await populateEngineTags(provider, lore, current, 'surpriseTypes');
-                                                        updateContext({ surpriseConfig: { ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 98, dcReduction: 3 }), types: result } });
-                                                        setPopulatingField(null);
-                                                    }}
-                                                    disabled={populatingField !== null}
-                                                    className="flex items-center gap-1 text-[9px] text-terminal hover:text-text-primary transition-colors disabled:opacity-30"
-                                                    title="AI-populate tags based on campaign lore"
-                                                >
-                                                    {populatingField === 'surpriseTypes' ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
-                                                    Populate
-                                                </button>
-                                                <span className={(context.surpriseConfig?.types?.length ?? 0) < 3 ? 'text-danger' : 'text-terminal'}>
-                                                    Min 3 tags
-                                                </span>
-                                            </span>
-                                        </label>
-                                        <textarea
-                                            value={context.surpriseConfig?.types.join(', ') ?? DEFAULT_SURPRISE_TYPES.join(', ')}
-                                            onChange={(e) => {
-                                                const raw = e.target.value;
-                                                const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
-                                                updateContext({
-                                                    surpriseConfig: {
-                                                        ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 98, dcReduction: 3 }),
-                                                        types: tags
-                                                    }
-                                                });
-                                            }}
-                                            placeholder="ENVIRONMENTAL_HAZARD, NPC_ACTION..."
-                                            rows={3}
-                                            className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col">
-                                        <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
-                                            <span>Event Tones (Comma Separated)</span>
-                                            <span className="flex items-center gap-2">
-                                                <button
-                                                    onClick={async () => {
-                                                        setPopulatingField('surpriseTones');
-                                                        const provider = useAppStore.getState().getActiveStoryEndpoint();
-                                                        if (!provider) { setPopulatingField(null); return; }
-                                                        const lore = context.loreRaw || context.rulesRaw || '';
-                                                        const current = context.surpriseConfig?.tones || DEFAULT_SURPRISE_TONES;
-                                                        const result = await populateEngineTags(provider, lore, current, 'surpriseTones');
-                                                        updateContext({ surpriseConfig: { ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }), tones: result } });
-                                                        setPopulatingField(null);
-                                                    }}
-                                                    disabled={populatingField !== null}
-                                                    className="flex items-center gap-1 text-[9px] text-terminal hover:text-text-primary transition-colors disabled:opacity-30"
-                                                    title="AI-populate tones based on campaign lore"
-                                                >
-                                                    {populatingField === 'surpriseTones' ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
-                                                    Populate
-                                                </button>
-                                                <span className={(context.surpriseConfig?.tones?.length ?? 0) < 3 ? 'text-danger' : 'text-terminal'}>
-                                                    Min 3 tags
-                                                </span>
-                                            </span>
-                                        </label>
-                                        <textarea
-                                            value={context.surpriseConfig?.tones.join(', ') ?? DEFAULT_SURPRISE_TONES.join(', ')}
-                                            onChange={(e) => {
-                                                const raw = e.target.value;
-                                                const tags = raw.split(',').map(t => t.trim()).filter(Boolean);
-                                                updateContext({
-                                                    surpriseConfig: {
-                                                        ...(context.surpriseConfig || { types: DEFAULT_SURPRISE_TYPES, tones: DEFAULT_SURPRISE_TONES, initialDC: 95, dcReduction: 3 }),
-                                                        tones: tags
-                                                    }
-                                                });
-                                            }}
-                                            placeholder="GOOD, BAD, NEUTRAL..."
-                                            rows={2}
-                                            className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
-                                        />
-                                    </div>
                                 </div>
 
-                                {/* Encounter Engine Tuning */}
-                                <div className="space-y-2 mt-4">
+                                {/* Encounter Engine */}
+                                <div className="space-y-2">
                                     <div className="text-[10px] text-ember uppercase tracking-wider font-bold border-b border-ember/20 pb-1 flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <div className="w-1.5 h-1.5 rounded-full bg-ember" />
@@ -670,8 +684,8 @@ export function ContextDrawer() {
                                     </div>
                                 </div>
 
-                                {/* World Engine Tuning */}
-                                <div className="space-y-2 mt-4">
+                                {/* World Engine */}
+                                <div className="space-y-2">
                                     <div className="text-[10px] text-terminal uppercase tracking-wider font-bold border-b border-terminal/20 pb-1 flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <div className="w-1.5 h-1.5 rounded-full bg-terminal" />
@@ -898,225 +912,231 @@ export function ContextDrawer() {
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="space-y-2">
-                                <div className="text-[10px] text-ice uppercase tracking-wider font-bold border-b border-ice/20 pb-1 flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-ice" />
-                                        Dice Fairness Engine
+
+                                {/* Dice Fairness Engine */}
+                                <div className="space-y-2">
+                                    <div className="text-[10px] text-ice uppercase tracking-wider font-bold border-b border-ice/20 pb-1 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-ice" />
+                                            Dice Fairness Engine
+                                        </div>
+                                        <Toggle active={context.diceFairnessActive ?? true} onChange={() => updateContext({ diceFairnessActive: !(context.diceFairnessActive ?? true) })} />
                                     </div>
-                                    <Toggle active={context.diceFairnessActive ?? true} onChange={() => updateContext({ diceFairnessActive: !(context.diceFairnessActive ?? true) })} />
-                                </div>
-                                <div className="bg-void border border-border p-3 space-y-2">
-                                    {[
-                                        { label: 'Catastrophe (<=)', key: 'catastrophe' as const, def: 2 },
-                                        { label: 'Failure (<=)', key: 'failure' as const, def: 6 },
-                                        { label: 'Success (<=)', key: 'success' as const, def: 15 },
-                                        { label: 'Triumph (<=)', key: 'triumph' as const, def: 19 },
-                                        { label: 'Critical (<=)', key: 'crit' as const, def: 20 },
-                                    ].map(({ label, key, def }) => (
-                                        <div key={key} className="flex flex-col">
-                                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1" title={`Default: ${def} (Min:1, Max:20)`}>
-                                                {label}
-                                            </label>
-                                            <input
-                                                type="number"
-                                                min={1}
-                                                max={20}
-                                                placeholder={`Def: ${def} (Min:1, Max:20)`}
-                                                title={`Default: ${def} (Min:1, Max:20)`}
-                                                value={context.diceConfig?.[key] ?? ''}
-                                                onChange={(e) => {
-                                                    const val = parseInt(e.target.value);
-                                                    updateContext({
-                                                        diceConfig: {
-                                                            ...(context.diceConfig || {
-                                                                catastrophe: 2, failure: 6, success: 15, triumph: 19, crit: 20
-                                                            }),
-                                                            [key]: isNaN(val) ? 0 : val
-                                                        }
-                                                    });
-                                                }}
-                                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
-                                            />
-                                        </div>
-                                    ))}
+                                    <div className="bg-void border border-border p-3 space-y-2">
+                                        {[
+                                            { label: 'Catastrophe (<=)', key: 'catastrophe' as const, def: 2 },
+                                            { label: 'Failure (<=)', key: 'failure' as const, def: 6 },
+                                            { label: 'Success (<=)', key: 'success' as const, def: 15 },
+                                            { label: 'Triumph (<=)', key: 'triumph' as const, def: 19 },
+                                            { label: 'Critical (<=)', key: 'crit' as const, def: 20 },
+                                        ].map(({ label, key, def }) => (
+                                            <div key={key} className="flex flex-col">
+                                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1" title={`Default: ${def} (Min:1, Max:20)`}>
+                                                    {label}
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min={1}
+                                                    max={20}
+                                                    placeholder={`Def: ${def} (Min:1, Max:20)`}
+                                                    title={`Default: ${def} (Min:1, Max:20)`}
+                                                    value={context.diceConfig?.[key] ?? ''}
+                                                    onChange={(e) => {
+                                                        const val = parseInt(e.target.value);
+                                                        updateContext({
+                                                            diceConfig: {
+                                                                ...(context.diceConfig || {
+                                                                    catastrophe: 2, failure: 6, success: 15, triumph: 19, crit: 20
+                                                                }),
+                                                                [key]: isNaN(val) ? 0 : val
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </Section>
+                    )}
 
-                    {/* Bookkeeping Section */}
-                    <Section title="◇ Bookkeeping" color="text-ember" defaultOpen={true}>
-                        <p className="text-[9px] text-text-dim/50 -mt-1 mb-2">
-                            Toggle ON = appended to context. Use Check Inventory to auto-update.
-                        </p>
+                    {/* NARR — Save File */}
+                    {activeTab === 'narr' && (
+                        <div className="px-4 py-4 space-y-4">
+                            <p className="text-[9px] text-text-dim/50">
+                                Toggle ON = appended to context (top→bottom order)
+                            </p>
 
-                        <div>
                             <TemplateField
-                                icon={<Briefcase size={13} />}
-                                label="Player Inventory"
-                                color="text-ice"
-                                value={context.inventory}
-                                onChange={(v) => updateContext({ inventory: v })}
-                                placeholder={"- 50 Gold Coins\n- Rusty Sword\n- 3x Healing Potions"}
-                                rows={6}
-                                active={context.inventoryActive}
-                                onToggle={() => updateContext({ inventoryActive: !context.inventoryActive })}
-                            />
-                            <div className="mt-2 flex justify-end">
-                                <button
-                                    onClick={handleCheckInventory}
-                                    disabled={isScanningInventory}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-void border border-border hover:border-terminal text-text-primary text-[10px] uppercase tracking-wider rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
-                                    title="Silent AI generation based on recent chat history"
-                                >
-                                    <RefreshCw size={12} className={`text-terminal ${isScanningInventory ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
-                                    {isScanningInventory ? 'Scanning...' : 'Check Inventory'}
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="mt-4 pt-4 border-t border-border/50">
-                            <TemplateField
-                                icon={<User size={13} />}
-                                label="Character Profile"
+                                icon={<Database size={13} />}
+                                label="Canon State"
                                 color="text-ember"
-                                value={context.characterProfile}
-                                onChange={(v) => updateContext({ characterProfile: v })}
-                                placeholder={"Name: Eldon\nRace: Elf\nClass: Rogue\nLevel: 3\n\nAbilities:\n- Stealth\n- Backstab"}
+                                value={context.canonState}
+                                onChange={(v) => updateContext({ canonState: v })}
+                                placeholder="Paste canon state data..."
                                 rows={6}
-                                active={context.characterProfileActive}
-                                onToggle={() => updateContext({ characterProfileActive: !context.characterProfileActive })}
+                                active={context.canonStateActive}
+                                onToggle={() => updateContext({ canonStateActive: !context.canonStateActive })}
                             />
-                            <div className="mt-2 flex justify-end">
-                                <button
-                                    onClick={handlePopulateProfile}
-                                    disabled={isScanningProfile}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-void border border-border hover:border-terminal text-text-primary text-[10px] uppercase tracking-wider rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
-                                    title="Silent AI generation based on recent chat history"
-                                >
-                                    <RefreshCw size={12} className={`text-terminal ${isScanningProfile ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
-                                    {isScanningProfile ? 'Scanning...' : 'Populate Profile'}
-                                </button>
-                            </div>
-                        </div>
-                    </Section>
 
-                    {/* Save File Section */}
-                    <Section title="◇ Save File" color="text-ember" defaultOpen={false}>
-                        <p className="text-[9px] text-text-dim/50 -mt-1 mb-2">
-                            Toggle ON = appended to context (top→bottom order)
-                        </p>
-
-                        <TemplateField
-                            icon={<Database size={13} />}
-                            label="Canon State"
-                            color="text-ember"
-                            value={context.canonState}
-                            onChange={(v) => updateContext({ canonState: v })}
-                            placeholder="Paste canon state data..."
-                            rows={6}
-                            active={context.canonStateActive}
-                            onToggle={() => updateContext({ canonStateActive: !context.canonStateActive })}
-                        />
-
-                        <div className="bg-void border border-border px-3 py-3">
-                            <div className="flex items-center justify-between mb-3">
-                                <label className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-terminal">
-                                    <List size={13} />
-                                    Quest Log
-                                </label>
-                                <div className="flex items-center gap-3">
-                                    <button
-                                        onClick={handleManualQuestUpdate}
-                                        disabled={isScanningQuests}
-                                        className="text-[9px] text-terminal hover:text-text-primary uppercase tracking-widest flex items-center gap-1.5 transition-colors disabled:opacity-40"
-                                        title="Manually trigger AI quest log extraction from recent history"
-                                    >
-                                        <RefreshCw size={11} className={isScanningQuests ? 'animate-spin' : ''} />
-                                        {isScanningQuests ? 'Scanning...' : 'Scan'}
-                                    </button>
-                                    <Toggle active={context.questLogActive} onChange={() => updateContext({ questLogActive: !context.questLogActive })} />
+                            {/* Quest Log */}
+                            <div className="bg-void border border-border px-3 py-3">
+                                <div className="flex items-center justify-between mb-3">
+                                    <label className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-terminal">
+                                        <List size={13} />
+                                        Quest Log
+                                    </label>
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={handleManualQuestUpdate}
+                                            disabled={isScanningQuests}
+                                            className="text-[9px] text-terminal hover:text-text-primary uppercase tracking-widest flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                                            title="Manually trigger AI quest log extraction from recent history"
+                                        >
+                                            <RefreshCw size={11} className={isScanningQuests ? 'animate-spin' : ''} />
+                                            {isScanningQuests ? 'Scanning...' : 'Scan'}
+                                        </button>
+                                        <Toggle active={context.questLogActive} onChange={() => updateContext({ questLogActive: !context.questLogActive })} />
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-text-dim mb-3">
-                                <span>{context.questLog?.filter(q => !['completed', 'failed', 'abandoned'].includes(q.status)).length ?? 0} active</span>
-                                <span>{context.questLog?.length ?? 0} total</span>
-                            </div>
-
-                            {(context.questLog?.length ?? 0) === 0 ? (
-                                <div className="text-[10px] text-text-dim/60 border border-dashed border-border/60 px-3 py-4 text-center">
-                                    No quests tracked yet. The background quest extractor will populate this after GM replies.
+                                <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-text-dim mb-3">
+                                    <span>{context.questLog?.filter(q => !['completed', 'failed', 'abandoned'].includes(q.status)).length ?? 0} active</span>
+                                    <span>{context.questLog?.length ?? 0} total</span>
                                 </div>
-                            ) : (
-                                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                                    {(context.questLog || []).map((quest) => (
-                                        <div key={quest.id} className="border border-border bg-surface/50 px-3 py-2.5 space-y-2">
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div>
-                                                    <div className="text-[11px] text-text-primary font-bold uppercase tracking-wide">{quest.title}</div>
-                                                    <div className="text-[10px] text-text-dim mt-1">{quest.summary}</div>
+
+                                {(context.questLog?.length ?? 0) === 0 ? (
+                                    <div className="text-[10px] text-text-dim/60 border border-dashed border-border/60 px-3 py-4 text-center">
+                                        No quests tracked yet. The background quest extractor will populate this after GM replies.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                                        {(context.questLog || []).map((quest) => (
+                                            <div key={quest.id} className="border border-border bg-surface/50 px-3 py-2.5 space-y-2">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div>
+                                                        <div className="text-[11px] text-text-primary font-bold uppercase tracking-wide">{quest.title}</div>
+                                                        <div className="text-[10px] text-text-dim mt-1">{quest.summary}</div>
+                                                    </div>
+                                                    <span className={`text-[9px] uppercase tracking-widest border px-1.5 py-0.5 shrink-0 ${questStatusClasses(quest.status)}`}>
+                                                        {quest.status}
+                                                    </span>
                                                 </div>
-                                                <span className={`text-[9px] uppercase tracking-widest border px-1.5 py-0.5 shrink-0 ${questStatusClasses(quest.status)}`}>
-                                                    {quest.status}
-                                                </span>
-                                            </div>
 
-                                            <div className="text-[9px] uppercase tracking-wider text-text-dim flex items-center gap-2">
-                                                <span>{quest.category}</span>
-                                                <span>|</span>
-                                                <span>{quest.objectives.length} objective{quest.objectives.length === 1 ? '' : 's'}</span>
-                                            </div>
-
-                                            {quest.objectives.length > 0 && (
-                                                <div className="space-y-1.5">
-                                                    {quest.objectives.map((objective) => (
-                                                        <div key={objective.id} className="text-[10px] text-text-primary flex items-start gap-2">
-                                                            <span className={`mt-0.5 h-1.5 w-1.5 rounded-full shrink-0 ${objective.done ? 'bg-terminal' : 'bg-ember'}`} />
-                                                            <span>
-                                                                {objective.text}
-                                                                {typeof objective.progress === 'number' && typeof objective.target === 'number' && ` (${objective.progress}/${objective.target})`}
-                                                            </span>
-                                                        </div>
-                                                    ))}
+                                                <div className="text-[9px] uppercase tracking-wider text-text-dim flex items-center gap-2">
+                                                    <span>{quest.category}</span>
+                                                    <span>|</span>
+                                                    <span>{quest.objectives.length} objective{quest.objectives.length === 1 ? '' : 's'}</span>
                                                 </div>
-                                            )}
 
-                                            <div className="text-[10px] text-text-dim/70 border-t border-border/60 pt-2 flex items-center justify-between gap-4">
-                                                <span className="flex-1 truncate">{latestQuestNote(quest)}</span>
-                                                {!['completed', 'failed', 'abandoned'].includes(quest.status) && (
-                                                    <button
-                                                        onClick={() => handleFinishQuest(quest.id)}
-                                                        className="text-[9px] text-terminal hover:text-text-primary uppercase tracking-wider border border-terminal/30 px-1.5 py-0.5 rounded bg-terminal/5 transition-all shrink-0"
-                                                    >
-                                                        Finish
-                                                    </button>
+                                                {quest.objectives.length > 0 && (
+                                                    <div className="space-y-1.5">
+                                                        {quest.objectives.map((objective) => (
+                                                            <div key={objective.id} className="text-[10px] text-text-primary flex items-start gap-2">
+                                                                <span className={`mt-0.5 h-1.5 w-1.5 rounded-full shrink-0 ${objective.done ? 'bg-terminal' : 'bg-ember'}`} />
+                                                                <span>
+                                                                    {objective.text}
+                                                                    {typeof objective.progress === 'number' && typeof objective.target === 'number' && ` (${objective.progress}/${objective.target})`}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
                                                 )}
+
+                                                <div className="text-[10px] text-text-dim/70 border-t border-border/60 pt-2 flex items-center justify-between gap-4">
+                                                    <span className="flex-1 truncate">{latestQuestNote(quest)}</span>
+                                                    {!['completed', 'failed', 'abandoned'].includes(quest.status) && (
+                                                        <button
+                                                            onClick={() => handleFinishQuest(quest.id)}
+                                                            className="text-[9px] text-terminal hover:text-text-primary uppercase tracking-wider border border-terminal/30 px-1.5 py-0.5 rounded bg-terminal/5 transition-all shrink-0"
+                                                        >
+                                                            Finish
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <TemplateField
+                                icon={<List size={13} />}
+                                label="Header Index"
+                                color="text-ice"
+                                value={context.headerIndex}
+                                onChange={(v) => updateContext({ headerIndex: v })}
+                                placeholder="Paste header index..."
+                                rows={4}
+                                active={context.headerIndexActive}
+                                onToggle={() => updateContext({ headerIndexActive: !context.headerIndexActive })}
+                            />
                         </div>
-                        <TemplateField
-                            icon={<List size={13} />}
-                            label="Header Index"
-                            color="text-ice"
-                            value={context.headerIndex}
-                            onChange={(v) => updateContext({ headerIndex: v })}
-                            placeholder="Paste header index..."
-                            rows={4}
-                            active={context.headerIndexActive}
-                            onToggle={() => updateContext({ headerIndexActive: !context.headerIndexActive })}
-                        />
+                    )}
 
+                    {/* CHR — Bookkeeping */}
+                    {activeTab === 'chr' && (
+                        <div className="px-4 py-4 space-y-4">
+                            <p className="text-[9px] text-text-dim/50">
+                                Toggle ON = appended to context. Use Check Inventory to auto-update.
+                            </p>
 
-                    </Section>
+                            <div>
+                                <TemplateField
+                                    icon={<Briefcase size={13} />}
+                                    label="Player Inventory"
+                                    color="text-ice"
+                                    value={context.inventory}
+                                    onChange={(v) => updateContext({ inventory: v })}
+                                    placeholder={"- 50 Gold Coins\n- Rusty Sword\n- 3x Healing Potions"}
+                                    rows={6}
+                                    active={context.inventoryActive}
+                                    onToggle={() => updateContext({ inventoryActive: !context.inventoryActive })}
+                                />
+                                <div className="mt-2 flex justify-end">
+                                    <button
+                                        onClick={handleCheckInventory}
+                                        disabled={isScanningInventory}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-void border border-border hover:border-terminal text-text-primary text-[10px] uppercase tracking-wider rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
+                                        title="Silent AI generation based on recent chat history"
+                                    >
+                                        <RefreshCw size={12} className={`text-terminal ${isScanningInventory ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+                                        {isScanningInventory ? 'Scanning...' : 'Check Inventory'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="pt-4 border-t border-border/50">
+                                <TemplateField
+                                    icon={<User size={13} />}
+                                    label="Character Profile"
+                                    color="text-ember"
+                                    value={context.characterProfile}
+                                    onChange={(v) => updateContext({ characterProfile: v })}
+                                    placeholder={"Name: Eldon\nRace: Elf\nClass: Rogue\nLevel: 3\n\nAbilities:\n- Stealth\n- Backstab"}
+                                    rows={6}
+                                    active={context.characterProfileActive}
+                                    onToggle={() => updateContext({ characterProfileActive: !context.characterProfileActive })}
+                                />
+                                <div className="mt-2 flex justify-end">
+                                    <button
+                                        onClick={handlePopulateProfile}
+                                        disabled={isScanningProfile}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-void border border-border hover:border-terminal text-text-primary text-[10px] uppercase tracking-wider rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
+                                        title="Silent AI generation based on recent chat history"
+                                    >
+                                        <RefreshCw size={12} className={`text-terminal ${isScanningProfile ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+                                        {isScanningProfile ? 'Scanning...' : 'Populate Profile'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                 </div>
             </aside>
         </>
     );
 }
-
