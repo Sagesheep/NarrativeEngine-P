@@ -77,11 +77,78 @@ export type WorldEventConfig = {
     what?: string[]; // The custom 'what' table
 };
 
+export type QuestStatus =
+    | 'available'
+    | 'active'
+    | 'blocked'
+    | 'completed'
+    | 'failed'
+    | 'abandoned';
+
+export type QuestCategory =
+    | 'main'
+    | 'side'
+    | 'errand'
+    | 'faction'
+    | 'investigation'
+    | 'hunt'
+    | 'social'
+    | 'survival'
+    | 'hidden';
+
+export type QuestObjective = {
+    id: string;
+    text: string;
+    done: boolean;
+    progress?: number;
+    target?: number;
+};
+
+export type QuestNote = {
+    id: string;
+    text: string;
+    timestamp: number;
+    source: 'ai' | 'user' | 'system';
+};
+
+export type QuestEntry = {
+    id: string;
+    title: string;
+    summary: string;
+    status: QuestStatus;
+    category: QuestCategory;
+    objectives: QuestObjective[];
+    actors: string[];
+    locations: string[];
+    tags: string[];
+    notes: QuestNote[];
+    createdAt: number;
+    updatedAt: number;
+    lastTouchedSceneId?: string;
+};
+
+export type QuestChange = {
+    type: 'create_quest' | 'update_progress' | 'set_status' | 'add_note';
+    questId?: string;
+    title?: string;
+    summary?: string;
+    status?: QuestStatus;
+    category?: QuestCategory;
+    objectives?: QuestObjective[];
+    note?: string;
+    evidence: string;
+};
+
+export type QuestExtractionResult =
+    | { action: 'NO_CHANGE' }
+    | { action: 'APPLY'; changes: QuestChange[] };
+
 export type GameContext = {
     loreRaw: string;
     rulesRaw: string;
     canonState: string;
     headerIndex: string;
+    questLog: QuestEntry[];
     starter: string;
     continuePrompt: string;
     inventory: string;
@@ -94,6 +161,7 @@ export type GameContext = {
     // Toggles: whether each field is appended to context
     canonStateActive: boolean;
     headerIndexActive: boolean;
+    questLogActive: boolean;
     starterActive: boolean;
     continuePromptActive: boolean;
     inventoryActive: boolean;
@@ -102,6 +170,9 @@ export type GameContext = {
     encounterEngineActive: boolean;
     worldEngineActive: boolean;
     diceFairnessActive: boolean;
+    sceneNote: string;
+    sceneNoteActive: boolean;
+    sceneNoteDepth: number;
     surpriseConfig?: SurpriseConfig;
     encounterConfig?: EncounterConfig;
 };
@@ -215,3 +286,16 @@ export type OpenAITool = {
         };
     };
 };
+
+export type ContextSourceClassification = 'stable_truth' | 'summary' | 'world_context' | 'volatile_state' | 'scene_local';
+
+export type PayloadTrace = {
+    source: string;
+    classification: ContextSourceClassification;
+    tokens: number;
+    reason: string;
+    preview?: string;
+    included: boolean;
+    position?: string;
+};
+

@@ -130,9 +130,11 @@ type AppState = {
     settingsOpen: boolean;
     drawerOpen: boolean;
     npcLedgerOpen: boolean;
+    lastPayloadTrace?: import('../types').PayloadTrace[];
     toggleSettings: () => void;
     toggleDrawer: () => void;
     toggleNPCLedger: () => void;
+    setLastPayloadTrace: (trace?: import('../types').PayloadTrace[]) => void;
 };
 
 // Debounced save to avoid hammering the API on rapid changes
@@ -260,6 +262,7 @@ const defaultContext: GameContext = {
     rulesRaw: '',
     canonState: '',
     headerIndex: '',
+    questLog: [],
     starter: '',
     continuePrompt: '',
     inventory: '',
@@ -269,6 +272,7 @@ const defaultContext: GameContext = {
     worldEventDC: 498,
     canonStateActive: false,
     headerIndexActive: false,
+    questLogActive: false,
     starterActive: false,
     continuePromptActive: false,
     inventoryActive: false,
@@ -277,6 +281,9 @@ const defaultContext: GameContext = {
     encounterEngineActive: true,
     worldEngineActive: true,
     diceFairnessActive: true,
+    sceneNote: '',
+    sceneNoteActive: false,
+    sceneNoteDepth: 3,
     diceConfig: {
         catastrophe: 2,
         failure: 6,
@@ -613,4 +620,6 @@ export const useAppStore = create<AppState>()((set, get) => ({
     toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
     toggleDrawer: () => set((s) => ({ drawerOpen: !s.drawerOpen })),
     toggleNPCLedger: () => set((s) => ({ npcLedgerOpen: !s.npcLedgerOpen })),
+    setLastPayloadTrace: (trace) => set({ lastPayloadTrace: trace }),
 }));
+

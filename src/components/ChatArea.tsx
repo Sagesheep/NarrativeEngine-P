@@ -6,6 +6,7 @@ import { buildPayload, sendMessage, generateNPCProfile, updateExistingNPCs } fro
 import type { NPCEntry, ChatMessage, EndpointConfig, ProviderConfig } from '../types';
 import { shouldCondense, condenseHistory } from '../services/condenser';
 import { runSaveFilePipeline } from '../services/saveFileEngine';
+import { extractQuestChanges, applyQuestChanges } from '../services/questTracker';
 import { retrieveRelevantLore, searchLoreByQuery } from '../services/loreRetriever';
 import { recallArchiveScenes } from '../services/archiveMemory';
 import { set } from 'idb-keyval';
@@ -68,7 +69,8 @@ export function ChatArea() {
             if (!provider) return;
             // Step 1 & 2: Generate Canon State + Header Index BEFORE condensing
             const currentCtx = useAppStore.getState().context;
-            const saveResult = await runSaveFilePipeline(provider as EndpointConfig | ProviderConfig, messages, currentCtx);
+            const uncondensed = messages.slice(condenser.condensedUpToIndex + 1);
+            const saveResult = await runSaveFilePipeline(provider as EndpointConfig | ProviderConfig, uncondensed, currentCtx);
 
             // Auto-populate fields
             if (saveResult.canonSuccess) {
@@ -91,7 +93,8 @@ export function ChatArea() {
                 condenser.condensedUpToIndex,
                 condenser.condensedSummary,
                 campaignId,
-                npcLedger.map(n => n.name)
+                npcLedger.map(n => n.name),
+                settings.contextLimit
             );
             setCondensed(result.summary, result.upToIndex);
 
@@ -256,7 +259,7 @@ export function ChatArea() {
             finalInput += `\n[DICE OUTCOMES: COMBAT=(${generatePool()}) | PERCEPTION=(${generatePool()}) | STEALTH=(${generatePool()}) | SOCIAL=(${generatePool()}) | MOVEMENT=(${generatePool()}) | KNOWLEDGE=(${generatePool()}) | MUNDANE=(Narrative Boon)]`;
         }
 
-        const payload = buildPayload(
+        const payloadResult = buildPayload(
             settings,
             context,
             messages,
@@ -268,6 +271,11 @@ export function ChatArea() {
             archiveRecall,
             sceneNumber
         );
+
+        const payload = payloadResult.messages;
+        if (settings.debugMode) {
+            useAppStore.getState().setLastPayloadTrace(payloadResult.trace);
+        }
 
         const sanitizePayloadForApi = (rawPayload: any[], allowTools: boolean) => {
             const cleaned: any[] = [];
@@ -420,8 +428,20 @@ export function ChatArea() {
                     updateLastAssistant(finalText); // Final sync
                     const allMsgs = useAppStore.getState().messages;
                     const lastAssistant = allMsgs[allMsgs.length - 1];
-                    if (lastAssistant?.role === 'assistant' && lastAssistant.content) {
-                        appendToArchive(textToUse, lastAssistant.content);
+                    if (lastAssistant?.role === 'assistant' && lastAssistant.content) {                        const sceneId = await appendToArchive(textToUse, lastAssistant.content);
+
+                        try {
+                            const latestContext = useAppStore.getState().context;
+                            const questResult = await extractQuestChanges(provider as EndpointConfig | ProviderConfig, allMsgs.slice(-6), latestContext.questLog || []);
+                            if (questResult.action === 'APPLY') {
+                                const nextQuestLog = applyQuestChanges(latestContext.questLog || [], questResult, sceneId);
+                                if (JSON.stringify(nextQuestLog) !== JSON.stringify(latestContext.questLog || [])) {
+                                    updateContext({ questLog: nextQuestLog });
+                                }
+                            }
+                        } catch (questError) {
+                            console.warn('[QuestTracker] Background extraction failed:', questError);
+                        }
 
                         // ── NPC Auto-Generation: Parse AI response for character name tags ──
                         // Supports 3 formats:
@@ -692,7 +712,24 @@ export function ChatArea() {
 
 
     return (
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+            {/* Active Scene Note Banner */}
+            {context.sceneNoteActive && (
+                <div className="absolute top-0 left-0 right-0 z-20 px-4 py-1.5 bg-amber/90 backdrop-blur-sm border-b border-amber/40 flex items-center justify-between text-[10px] text-void-dark font-bold uppercase tracking-widest animate-in slide-in-from-top duration-300">
+                    <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-void-dark animate-pulse" />
+                        Active Scene Note: {context.sceneNote.slice(0, 50)}{context.sceneNote.length > 50 ? '...' : ''}
+                    </div>
+                    <button
+                        onClick={() => updateContext({ sceneNoteActive: false })}
+                        className="hover:opacity-60 transition-opacity"
+                        title="Dismiss banner (note remains active in context settings)"
+                    >
+                        <X size={12} strokeWidth={3} />
+                    </button>
+                </div>
+            )}
+
             {/* Transcript */}
             <div className="flex-1 overflow-y-auto px-2 md:px-4 py-4 space-y-3">
                 {messages.length === 0 && (
@@ -945,3 +982,5 @@ export function ChatArea() {
         </div>
     );
 }
+
+

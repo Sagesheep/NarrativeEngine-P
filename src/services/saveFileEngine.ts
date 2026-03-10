@@ -1,11 +1,11 @@
 import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig } from '../types';
+import { countTokens } from './tokenizer';
 
 // ─── Canon State Section Headers (from canon_state.md template) ───
 const CANON_STATE_SECTIONS = [
     'SECTION 1 — IMMEDIATE CONTEXT',
-    'SECTION 2 — ACTIVE THREADS',
-    'SECTION 3 — WORLD STATE',
-    'SECTION 4 — IMMUTABLE CANON LEDGERS',
+    'SECTION 2 � WORLD STATE',
+    'SECTION 3 � IMMUTABLE CANON LEDGERS',
 ];
 
 const CANON_STATE_REQUIRED_FIELDS = [
@@ -104,35 +104,21 @@ function buildCanonStatePrompt(recentMessages: ChatMessage[], existingCanonState
         '  - [Threat]',
         '',
         '=====================================================================',
-        'SECTION 2 — ACTIVE THREADS & QUESTS',
+        'SECTION 2 � WORLD STATE (MUTABLE)',
         '=====================================================================',
-        'ACTIVE_THREADS:',
-        '  - [THREAD_TAG]: Stage X (Status). Description.',
+        '## 2.1 LOCATION STATES',
+        '## 2.2 PLAYER CAPABILITIES',
         '',
-        'OPEN_TASKS:',
-        '  - [ ] Task',
         '',
         '=====================================================================',
-        'SECTION 3 — WORLD STATE (MUTABLE)',
+        'SECTION 3 � IMMUTABLE CANON LEDGERS (APPEND-ONLY)',
         '=====================================================================',
-        '## 3.1 KEY NPC ROSTER',
-        '## 3.2 LOCATION STATES',
-        '## 3.3 PLAYER CAPABILITIES',
-        '',
-        '=====================================================================',
-        'SECTION 4 — IMMUTABLE CANON LEDGERS (APPEND-ONLY)',
-        '=====================================================================',
-        '## 4.1 MAJOR REVEALS / TRUTHS',
-        '## 4.2 ALIVE NPC LEDGER',
-        '## 4.3 DEATH LEDGER',
-        '## 4.4 DESTROYED / IRREVERSIBLY CHANGED LOCATIONS',
-        '## 4.5 PERMANENT CHARACTER TRANSFORMATIONS / CURSES',
-        '## 4.6 PERMANENTLY DEAD BOSSES / UNIQUE ENTITIES',
-        '## 4.7 VISUAL REFERENCES',
+        '## 3.1 MAJOR REVEALS / TRUTHS',
+        '## 3.2 DESTROYED / IRREVERSIBLY CHANGED LOCATIONS',
         '',
         'RULES:',
         '1. Merge the existing Canon State with new information from the turns',
-        '2. For Section 4 (ledgers): ONLY APPEND new entries, never remove existing ones',
+        '2. For Section 3 (ledgers): ONLY APPEND new entries, never remove existing ones',
         '3. Preserve ALL proper nouns exactly as written',
         '4. Use factual, concise entries — NO prose or narrative',
         '',
@@ -155,6 +141,11 @@ export async function generateCanonState(
             ? buildCanonStatePrompt(recentMessages, existingCanonState)
             : buildCanonStatePrompt(recentMessages, existingCanonState) +
             '\n\nPREVIOUS ATTEMPT FAILED VALIDATION. Ensure ALL sections are present.';
+
+        console.log(`[SaveFileEngine] Generating Canon State... (Attempt ${attempt + 1})`, {
+            messages: recentMessages.length,
+            promptTokens: countTokens(prompt)
+        });
 
         const output = await llmCall(provider, prompt);
         const { valid } = validateCanonState(output);
@@ -296,6 +287,11 @@ export async function generateHeaderIndex(
             : buildHeaderIndexPrompt(recentMessages, existingHeaderIndex) +
             '\n\nPREVIOUS ATTEMPT FAILED VALIDATION. Ensure BOTH sections are present with SCENE_HEADERS entries.';
 
+        console.log(`[SaveFileEngine] Generating Header Index... (Attempt ${attempt + 1})`, {
+            messages: recentMessages.length,
+            promptTokens: countTokens(prompt)
+        });
+
         const output = await llmCall(provider, prompt);
         const { valid } = validateHeaderIndex(output);
 
@@ -329,3 +325,5 @@ export async function runSaveFilePipeline(
         indexSuccess: indexResult.success,
     };
 }
+
+

@@ -69,13 +69,14 @@ export async function condenseHistory(
     context: GameContext,
     condensedUpToIndex: number,
     existingSummary: string,
-    _campaignId: string,  // retained for API compat — T4 archive now handled by server on append
-    _npcNames: string[]   // retained for API compat
+    _campaignId: string,
+    _npcNames: string[],
+    contextLimit: number
 ): Promise<{ summary: string; upToIndex: number }> {
     const uncondensed = messages.slice(condensedUpToIndex + 1);
-    const toCondense = uncondensed.slice(0, -VERBATIM_WINDOW);
+    const candidateToCondense = uncondensed.slice(0, -VERBATIM_WINDOW);
 
-    if (toCondense.length === 0) {
+    if (candidateToCondense.length === 0) {
         return { summary: existingSummary, upToIndex: condensedUpToIndex };
     }
 
@@ -85,11 +86,11 @@ export async function condenseHistory(
     if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
 
     // --- Phase 4: T3 → T4 Promotion ---
-    // When condensed summary exceeds threshold, meta-compress it.
-    // T4 lossless content lives in .archive.md; no chunk needed here.
     if (finalExistingSummary && countTokens(finalExistingSummary) > META_SUMMARY_THRESHOLD) {
         console.log('[Archive Memory] Promoting T3 summary to meta-summary...', { tokens: countTokens(finalExistingSummary) });
         const metaPrompt = `You are a TTRPG session scribe. Compress the following older session summary into a highly condensed story-arc level summary (max 3 paragraphs). Preserve major character deaths, epic loot, unresolved plot hooks, and major quest completions.\n\nOLDER SUMMARY:\n${finalExistingSummary}`;
+
+        console.log('[Condenser] Sending T3 meta-summary request...', { promptTokens: countTokens(metaPrompt) });
 
         const metaRes = await fetch(url, {
             method: 'POST',
@@ -110,13 +111,46 @@ export async function condenseHistory(
         }
     }
 
-    // --- Standard Condensation ---
+    // --- Standard Condensation with Budgeting ---
+    const budgetLimit = Math.floor(contextLimit * CONDENSE_BUDGET_RATIO);
+
+    // Calculate invariant prompt overhead (rules + canon + existing summary)
+    const basePromptPart = buildCondenserPrompt([], context.canonState, context.headerIndex, finalExistingSummary);
+    const baseTokens = countTokens(basePromptPart);
+
+    let toCondense: ChatMessage[] = [];
+    let usedTokens = baseTokens;
+    let lastMsgInChunk: ChatMessage | null = null;
+
+    for (const msg of candidateToCondense) {
+        const turnText = `\n\n[${msg.role.toUpperCase()}]: ${msg.content}`;
+        const cost = countTokens(turnText);
+
+        if (usedTokens + cost > budgetLimit && toCondense.length > 0) {
+            console.log(`[Condenser] Budget limit reached. Condensing chunk of ${toCondense.length} turns.`, {
+                totalTokens: usedTokens,
+                limit: budgetLimit
+            });
+            break;
+        }
+
+        toCondense.push(msg);
+        usedTokens += cost;
+        lastMsgInChunk = msg;
+    }
+
     const prompt = buildCondenserPrompt(
         toCondense,
         context.canonState,
         context.headerIndex,
         finalExistingSummary
     );
+
+    console.log('[Condenser] Sending condensation request...', {
+        turns: toCondense.length,
+        promptTokens: countTokens(prompt),
+        budgetLimit
+    });
 
     const res = await fetch(url, {
         method: 'POST',
@@ -136,8 +170,10 @@ export async function condenseHistory(
     const data = await res.json();
     const summary = data.choices?.[0]?.message?.content ?? existingSummary;
 
-    const lastCondensedMsg = toCondense[toCondense.length - 1];
-    const newUpToIndex = messages.indexOf(lastCondensedMsg);
+    // Use the last message that was actually included in the chunk for correct index alignment
+    const newUpToIndex = lastMsgInChunk ? messages.indexOf(lastMsgInChunk) : condensedUpToIndex;
+
+    console.log(`[Condenser] Extraction complete. Markers advanced to index: ${newUpToIndex}`);
 
     return { summary, upToIndex: newUpToIndex };
 }

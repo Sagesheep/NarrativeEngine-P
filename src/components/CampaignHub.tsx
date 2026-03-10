@@ -14,19 +14,28 @@ const DEFAULT_CONTEXT = {
     rulesRaw: '',
     canonState: '',
     headerIndex: '',
+    questLog: [],
     starter: '',
     continuePrompt: '',
     inventory: '',
     characterProfile: '',
+    surpriseDC: 95,
+    encounterDC: 198,
+    worldEventDC: 498,
     canonStateActive: false,
     headerIndexActive: false,
+    questLogActive: false,
     starterActive: false,
     continuePromptActive: false,
     inventoryActive: false,
     characterProfileActive: false,
     surpriseEngineActive: true,
+    encounterEngineActive: true,
     worldEngineActive: true,
     diceFairnessActive: true,
+    sceneNote: '',
+    sceneNoteActive: false,
+    sceneNoteDepth: 3,
 };
 
 const DEFAULT_CONDENSER = { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false };
@@ -129,7 +138,7 @@ export function CampaignHub() {
         if (rulesFile) {
             const rulesRaw = await rulesFile.text();
             const existingState = await loadCampaignState(campaign.id);
-            const ctx = existingState?.context ?? DEFAULT_CONTEXT;
+            const ctx = { ...DEFAULT_CONTEXT, ...(existingState?.context ?? {}) };
             await saveCampaignState(campaign.id, {
                 context: { ...ctx, rulesRaw },
                 messages: existingState?.messages ?? [],
@@ -155,7 +164,7 @@ export function CampaignHub() {
 
         // Batch-set all state at once to avoid partial renders
         useAppStore.setState({
-            context: state?.context ?? DEFAULT_CONTEXT,
+            context: { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) },
             messages: state?.messages ?? [],
             condenser: state?.condenser ?? DEFAULT_CONDENSER,
             loreChunks: chunks,
@@ -182,8 +191,6 @@ export function CampaignHub() {
         const days = Math.floor(hrs / 24);
         return `${days}d ago`;
     };
-    // Alias to catch potential case-sensitivity issues in older builds or templates
-    const timeago = timeAgo;
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-void p-4 md:p-8 relative">
@@ -369,3 +376,5 @@ export function CampaignHub() {
         </div>
     );
 }
+
+

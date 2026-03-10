@@ -1,5 +1,6 @@
 import { useAppStore } from '../store/useAppStore';
 import { countTokens } from '../services/tokenizer';
+import { formatQuestDigest } from '../services/questTracker';
 
 export function TokenGauge() {
     const { context, messages, settings, condenser } = useAppStore();
@@ -9,6 +10,10 @@ export function TokenGauge() {
     if (context.rulesRaw) systemParts.push(context.rulesRaw);
     if (context.canonStateActive && context.canonState) systemParts.push(context.canonState);
     if (context.headerIndexActive && context.headerIndex) systemParts.push(context.headerIndex);
+    if (context.questLogActive && context.questLog?.length) {
+        const questDigest = formatQuestDigest(context.questLog);
+        if (questDigest) systemParts.push(questDigest);
+    }
     if (context.starterActive && context.starter) systemParts.push(context.starter);
     if (context.continuePromptActive && context.continuePrompt) systemParts.push(context.continuePrompt);
     if (context.characterProfileActive && context.characterProfile) systemParts.push(`[CHARACTER PROFILE]\n${context.characterProfile}`);
@@ -61,3 +66,4 @@ export function TokenGauge() {
         </div>
     );
 }
+

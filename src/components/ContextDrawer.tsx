@@ -4,7 +4,10 @@ import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_EN
 import { scanInventory } from '../services/inventoryParser';
 import { scanCharacterProfile } from '../services/characterProfileParser';
 import { populateEngineTags } from '../services/chatEngine';
-import type { EndpointConfig, ProviderConfig } from '../types';
+import { extractQuestChanges, applyQuestChanges } from '../services/questTracker';
+import { PayloadTraceView } from './PayloadTraceView';
+import { SceneNoteEditor } from './SceneNoteEditor';
+import type { EndpointConfig, ProviderConfig, QuestEntry } from '../types';
 
 const RULES_LIMIT = 5000;
 
@@ -105,11 +108,30 @@ function TemplateField({ icon, label, color, value, onChange, placeholder, rows,
     );
 }
 
+function questStatusClasses(status: QuestEntry['status']): string {
+    switch (status) {
+        case 'completed':
+            return 'text-terminal border-terminal/30 bg-terminal/10';
+        case 'blocked':
+            return 'text-amber-300 border-amber-400/30 bg-amber-400/10';
+        case 'failed':
+        case 'abandoned':
+            return 'text-danger border-danger/30 bg-danger/10';
+        default:
+            return 'text-ice border-ice/30 bg-ice/10';
+    }
+}
+
+function latestQuestNote(quest: QuestEntry): string {
+    return quest.notes.length > 0 ? quest.notes[quest.notes.length - 1].text : 'No progress notes yet.';
+}
+
 export function ContextDrawer() {
-    const { context, updateContext, drawerOpen, toggleDrawer, loreChunks, updateLoreChunk, messages, getActiveStoryEndpoint } = useAppStore();
+    const { context, updateContext, drawerOpen, toggleDrawer, loreChunks, updateLoreChunk, messages, getActiveStoryEndpoint, settings } = useAppStore();
     const [newKeyword, setNewKeyword] = useState<Record<string, string>>({});
     const [isScanningInventory, setIsScanningInventory] = useState(false);
     const [isScanningProfile, setIsScanningProfile] = useState(false);
+    const [isScanningQuests, setIsScanningQuests] = useState(false);
     const [populatingField, setPopulatingField] = useState<string | null>(null);
 
     if (!drawerOpen) return null;
@@ -143,6 +165,35 @@ export function ContextDrawer() {
         } finally {
             setIsScanningProfile(false);
         }
+    };
+
+    const handleManualQuestUpdate = async () => {
+        if (isScanningQuests) return;
+        setIsScanningQuests(true);
+        try {
+            const provider = getActiveStoryEndpoint();
+            if (!provider) return;
+            const result = await extractQuestChanges(provider as ProviderConfig | EndpointConfig, messages.slice(-10), context.questLog);
+            const updatedLog = applyQuestChanges(context.questLog, result);
+            updateContext({ questLog: updatedLog });
+        } catch (e) {
+            console.error('Failed to scan quests:', e);
+        } finally {
+            setIsScanningQuests(false);
+        }
+    };
+
+    const handleFinishQuest = (questId: string) => {
+        const questLog = [...(context.questLog || [])];
+        const idx = questLog.findIndex(q => q.id === questId);
+        if (idx === -1) return;
+
+        questLog[idx] = {
+            ...questLog[idx],
+            status: 'completed',
+            updatedAt: Date.now()
+        };
+        updateContext({ questLog });
     };
 
     const addKeyword = (chunkId: string) => {
@@ -186,7 +237,7 @@ export function ContextDrawer() {
 
                 <div className="flex-1 overflow-y-auto">
                     {/* Context Section */}
-                    <Section title="◆ System Context" color="text-terminal glow-green" defaultOpen={true}>
+                    <Section title="◆ System Context" color="text-ice" defaultOpen={true}>
                         <div>
                             <label className="flex items-center gap-2 text-[11px] text-ice uppercase tracking-wider mb-2">
                                 <ScrollText size={13} />
@@ -201,6 +252,20 @@ export function ContextDrawer() {
                             />
                             <TokenCounter text={context.rulesRaw} limit={RULES_LIMIT} />
                         </div>
+
+                        <div className="mt-4 pt-4 border-t border-border/50">
+                            <SceneNoteEditor />
+                        </div>
+
+                        {settings.debugMode && (
+                            <div className="mt-4 pt-4 border-t border-border">
+                                <div className="text-[10px] text-terminal uppercase tracking-widest font-bold mb-2 flex items-center gap-2">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-terminal animate-pulse" />
+                                    Diagnostics
+                                </div>
+                                <PayloadTraceView />
+                            </div>
+                        )}
                     </Section>
 
                     {/* World Info Section */}
@@ -956,6 +1021,85 @@ export function ContextDrawer() {
                             onToggle={() => updateContext({ canonStateActive: !context.canonStateActive })}
                         />
 
+                        <div className="bg-void border border-border px-3 py-3">
+                            <div className="flex items-center justify-between mb-3">
+                                <label className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-terminal">
+                                    <List size={13} />
+                                    Quest Log
+                                </label>
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        onClick={handleManualQuestUpdate}
+                                        disabled={isScanningQuests}
+                                        className="text-[9px] text-terminal hover:text-text-primary uppercase tracking-widest flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                                        title="Manually trigger AI quest log extraction from recent history"
+                                    >
+                                        <RefreshCw size={11} className={isScanningQuests ? 'animate-spin' : ''} />
+                                        {isScanningQuests ? 'Scanning...' : 'Scan'}
+                                    </button>
+                                    <Toggle active={context.questLogActive} onChange={() => updateContext({ questLogActive: !context.questLogActive })} />
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-text-dim mb-3">
+                                <span>{context.questLog?.filter(q => !['completed', 'failed', 'abandoned'].includes(q.status)).length ?? 0} active</span>
+                                <span>{context.questLog?.length ?? 0} total</span>
+                            </div>
+
+                            {(context.questLog?.length ?? 0) === 0 ? (
+                                <div className="text-[10px] text-text-dim/60 border border-dashed border-border/60 px-3 py-4 text-center">
+                                    No quests tracked yet. The background quest extractor will populate this after GM replies.
+                                </div>
+                            ) : (
+                                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                                    {(context.questLog || []).map((quest) => (
+                                        <div key={quest.id} className="border border-border bg-surface/50 px-3 py-2.5 space-y-2">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div>
+                                                    <div className="text-[11px] text-text-primary font-bold uppercase tracking-wide">{quest.title}</div>
+                                                    <div className="text-[10px] text-text-dim mt-1">{quest.summary}</div>
+                                                </div>
+                                                <span className={`text-[9px] uppercase tracking-widest border px-1.5 py-0.5 shrink-0 ${questStatusClasses(quest.status)}`}>
+                                                    {quest.status}
+                                                </span>
+                                            </div>
+
+                                            <div className="text-[9px] uppercase tracking-wider text-text-dim flex items-center gap-2">
+                                                <span>{quest.category}</span>
+                                                <span>|</span>
+                                                <span>{quest.objectives.length} objective{quest.objectives.length === 1 ? '' : 's'}</span>
+                                            </div>
+
+                                            {quest.objectives.length > 0 && (
+                                                <div className="space-y-1.5">
+                                                    {quest.objectives.map((objective) => (
+                                                        <div key={objective.id} className="text-[10px] text-text-primary flex items-start gap-2">
+                                                            <span className={`mt-0.5 h-1.5 w-1.5 rounded-full shrink-0 ${objective.done ? 'bg-terminal' : 'bg-ember'}`} />
+                                                            <span>
+                                                                {objective.text}
+                                                                {typeof objective.progress === 'number' && typeof objective.target === 'number' && ` (${objective.progress}/${objective.target})`}
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            <div className="text-[10px] text-text-dim/70 border-t border-border/60 pt-2 flex items-center justify-between gap-4">
+                                                <span className="flex-1 truncate">{latestQuestNote(quest)}</span>
+                                                {!['completed', 'failed', 'abandoned'].includes(quest.status) && (
+                                                    <button
+                                                        onClick={() => handleFinishQuest(quest.id)}
+                                                        className="text-[9px] text-terminal hover:text-text-primary uppercase tracking-wider border border-terminal/30 px-1.5 py-0.5 rounded bg-terminal/5 transition-all shrink-0"
+                                                    >
+                                                        Finish
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                         <TemplateField
                             icon={<List size={13} />}
                             label="Header Index"
@@ -975,3 +1119,4 @@ export function ContextDrawer() {
         </>
     );
 }
+
