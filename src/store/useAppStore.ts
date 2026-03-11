@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AppSettings, GameContext, ChatMessage, CondenserState, LoreChunk, ProviderConfig, AIPreset, EndpointConfig, NPCEntry, ArchiveIndexEntry } from '../types';
 import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { encryptSettingsPresets, decryptSettingsPresets } from '../services/settingsCrypto';
+import { uid } from '../utils/uid';
 
 const API = '/api';
 
@@ -51,9 +52,6 @@ export const DEFAULT_WORLD_WHAT = [
     "monopolized a critical resource", "initiated a complete blockade/lockdown", "caused a mass exodus/evacuation", "staged a violent coup/takeover"
 ];
 
-function uid(): string {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
 
 const defaultPreset: AIPreset = {
     id: uid(),

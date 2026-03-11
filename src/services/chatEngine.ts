@@ -2,6 +2,7 @@ import type { AppSettings, ChatMessage, GameContext, LoreChunk, EndpointConfig, 
 import { countTokens } from './tokenizer';
 import { formatQuestDigest } from './questTracker';
 import { buildBehaviorDirective, buildDriftAlert } from './npcBehaviorDirective';
+import { uid } from '../utils/uid';
 
 export type OpenAIMessage = {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -11,15 +12,12 @@ export type OpenAIMessage = {
     tool_call_id?: string;
 };
 
-function uid(): string {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
 
 /**
  * Robustly extracts the first JSON object or array found in a text string.
  * Handles <think> tags, markdown code blocks, and leading/trailing chatter.
  */
-function extractJson(text: string): string {
+export function extractJson(text: string): string {
     // 1. Remove reasoning blocks if present
     let clean = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
 
