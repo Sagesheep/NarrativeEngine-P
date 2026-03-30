@@ -100,11 +100,16 @@ function compressFieldLine(line: string): string {
  * After:  ~50-70 tokens (dense key-value lines)
  */
 export function minifyLoreChunk(chunk: LoreChunk): string {
-    // Strip markdown from header and content
-    const header = stripMarkdown(chunk.header);
+    const headerRaw = stripMarkdown(chunk.header);
+    // Strip the [CHUNK: TYPE] prefix for the minified output to save tokens
+    const header = headerRaw.replace(/\[CHUNK:\s*[A-Z_]+[—\-\s]*\]/i, '').trim();
     const content = stripMarkdown(chunk.content);
 
-    // Compress each line's field label
+    if (chunk.category === 'relationship') {
+        // Preserve newlines for relationship maps / ERDs
+        return `[${header}]\n${content}`;
+    }
+
     const compressedLines = content
         .split('\n')
         .map(line => line.trim())
@@ -112,7 +117,12 @@ export function minifyLoreChunk(chunk: LoreChunk): string {
         .map(compressFieldLine)
         .join(' | ');
 
-    return `[${header}] ${compressedLines}`;
+    const prefix = chunk.category === 'faction' ? `[FACTION: ${header}]`
+                 : chunk.category === 'location' ? `[LOC: ${header}]`
+                 : chunk.category === 'character' ? `[NPC: ${header}]`
+                 : `[${header}]`;
+
+    return `${prefix} ${compressedLines}`;
 }
 
 /**

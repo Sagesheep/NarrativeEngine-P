@@ -70,7 +70,8 @@ export const defaultPreset: AIPreset = {
         endpoint: 'http://localhost:11434/v1',
         apiKey: '',
         modelName: 'llama3',
-    }
+    },
+    utilityAI: { endpoint: '', apiKey: '', modelName: '' }
 };
 
 export const defaultSettings: AppSettings = {
@@ -132,7 +133,8 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
             apiKey: (raw.imageApiKey as string) || '',
             modelName: (raw.imageApiModel as string) || '',
         },
-        summarizerAI: { ...migratedStoryProvider }
+        summarizerAI: { ...migratedStoryProvider },
+        utilityAI: { endpoint: '', apiKey: '', modelName: '' }
     };
 
     return {
@@ -181,6 +183,7 @@ export type SettingsSlice = {
     getActiveStoryEndpoint: () => EndpointConfig | undefined;
     getActiveImageEndpoint: () => EndpointConfig | undefined;
     getActiveSummarizerEndpoint: () => EndpointConfig | undefined;
+    getActiveUtilityEndpoint: () => EndpointConfig | undefined;
 };
 
 // ── Slice creator ──────────────────────────────────────────────────────
@@ -295,5 +298,10 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
     getActiveSummarizerEndpoint: () => {
         const preset = get().getActivePreset();
         return preset?.summarizerAI;
+    },
+
+    getActiveUtilityEndpoint: () => {
+        const preset = get().getActivePreset();
+        return preset?.utilityAI;
     },
 });

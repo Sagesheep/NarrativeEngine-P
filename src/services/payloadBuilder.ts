@@ -2,6 +2,7 @@ import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, Archiv
 import type { OpenAIMessage } from './llmService';
 import { countTokens } from './tokenizer';
 import { buildBehaviorDirective, buildDriftAlert } from './npcBehaviorDirective';
+import { minifyLoreChunk, minifyNPC } from './contextMinifier';
 
 
 /**
@@ -48,7 +49,8 @@ export function buildPayload(
     relevantLore?: LoreChunk[],
     npcLedger?: NPCEntry[],
     archiveRecall?: ArchiveScene[],
-    sceneNumber?: string
+    sceneNumber?: string,
+    recommendedNPCNames?: string[]
 ): { messages: OpenAIMessage[]; trace?: PayloadTrace[] } {
     const trace: PayloadTrace[] = [];
     const isDebug = settings.debugMode === true;
@@ -78,8 +80,12 @@ export function buildPayload(
     if (context.starterActive && context.starter) stableParts.push(context.starter);
     if (context.continuePromptActive && context.continuePrompt) stableParts.push(context.continuePrompt);
 
-    const reasoningSafety = "IMPORTANT: If you use a 'thinking' or 'reasoning' block (<think>...</think>), you MUST still provide the full narrative response AFTER the closing tag. Never end a turn with only a thinking block.";
-    stableParts.push(reasoningSafety);
+    // Only inject if using a known reasoning/thinking model (DeepSeek-R1, Qwen QwQ, etc.)
+    const modelName = (settings as any).presets?.find?.((p: any) => p.id === (settings as any).activePresetId)?.storyAI?.modelName ?? '';
+    const isReasoningModel = /deepseek-r|qwq|qwen.*think|r1/i.test(modelName);
+    if (isReasoningModel) {
+        stableParts.push("IMPORTANT: If you use a 'thinking' or 'reasoning' block (<think>...</think>), you MUST still provide the full narrative response AFTER the closing tag. Never end a turn with only a thinking block.");
+    }
 
     const stableContent = stableParts.join('\n\n');
     const stableTokens = countTokens(stableContent);
@@ -118,35 +124,74 @@ export function buildPayload(
         }
     }
 
-    // RAG Lore
+    // RAG Lore — minified and grouped by category
     if (relevantLore && relevantLore.length > 0) {
-        const text = `[WORLD LORE — RELEVANT SECTIONS]\n${relevantLore.map(c => `### ${c.header}\n${c.content}`).join('\n\n')}\n[END WORLD LORE]`;
-        worldBlocks.push({ source: 'RAG Lore', content: text, tokens: countTokens(text), reason: `RAG injected (${relevantLore.length} chunks)` });
+        const grouped = new Map<string, string[]>();
+        for (const chunk of relevantLore) {
+            const cat = chunk.category || 'misc';
+            const catTitle = cat === 'faction' ? 'FACTIONS'
+                           : cat === 'character' ? 'CHARACTERS'
+                           : cat === 'location' ? 'LOCATIONS'
+                           : cat === 'power_system' || cat === 'rules' ? 'POWER SYSTEM & RULES'
+                           : cat === 'economy' ? 'ECONOMY'
+                           : cat === 'event' ? 'EVENTS'
+                           : cat === 'world_overview' ? 'OVERVIEW'
+                           : 'MISCELLANEOUS';
+            
+            if (!grouped.has(catTitle)) grouped.set(catTitle, []);
+            grouped.get(catTitle)!.push(minifyLoreChunk(chunk));
+        }
+
+        const sections: string[] = [];
+        for (const [title, chunks] of grouped.entries()) {
+            sections.push(`[${title}]\n` + chunks.join('\n'));
+        }
+
+        const text = `[WORLD LORE — RELEVANT SECTIONS]\n${sections.join('\n\n')}\n[END WORLD LORE]`;
+        worldBlocks.push({ source: 'RAG Lore', content: text, tokens: countTokens(text), reason: `RAG injected (${relevantLore.length} chunks, minified)` });
     } else if (context.loreRaw) {
         worldBlocks.push({ source: 'Raw Lore (Legacy)', content: context.loreRaw, tokens: countTokens(context.loreRaw), reason: 'Legacy fallback' });
     }
 
     // Active NPCs
     if (npcLedger && npcLedger.length > 0) {
-        const scanHistory = history.slice(-10).map(m => m.content || '').join(' ') + ' ' + userMessage;
         const loreHeadersSet = new Set((relevantLore ?? []).map(l => l.header.toLowerCase()));
-        const activeNPCs = npcLedger.filter(npc => {
-            if (!npc.name || loreHeadersSet.has(npc.name.toLowerCase())) return false;
-            const aliases = (npc.aliases || '').split(',').map(a => a.trim().toLowerCase()).filter(Boolean);
-            const patterns = [npc.name.toLowerCase(), ...aliases];
-            return patterns.some(p => scanHistory.toLowerCase().includes(p));
-        });
+
+        let activeNPCs: NPCEntry[];
+
+        if (recommendedNPCNames && recommendedNPCNames.length > 0) {
+            // ── Utility AI Recommender mode ──
+            // Use the pre-computed list from contextRecommender.ts
+            const recommendedSet = new Set(recommendedNPCNames.map(n => n.toLowerCase()));
+            activeNPCs = npcLedger.filter(npc => {
+                if (!npc.name || loreHeadersSet.has(npc.name.toLowerCase())) return false;
+                const aliases = (npc.aliases || '').split(',').map(a => a.trim().toLowerCase()).filter(Boolean);
+                const allNames = [npc.name.toLowerCase(), ...aliases];
+                return allNames.some(n => recommendedSet.has(n));
+            });
+            console.log(`[PayloadBuilder] NPC selection via UtilityAI recommender: ${activeNPCs.length} active.`);
+        } else {
+            // ── Legacy substring scan mode ──
+            const scanHistory = history.slice(-10).map(m => m.content || '').join(' ') + ' ' + userMessage;
+            activeNPCs = npcLedger.filter(npc => {
+                if (!npc.name || loreHeadersSet.has(npc.name.toLowerCase())) return false;
+                const aliases = (npc.aliases || '').split(',').map(a => a.trim().toLowerCase()).filter(Boolean);
+                const patterns = [npc.name.toLowerCase(), ...aliases];
+                return patterns.some(p => scanHistory.toLowerCase().includes(p));
+            });
+        }
 
         if (activeNPCs.length > 0) {
             const npcText = `[ACTIVE NPC CONTEXT]\n${activeNPCs.map(npc => {
-                let line = `[${npc.name.toUpperCase()}] Faction: ${npc.faction || '?'} | Goals: ${npc.goals || '?'} | Disp: ${npc.disposition || '?'}`;
+                // Minified base line (compact single-line format)
+                let line = minifyNPC(npc);
                 const directive = buildBehaviorDirective(npc);
-                if (directive) line += `\n  ${directive}`;
+                if (directive) line += ` | ${directive}`;
                 const drift = buildDriftAlert(npc);
-                if (drift) line += `\n  ${drift}`;
+                if (drift) line += ` | ${drift}`;
                 return line;
             }).join('\n')}\n[END NPC CONTEXT]`;
-            worldBlocks.push({ source: 'Active NPCs', content: npcText, tokens: countTokens(npcText), reason: `NPCs detected in context (${activeNPCs.length})` });
+            worldBlocks.push({ source: 'Active NPCs', content: npcText, tokens: countTokens(npcText), reason: `NPCs detected in context (${activeNPCs.length}, minified)` });
         }
     }
 

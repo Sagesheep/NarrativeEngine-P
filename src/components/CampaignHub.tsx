@@ -4,10 +4,18 @@ import { useAppStore } from '../store/useAppStore';
 import {
     listCampaigns, deleteCampaign, loadCampaignState,
     saveCampaign, saveCampaignState, saveLoreChunks, getLoreChunks,
-    getNPCLedger, loadArchiveIndex
+    getNPCLedger, loadArchiveIndex, saveNPCLedger
 } from '../store/campaignStore';
 import { chunkLoreFile } from '../services/loreChunker';
-import type { Campaign } from '../types';
+import { extractEngineSeeds } from '../services/loreEngineSeeder';
+import { parseNPCsFromLore } from '../services/loreNPCParser';
+import {
+    DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES,
+    DEFAULT_ENCOUNTER_TYPES, DEFAULT_ENCOUNTER_TONES,
+    DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHY, DEFAULT_WORLD_WHAT
+} from '../store/slices/settingsSlice';
+import { dedupeNPCLedger } from '../store/slices/campaignSlice';
+import type { Campaign, EngineSeed } from '../types';
 
 const DEFAULT_CONTEXT = {
     loreRaw: '',
@@ -124,21 +132,61 @@ export function CampaignHub() {
 
         await saveCampaign(campaign);
 
+        let seeds: EngineSeed | null = null;
+
         if (loreFile) {
             const loreText = await loreFile.text();
             const chunks = chunkLoreFile(loreText);
             await saveLoreChunks(campaign.id, chunks);
+
+            const parsedNPCs = parseNPCsFromLore(chunks);
+            if (parsedNPCs.length > 0) {
+                const existingNPCs = await getNPCLedger(campaign.id);
+                const combined = dedupeNPCLedger([...existingNPCs, ...parsedNPCs]);
+                await saveNPCLedger(campaign.id, combined);
+            }
+
+            seeds = extractEngineSeeds(chunks);
         }
 
-        // Only write campaign state when a new rules file is actually provided.
-        // Never fall back to DEFAULT_CONTEXT — that would silently erase real data
-        // if the modal opens before IndexedDB has finished loading.
-        if (rulesFile) {
-            const rulesRaw = await rulesFile.text();
-            const existingState = await loadCampaignState(campaign.id);
+        // Only write campaign state when a rules file/lore file is provided or this is a fresh creation.
+        // We modify existing state so we do not blindly erase the save on edit.
+        const existingState = await loadCampaignState(campaign.id);
+        if (!existingState || rulesFile || seeds) {
             const ctx = { ...DEFAULT_CONTEXT, ...(existingState?.context ?? {}) };
+            if (rulesFile) {
+                ctx.rulesRaw = await rulesFile.text();
+            }
+
+            if (seeds) {
+                // Replace defaults with lore seeds. Fall back to defaults only if array is totally empty.
+                ctx.surpriseConfig = {
+                    ...ctx.surpriseConfig,
+                    initialDC: ctx.surpriseConfig?.initialDC ?? 95,
+                    dcReduction: ctx.surpriseConfig?.dcReduction ?? 3,
+                    types: seeds.surpriseTypes.length > 0 ? seeds.surpriseTypes : [...DEFAULT_SURPRISE_TYPES],
+                    tones: seeds.surpriseTones.length > 0 ? seeds.surpriseTones : [...DEFAULT_SURPRISE_TONES],
+                };
+                ctx.encounterConfig = {
+                    ...ctx.encounterConfig,
+                    initialDC: ctx.encounterConfig?.initialDC ?? 198,
+                    dcReduction: ctx.encounterConfig?.dcReduction ?? 2,
+                    types: seeds.encounterTypes.length > 0 ? seeds.encounterTypes : [...DEFAULT_ENCOUNTER_TYPES],
+                    tones: seeds.encounterTones.length > 0 ? seeds.encounterTones : [...DEFAULT_ENCOUNTER_TONES],
+                };
+                ctx.worldEventConfig = {
+                    ...ctx.worldEventConfig,
+                    initialDC: ctx.worldEventConfig?.initialDC ?? 498,
+                    dcReduction: ctx.worldEventConfig?.dcReduction ?? 2,
+                    who: seeds.worldWho.length > 0 ? seeds.worldWho : [...DEFAULT_WORLD_WHO],
+                    where: seeds.worldWhere.length > 0 ? seeds.worldWhere : [...DEFAULT_WORLD_WHERE],
+                    why: seeds.worldWhy.length > 0 ? seeds.worldWhy : [...DEFAULT_WORLD_WHY],
+                    what: seeds.worldWhat.length > 0 ? seeds.worldWhat : [...DEFAULT_WORLD_WHAT],
+                };
+            }
+
             await saveCampaignState(campaign.id, {
-                context: { ...ctx, rulesRaw },
+                context: ctx,
                 messages: existingState?.messages ?? [],
                 condenser: existingState?.condenser ?? DEFAULT_CONDENSER,
             });

@@ -26,13 +26,33 @@ export function LoreTab() {
     const renderChunk = (chunk: LoreChunk) => (
         <div key={chunk.id} className={`bg-void rounded border p-2 transition-colors ${chunk.alwaysInclude ? 'border-terminal/40 shadow-[0_0_10px_rgba(74,222,128,0.05)]' : 'border-border'}`}>
             {/* Header row */}
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] text-text-primary font-bold truncate flex-1 mr-2" title={chunk.header}>
-                    {chunk.header}
+                    {chunk.header.replace(/\[CHUNK:\s*[A-Z_]+[—\-\s]*\]/i, '').trim()}
                 </span>
                 <span className="text-[9px] text-text-dim shrink-0">
                     {chunk.tokens}tk
                 </span>
+            </div>
+
+            {/* Meta badges row */}
+            <div className="flex flex-wrap items-center gap-1 mb-2">
+                <span className="px-1.5 py-0.5 rounded bg-terminal/10 text-terminal text-[8px] uppercase tracking-wider font-bold">
+                    {chunk.category || 'misc'}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-void text-text-dim text-[8px] uppercase tracking-wider border border-border" title="Priority level">
+                    P{chunk.priority || 5}
+                </span>
+                {(chunk.linkedEntities || []).slice(0, 2).map((link, i) => (
+                    <span key={i} className="px-1.5 py-0.5 rounded bg-void text-text-dim text-[8px] border border-border truncate max-w-[80px]" title={`Links to: ${link}`}>
+                        🔗 {link}
+                    </span>
+                ))}
+                {(chunk.linkedEntities?.length || 0) > 2 && (
+                    <span className="px-1.5 py-0.5 rounded bg-void text-text-dim text-[8px] border border-border" title={`${chunk.linkedEntities!.length - 2} more links`}>
+                        +{(chunk.linkedEntities?.length || 0) - 2}
+                    </span>
+                )}
             </div>
 
             {/* Controls row */}

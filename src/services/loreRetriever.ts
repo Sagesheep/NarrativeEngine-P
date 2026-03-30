@@ -18,21 +18,21 @@ export function retrieveRelevantLore(
     if (chunks.length === 0) return [];
 
     const results: LoreChunk[] = [];
+    const includedSet = new Set<string>();
     let usedTokens = 0;
 
     // Always-include chunks get priority (deducted from budget)
     for (const chunk of chunks) {
         if (chunk.alwaysInclude) {
             results.push(chunk);
+            includedSet.add(chunk.id);
             usedTokens += chunk.tokens;
         }
     }
 
-    // Build text corpus from recent messages for keyword scanning
     const history = recentMessages || [];
     const defaultDepth = 2;
 
-    // Precompute text at each depth level for efficient scanning
     const textByDepth = new Map<number, string>();
     for (const chunk of chunks) {
         if (chunk.alwaysInclude) continue;
@@ -45,15 +45,14 @@ export function retrieveRelevantLore(
         }
     }
 
-    // Ensure default depth scan exists
     if (!textByDepth.has(defaultDepth)) {
         const slice = history.length > defaultDepth ? history.slice(-defaultDepth) : history;
         textByDepth.set(defaultDepth, slice.map(m => (m.content || '').toLowerCase()).join(' ')
             + ' ' + userMessage.toLowerCase());
     }
 
-    // Score chunks by how many keywords matched (relevance ranking)
-    const scored: { chunk: LoreChunk; matchCount: number }[] = [];
+    // Score chunks
+    const scored: { chunk: LoreChunk; score: number }[] = [];
 
     for (const chunk of chunks) {
         if (chunk.alwaysInclude) continue;
@@ -72,21 +71,59 @@ export function retrieveRelevantLore(
         }
 
         if (matchCount > 0) {
-            scored.push({ chunk, matchCount });
+            let score = matchCount * 10;
+            
+            // Boost by priority
+            score += (chunk.priority || 5);
+
+            // Context heuristics
+            if (chunk.category === 'power_system' && (scanText.includes('combat') || scanText.includes('attack') || scanText.includes('damage') || scanText.includes('cast'))) {
+                score += 15;
+            }
+            if (chunk.category === 'faction' && (scanText.includes('politics') || scanText.includes('war') || scanText.includes('guild') || scanText.includes('order'))) {
+                score += 15;
+            }
+            if (chunk.category === 'economy' && (scanText.includes('buy') || scanText.includes('sell') || scanText.includes('cost') || scanText.includes('gold') || scanText.includes('money'))) {
+                score += 15;
+            }
+
+            scored.push({ chunk, score });
         }
     }
 
-    // Sort by relevance (most keyword hits first)
-    scored.sort((a, b) => b.matchCount - a.matchCount);
+    scored.sort((a, b) => b.score - a.score);
 
-    // Fill to budget
+    // Pass 1: Fill based on direct hits
     for (const { chunk } of scored) {
+        if (includedSet.has(chunk.id)) continue;
         if (usedTokens + chunk.tokens > tokenBudget) continue;
         results.push(chunk);
+        includedSet.add(chunk.id);
         usedTokens += chunk.tokens;
     }
 
-    console.log(`[Lore Retriever] Injected ${results.length} chunks (${usedTokens}/${tokenBudget} tokens). Dropped ${scored.length - (results.length - results.filter(r => r.alwaysInclude).length)} low-priority chunks.`);
+    // Pass 2: Linked entities cross-pull
+    // If we still have budget, pull in chunks that are referenced by included chunks
+    if (usedTokens < tokenBudget) {
+        const linkedNames = new Set<string>();
+        for (const chunk of results) {
+            (chunk.linkedEntities || []).forEach(e => linkedNames.add(e.toLowerCase()));
+        }
+
+        if (linkedNames.size > 0) {
+            // Sort remaining chunks by priority just to be safe
+            const remaining = chunks.filter(c => !includedSet.has(c.id)).sort((a, b) => (b.priority || 5) - (a.priority || 5));
+            for (const chunk of remaining) {
+                const headerLower = chunk.header.toLowerCase();
+                const isLinked = Array.from(linkedNames).some(name => headerLower.includes(name));
+                if (isLinked && usedTokens + chunk.tokens <= tokenBudget) {
+                    results.push(chunk);
+                    includedSet.add(chunk.id);
+                    usedTokens += chunk.tokens;
+                }
+            }
+        }
+    }
 
     return results;
 }

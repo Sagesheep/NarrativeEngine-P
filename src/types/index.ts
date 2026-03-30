@@ -10,6 +10,7 @@ export type AIPreset = {
     storyAI: EndpointConfig;
     imageAI: EndpointConfig;
     summarizerAI: EndpointConfig;
+    utilityAI?: EndpointConfig; // Context recommender — optional, fallback to substring scan if empty
 };
 
 export type ProviderConfig = {
@@ -159,6 +160,19 @@ export type Campaign = {
     lastPlayedAt: number;
 };
 
+export type LoreCategory = 
+    | 'world_overview'
+    | 'faction'
+    | 'location'
+    | 'character'
+    | 'power_system'
+    | 'economy'
+    | 'event'
+    | 'relationship'
+    | 'rules'
+    | 'culture'
+    | 'misc';
+
 export type LoreChunk = {
     id: string;
     header: string;
@@ -167,6 +181,22 @@ export type LoreChunk = {
     alwaysInclude: boolean;
     triggerKeywords: string[];  // exact keywords that activate this chunk
     scanDepth: number;          // how many recent messages to scan (default: 3)
+    category: LoreCategory;
+    linkedEntities: string[];   // Names of NPCs, factions, locations referenced
+    parentSection?: string;     // The ## parent header this ### belongs under
+    priority: number;           // 0-10, higher = more important
+    summary?: string;           // One-line auto-summary for recommender index
+};
+
+export type EngineSeed = {
+    surpriseTypes: string[];
+    surpriseTones: string[];
+    encounterTypes: string[];
+    encounterTones: string[];
+    worldWho: string[];
+    worldWhere: string[];
+    worldWhy: string[];
+    worldWhat: string[];
 };
 
 export type NPCVisualProfile = {

@@ -34,6 +34,7 @@ export function ChatArea() {
     const [input, setInput] = useState('');
     const [isStreaming, setStreaming] = useState(false); // Moved from store to local state
     const [isCheckingNotes, setIsCheckingNotes] = useState(false);
+    const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
     const [visibleCount, setVisibleCount] = useState(20);
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -115,6 +116,7 @@ export function ChatArea() {
         }
         setStreaming(false);
         setIsCheckingNotes(false);
+        setLoadingStatus(null);
     };
 
     const resetTextareaHeight = () => {
@@ -147,7 +149,8 @@ export function ChatArea() {
             activeCampaignId,
             provider: useAppStore.getState().getActiveStoryEndpoint(),
             getMessages: () => useAppStore.getState().messages,
-            getFreshProvider: () => useAppStore.getState().getActiveStoryEndpoint()
+            getFreshProvider: () => useAppStore.getState().getActiveStoryEndpoint(),
+            getUtilityEndpoint: () => useAppStore.getState().getActiveUtilityEndpoint()
         }, {
             onCheckingNotes: setIsCheckingNotes,
             addMessage: useAppStore.getState().addMessage,
@@ -160,6 +163,7 @@ export function ChatArea() {
             setCondensed: setCondensed,
             setCondensing: setCondensing,
             setStreaming: setStreaming,
+            setLoadingStatus: setLoadingStatus,
             setLastPayloadTrace: useAppStore.getState().setLastPayloadTrace
         }, abortControllerRef.current);
     };
@@ -460,7 +464,12 @@ export function ChatArea() {
                 })}
 
                 <div aria-live="polite" aria-atomic="true">
-                    {isCheckingNotes ? (
+                    {loadingStatus ? (
+                        <div className="flex items-center gap-2 text-terminal text-xs px-4">
+                            <Loader2 size={12} className="animate-spin" />
+                            <span className="animate-pulse-slow">{loadingStatus}</span>
+                        </div>
+                    ) : isCheckingNotes ? (
                         <div className="flex items-center gap-2 text-terminal/80 text-xs px-4">
                             <Loader2 size={12} className="animate-spin" />
                             <span className="animate-pulse-slow">The GM is checking their notes...</span>

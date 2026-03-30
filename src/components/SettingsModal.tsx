@@ -12,23 +12,24 @@ function uid(): string {
 export function SettingsModal() {
     const { settings, updateSettings, settingsOpen, toggleSettings, addPreset, updatePreset, removePreset } = useAppStore();
     const [activeTab, setActiveTab] = useState(settings.presets[0]?.id || '');
-    const [testingSection, setTestingSection] = useState<'storyAI' | 'imageAI' | 'summarizerAI' | null>(null);
+    const [testingSection, setTestingSection] = useState<'storyAI' | 'imageAI' | 'summarizerAI' | 'utilityAI' | null>(null);
     const [testResults, setTestResults] = useState<Record<string, { ok: boolean; detail: string } | null>>({});
 
     const [expanded, setExpanded] = useState<Record<string, boolean>>({
         storyAI: true,
         imageAI: false,
         summarizerAI: false,
+        utilityAI: false,
     });
 
     if (!settingsOpen) return null;
 
     const activePreset = settings.presets.find((p) => p.id === activeTab) || settings.presets[0];
 
-    const handleTest = async (section: 'storyAI' | 'imageAI' | 'summarizerAI') => {
+    const handleTest = async (section: 'storyAI' | 'imageAI' | 'summarizerAI' | 'utilityAI') => {
         if (!activePreset) return;
         const config = activePreset[section];
-        if (!config.endpoint) return;
+        if (!config || !config.endpoint) return;
 
         setTestingSection(section);
         setTestResults(prev => ({ ...prev, [section]: null }));
@@ -48,7 +49,8 @@ export function SettingsModal() {
             name: `Preset ${settings.presets.length + 1}`,
             storyAI: { endpoint: 'http://localhost:11434/v1', apiKey: '', modelName: 'llama3' },
             imageAI: { endpoint: '', apiKey: '', modelName: '' },
-            summarizerAI: { endpoint: 'http://localhost:11434/v1', apiKey: '', modelName: 'llama3' }
+            summarizerAI: { endpoint: 'http://localhost:11434/v1', apiKey: '', modelName: 'llama3' },
+            utilityAI: { endpoint: '', apiKey: '', modelName: '' }
         };
         addPreset(newPreset);
         setActiveTab(newPreset.id);
@@ -67,7 +69,7 @@ export function SettingsModal() {
         updatePreset(activePreset.id, { name });
     };
 
-    const handleUpdateEndpoint = (section: 'storyAI' | 'imageAI' | 'summarizerAI', field: keyof EndpointConfig, value: string) => {
+    const handleUpdateEndpoint = (section: 'storyAI' | 'imageAI' | 'summarizerAI' | 'utilityAI', field: keyof EndpointConfig, value: string) => {
         if (!activePreset) return;
         const updatedConfig = { ...activePreset[section], [field]: value };
         updatePreset(activePreset.id, { [section]: updatedConfig });
@@ -77,8 +79,8 @@ export function SettingsModal() {
         setExpanded(prev => ({ ...prev, [section]: !prev[section] }));
     };
 
-    const renderEndpointConfig = (section: 'storyAI' | 'imageAI' | 'summarizerAI', title: string) => {
-        const config = activePreset[section];
+    const renderEndpointConfig = (section: 'storyAI' | 'imageAI' | 'summarizerAI' | 'utilityAI', title: string) => {
+        const config = activePreset[section] ?? { endpoint: '', apiKey: '', modelName: '' };
         const isExpanded = expanded[section];
         const isTesting = testingSection === section;
         const result = testResults[section];
@@ -220,6 +222,7 @@ export function SettingsModal() {
                             {renderEndpointConfig('storyAI', 'Story & Logic AI')}
                             {renderEndpointConfig('summarizerAI', 'Summarizer & Context AI')}
                             {renderEndpointConfig('imageAI', 'Image Generation AI')}
+                            {renderEndpointConfig('utilityAI', 'Utility AI (Context Recommender)')}
                         </div>
                     )}
 

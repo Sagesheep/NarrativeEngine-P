@@ -8,6 +8,7 @@ import { recallArchiveScenes } from './archiveMemory';
 import { rollEngines, rollDiceFairness } from './engineRolls';
 import { extractNPCNames, classifyNPCNames, validateNPCCandidates } from './npcDetector';
 import { api } from './apiClient';
+import { recommendContext } from './contextRecommender';
 import { toast } from '../components/Toast';
 
 export type TurnCallbacks = {
@@ -23,6 +24,7 @@ export type TurnCallbacks = {
     setCondensing: (v: boolean) => void;
     setStreaming: (v: boolean) => void;
     setLastPayloadTrace?: (trace: any) => void;
+    setLoadingStatus?: (status: string | null) => void;
 };
 
 export type TurnState = {
@@ -39,6 +41,7 @@ export type TurnState = {
     provider: EndpointConfig | ProviderConfig | undefined;
     getMessages: () => ChatMessage[]; // to get fresh messages midway
     getFreshProvider: () => EndpointConfig | ProviderConfig | undefined;
+    getUtilityEndpoint?: () => EndpointConfig | undefined; // optional — context recommender
 };
 
 const sanitizePayloadForApi = (rawPayload: any[], allowTools: boolean) => {
@@ -100,12 +103,31 @@ export async function runTurn(
 
     if (!provider) return;
 
+    let finalInput = input;
+    const engineResult = rollEngines(context);
+    finalInput += engineResult.appendToInput;
+    callbacks.updateContext(engineResult.updatedDCs);
+    finalInput += rollDiceFairness(context);
+
+    // Provide immediate UI feedback by adding the user message synchronously before heavy async operations
+    const userMsgId = uid();
+    callbacks.addMessage({ 
+        id: userMsgId, 
+        role: 'user', 
+        content: finalInput, 
+        displayContent: displayInput, 
+        timestamp: Date.now() 
+    });
+    callbacks.setStreaming(true);
+    callbacks.setLoadingStatus?.('[1/5] Extracting Lore & Stats...');
+
     const relevantLore = loreChunks.length > 0
         ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex, input, 1200, messages)
         : undefined;
 
     let sceneNumber: string | undefined;
     if (activeCampaignId) {
+        callbacks.setLoadingStatus?.('[2/5] Fetching Timeline...');
         try {
             const snRes = await fetch(`/api/campaigns/${activeCampaignId}/archive/next-scene`);
             if (snRes.ok) {
@@ -116,16 +138,35 @@ export async function runTurn(
         } catch { /* ignored */ }
     }
 
+    callbacks.setLoadingStatus?.('[3/5] Recalling Archive Memory...');
     const archiveRecall = (archiveIndex.length > 0 && activeCampaignId)
         ? await recallArchiveScenes(activeCampaignId, archiveIndex, input, messages, 3000)
         : undefined;
 
-    let finalInput = input;
-    const engineResult = rollEngines(context);
-    finalInput += engineResult.appendToInput;
-    callbacks.updateContext(engineResult.updatedDCs);
-    finalInput += rollDiceFairness(context);
+    // ── Utility AI Context Recommender ──
+    // If a utilityAI endpoint is configured, ask it which NPCs/lore are relevant.
+    // On any failure, fall back silently to substring matching (recommendedNPCNames stays undefined).
+    let recommendedNPCNames: string[] | undefined;
 
+    const utilityEndpoint = state.getUtilityEndpoint?.();
+    if (utilityEndpoint?.endpoint) {
+        callbacks.setLoadingStatus?.('[4/5] Consulting AI Recommender...');
+        try {
+            const result = await recommendContext(
+                utilityEndpoint,
+                npcLedger,
+                loreChunks,
+                messages,
+                finalInput
+            );
+            recommendedNPCNames = result.relevantNPCNames;
+            console.log(`[TurnOrchestrator] Recommender returned: ${recommendedNPCNames.length} NPCs, ${result.relevantLoreIds.length} lore`);
+        } catch (err) {
+            console.warn('[TurnOrchestrator] UtilityAI recommender failed, falling back to substring scan:', err);
+        }
+    }
+
+    callbacks.setLoadingStatus?.('[5/5] Architecting AI Prompt...');
     const payloadResult = buildPayload(
         settings,
         context,
@@ -136,13 +177,17 @@ export async function runTurn(
         relevantLore,
         npcLedger,
         archiveRecall,
-        sceneNumber
+        sceneNumber,
+        recommendedNPCNames
     );
 
     const payload = payloadResult.messages;
     if (settings.debugMode && callbacks.setLastPayloadTrace) {
         callbacks.setLastPayloadTrace(payloadResult.trace);
     }
+    
+    // Attach the debug payload to the user message we added earlier
+    callbacks.updateLastMessage({ debugPayload: payload });
 
     const triggerCondense = async () => {
         if (condenser.isCondensing || !activeCampaignId) return;
@@ -184,11 +229,6 @@ export async function runTurn(
     };
 
     const executeTurn = async (currentPayload: any[], toolCallCount = 0, apiRetryCount = 0) => {
-        if (toolCallCount === 0) {
-            const userMsg = { id: uid(), role: 'user' as const, content: finalInput, displayContent: displayInput, timestamp: Date.now(), debugPayload: payload };
-            callbacks.addMessage(userMsg);
-        }
-
         const assistantMsgId = uid();
         callbacks.addMessage({ id: assistantMsgId, role: 'assistant' as const, content: '', timestamp: Date.now() });
         callbacks.setStreaming(true);
@@ -209,6 +249,7 @@ export async function runTurn(
             }
         }] : undefined;
 
+        callbacks.setLoadingStatus?.(null);
         await sendMessage(
             provider,
             requestPayload,
@@ -332,6 +373,7 @@ export async function runTurn(
                     toast.error('LLM request failed after retries');
                     callbacks.setStreaming(false);
                     callbacks.onCheckingNotes(false);
+                    callbacks.setLoadingStatus?.(null);
                 }
             },
             tools,
