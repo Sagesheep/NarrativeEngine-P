@@ -37,7 +37,7 @@ export function Header() {
             </button>
 
             <h1 className="hidden md:block text-terminal text-sm font-bold tracking-[0.3em] uppercase glow-green shrink-0">
-                Narrative Nexus
+                Narrative Engine
             </h1>
 
             <div className="hidden md:flex flex-1 items-center gap-4">
