@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Play, Clock, BookOpen, Pencil, Settings } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Trash2, BookOpen, Pencil, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import {
     listCampaigns, deleteCampaign, loadCampaignState,
@@ -17,41 +17,55 @@ import {
 import { dedupeNPCLedger } from '../store/slices/campaignSlice';
 import type { Campaign, EngineSeed } from '../types';
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const DEFAULT_CONTEXT = {
-    loreRaw: '',
-    rulesRaw: '',
-    canonState: '',
-    headerIndex: '',
-    starter: '',
-    continuePrompt: '',
-    inventory: '',
-    characterProfile: '',
-    surpriseDC: 95,
-    encounterDC: 198,
-    worldEventDC: 498,
-    canonStateActive: false,
-    headerIndexActive: false,
-    starterActive: false,
-    continuePromptActive: false,
-    inventoryActive: false,
-    characterProfileActive: false,
-    surpriseEngineActive: true,
-    encounterEngineActive: true,
-    worldEngineActive: true,
-    diceFairnessActive: true,
-    sceneNote: '',
-    sceneNoteActive: false,
-    sceneNoteDepth: 3,
+    loreRaw: '', rulesRaw: '', canonState: '', headerIndex: '',
+    starter: '', continuePrompt: '', inventory: '', characterProfile: '',
+    surpriseDC: 95, encounterDC: 198, worldEventDC: 498,
+    canonStateActive: false, headerIndexActive: false, starterActive: false,
+    continuePromptActive: false, inventoryActive: false, characterProfileActive: false,
+    surpriseEngineActive: true, encounterEngineActive: true, worldEngineActive: true,
+    diceFairnessActive: true, sceneNote: '', sceneNoteActive: false, sceneNoteDepth: 3,
 };
 
 const DEFAULT_CONDENSER = { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false };
 
-export function CampaignHub() {
-    useAppStore(); // state accessed via useAppStore.setState / useAppStore.getState
-    const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-    const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+// ─── Coverflow Card Positions ─────────────────────────────────────────────────
 
-    // Modal state
+interface SlotStyle {
+    x: number;
+    rotateY: number;
+    scale: number;
+    zIndex: number;
+    opacity: number;
+    blur: number;
+}
+
+function getSlotStyle(offset: number): SlotStyle {
+    const abs = Math.abs(offset);
+    if (abs === 0) return { x: 0,             rotateY: 0,             scale: 1,    zIndex: 100, opacity: 1,    blur: 0 };
+    if (abs === 1) return { x: offset * 230,   rotateY: -offset * 42, scale: 0.82, zIndex: 50,  opacity: 0.75, blur: 0 };
+    if (abs === 2) return { x: offset * 290,   rotateY: -offset * 52, scale: 0.68, zIndex: 10,  opacity: 0.35, blur: 1 };
+    return             { x: offset * 320,   rotateY: -offset * 60, scale: 0.55, zIndex: 0,   opacity: 0,    blur: 2 };
+}
+
+function timeAgo(ts: number | undefined): string {
+    if (!ts) return 'Never played';
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export function CampaignHub() {
+    const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+    const [activeIdx, setActiveIdx] = useState(0);
+    const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [modalOpen, setModalOpen] = useState(false);
     const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
 
@@ -64,42 +78,42 @@ export function CampaignHub() {
     const [rulesFile, setRulesFile] = useState<File | null>(null);
     const [rulesName, setRulesName] = useState('');
 
+    // Touch/swipe
+    const touchStartX = useRef(0);
+
     const refresh = useCallback(async () => {
         const list = await listCampaigns();
-        setCampaigns(list);
+        const valid = list.filter(c => c && c.id && c.name && c.id !== 'undefined');
+        setCampaigns(valid);
+        setActiveIdx(prev => Math.min(prev, Math.max(valid.length - 1, 0)));
     }, []);
 
     useEffect(() => {
         let mounted = true;
-        listCampaigns().then(list => { if (mounted) setCampaigns(list); });
+        listCampaigns().then(list => {
+            if (mounted) {
+                const valid = list.filter(c => c && c.id && c.name && c.id !== 'undefined');
+                setCampaigns(valid);
+            }
+        });
         return () => { mounted = false; };
     }, []);
 
     const resetForm = () => {
-        setName('');
-        setCoverFile(null);
-        setCoverPreview('');
-        setLoreFile(null);
-        setLoreName('');
-        setRulesFile(null);
-        setRulesName('');
+        setName(''); setCoverFile(null); setCoverPreview('');
+        setLoreFile(null); setLoreName('');
+        setRulesFile(null); setRulesName('');
         setEditingCampaign(null);
     };
 
-    const openCreate = () => {
-        resetForm();
-        setModalOpen(true);
-    };
+    const openCreate = () => { resetForm(); setModalOpen(true); };
 
     const openEdit = (campaign: Campaign) => {
         setEditingCampaign(campaign);
         setName(campaign.name);
         setCoverPreview(campaign.coverImage || '');
-        setLoreName('');
-        setRulesName('');
-        setLoreFile(null);
-        setRulesFile(null);
-        setCoverFile(null);
+        setLoreName(''); setRulesName('');
+        setLoreFile(null); setRulesFile(null); setCoverFile(null);
         setModalOpen(true);
     };
 
@@ -112,71 +126,52 @@ export function CampaignHub() {
 
     const handleSave = async () => {
         if (!name.trim()) return;
-
         const isEdit = !!editingCampaign;
         const campaign: Campaign = isEdit
             ? { ...editingCampaign, name: name.trim(), lastPlayedAt: Date.now() }
             : {
                 id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-                name: name.trim(),
-                coverImage: '',
-                createdAt: Date.now(),
-                lastPlayedAt: Date.now(),
+                name: name.trim(), coverImage: '',
+                createdAt: Date.now(), lastPlayedAt: Date.now(),
             };
 
-        if (coverFile) {
-            campaign.coverImage = coverPreview;
-        } else if (isEdit) {
-            campaign.coverImage = coverPreview;
-        }
+        if (coverFile) campaign.coverImage = coverPreview;
+        else if (isEdit) campaign.coverImage = coverPreview;
 
         await saveCampaign(campaign);
 
         let seeds: EngineSeed | null = null;
-
         if (loreFile) {
             const loreText = await loreFile.text();
             const chunks = chunkLoreFile(loreText);
             await saveLoreChunks(campaign.id, chunks);
-
             const parsedNPCs = parseNPCsFromLore(chunks);
             if (parsedNPCs.length > 0) {
                 const existingNPCs = await getNPCLedger(campaign.id);
-                const combined = dedupeNPCLedger([...existingNPCs, ...parsedNPCs]);
-                await saveNPCLedger(campaign.id, combined);
+                await saveNPCLedger(campaign.id, dedupeNPCLedger([...existingNPCs, ...parsedNPCs]));
             }
-
             seeds = extractEngineSeeds(chunks);
         }
 
-        // Only write campaign state when a rules file/lore file is provided or this is a fresh creation.
-        // We modify existing state so we do not blindly erase the save on edit.
         const existingState = await loadCampaignState(campaign.id);
         if (!existingState || rulesFile || seeds) {
             const ctx = { ...DEFAULT_CONTEXT, ...(existingState?.context ?? {}) };
-            if (rulesFile) {
-                ctx.rulesRaw = await rulesFile.text();
-            }
-
+            if (rulesFile) ctx.rulesRaw = await rulesFile.text();
             if (seeds) {
-                // Replace defaults with lore seeds. Fall back to defaults only if array is totally empty.
                 ctx.surpriseConfig = {
-                    ...ctx.surpriseConfig,
-                    initialDC: ctx.surpriseConfig?.initialDC ?? 95,
+                    ...ctx.surpriseConfig, initialDC: ctx.surpriseConfig?.initialDC ?? 95,
                     dcReduction: ctx.surpriseConfig?.dcReduction ?? 3,
                     types: seeds.surpriseTypes.length > 0 ? seeds.surpriseTypes : [...DEFAULT_SURPRISE_TYPES],
                     tones: seeds.surpriseTones.length > 0 ? seeds.surpriseTones : [...DEFAULT_SURPRISE_TONES],
                 };
                 ctx.encounterConfig = {
-                    ...ctx.encounterConfig,
-                    initialDC: ctx.encounterConfig?.initialDC ?? 198,
+                    ...ctx.encounterConfig, initialDC: ctx.encounterConfig?.initialDC ?? 198,
                     dcReduction: ctx.encounterConfig?.dcReduction ?? 2,
                     types: seeds.encounterTypes.length > 0 ? seeds.encounterTypes : [...DEFAULT_ENCOUNTER_TYPES],
                     tones: seeds.encounterTones.length > 0 ? seeds.encounterTones : [...DEFAULT_ENCOUNTER_TONES],
                 };
                 ctx.worldEventConfig = {
-                    ...ctx.worldEventConfig,
-                    initialDC: ctx.worldEventConfig?.initialDC ?? 498,
+                    ...ctx.worldEventConfig, initialDC: ctx.worldEventConfig?.initialDC ?? 498,
                     dcReduction: ctx.worldEventConfig?.dcReduction ?? 2,
                     who: seeds.worldWho.length > 0 ? seeds.worldWho : [...DEFAULT_WORLD_WHO],
                     where: seeds.worldWhere.length > 0 ? seeds.worldWhere : [...DEFAULT_WORLD_WHERE],
@@ -184,10 +179,8 @@ export function CampaignHub() {
                     what: seeds.worldWhat.length > 0 ? seeds.worldWhat : [...DEFAULT_WORLD_WHAT],
                 };
             }
-
             await saveCampaignState(campaign.id, {
-                context: ctx,
-                messages: existingState?.messages ?? [],
+                context: ctx, messages: existingState?.messages ?? [],
                 condenser: existingState?.condenser ?? DEFAULT_CONDENSER,
             });
         }
@@ -198,24 +191,17 @@ export function CampaignHub() {
     };
 
     const handleSelectCampaign = async (campaign: Campaign) => {
-        const now = new Date().getTime();
-        const updatedCampaign = { ...campaign, lastPlayedAt: now };
+        const updatedCampaign = { ...campaign, lastPlayedAt: Date.now() };
         await saveCampaign(updatedCampaign);
-
-        // Load campaign state and flush into Zustand
-        const state = await loadCampaignState(campaign.id);
-        const chunks = await getLoreChunks(campaign.id);
-        const npcs = await getNPCLedger(campaign.id);
-        const archiveIndex = await loadArchiveIndex(campaign.id);
-
-        // Batch-set all state at once to avoid partial renders
+        const [state, chunks, npcs, archiveIndex] = await Promise.all([
+            loadCampaignState(campaign.id), getLoreChunks(campaign.id),
+            getNPCLedger(campaign.id), loadArchiveIndex(campaign.id),
+        ]);
         useAppStore.setState({
             context: { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) },
             messages: state?.messages ?? [],
             condenser: state?.condenser ?? DEFAULT_CONDENSER,
-            loreChunks: chunks,
-            npcLedger: npcs,
-            archiveIndex,
+            loreChunks: chunks, npcLedger: npcs, archiveIndex,
             activeCampaignId: campaign.id,
         });
     };
@@ -226,201 +212,610 @@ export function CampaignHub() {
         refresh();
     };
 
-    const timeAgo = (ts: number | undefined) => {
-        if (!ts) return 'Never played';
-        const now = new Date().getTime();
-        const diff = now - ts;
-        const mins = Math.floor(diff / 60000);
-        if (mins < 60) return `${mins}m ago`;
-        const hrs = Math.floor(mins / 60);
-        if (hrs < 24) return `${hrs}h ago`;
-        const days = Math.floor(hrs / 24);
-        return `${days}d ago`;
+    const navigate = (dir: number) => {
+        if (campaigns.length === 0) return;
+        setActiveIdx(prev => (prev + dir + campaigns.length) % campaigns.length);
     };
 
+    const activeCampaign = campaigns[activeIdx] ?? null;
+
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-void p-4 md:p-8 relative">
+        <div
+            style={{
+                minHeight: '100vh',
+                background: '#0E0D1A',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '40px 20px',
+                position: 'relative',
+                overflow: 'hidden',
+                fontFamily: "'EB Garamond', Georgia, serif",
+            }}
+        >
+            {/* Ambient glow */}
+            <div style={{
+                position: 'absolute', inset: 0, pointerEvents: 'none',
+                background: 'radial-gradient(ellipse 70% 50% at 50% 65%, rgba(212,126,48,0.12) 0%, transparent 70%)',
+            }} />
+
+            {/* Settings button */}
             <button
                 onClick={() => useAppStore.getState().toggleSettings()}
-                className="absolute top-4 right-4 sm:top-8 sm:right-8 p-3 text-text-dim hover:text-terminal transition-colors bg-surface border border-border rounded-full hover:border-terminal z-50"
-                title="Global Settings"
+                title="Settings"
+                style={{
+                    position: 'absolute', top: 20, right: 20,
+                    width: 36, height: 36, borderRadius: '50%',
+                    border: '1px solid rgba(212,126,48,0.2)',
+                    background: 'rgba(255,255,255,0.04)',
+                    color: 'rgba(140,120,90,0.5)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', zIndex: 10, transition: 'all 0.2s',
+                }}
+                onMouseEnter={e => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(212,126,48,0.6)';
+                    (e.currentTarget as HTMLButtonElement).style.color = '#D47E30';
+                }}
+                onMouseLeave={e => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(212,126,48,0.2)';
+                    (e.currentTarget as HTMLButtonElement).style.color = 'rgba(140,120,90,0.5)';
+                }}
             >
-                <Settings size={20} />
+                <Settings size={15} />
             </button>
 
-            {/* Title */}
-            <h1 className="text-terminal text-lg sm:text-2xl font-bold tracking-[0.2em] sm:tracking-[0.4em] uppercase glow-green mb-2">
-                Narrative Nexus
-            </h1>
-            <p className="text-text-dim text-xs tracking-widest uppercase mb-6 sm:mb-10">
-                SELECT CAMPAIGN
-            </p>
-
-            {/* Campaign Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 max-w-4xl w-full mb-6 sm:mb-8">
-                {campaigns.filter(c => c && c.id && c.name && c.id !== 'undefined').map((c) => (
-                    <div
-                        key={c.id}
-                        className="group relative bg-surface border border-border rounded-lg overflow-hidden hover:border-terminal transition-all duration-300 cursor-pointer"
-                        onClick={() => handleSelectCampaign(c)}
-                    >
-                        {/* Cover Image */}
-                        <div className="h-36 bg-void-lighter flex items-center justify-center overflow-hidden">
-                            {c.coverImage ? (
-                                <img src={c.coverImage} alt={c.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500" />
-                            ) : (
-                                <BookOpen size={32} className="text-text-dim group-hover:text-terminal transition-colors" />
-                            )}
-                        </div>
-
-                        {/* Info */}
-                        <div className="p-4">
-                            <h2 className="text-text-primary font-bold text-sm uppercase tracking-wider group-hover:text-terminal transition-colors">
-                                {c.name}
-                            </h2>
-                            <div className="flex items-center gap-1 mt-2 text-text-dim text-xs">
-                                <Clock size={10} />
-                                <span>{timeAgo(c.lastPlayedAt)}</span>
-                            </div>
-                        </div>
-
-                        {/* Play overlay */}
-                        <div className="absolute inset-0 bg-terminal/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                            <Play size={40} className="text-terminal glow-green opacity-0 group-hover:opacity-80 transition-opacity" />
-                        </div>
-
-                        {/* Edit button */}
-                        <button
-                            onClick={(e) => { e.stopPropagation(); openEdit(c); }}
-                            className="absolute top-2 left-2 p-1.5 rounded bg-void/80 text-text-dim hover:text-terminal opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
-                            title="Edit campaign"
-                        >
-                            <Pencil size={14} />
-                        </button>
-
-                        {/* Delete button */}
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setConfirmDelete(c.id); }}
-                            className="absolute top-2 right-2 p-1.5 rounded bg-void/80 text-text-dim hover:text-danger opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
-                            title="Delete campaign"
-                        >
-                            <Trash2 size={14} />
-                        </button>
-                    </div>
-                ))}
-
-                {/* New Campaign Card */}
-                <button
-                    onClick={openCreate}
-                    className="bg-surface border border-dashed border-border rounded-lg h-56 flex flex-col items-center justify-center gap-3 hover:border-terminal hover:bg-void-lighter transition-all duration-300 group"
-                >
-                    <Plus size={28} className="text-text-dim group-hover:text-terminal transition-colors" />
-                    <span className="text-text-dim text-xs uppercase tracking-widest group-hover:text-terminal transition-colors">
-                        New Campaign
-                    </span>
-                </button>
+            {/* Hero text */}
+            <div style={{ textAlign: 'center', marginBottom: 44, position: 'relative', zIndex: 2 }}>
+                <div style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 10, letterSpacing: '0.4em',
+                    textTransform: 'uppercase', color: 'rgba(212,126,48,0.65)',
+                    marginBottom: 10,
+                }}>
+                    AI Game Master System
+                </div>
+                <h1 style={{
+                    fontFamily: "'Cinzel', 'Times New Roman', serif",
+                    fontSize: 36, fontWeight: 700,
+                    color: '#E6DCC8', letterSpacing: '0.08em',
+                    margin: '0 0 10px', lineHeight: 1,
+                }}>
+                    Narrative{' '}
+                    <span style={{ color: '#D47E30' }}>Nexus</span>
+                </h1>
+                <p style={{
+                    fontStyle: 'italic', fontSize: 15,
+                    color: 'rgba(180,160,130,0.45)', letterSpacing: '0.02em',
+                }}>
+                    Choose your world. Shape its fate.
+                </p>
+                {/* Divider */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 18, justifyContent: 'center' }}>
+                    <div style={{ height: 1, width: 56, background: 'linear-gradient(to right, transparent, rgba(212,126,48,0.35))' }} />
+                    <div style={{ width: 5, height: 5, background: '#D47E30', transform: 'rotate(45deg)', opacity: 0.6 }} />
+                    <div style={{ height: 1, width: 56, background: 'linear-gradient(to left, transparent, rgba(212,126,48,0.35))' }} />
+                </div>
             </div>
 
-            {/* Delete Confirmation */}
-            {confirmDelete && (
-                <div className="fixed inset-0 bg-ember/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setConfirmDelete(null)}>
-                    <div className="bg-surface border border-danger rounded-lg p-6 max-w-sm" onClick={(e) => e.stopPropagation()}>
-                        <p className="text-text-primary text-sm mb-4">Delete this campaign? All data (chat, lore, saves) will be lost.</p>
-                        <div className="flex gap-3 justify-end">
-                            <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 text-xs text-text-dim hover:text-text-primary border border-border rounded transition-colors">
-                                Cancel
-                            </button>
-                            <button onClick={() => handleDelete(confirmDelete)} className="px-4 py-2 text-xs text-void bg-danger rounded hover:brightness-110 transition-colors font-bold">
-                                Delete
-                            </button>
-                        </div>
+            {/* ── Coverflow Stage ── */}
+            {campaigns.length === 0 ? (
+                <EmptyState onNew={openCreate} />
+            ) : (
+                <>
+                    <div
+                        style={{
+                            position: 'relative', width: '100%', height: 360,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            perspective: '1200px', zIndex: 2,
+                        }}
+                        onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
+                        onTouchEnd={e => {
+                            const dx = e.changedTouches[0].clientX - touchStartX.current;
+                            if (Math.abs(dx) > 40) navigate(dx < 0 ? 1 : -1);
+                        }}
+                    >
+                        {/* Render cards back-to-front so active is on top */}
+                        {[...campaigns]
+                            .map((c, i) => ({ c, i, offset: i - activeIdx }))
+                            .sort((a, b) => Math.abs(b.offset) - Math.abs(a.offset))
+                            .map(({ c, i, offset }) => {
+                                const s = getSlotStyle(offset);
+                                const isActive = i === activeIdx;
+                                return (
+                                    <CoverCard
+                                        key={c.id}
+                                        campaign={c}
+                                        isActive={isActive}
+                                        slotStyle={s}
+                                        onClick={() => { if (!isActive) setActiveIdx(i); }}
+                                        onEdit={e => { e.stopPropagation(); openEdit(c); }}
+                                        onDelete={e => { e.stopPropagation(); setConfirmDelete(c.id); }}
+                                    />
+                                );
+                            })
+                        }
                     </div>
-                </div>
+
+                    {/* Nav */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginTop: 32, position: 'relative', zIndex: 2 }}>
+                        <NavBtn onClick={() => navigate(-1)} disabled={campaigns.length <= 1}>
+                            <ChevronLeft size={16} />
+                        </NavBtn>
+
+                        <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                            {campaigns.map((_, i) => (
+                                <div
+                                    key={i}
+                                    onClick={() => setActiveIdx(i)}
+                                    style={{
+                                        height: 5, cursor: 'pointer',
+                                        width: i === activeIdx ? 18 : 5,
+                                        borderRadius: i === activeIdx ? 3 : '50%',
+                                        background: i === activeIdx ? '#D47E30' : 'rgba(212,126,48,0.25)',
+                                        transition: 'all 0.3s ease',
+                                    }}
+                                />
+                            ))}
+                        </div>
+
+                        <NavBtn onClick={() => navigate(1)} disabled={campaigns.length <= 1}>
+                            <ChevronRight size={16} />
+                        </NavBtn>
+                    </div>
+
+                    {/* Enter button */}
+                    {activeCampaign && (
+                        <button
+                            onClick={() => handleSelectCampaign(activeCampaign)}
+                            style={{
+                                marginTop: 28, zIndex: 2, position: 'relative',
+                                fontFamily: "'JetBrains Mono', monospace",
+                                fontSize: 10, letterSpacing: '0.3em',
+                                textTransform: 'uppercase', color: '#D47E30',
+                                background: 'transparent',
+                                border: '1px solid rgba(212,126,48,0.35)',
+                                borderRadius: 3, padding: '11px 32px',
+                                cursor: 'pointer', transition: 'all 0.25s',
+                            }}
+                            onMouseEnter={e => {
+                                (e.currentTarget as HTMLButtonElement).style.background = 'rgba(212,126,48,0.1)';
+                                (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(212,126,48,0.7)';
+                            }}
+                            onMouseLeave={e => {
+                                (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                                (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(212,126,48,0.35)';
+                            }}
+                        >
+                            Enter — {activeCampaign.name}
+                        </button>
+                    )}
+
+                    {/* New campaign ghost link */}
+                    <div
+                        onClick={openCreate}
+                        style={{
+                            marginTop: 16, zIndex: 2, position: 'relative',
+                            fontFamily: "'JetBrains Mono', monospace",
+                            fontSize: 9, letterSpacing: '0.22em',
+                            textTransform: 'uppercase',
+                            color: 'rgba(140,120,90,0.4)',
+                            cursor: 'pointer', transition: 'color 0.2s',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(212,126,48,0.6)'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(140,120,90,0.4)'; }}
+                    >
+                        + New Campaign
+                    </div>
+                </>
             )}
 
-            {/* Create / Edit Campaign Modal */}
+            {/* ── Delete Confirmation ── */}
+            {confirmDelete && (
+                <Backdrop onClick={() => setConfirmDelete(null)}>
+                    <div
+                        style={{
+                            background: '#1A1525', border: '1px solid rgba(192,57,43,0.4)',
+                            borderRadius: 6, padding: '28px 28px 24px', maxWidth: 340, width: '100%',
+                        }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <p style={{ color: '#E6DCC8', fontSize: 14, marginBottom: 20, lineHeight: 1.6, fontFamily: "'EB Garamond', serif" }}>
+                            Delete this campaign? All data — chat history, lore, saves — will be lost forever.
+                        </p>
+                        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                            <GhostBtn onClick={() => setConfirmDelete(null)}>Cancel</GhostBtn>
+                            <DangerBtn onClick={() => handleDelete(confirmDelete)}>Delete</DangerBtn>
+                        </div>
+                    </div>
+                </Backdrop>
+            )}
+
+            {/* ── Create / Edit Modal ── */}
             {modalOpen && (
-                <div className="fixed inset-0 bg-ember/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => { setModalOpen(false); resetForm(); }}>
-                    <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-                        <h2 className="text-terminal text-sm font-bold tracking-widest uppercase mb-6">
+                <Backdrop onClick={() => { setModalOpen(false); resetForm(); }}>
+                    <div
+                        style={{
+                            background: '#1A1525', border: '1px solid rgba(212,126,48,0.2)',
+                            borderRadius: 6, padding: '28px', width: '100%', maxWidth: 420,
+                            maxHeight: '90vh', overflowY: 'auto',
+                        }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <h2 style={{
+                            fontFamily: "'Cinzel', serif", fontSize: 13,
+                            letterSpacing: '0.2em', textTransform: 'uppercase',
+                            color: '#D47E30', marginBottom: 24,
+                        }}>
                             {editingCampaign ? 'Edit Campaign' : 'New Campaign'}
                         </h2>
 
-                        {/* Campaign Name */}
-                        <label className="block text-text-dim text-xs uppercase tracking-wider mb-1">Campaign Name</label>
+                        <ModalLabel>Campaign Name</ModalLabel>
                         <input
-                            type="text"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder="e.g. Fantasy — Ash's Story"
-                            className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 mb-4"
+                            type="text" value={name}
+                            onChange={e => setName(e.target.value)}
+                            placeholder="e.g. Iron Crown Chronicles"
                             autoFocus
+                            style={{
+                                width: '100%', background: '#0E0D1A',
+                                border: '1px solid rgba(212,126,48,0.2)',
+                                borderRadius: 4, padding: '9px 12px',
+                                fontSize: 13, color: '#E6DCC8',
+                                fontFamily: "'EB Garamond', serif",
+                                marginBottom: 20, outline: 'none',
+                                boxSizing: 'border-box',
+                            }}
                         />
 
-                        {/* Cover Image */}
-                        <label className="block text-text-dim text-xs uppercase tracking-wider mb-1">Cover Image</label>
-                        <div className="mb-4">
+                        <ModalLabel>Cover Image</ModalLabel>
+                        <div style={{ marginBottom: 20 }}>
                             {coverPreview ? (
-                                <div className="relative h-28 rounded overflow-hidden border border-border">
-                                    <img src={coverPreview} alt="Cover" className="w-full h-full object-cover" />
-                                    <button onClick={() => { setCoverFile(null); setCoverPreview(''); }}
-                                        className="absolute top-1 right-1 bg-void/80 text-danger p-1 rounded">
-                                        <Trash2 size={12} />
+                                <div style={{ position: 'relative', height: 110, borderRadius: 4, overflow: 'hidden', border: '1px solid rgba(212,126,48,0.2)' }}>
+                                    <img src={coverPreview} alt="Cover" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <button
+                                        onClick={() => { setCoverFile(null); setCoverPreview(''); }}
+                                        style={{
+                                            position: 'absolute', top: 6, right: 6,
+                                            background: 'rgba(14,13,26,0.85)', border: '1px solid rgba(192,57,43,0.4)',
+                                            borderRadius: 3, color: '#C0392B', padding: '3px 6px', cursor: 'pointer', fontSize: 10,
+                                        }}
+                                    >
+                                        <Trash2 size={11} />
                                     </button>
                                 </div>
                             ) : (
-                                <label className="flex items-center justify-center h-20 border border-dashed border-border rounded cursor-pointer hover:border-terminal transition-colors">
-                                    <span className="text-text-dim text-xs">Click or drop image</span>
-                                    <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handleCoverChange(e.target.files[0])} />
+                                <label style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    height: 72, border: '1px dashed rgba(212,126,48,0.25)',
+                                    borderRadius: 4, cursor: 'pointer',
+                                    color: 'rgba(140,120,90,0.5)', fontSize: 12,
+                                    fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.1em',
+                                    transition: 'border-color 0.2s, color 0.2s',
+                                }}>
+                                    Click to upload image
+                                    <input type="file" accept="image/*" style={{ display: 'none' }}
+                                        onChange={e => e.target.files?.[0] && handleCoverChange(e.target.files[0])} />
                                 </label>
                             )}
                         </div>
 
-                        {/* World Lore */}
-                        <label className="block text-text-dim text-xs uppercase tracking-wider mb-1">
-                            World Lore (.md) {editingCampaign && <span className="text-text-dim/50 normal-case">— re-upload to replace</span>}
-                        </label>
-                        <label className="flex items-center gap-2 px-3 py-2 bg-void border border-border rounded cursor-pointer hover:border-terminal transition-colors mb-1">
-                            <BookOpen size={14} className="text-text-dim" />
-                            <span className="text-sm text-text-dim">{loreName || 'Choose file...'}</span>
-                            <input type="file" accept=".md,.txt" className="hidden" onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) { setLoreFile(f); setLoreName(f.name); }
-                            }} />
-                        </label>
-                        <p className="text-text-dim text-xs mb-4 opacity-60">Split into chunks by ### headers for dynamic retrieval</p>
+                        <ModalLabel>
+                            World Lore (.md){editingCampaign && <span style={{ color: 'rgba(140,120,90,0.4)', fontWeight: 400, marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}>— re-upload to replace</span>}
+                        </ModalLabel>
+                        <FilePickerRow icon={<BookOpen size={13} />} label={loreName || 'Choose file…'} accept=".md,.txt"
+                            onChange={f => { setLoreFile(f); setLoreName(f.name); }} />
+                        <p style={{ color: 'rgba(140,120,90,0.45)', fontSize: 11, fontFamily: "'JetBrains Mono', monospace", marginBottom: 20, marginTop: 6 }}>
+                            Split by ### headers for dynamic RAG retrieval
+                        </p>
 
-                        {/* Rules */}
-                        <label className="block text-text-dim text-xs uppercase tracking-wider mb-1">
-                            Rules (.md) {editingCampaign && <span className="text-text-dim/50 normal-case">— re-upload to replace</span>}
-                        </label>
-                        <label className="flex items-center gap-2 px-3 py-2 bg-void border border-border rounded cursor-pointer hover:border-terminal transition-colors mb-6">
-                            <BookOpen size={14} className="text-text-dim" />
-                            <span className="text-sm text-text-dim">{rulesName || 'Choose file...'}</span>
-                            <input type="file" accept=".md,.txt" className="hidden" onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) { setRulesFile(f); setRulesName(f.name); }
-                            }} />
-                        </label>
+                        <ModalLabel>
+                            Rules (.md){editingCampaign && <span style={{ color: 'rgba(140,120,90,0.4)', fontWeight: 400, marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}>— re-upload to replace</span>}
+                        </ModalLabel>
+                        <FilePickerRow icon={<BookOpen size={13} />} label={rulesName || 'Choose file…'} accept=".md,.txt"
+                            onChange={f => { setRulesFile(f); setRulesName(f.name); }} />
 
-                        {/* Actions */}
-                        <div className="flex gap-3 justify-end">
-                            <button onClick={() => { setModalOpen(false); resetForm(); }} className="px-4 py-2 text-xs text-text-dim hover:text-text-primary border border-border rounded transition-colors">
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSave}
-                                disabled={!name.trim()}
-                                className="px-4 py-2 text-xs text-void bg-terminal rounded font-bold hover:brightness-110 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                            >
+                        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 28 }}>
+                            <GhostBtn onClick={() => { setModalOpen(false); resetForm(); }}>Cancel</GhostBtn>
+                            <PrimaryBtn onClick={handleSave} disabled={!name.trim()}>
                                 {editingCampaign ? 'Save Changes' : 'Create & Enter'}
-                            </button>
+                            </PrimaryBtn>
                         </div>
                     </div>
-                </div>
+                </Backdrop>
             )}
         </div>
     );
 }
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
+function CoverCard({ campaign, isActive, slotStyle, onClick, onEdit, onDelete }: {
+    campaign: Campaign;
+    isActive: boolean;
+    slotStyle: SlotStyle;
+    onClick: () => void;
+    onEdit: (e: React.MouseEvent) => void;
+    onDelete: (e: React.MouseEvent) => void;
+}) {
+    const [hovered, setHovered] = useState(false);
+
+    return (
+        <div
+            onClick={onClick}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            style={{
+                position: 'absolute',
+                width: 200, height: 300,
+                transform: `translateX(${slotStyle.x}px) rotateY(${slotStyle.rotateY}deg) scale(${slotStyle.scale})`,
+                opacity: slotStyle.opacity,
+                zIndex: slotStyle.zIndex,
+                filter: slotStyle.blur > 0 ? `blur(${slotStyle.blur}px)` : 'none',
+                transition: 'transform 0.5s cubic-bezier(0.4,0,0.2,1), opacity 0.5s ease, filter 0.5s ease',
+                cursor: isActive ? 'default' : 'pointer',
+                transformStyle: 'preserve-3d',
+            }}
+        >
+            <div style={{
+                width: '100%', height: '100%', borderRadius: 8, overflow: 'hidden',
+                position: 'relative',
+                boxShadow: isActive
+                    ? '0 0 0 1px rgba(212,126,48,0.45), 0 24px 80px rgba(0,0,0,0.7), 0 4px 20px rgba(212,126,48,0.15)'
+                    : '0 20px 60px rgba(0,0,0,0.6), 0 4px 16px rgba(0,0,0,0.4)',
+                transition: 'box-shadow 0.4s ease',
+            }}>
+                {/* Cover image or placeholder */}
+                {campaign.coverImage ? (
+                    <img
+                        src={campaign.coverImage} alt={campaign.name}
+                        style={{
+                            width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+                            transition: 'transform 0.5s ease',
+                            transform: isActive && hovered ? 'scale(1.04)' : 'scale(1)',
+                        }}
+                    />
+                ) : (
+                    <div style={{
+                        width: '100%', height: '100%', background: '#1A1525',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                        <BookOpen size={40} style={{ color: '#D47E30', opacity: 0.15 }} />
+                    </div>
+                )}
+
+                {/* Gradient overlay */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'linear-gradient(to top, rgba(8,6,18,0.97) 0%, rgba(8,6,18,0.55) 45%, rgba(8,6,18,0.1) 75%, transparent 100%)',
+                    display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+                    padding: '20px 18px 18px', borderRadius: 8,
+                }} >
+                    {/* Content fades in only when active */}
+                    <div style={{
+                        opacity: isActive ? 1 : 0,
+                        transform: isActive ? 'translateY(0)' : 'translateY(6px)',
+                        transition: 'opacity 0.4s ease 0.15s, transform 0.4s ease 0.15s',
+                    }}>
+                        <div style={{
+                            fontFamily: "'JetBrains Mono', monospace",
+                            fontSize: 8.5, letterSpacing: '0.2em',
+                            textTransform: 'uppercase', color: '#D47E30',
+                            marginBottom: 7, opacity: 0.85,
+                        }}>
+                            {timeAgo(campaign.lastPlayedAt)}
+                        </div>
+                        <div style={{
+                            fontFamily: "'Cinzel', serif", fontSize: 14,
+                            fontWeight: 600, color: '#F0E8D8',
+                            lineHeight: 1.25, marginBottom: 8, letterSpacing: '0.03em',
+                        }}>
+                            {campaign.name}
+                        </div>
+                        {/* Genre tag placeholder — campaigns don't have genre field, show last-played */}
+                        <div style={{
+                            fontFamily: "'EB Garamond', serif", fontStyle: 'italic',
+                            fontSize: 12.5, color: 'rgba(200,185,160,0.7)', lineHeight: 1.55,
+                        }}>
+                            Click to enter this world
+                        </div>
+                    </div>
+                </div>
+
+                {/* Edit / Delete — only on active card hover */}
+                {isActive && (
+                    <div style={{
+                        position: 'absolute', top: 10, right: 10,
+                        display: 'flex', gap: 5,
+                        opacity: hovered ? 1 : 0,
+                        transition: 'opacity 0.2s ease',
+                    }}>
+                        <ActionBtn onClick={onEdit} title="Edit"><Pencil size={11} /></ActionBtn>
+                        <ActionBtn onClick={onDelete} title="Delete" danger><Trash2 size={11} /></ActionBtn>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function EmptyState({ onNew }: { onNew: () => void }) {
+    return (
+        <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+            padding: '48px 24px', zIndex: 2, position: 'relative',
+        }}>
+            <div style={{
+                width: 72, height: 72, borderRadius: '50%',
+                border: '1px dashed rgba(212,126,48,0.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'rgba(212,126,48,0.35)',
+            }}>
+                <BookOpen size={28} />
+            </div>
+            <p style={{
+                color: 'rgba(180,160,130,0.4)', fontStyle: 'italic', fontSize: 15,
+                textAlign: 'center', maxWidth: 260,
+            }}>
+                No campaigns yet. Begin your first chronicle.
+            </p>
+            <button
+                onClick={onNew}
+                style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 10, letterSpacing: '0.3em',
+                    textTransform: 'uppercase', color: '#D47E30',
+                    background: 'transparent',
+                    border: '1px solid rgba(212,126,48,0.35)',
+                    borderRadius: 3, padding: '11px 32px',
+                    cursor: 'pointer', marginTop: 8,
+                }}
+            >
+                + New Campaign
+            </button>
+        </div>
+    );
+}
+
+// ── Small reusable primitives ─────────────────────────────────────────────────
+
+function NavBtn({ onClick, disabled, children }: { onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+    return (
+        <button
+            onClick={onClick} disabled={disabled}
+            style={{
+                width: 38, height: 38, borderRadius: '50%',
+                border: '1px solid rgba(212,126,48,0.25)',
+                background: 'rgba(255,255,255,0.04)',
+                color: disabled ? 'rgba(212,126,48,0.2)' : 'rgba(212,126,48,0.6)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: disabled ? 'default' : 'pointer',
+                transition: 'all 0.2s',
+            }}
+        >
+            {children}
+        </button>
+    );
+}
+
+function ActionBtn({ onClick, title, danger, children }: {
+    onClick: (e: React.MouseEvent) => void;
+    title: string;
+    danger?: boolean;
+    children: React.ReactNode;
+}) {
+    return (
+        <button
+            onClick={onClick} title={title}
+            style={{
+                width: 26, height: 26, borderRadius: 3,
+                background: 'rgba(14,13,26,0.85)',
+                border: `1px solid ${danger ? 'rgba(192,57,43,0.3)' : 'rgba(212,126,48,0.2)'}`,
+                color: danger ? '#C0392B' : 'rgba(180,160,130,0.6)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', backdropFilter: 'blur(4px)',
+            }}
+        >
+            {children}
+        </button>
+    );
+}
+
+function Backdrop({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+    return (
+        <div
+            onClick={onClick}
+            style={{
+                position: 'fixed', inset: 0, zIndex: 50,
+                background: 'rgba(0,0,0,0.65)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '20px',
+            }}
+        >
+            {children}
+        </div>
+    );
+}
+
+function ModalLabel({ children }: { children: React.ReactNode }) {
+    return (
+        <div style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 9, letterSpacing: '0.25em',
+            textTransform: 'uppercase', color: 'rgba(140,120,90,0.6)',
+            marginBottom: 8,
+        }}>
+            {children}
+        </div>
+    );
+}
+
+function FilePickerRow({ icon, label, accept, onChange }: {
+    icon: React.ReactNode;
+    label: string;
+    accept: string;
+    onChange: (f: File) => void;
+}) {
+    return (
+        <label style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '9px 12px', background: '#0E0D1A',
+            border: '1px solid rgba(212,126,48,0.2)', borderRadius: 4,
+            cursor: 'pointer', transition: 'border-color 0.2s',
+        }}>
+            <span style={{ color: 'rgba(140,120,90,0.5)' }}>{icon}</span>
+            <span style={{ fontSize: 12, color: 'rgba(140,120,90,0.55)', fontFamily: "'JetBrains Mono', monospace" }}>
+                {label}
+            </span>
+            <input type="file" accept={accept} style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) onChange(f); }} />
+        </label>
+    );
+}
+
+function GhostBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+    return (
+        <button onClick={onClick} style={{
+            padding: '8px 18px', fontSize: 11,
+            fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.1em',
+            color: 'rgba(140,120,90,0.6)', background: 'transparent',
+            border: '1px solid rgba(212,126,48,0.15)', borderRadius: 3,
+            cursor: 'pointer', transition: 'all 0.2s',
+        }}>
+            {children}
+        </button>
+    );
+}
+
+function PrimaryBtn({ onClick, disabled, children }: { onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+    return (
+        <button onClick={onClick} disabled={disabled} style={{
+            padding: '8px 20px', fontSize: 11,
+            fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.15em',
+            textTransform: 'uppercase',
+            color: disabled ? 'rgba(212,126,48,0.3)' : '#0E0D1A',
+            background: disabled ? 'transparent' : '#D47E30',
+            border: `1px solid ${disabled ? 'rgba(212,126,48,0.2)' : '#D47E30'}`,
+            borderRadius: 3, cursor: disabled ? 'not-allowed' : 'pointer',
+            transition: 'all 0.2s', fontWeight: 600,
+        }}>
+            {children}
+        </button>
+    );
+}
+
+function DangerBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+    return (
+        <button onClick={onClick} style={{
+            padding: '8px 20px', fontSize: 11,
+            fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.15em',
+            textTransform: 'uppercase',
+            color: '#0E0D1A', background: '#C0392B',
+            border: '1px solid #C0392B',
+            borderRadius: 3, cursor: 'pointer',
+            transition: 'all 0.2s', fontWeight: 600,
+        }}>
+            {children}
+        </button>
+    );
+}
