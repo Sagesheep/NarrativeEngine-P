@@ -70,7 +70,8 @@ export async function condenseHistory(
     existingSummary: string,
     _campaignId: string,
     _npcNames: string[],
-    contextLimit: number
+    contextLimit: number,
+    signal?: AbortSignal
 ): Promise<{ summary: string; upToIndex: number }> {
     const uncondensed = messages.slice(condensedUpToIndex + 1);
     const candidateToCondense = uncondensed.slice(0, -VERBATIM_WINDOW);
@@ -99,6 +100,7 @@ export async function condenseHistory(
                 messages: [{ role: 'user', content: metaPrompt }],
                 stream: false,
             }),
+            signal,
         });
 
         if (metaRes.ok) {
@@ -159,6 +161,7 @@ export async function condenseHistory(
             messages: [{ role: 'user', content: prompt }],
             stream: false,
         }),
+        signal,
     });
 
     if (!res.ok) {

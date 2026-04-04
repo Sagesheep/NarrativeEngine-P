@@ -4,8 +4,8 @@ import { countTokens } from './tokenizer';
 // ─── Canon State Section Headers (from canon_state.md template) ───
 const CANON_STATE_SECTIONS = [
     'SECTION 1 — IMMEDIATE CONTEXT',
-    'SECTION 2 � WORLD STATE',
-    'SECTION 3 � IMMUTABLE CANON LEDGERS',
+    'SECTION 2 — WORLD STATE',
+    'SECTION 3 — IMMUTABLE CANON LEDGERS',
 ];
 
 const CANON_STATE_REQUIRED_FIELDS = [
@@ -27,18 +27,29 @@ const HEADER_INDEX_REQUIRED_FIELDS = [
 
 // ─── Validators ───
 
+const DASH_VARIANTS = /[\u2014\u2013\u2012\u2010\u00AF\u02D7\u2011\u2043\u2212\u30FC\u2015]/g;
+const REPLACEMENT_CHAR = /\uFFFD/g;
+
+function normalizeForComparison(text: string): string {
+    return text.normalize('NFC').replace(DASH_VARIANTS, '—').replace(REPLACEMENT_CHAR, '—');
+}
+
+function containsNormalized(haystack: string, needle: string): boolean {
+    return normalizeForComparison(haystack).includes(normalizeForComparison(needle));
+}
+
 export function validateCanonState(output: string): { valid: boolean; missing: string[] } {
     const missing = [
-        ...CANON_STATE_SECTIONS.filter((s) => !output.includes(s)),
-        ...CANON_STATE_REQUIRED_FIELDS.filter((f) => !output.includes(f)),
+        ...CANON_STATE_SECTIONS.filter((s) => !containsNormalized(output, s)),
+        ...CANON_STATE_REQUIRED_FIELDS.filter((f) => !containsNormalized(output, f)),
     ];
     return { valid: missing.length === 0, missing };
 }
 
 export function validateHeaderIndex(output: string): { valid: boolean; missing: string[] } {
     const missing = [
-        ...HEADER_INDEX_SECTIONS.filter((s) => !output.includes(s)),
-        ...HEADER_INDEX_REQUIRED_FIELDS.filter((f) => !output.includes(f)),
+        ...HEADER_INDEX_SECTIONS.filter((s) => !containsNormalized(output, s)),
+        ...HEADER_INDEX_REQUIRED_FIELDS.filter((f) => !containsNormalized(output, f)),
     ];
     return { valid: missing.length === 0, missing };
 }
@@ -104,14 +115,14 @@ function buildCanonStatePrompt(recentMessages: ChatMessage[], existingCanonState
         '  - [Threat]',
         '',
         '=====================================================================',
-        'SECTION 2 � WORLD STATE (MUTABLE)',
+        'SECTION 2 — WORLD STATE (MUTABLE)',
         '=====================================================================',
         '## 2.1 LOCATION STATES',
         '## 2.2 PLAYER CAPABILITIES',
         '',
         '',
         '=====================================================================',
-        'SECTION 3 � IMMUTABLE CANON LEDGERS (APPEND-ONLY)',
+        'SECTION 3 — IMMUTABLE CANON LEDGERS (APPEND-ONLY)',
         '=====================================================================',
         '## 3.1 MAJOR REVEALS / TRUTHS',
         '## 3.2 DESTROYED / IRREVERSIBLY CHANGED LOCATIONS',
@@ -204,14 +215,15 @@ function buildHeaderIndexPrompt(recentMessages: ChatMessage[], existingHeaderInd
 }
 
 function splitHeaderIndexSections(text: string): { section1: string; section2: string } {
-    const s2Marker = 'SECTION 2 — PENDING LOOPS';
-    const s2Pos = text.indexOf(s2Marker);
+    const normalized = normalizeForComparison(text);
+    const s2Regex = /SECTION 2[—–\u2013\u2014\u2015]PENDING LOOPS/;
+    const match = s2Regex.exec(normalized);
 
-    if (s2Pos === -1) {
+    if (!match) {
         return { section1: text, section2: '' };
     }
 
-    // Find the separator line before Section 2
+    const s2Pos = match.index;
     const beforeS2 = text.substring(0, s2Pos);
     const lastSep = beforeS2.lastIndexOf('=====');
     const splitPoint = lastSep !== -1 ? lastSep : s2Pos;
@@ -244,22 +256,24 @@ export function mergeHeaderIndex(existing: string, llmOutput: string): string {
     const newSceneBlocks: string[] = [];
     let currentBlock: string[] = [];
     let currentId = '';
+    let inBlock = false;
 
     for (const line of newS1Lines) {
         const idMatch = line.match(/SCENE_ID:\s*(\S+)/);
         if (idMatch) {
             // Save previous block if it has a new ID
-            if (currentBlock.length > 0 && currentId && !existingIds.has(currentId)) {
+            if (inBlock && currentBlock.length > 0 && currentId && !existingIds.has(currentId)) {
                 newSceneBlocks.push(currentBlock.join('\n'));
             }
             currentBlock = [line];
             currentId = idMatch[1];
-        } else if (currentBlock.length > 0 && (line.trim().startsWith('HEADER:') || line.trim().startsWith('THREADS:') || line.trim().startsWith('DELTA:'))) {
+            inBlock = true;
+        } else if (inBlock) {
             currentBlock.push(line);
         }
     }
     // Don't forget the last block
-    if (currentBlock.length > 0 && currentId && !existingIds.has(currentId)) {
+    if (inBlock && currentBlock.length > 0 && currentId && !existingIds.has(currentId)) {
         newSceneBlocks.push(currentBlock.join('\n'));
     }
 
@@ -297,7 +311,11 @@ export async function generateHeaderIndex(
 
         if (valid) {
             const merged = mergeHeaderIndex(existingHeaderIndex, output);
-            return { headerIndex: merged, success: true };
+            const mergedValid = validateHeaderIndex(merged);
+            if (mergedValid.valid) {
+                return { headerIndex: merged, success: true };
+            }
+            console.warn(`[SaveFileEngine] Header Index merged result failed validation:`, mergedValid.missing);
         }
         console.warn(`[SaveFileEngine] Header Index attempt ${attempt + 1} failed validation`);
     }

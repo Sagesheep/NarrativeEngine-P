@@ -94,6 +94,25 @@ export function extractEngineSeeds(chunks: LoreChunk[]): EngineSeed {
             surpriseTypesSet.add('CULTURAL_MISUNDERSTANDING');
             encounterTypesSet.add('SOCIAL_FAUX_PAS');
         }
+
+        // --- EXPLICIT ENGINE SEED FIELDS (any chunk, any category) ---
+        const seedFieldPatterns: [RegExp, Set<string>][] = [
+            [/\*\*Surprise Types:\*\*\s*(.+)/i, surpriseTypesSet],
+            [/\*\*Surprise Tones:\*\*\s*(.+)/i, surpriseTonesSet],
+            [/\*\*Encounter Types:\*\*\s*(.+)/i, encounterTypesSet],
+            [/\*\*Encounter Tones:\*\*\s*(.+)/i, encounterTonesSet],
+            [/\*\*World Event Who:\*\*\s*(.+)/i, whoSet],
+            [/\*\*World Event What:\*\*\s*(.+)/i, whatSet],
+            [/\*\*World Event Where:\*\*\s*(.+)/i, whereSet],
+            [/\*\*World Event Why:\*\*\s*(.+)/i, whySet],
+        ];
+
+        for (const [pattern, set] of seedFieldPatterns) {
+            const m = text.match(pattern);
+            if (m) {
+                m[1].split(/[,/]+/).map(s => s.trim()).filter(Boolean).forEach(v => set.add(v));
+            }
+        }
     }
 
     seed.worldWho = Array.from(whoSet).filter(Boolean);

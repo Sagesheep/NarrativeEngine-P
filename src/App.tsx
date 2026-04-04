@@ -55,7 +55,7 @@ export default function App() {
       useAppStore.setState({
         context: state?.context ?? useAppStore.getState().context,
         messages: state?.messages ?? [],
-        condenser: state?.condenser ?? DEFAULT_CONDENSER,
+        condenser: { ...(state?.condenser ?? DEFAULT_CONDENSER), isCondensing: false },
         loreChunks: chunks,
         npcLedger: npcs,
         archiveIndex,

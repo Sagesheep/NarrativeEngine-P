@@ -181,7 +181,7 @@ export function CampaignHub() {
             }
             await saveCampaignState(campaign.id, {
                 context: ctx, messages: existingState?.messages ?? [],
-                condenser: existingState?.condenser ?? DEFAULT_CONDENSER,
+                condenser: { ...(existingState?.condenser ?? DEFAULT_CONDENSER), isCondensing: false },
             });
         }
 
@@ -200,7 +200,7 @@ export function CampaignHub() {
         useAppStore.setState({
             context: { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) },
             messages: state?.messages ?? [],
-            condenser: state?.condenser ?? DEFAULT_CONDENSER,
+            condenser: { ...(state?.condenser ?? DEFAULT_CONDENSER), isCondensing: false },
             loreChunks: chunks, npcLedger: npcs, archiveIndex,
             activeCampaignId: campaign.id,
         });

@@ -41,6 +41,7 @@ export function ChatArea() {
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const condenseAbortRef = useRef<AbortController | null>(null);
 
     // Auto-scroll only when a NEW message appears, not on every streaming token update.
     useEffect(() => {
@@ -59,17 +60,24 @@ export function ChatArea() {
     }, []);
 
     const triggerCondense = async () => {
-        if (condenser.isCondensing) return;
+        if (condenser.isCondensing) {
+            if (condenseAbortRef.current) {
+                condenseAbortRef.current.abort();
+                condenseAbortRef.current = null;
+            }
+            setCondensing(false);
+            toast.info('Condense cancelled');
+            return;
+        }
+        condenseAbortRef.current = new AbortController();
         setCondensing(true);
         try {
             const provider = useAppStore.getState().getActiveStoryEndpoint();
             if (!provider) return;
-            // Step 1 & 2: Generate Canon State + Header Index BEFORE condensing
             const currentCtx = useAppStore.getState().context;
             const uncondensed = messages.slice(condenser.condensedUpToIndex + 1);
             const saveResult = await runSaveFilePipeline(provider as EndpointConfig | ProviderConfig, uncondensed, currentCtx);
 
-            // Auto-populate fields
             if (saveResult.canonSuccess) {
                 updateContext({ canonState: saveResult.canonState });
             }
@@ -79,7 +87,6 @@ export function ChatArea() {
 
             console.log(`[SavePipeline] Canon: ${saveResult.canonSuccess ? '✓' : '✗'}, Index: ${saveResult.indexSuccess ? '✓' : '✗'}`);
 
-            // Step 3: Condense history (using fresh context with updated glossary)
             const freshCtx = useAppStore.getState().context;
             const npcLedger = useAppStore.getState().npcLedger;
             const campaignId = useAppStore.getState().activeCampaignId || '';
@@ -91,21 +98,27 @@ export function ChatArea() {
                 condenser.condensedSummary,
                 campaignId,
                 npcLedger.map(n => n.name),
-                settings.contextLimit
+                settings.contextLimit,
+                condenseAbortRef.current.signal
             );
             setCondensed(result.summary, result.upToIndex);
 
-            // Reload archive index so newly indexed scenes are available for retrieval
             if (campaignId) {
                 const fresh = await api.archive.getIndex(campaignId);
                 setArchiveIndex(fresh);
                 console.log(`[Archive] Reloaded index: ${fresh.length} entries`);
             }
         } catch (err) {
+            if (err instanceof Error && err.name === 'AbortError') {
+                console.log('[Condenser] Condensation cancelled by user');
+                toast.info('Condense cancelled');
+                return;
+            }
             console.error('[Condenser]', err);
             toast.error('Condenser failed — history was not compressed');
         } finally {
             setCondensing(false);
+            condenseAbortRef.current = null;
         }
     };
 
@@ -498,11 +511,11 @@ export function ChatArea() {
                 </button>
                 <button
                     onClick={triggerCondense}
-                    disabled={condenser.isCondensing || messages.length < 6}
+                    disabled={!condenser.isCondensing && messages.length < 6}
                     className="flex items-center gap-1.5 bg-void border border-terminal/30 hover:border-terminal text-terminal text-[10px] sm:text-[11px] uppercase tracking-wider px-2 sm:px-3 py-1.5 transition-all hover:bg-terminal/5 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                    {condenser.isCondensing ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
-                    {condenser.isCondensing ? 'Condensing...' : 'Condense'}
+                    {condenser.isCondensing ? <Square size={13} /> : <Zap size={13} />}
+                    {condenser.isCondensing ? 'Stop' : 'Condense'}
                 </button>
                 <button
                     onClick={openArchive}
