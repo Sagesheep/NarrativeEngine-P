@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { GameContext, ChatMessage, CondenserState, LoreChunk, ArchiveIndexEntry, NPCEntry } from '../../types';
+import type { GameContext, ChatMessage, CondenserState, LoreChunk, ArchiveIndexEntry, NPCEntry, SemanticFact } from '../../types';
 import { toast } from '../../components/Toast';
 import { debouncedSaveSettings } from './settingsSlice';
 import {
@@ -160,6 +160,7 @@ export const defaultContext: GameContext = {
         why: [...DEFAULT_WORLD_WHY],
         what: [...DEFAULT_WORLD_WHAT],
     },
+    coreMemorySlots: [],
 };
 
 // ── Slice type ─────────────────────────────────────────────────────────
@@ -178,6 +179,8 @@ export type CampaignSlice = {
     addNPCs: (newNpcs: NPCEntry[]) => void;
     updateNPC: (id: string, patch: Partial<NPCEntry>) => void;
     removeNPC: (id: string) => void;
+    semanticFacts: SemanticFact[];
+    setSemanticFacts: (facts: SemanticFact[]) => void;
 
     context: GameContext;
     updateContext: (patch: Partial<GameContext>) => void;
@@ -238,6 +241,8 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
         return { npcLedger: newLedger };
     }),
+    semanticFacts: [],
+    setSemanticFacts: (facts) => set({ semanticFacts: facts } as Partial<CampaignDeps>),
 
     context: { ...defaultContext },
     updateContext: (patch) =>

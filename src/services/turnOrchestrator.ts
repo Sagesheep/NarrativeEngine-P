@@ -1,10 +1,11 @@
-import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, ArchiveScene, EndpointConfig, ProviderConfig } from '../types';
+import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, ArchiveScene, SemanticFact, EndpointConfig, ProviderConfig } from '../types';
 import { uid } from '../utils/uid';
 import { buildPayload, sendMessage, generateNPCProfile, updateExistingNPCs } from './chatEngine';
 import { shouldCondense, condenseHistory } from './condenser';
 import { runSaveFilePipeline } from './saveFileEngine';
 import { retrieveRelevantLore, searchLoreByQuery } from './loreRetriever';
 import { recallArchiveScenes } from './archiveMemory';
+import { queryFacts, formatFactsForContext } from './semanticMemory';
 import { rollEngines, rollDiceFairness } from './engineRolls';
 import { extractNPCNames, classifyNPCNames, validateNPCCandidates } from './npcDetector';
 import { api } from './apiClient';
@@ -18,6 +19,7 @@ export type TurnCallbacks = {
     updateLastMessage: (patch: Partial<ChatMessage>) => void;
     updateContext: (patch: Partial<GameContext>) => void;
     setArchiveIndex: (entries: ArchiveIndexEntry[]) => void;
+    setSemanticFacts?: (facts: SemanticFact[]) => void;
     updateNPC: (id: string, patch: Partial<NPCEntry>) => void;
     addNPC: (npc: NPCEntry) => void;
     setCondensed: (summary: string, upToIndex: number) => void;
@@ -43,6 +45,7 @@ export type TurnState = {
     getFreshProvider: () => EndpointConfig | ProviderConfig | undefined;
     getUtilityEndpoint?: () => EndpointConfig | undefined; // optional — context recommender
     forcedInterventions?: ('enemy' | 'neutral' | 'ally')[]; // For manual triggers from UI
+    semanticFacts?: SemanticFact[];
 };
 
 const sanitizePayloadForApi = (rawPayload: any[], allowTools: boolean) => {
@@ -145,9 +148,12 @@ export async function runTurn(
         }).catch(() => { /* ignored */ }) : Promise.resolve();
 
     const archivePromise = (archiveIndex.length > 0 && activeCampaignId)
-        ? recallArchiveScenes(activeCampaignId, archiveIndex, input, messages, 3000)
+        ? recallArchiveScenes(
+            activeCampaignId, archiveIndex, input, messages, 3000,
+            npcLedger, (state as any).semanticFacts
+        )
             .then(res => archiveRecall = res)
-            .catch(() => { /* ignored */ }) 
+            .catch(() => { /* ignored */ })
         : Promise.resolve();
 
     const utilityEndpoint = state.getUtilityEndpoint?.();
@@ -164,8 +170,21 @@ export async function runTurn(
         console.warn('[TurnOrchestrator] UtilityAI recommender failed:', err);
     }) : Promise.resolve();
 
+    // Semantic facts query — runs synchronously but wrapped as promise for consistency
+    let semanticFactText: string | undefined;
+    const factsPromise = Promise.resolve().then(() => {
+        const facts = queryFacts(
+            state.semanticFacts || [],
+            input,
+            messages,
+            npcLedger,
+            500
+        );
+        semanticFactText = formatFactsForContext(facts);
+    });
+
     // Await all async operations simultaneously
-    await Promise.all([timelinePromise, archivePromise, recommenderPromise]);
+    await Promise.all([timelinePromise, archivePromise, recommenderPromise, factsPromise]);
 
     callbacks.setLoadingStatus?.('Architecting AI Prompt...');
     const payloadResult = buildPayload(
@@ -179,7 +198,8 @@ export async function runTurn(
         npcLedger,
         archiveRecall,
         sceneNumber,
-        recommendedNPCNames
+        recommendedNPCNames,
+        semanticFactText
     );
 
     const payload = payloadResult.messages;
@@ -202,6 +222,7 @@ export async function runTurn(
             const saveResult = await runSaveFilePipeline(currentProvider as EndpointConfig | ProviderConfig, uncondensed, context);
 
             if (saveResult.canonSuccess) callbacks.updateContext({ canonState: saveResult.canonState });
+            if (saveResult.coreMemorySlots) callbacks.updateContext({ coreMemorySlots: saveResult.coreMemorySlots });
             if (saveResult.indexSuccess) callbacks.updateContext({ headerIndex: saveResult.headerIndex });
 
             console.log(`[SavePipeline] Canon: ${saveResult.canonSuccess ? '✓' : '✗'}, Index: ${saveResult.indexSuccess ? '✓' : '✗'}`);
@@ -323,6 +344,8 @@ export async function runTurn(
                     if (appendData) {
                         const freshIndex = await api.archive.getIndex(activeCampaignId);
                         callbacks.setArchiveIndex(freshIndex);
+                        const freshFacts = await api.facts.get(activeCampaignId);
+                        callbacks.setSemanticFacts?.(freshFacts);
                         console.log(`[Archive] Appended scene #${appendedSceneId}`);
                     }
 

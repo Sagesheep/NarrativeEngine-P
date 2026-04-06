@@ -1,18 +1,5 @@
-import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig } from '../types';
+import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig, CoreMemorySlot } from '../types';
 import { countTokens } from './tokenizer';
-
-// ─── Canon State Section Headers (from canon_state.md template) ───
-const CANON_STATE_SECTIONS = [
-    'SECTION 1 — IMMEDIATE CONTEXT',
-    'SECTION 2 — WORLD STATE',
-    'SECTION 3 — IMMUTABLE CANON LEDGERS',
-];
-
-const CANON_STATE_REQUIRED_FIELDS = [
-    'TIME_DATE:',
-    'LOCATION:',
-    'CURRENT_STATUS_PLAYER:',
-];
 
 // ─── Header Index Section Headers (from header_index.md template) ───
 const HEADER_INDEX_SECTIONS = [
@@ -38,12 +25,37 @@ function containsNormalized(haystack: string, needle: string): boolean {
     return normalizeForComparison(haystack).includes(normalizeForComparison(needle));
 }
 
-export function validateCanonState(output: string): { valid: boolean; missing: string[] } {
-    const missing = [
-        ...CANON_STATE_SECTIONS.filter((s) => !containsNormalized(output, s)),
-        ...CANON_STATE_REQUIRED_FIELDS.filter((f) => !containsNormalized(output, f)),
-    ];
-    return { valid: missing.length === 0, missing };
+export function validateCanonState(output: string): { valid: boolean; missing: string[]; slots?: CoreMemorySlot[] } {
+    const missing: string[] = [];
+
+    let cleaned = output.trim();
+    const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) cleaned = fenceMatch[1].trim();
+
+    let slots: CoreMemorySlot[] | undefined;
+    try {
+        const parsed = JSON.parse(cleaned);
+        if (!Array.isArray(parsed)) {
+            return { valid: false, missing: ['Output is not a JSON array'] };
+        }
+        slots = parsed;
+
+        const keys = new Set(parsed.map((s: any) => (s.key || '').toUpperCase()));
+        if (!keys.has('PLAYER_STATUS')) missing.push('PLAYER_STATUS slot');
+        if (!keys.has('LOCATION')) missing.push('LOCATION slot');
+        if (!keys.has('TIME_DATE')) missing.push('TIME_DATE slot');
+
+        for (const slot of parsed) {
+            if (!slot.key || typeof slot.value !== 'string' || typeof slot.priority !== 'number') {
+                missing.push('Invalid slot structure');
+                break;
+            }
+        }
+    } catch (e) {
+        return { valid: false, missing: ['Failed to parse JSON'] };
+    }
+
+    return { valid: missing.length === 0, missing, slots };
 }
 
 export function validateHeaderIndex(output: string): { valid: boolean; missing: string[] } {
@@ -90,51 +102,37 @@ function buildCanonStatePrompt(recentMessages: ChatMessage[], existingCanonState
         .join('\n\n');
 
     return [
-        'You are a TTRPG session state tracker. Generate the CURRENT Canon State based on the recent session turns.',
+        'You are a TTRPG session state tracker. Generate the CURRENT Canon State as a JSON array of memory slots.',
         '',
-        'OUTPUT FORMAT — You MUST include ALL of these sections with these EXACT headers:',
+        'OUTPUT FORMAT — You MUST output a JSON array. Each element is an object with these fields:',
+        '  - key: A SHORT_CAPS_IDENTIFIER (e.g. "PLAYER_STATUS", "LOCATION", "X_DEATH", "ACTIVE_QUEST")',
+        '  - value: A concise factual string (e.g. "X - DEAD (killed by Malachar, scene 020)")',
+        '  - priority: A number 1-10 (10 = critical/unlosable, 1 = trivial detail)',
+        '  - sceneId: The scene number where this was established (e.g. "020")',
         '',
-        '=====================================================================',
-        'SECTION 1 — IMMEDIATE CONTEXT (THE "NOW")',
-        '=====================================================================',
-        'TIME_DATE: [current time/date]',
-        'LOCATION: [current location]',
-        'ATMOSPHERE: [current mood]',
-        'NARRATIVE_MODE: [Combat / Survival / Social / Downtime]',
+        'REQUIRED SLOTS (you MUST include these):',
+        '  - PLAYER_STATUS: Current HP, mana, effects, equipment',
+        '  - LOCATION: Current location and atmosphere',
+        '  - TIME_DATE: Current in-game time/date',
         '',
-        'CURRENT_STATUS_PLAYER:',
-        '  - HP:',
-        '  - MANA/STAMINA:',
-        '  - ACTIVE_EFFECTS:',
-        '  - EQUIPMENT_LOADOUT:',
-        '',
-        'CURRENT_STATUS_PARTY:',
-        '  - [Name]: [Status]',
-        '',
-        'IMMEDIATE_THREATS:',
-        '  - [Threat]',
-        '',
-        '=====================================================================',
-        'SECTION 2 — WORLD STATE (MUTABLE)',
-        '=====================================================================',
-        '## 2.1 LOCATION STATES',
-        '## 2.2 PLAYER CAPABILITIES',
-        '',
-        '',
-        '=====================================================================',
-        'SECTION 3 — IMMUTABLE CANON LEDGERS (APPEND-ONLY)',
-        '=====================================================================',
-        '## 3.1 MAJOR REVEALS / TRUTHS',
-        '## 3.2 DESTROYED / IRREVERSIBLY CHANGED LOCATIONS',
+        'ADDITIONAL SLOTS — add as many as needed for:',
+        '  - Character deaths (priority 10, key format: "NAME_DEATH")',
+        '  - Major reveals/plot twists (priority 8-10)',
+        '  - Destroyed/changed locations (priority 8-10)',
+        '  - Active threats (priority 7-9)',
+        '  - Faction state changes (priority 6-8)',
+        '  - Important items acquired/lost (priority 5-7)',
         '',
         'RULES:',
-        '1. Merge the existing Canon State with new information from the turns',
-        '2. For Section 3 (ledgers): ONLY APPEND new entries, never remove existing ones',
+        '1. Merge the existing slots with new information',
+        '2. For deaths and irreversible events: ALWAYS keep them (append-only). Priority 10.',
         '3. Preserve ALL proper nouns exactly as written',
-        '4. Use factual, concise entries — NO prose or narrative',
+        '4. Use factual, concise values — NO prose or narrative',
+        '5. Maximum 15 slots total',
+        '6. Output ONLY the JSON array, no markdown fences, no commentary',
         '',
-        'EXISTING CANON STATE:',
-        existingCanonState || '[No prior state — generate fresh from turns]',
+        'EXISTING CORE MEMORY SLOTS:',
+        existingCanonState || '[]',
         '',
         'RECENT SESSION TURNS:',
         turns,
@@ -146,12 +144,12 @@ export async function generateCanonState(
     recentMessages: ChatMessage[],
     existingCanonState: string,
     maxRetries = 1
-): Promise<{ canonState: string; success: boolean }> {
+): Promise<{ canonState: string; slots: CoreMemorySlot[]; success: boolean }> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const prompt = attempt === 0
             ? buildCanonStatePrompt(recentMessages, existingCanonState)
             : buildCanonStatePrompt(recentMessages, existingCanonState) +
-            '\n\nPREVIOUS ATTEMPT FAILED VALIDATION. Ensure ALL sections are present.';
+            '\n\nPREVIOUS ATTEMPT FAILED VALIDATION. Output ONLY a valid JSON array of slot objects. No markdown fences.';
 
         console.log(`[SaveFileEngine] Generating Canon State... (Attempt ${attempt + 1})`, {
             messages: recentMessages.length,
@@ -159,15 +157,21 @@ export async function generateCanonState(
         });
 
         const output = await llmCall(provider, prompt);
-        const { valid } = validateCanonState(output);
+        const result = validateCanonState(output);
 
-        if (valid) {
-            return { canonState: output, success: true };
+        if (result.valid && result.slots) {
+            return { canonState: JSON.stringify(result.slots), slots: result.slots, success: true };
         }
-        console.warn(`[SaveFileEngine] Canon State attempt ${attempt + 1} failed validation`);
+        console.warn(`[SaveFileEngine] Canon State attempt ${attempt + 1} failed validation:`, result.missing);
     }
 
-    return { canonState: existingCanonState, success: false };
+    let existingSlots: CoreMemorySlot[] = [];
+    try {
+        existingSlots = JSON.parse(existingCanonState);
+        if (!Array.isArray(existingSlots)) existingSlots = [];
+    } catch { existingSlots = []; }
+
+    return { canonState: existingCanonState, slots: existingSlots, success: false };
 }
 
 // ─── Header Index Generator ───
@@ -329,11 +333,8 @@ export async function runSaveFilePipeline(
     provider: ProviderConfig | EndpointConfig,
     recentMessages: ChatMessage[],
     context: GameContext
-): Promise<{ canonState: string; headerIndex: string; canonSuccess: boolean; indexSuccess: boolean }> {
-    // Step 1: Generate Canon State (full overwrite)
+): Promise<{ canonState: string; headerIndex: string; canonSuccess: boolean; indexSuccess: boolean; coreMemorySlots?: CoreMemorySlot[] }> {
     const canonResult = await generateCanonState(provider, recentMessages, context.canonState);
-
-    // Step 2: Generate Header Index (append S1, overwrite S2)
     const indexResult = await generateHeaderIndex(provider, recentMessages, context.headerIndex);
 
     return {
@@ -341,6 +342,7 @@ export async function runSaveFilePipeline(
         headerIndex: indexResult.headerIndex,
         canonSuccess: canonResult.success,
         indexSuccess: indexResult.success,
+        coreMemorySlots: canonResult.slots,
     };
 }
 

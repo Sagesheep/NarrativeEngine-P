@@ -1,4 +1,4 @@
-import type { AppSettings, ArchiveIndexEntry, ChatMessage, CondenserState, GameContext, NPCEntry } from '../types';
+import type { AppSettings, ArchiveIndexEntry, ChatMessage, CondenserState, GameContext, NPCEntry, SemanticFact } from '../types';
 
 const API = '/api';
 
@@ -40,6 +40,17 @@ export const api = {
                 console.warn('[Archive]', data.error || 'Failed to open');
             }
         }
+    },
+    facts: {
+        async get(campaignId: string): Promise<SemanticFact[]> {
+            try {
+                const res = await fetch(`${API}/campaigns/${campaignId}/facts`);
+                if (res.ok) return await res.json();
+            } catch (err) {
+                console.warn('[Facts] Failed to fetch:', err);
+            }
+            return [];
+        },
     },
     campaigns: {
         async saveState(campaignId: string, state: { context: GameContext; messages: ChatMessage[]; condenser: CondenserState }): Promise<void> {

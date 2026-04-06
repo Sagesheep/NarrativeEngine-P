@@ -30,6 +30,7 @@ export function ChatArea() {
         deleteMessage,
         deleteMessagesFrom,
         resetCondenser,
+        setSemanticFacts,
     } = useAppStore();
 
     const [input, setInput] = useState('');
@@ -112,6 +113,8 @@ export function ChatArea() {
                 const fresh = await api.archive.getIndex(campaignId);
                 setArchiveIndex(fresh);
                 console.log(`[Archive] Reloaded index: ${fresh.length} entries`);
+                const freshFacts = await api.facts.get(campaignId);
+                setSemanticFacts(freshFacts);
             }
         } catch (err) {
             if (err instanceof Error && err.name === 'AbortError') {
@@ -176,6 +179,7 @@ export function ChatArea() {
             updateLastMessage: useAppStore.getState().updateLastMessage,
             updateContext: updateContext,
             setArchiveIndex: setArchiveIndex,
+            setSemanticFacts: setSemanticFacts,
             updateNPC: useAppStore.getState().updateNPC,
             addNPC: useAppStore.getState().addNPC,
             setCondensed: setCondensed,
@@ -247,6 +251,8 @@ export function ChatArea() {
             const freshIndex = await api.archive.getIndex(campaignId);
             setArchiveIndex(freshIndex);
             console.log(`[Archive] Rolled back from scene #${target.sceneId}`);
+            const freshFacts = await api.facts.get(campaignId);
+            setSemanticFacts(freshFacts);
         } catch (err) {
             console.warn('[Archive] Rollback failed:', err);
             toast.warning('Archive rollback failed');

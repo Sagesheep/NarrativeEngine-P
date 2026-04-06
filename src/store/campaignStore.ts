@@ -1,4 +1,4 @@
-import type { Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, ArchiveIndexEntry } from '../types';
+import type { Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, ArchiveIndexEntry, SemanticFact } from '../types';
 
 const API = '/api';
 
@@ -85,6 +85,12 @@ export async function getNPCLedger(campaignId: string): Promise<NPCEntry[]> {
 /** Load the archive search index from disk. Built automatically by the server on every turn. */
 export async function loadArchiveIndex(campaignId: string): Promise<ArchiveIndexEntry[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/archive/index`);
+    if (!res.ok) return [];
+    return res.json();
+}
+
+export async function loadSemanticFacts(campaignId: string): Promise<SemanticFact[]> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/facts`);
     if (!res.ok) return [];
     return res.json();
 }

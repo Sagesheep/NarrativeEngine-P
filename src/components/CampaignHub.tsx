@@ -4,7 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import {
     listCampaigns, deleteCampaign, loadCampaignState,
     saveCampaign, saveCampaignState, saveLoreChunks, getLoreChunks,
-    getNPCLedger, loadArchiveIndex, saveNPCLedger
+    getNPCLedger, loadArchiveIndex, saveNPCLedger, loadSemanticFacts
 } from '../store/campaignStore';
 import { chunkLoreFile } from '../services/loreChunker';
 import { extractEngineSeeds } from '../services/loreEngineSeeder';
@@ -27,6 +27,12 @@ const DEFAULT_CONTEXT = {
     continuePromptActive: false, inventoryActive: false, characterProfileActive: false,
     surpriseEngineActive: true, encounterEngineActive: true, worldEngineActive: true,
     diceFairnessActive: true, sceneNote: '', sceneNoteActive: false, sceneNoteDepth: 3,
+    worldVibe: '', enemyPlayerActive: false, neutralPlayerActive: false, allyPlayerActive: false,
+    enemyPlayerPrompt: '', neutralPlayerPrompt: '', allyPlayerPrompt: '',
+    interventionChance: 25, enemyCooldown: 2, neutralCooldown: 2, allyCooldown: 2,
+    interventionQueue: [] as ('enemy' | 'neutral' | 'ally')[],
+    worldEventConfig: { initialDC: 498, dcReduction: 2, who: [] as string[], where: [] as string[], why: [] as string[], what: [] as string[] },
+    coreMemorySlots: [],
 };
 
 const DEFAULT_CONDENSER = { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false };
@@ -193,15 +199,15 @@ export function CampaignHub() {
     const handleSelectCampaign = async (campaign: Campaign) => {
         const updatedCampaign = { ...campaign, lastPlayedAt: Date.now() };
         await saveCampaign(updatedCampaign);
-        const [state, chunks, npcs, archiveIndex] = await Promise.all([
+        const [state, chunks, npcs, archiveIndex, semanticFacts] = await Promise.all([
             loadCampaignState(campaign.id), getLoreChunks(campaign.id),
-            getNPCLedger(campaign.id), loadArchiveIndex(campaign.id),
+            getNPCLedger(campaign.id), loadArchiveIndex(campaign.id), loadSemanticFacts(campaign.id),
         ]);
         useAppStore.setState({
             context: { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) },
             messages: state?.messages ?? [],
             condenser: { ...(state?.condenser ?? DEFAULT_CONDENSER), isCondensing: false },
-            loreChunks: chunks, npcLedger: npcs, archiveIndex,
+            loreChunks: chunks, npcLedger: npcs, archiveIndex, semanticFacts,
             activeCampaignId: campaign.id,
         });
     };

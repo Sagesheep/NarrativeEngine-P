@@ -124,6 +124,7 @@ export type GameContext = {
     neutralCooldown: number;
     allyCooldown: number;
     interventionQueue: ('enemy' | 'neutral' | 'ally')[];
+    coreMemorySlots?: CoreMemorySlot[];
 };
 
 export type ChatMessage = {
@@ -154,11 +155,14 @@ export type ArchiveChunk = {
 
 /** Search index entry — one per scene, auto-built by server on every turn. */
 export type ArchiveIndexEntry = {
-    sceneId: string;         // zero-padded, e.g. "014" — matches ## SCENE header in .archive.md
+    sceneId: string;
     timestamp: number;
-    keywords: string[];      // proper nouns, quoted strings, [MEMORABLE:] tags
-    npcsMentioned: string[]; // NPC names detected in the scene
-    userSnippet: string;     // first ~100 chars of user message (human-readable preview)
+    keywords: string[];
+    npcsMentioned: string[];
+    userSnippet: string;
+    keywordStrengths?: Record<string, number>;
+    npcStrengths?: Record<string, number>;
+    importance?: number;
 };
 
 /** Full verbatim scene content fetched from .archive.md for recall injection. */
@@ -278,5 +282,22 @@ export type PayloadTrace = {
     preview?: string;
     included: boolean;
     position?: string;
+};
+
+export type CoreMemorySlot = {
+    key: string;
+    value: string;
+    priority: number;
+    sceneId: string;
+};
+
+export type SemanticFact = {
+    id: string;
+    subject: string;
+    predicate: string;
+    object: string;
+    importance: number;
+    sceneId: string;
+    timestamp: number;
 };
 

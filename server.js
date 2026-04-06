@@ -120,6 +120,7 @@ app.delete('/api/campaigns/:id', (req, res) => {
         path.join(CAMPAIGNS_DIR, `${id}.npcs.json`),
         path.join(CAMPAIGNS_DIR, `${id}.archive.md`),
         path.join(CAMPAIGNS_DIR, `${id}.archive.index.json`),
+        path.join(CAMPAIGNS_DIR, `${id}.facts.json`),
     ];
     for (const f of files) {
         if (fs.existsSync(f)) fs.unlinkSync(f);
@@ -192,6 +193,10 @@ function archiveIndexPath(id) {
     return path.join(CAMPAIGNS_DIR, `${id}.archive.index.json`);
 }
 
+function factsPath(id) {
+    return path.join(CAMPAIGNS_DIR, `${id}.facts.json`);
+}
+
 function getNextSceneNumber(id) {
     const fp = archivePath(id);
     if (!fs.existsSync(fp)) return 1;
@@ -238,6 +243,122 @@ function extractNPCNames(text) {
     return Array.from(names).slice(0, 15);
 }
 
+/**
+ * Estimate intrinsic importance of a scene (1-10) based on content patterns.
+ * No LLM call — pure heuristic.
+ */
+function estimateImportance(text) {
+    const lower = text.toLowerCase();
+    let importance = 3;
+
+    if (/\b(killed|slain|died|defeated|destroyed|executed|murdered|sacrificed)\b/.test(lower)) importance += 3;
+    if (/\[MEMORABLE:/.test(text)) importance += 2;
+    if (/\b(king|queen|emperor|empress|lord|lady|prince|princess|archmage|general|commander|champion)\b/.test(lower)) importance += 1;
+    if (/\b(acquired|obtained|rewarded|treasure|legendary|artifact|enchanted)\b/.test(lower)) importance += 1;
+    if (/\b(quest|mission|objective|prophecy|oath|vow|alliance|betrayal|treaty)\b/.test(lower)) importance += 1;
+
+    return Math.min(10, importance);
+}
+
+/**
+ * Extract graded keyword strengths (0-1) from text.
+ * Strength based on: frequency, position (early = stronger), memorable association.
+ */
+function extractKeywordStrengths(text, keywords) {
+    const lower = text.toLowerCase();
+    const strengths = {};
+    const textLen = lower.length;
+
+    for (const kw of keywords) {
+        const kwLower = kw.toLowerCase();
+        let strength = 0;
+        let count = 0;
+        let pos = 0;
+        while ((pos = lower.indexOf(kwLower, pos)) !== -1) {
+            count++;
+            if (pos < textLen * 0.2) strength += 0.3;
+            pos += kwLower.length;
+        }
+        if (count >= 3) strength += 0.6;
+        else if (count >= 2) strength += 0.4;
+        else if (count >= 1) strength += 0.2;
+        if (lower.includes('[memorable:')) {
+            const memIdx = lower.indexOf('[memorable:');
+            const memContext = lower.substring(Math.max(0, memIdx - 100), memIdx + 200);
+            if (memContext.includes(kwLower)) strength += 0.3;
+        }
+        strengths[kw] = Math.min(1.0, strength);
+    }
+    return strengths;
+}
+
+/**
+ * Extract graded NPC strengths (0-1) from GM output.
+ * Strength based on: death proximity, dialogue/action proximity, mention frequency.
+ */
+function extractNPCStrengths(text, npcNames) {
+    const lower = text.toLowerCase();
+    const strengths = {};
+
+    for (const name of npcNames) {
+        const nameLower = name.toLowerCase();
+        let strength = 0;
+        const deathPattern = new RegExp(nameLower + '\\s+(was\\s+)?(killed|slain|died|defeated|destroyed)', 'i');
+        const reverseDeath = new RegExp('(killed|slain|defeated|destroyed|murdered)\\s+' + nameLower, 'i');
+        if (deathPattern.test(lower) || reverseDeath.test(lower)) {
+            strength = 1.0;
+        } else {
+            let count = 0;
+            let pos = 0;
+            while ((pos = lower.indexOf(nameLower, pos)) !== -1) { count++; pos += nameLower.length; }
+            if (count >= 3) strength = 0.7;
+            else if (count >= 2) strength = 0.5;
+            else if (count >= 1) strength = 0.3;
+            const dialoguePattern = new RegExp(nameLower + '\\s+(said|replied|shouted|whispered|asked|told|exclaimed)', 'i');
+            if (dialoguePattern.test(lower)) strength = Math.max(strength, 0.7);
+        }
+        strengths[name] = Math.min(1.0, strength);
+    }
+    return strengths;
+}
+
+/**
+ * Extract semantic triples from NPC-related narrative text.
+ * Creates facts like: {subject, killed, object}, {subject, located_in, object}
+ */
+function extractNPCFacts(npcNames, text) {
+    const facts = [];
+
+    for (const name of npcNames) {
+        const killAsSubject = new RegExp(name + '\\s+(killed|slain|defeated|destroyed|murdered)\\s+([A-Z][A-Za-z\\s]{1,30})', 'i');
+        const killMatch1 = text.match(killAsSubject);
+        if (killMatch1) {
+            facts.push({ subject: name, predicate: killMatch1[1].toLowerCase(), object: killMatch1[2].trim(), importance: 10 });
+        }
+        const killAsObject = new RegExp('([A-Z][A-Za-z\\s]{1,30})\\s+(killed|slain|defeated|destroyed|murdered)\\s+' + name, 'i');
+        const killMatch2 = text.match(killAsObject);
+        if (killMatch2) {
+            facts.push({ subject: name, predicate: 'killed_by', object: killMatch2[1].trim(), importance: 10 });
+        }
+        const locPattern = new RegExp(name + '\\s+(entered|arrived at|found in|returned to|fled to)\\s+(?:the\\s+)?([A-Z][A-Za-z\\s]{2,40})', 'i');
+        const locMatch = text.match(locPattern);
+        if (locMatch) {
+            facts.push({ subject: name, predicate: 'located_in', object: locMatch[2].trim(), importance: 5 });
+        }
+        const titlePattern = new RegExp(name + ',\\s+((?:King|Queen|Lord|Lady|Duke|Prince|Princess|General|Commander|Archmage|Champion)(?:\\s+of\\s+[A-Za-z\\s]+)?)', 'i');
+        const titleMatch = text.match(titlePattern);
+        if (titleMatch) {
+            facts.push({ subject: name, predicate: 'title', object: titleMatch[1].trim(), importance: 7 });
+        }
+        const factionPattern = new RegExp(name + '[\\s,]+(?:leader\\s+of|member\\s+of|of)\\s+(?:the\\s+)?([A-Z][A-Za-z\\s]{2,30})', 'i');
+        const factionMatch = text.match(factionPattern);
+        if (factionMatch) {
+            facts.push({ subject: name, predicate: 'member_of', object: factionMatch[1].trim(), importance: 7 });
+        }
+    }
+    return facts;
+}
+
 // Pre-assign next scene number — called by client BEFORE sending to AI
 app.get('/api/campaigns/:id/archive/next-scene', (req, res) => {
     const next = getNextSceneNumber(req.params.id);
@@ -274,16 +395,42 @@ app.post('/api/campaigns/:id/archive', (req, res) => {
 
     // Build and append index entry to .archive.index.json
     const combinedText = `${userContent}\n${assistantContent}`;
+    const keywords = extractIndexKeywords(combinedText);
+    const npcNames = extractNPCNames(assistantContent);
     const indexEntry = {
         sceneId,
         timestamp,
-        keywords: extractIndexKeywords(combinedText),
-        npcsMentioned: extractNPCNames(assistantContent),
+        keywords,
+        keywordStrengths: extractKeywordStrengths(combinedText, keywords),
+        npcsMentioned: npcNames,
+        npcStrengths: extractNPCStrengths(assistantContent, npcNames),
+        importance: estimateImportance(combinedText),
         userSnippet: userContent.slice(0, 120),
     };
     const existing = readJson(idxp, []);
     existing.push(indexEntry);
     writeJson(idxp, existing);
+
+    // Extract semantic facts and append to facts store
+    const newFacts = extractNPCFacts(npcNames, combinedText);
+    if (newFacts.length > 0) {
+        const factsFile = factsPath(req.params.id);
+        const existingFacts = readJson(factsFile, []);
+        for (const fact of newFacts) {
+            const isDuplicate = existingFacts.some(ef =>
+                ef.subject === fact.subject && ef.predicate === fact.predicate && ef.object === fact.object
+            );
+            if (!isDuplicate) {
+                existingFacts.push({
+                    id: `fact_${String(existingFacts.length + 1).padStart(4, '0')}`,
+                    ...fact,
+                    sceneId,
+                    timestamp,
+                });
+            }
+        }
+        writeJson(factsFile, existingFacts);
+    }
 
     res.json({ ok: true, sceneNumber: sceneNum, sceneId });
 });
@@ -368,6 +515,14 @@ app.delete('/api/campaigns/:id/archive/scenes-from/:sceneId', (req, res) => {
         writeJson(idxp, kept);
     }
 
+    // Trim facts from this scene onwards
+    const factsFile = factsPath(req.params.id);
+    if (fs.existsSync(factsFile)) {
+        const allFacts = readJson(factsFile, []);
+        const keptFacts = allFacts.filter(f => parseInt(f.sceneId, 10) < fromNum);
+        writeJson(factsFile, keptFacts);
+    }
+
     res.json({ ok: true, removedFrom: fromId });
 });
 
@@ -387,6 +542,21 @@ app.get('/api/campaigns/:id/archive/open', (req, res) => {
             res.json({ ok: true });
         });
     });
+});
+
+// ═══════════════════════════════════════════
+//  Semantic Facts Store
+// ═══════════════════════════════════════════
+
+app.get('/api/campaigns/:id/facts', (req, res) => {
+    const facts = readJson(factsPath(req.params.id), []);
+    res.json(facts);
+});
+
+app.put('/api/campaigns/:id/facts', (req, res) => {
+    ensureDirs();
+    writeJson(factsPath(req.params.id), req.body);
+    res.json({ ok: true });
 });
 
 // ═══════════════════════════════════════════

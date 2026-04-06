@@ -10,7 +10,7 @@ import { NPCLedgerModal } from './components/NPCLedgerModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import {
-  loadCampaignState, getLoreChunks, getNPCLedger, loadArchiveIndex,
+  loadCampaignState, getLoreChunks, getNPCLedger, loadArchiveIndex, loadSemanticFacts,
 } from './store/campaignStore';
 
 const DEFAULT_CONDENSER = { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false };
@@ -44,11 +44,12 @@ export default function App() {
     setCampaignLoaded(false);
 
     (async () => {
-      const [state, chunks, npcs, archiveIndex] = await Promise.all([
+      const [state, chunks, npcs, archiveIndex, semanticFacts] = await Promise.all([
         loadCampaignState(activeCampaignId),
         getLoreChunks(activeCampaignId),
         getNPCLedger(activeCampaignId),
         loadArchiveIndex(activeCampaignId),
+        loadSemanticFacts(activeCampaignId),
       ]);
       if (cancelled) return;
 
@@ -59,6 +60,7 @@ export default function App() {
         loreChunks: chunks,
         npcLedger: npcs,
         archiveIndex,
+        semanticFacts,
       });
       setCampaignLoaded(true);
     })();
