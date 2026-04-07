@@ -4,13 +4,15 @@ import { buildPayload, sendMessage, generateNPCProfile, updateExistingNPCs } fro
 import { shouldCondense, condenseHistory } from './condenser';
 import { runSaveFilePipeline } from './saveFileEngine';
 import { retrieveRelevantLore, searchLoreByQuery } from './loreRetriever';
-import { recallArchiveScenes } from './archiveMemory';
+import { recallArchiveScenes, retrieveArchiveMemory, fetchArchiveScenes } from './archiveMemory';
+import { rankChapters, recallWithChapterFunnel } from './archiveChapterEngine';
 import { queryFacts, formatFactsForContext } from './semanticMemory';
 import { rollEngines, rollDiceFairness } from './engineRolls';
 import { extractNPCNames, classifyNPCNames, validateNPCCandidates } from './npcDetector';
 import { api } from './apiClient';
 import { recommendContext } from './contextRecommender';
 import { toast } from '../components/Toast';
+import { useAppStore } from '../store/useAppStore';
 
 export type TurnCallbacks = {
     onCheckingNotes: (checking: boolean) => void;
@@ -147,13 +149,67 @@ export async function runTurn(
             }
         }).catch(() => { /* ignored */ }) : Promise.resolve();
 
+    // ─── Phase 4A: Two-Stage Chapter Funnel Retrieval ───
     const archivePromise = (archiveIndex.length > 0 && activeCampaignId)
-        ? recallArchiveScenes(
-            activeCampaignId, archiveIndex, input, messages, 3000,
-            npcLedger, (state as any).semanticFacts
-        )
-            .then(res => archiveRecall = res)
-            .catch(() => { /* ignored */ })
+        ? (async () => {
+            const chapters = useAppStore.getState().chapters;
+            const hasSealedChapters = chapters.some(c => c.sealedAt && c.summary);
+            
+            if (!hasSealedChapters) {
+                // No sealed chapters - use flat retrieval unchanged
+                const result = await recallArchiveScenes(
+                    activeCampaignId, archiveIndex, input, messages, 3000,
+                    npcLedger, (state as any).semanticFacts
+                );
+                archiveRecall = result;
+                return;
+            }
+            
+            // Stage 1: Synchronous 3D scoring (~1ms)
+            const rankedChapters = rankChapters(
+                chapters, input, messages, npcLedger, (state as any).semanticFacts
+            );
+            
+            // Stage 2: LLM validation with 3s timeout
+            const utilityConfig = state.getUtilityEndpoint?.();
+            const FUNNEL_TIMEOUT_MS = 3000;
+            
+            const funnelPromise = recallWithChapterFunnel(
+                chapters, archiveIndex, input, messages,
+                npcLedger, (state as any).semanticFacts, utilityConfig,
+                activeCampaignId, 3000
+            );
+            
+            const timeoutPromise = new Promise<ArchiveScene[]>((resolve) => {
+                setTimeout(() => {
+                    console.warn('[ChapterFunnel] Timeout - using top-3 fallback');
+                    const fallbackRanges: [string, string][] = rankedChapters
+                        .slice(0, 3)
+                        .map(ch => ch.sceneRange);
+                    const openChapter = chapters.find(c => !c.sealedAt);
+                    if (openChapter) fallbackRanges.push(openChapter.sceneRange);
+                    
+                    const matchedIds = retrieveArchiveMemory(
+                        archiveIndex, input, messages, npcLedger,
+                        undefined, (state as any).semanticFacts, fallbackRanges
+                    );
+                    fetchArchiveScenes(activeCampaignId!, matchedIds, 3000)
+                        .then(resolve)
+                        .catch(() => resolve([]));
+                }, FUNNEL_TIMEOUT_MS);
+            });
+            
+            archiveRecall = await Promise.race([funnelPromise, timeoutPromise]);
+            
+            // Double-fallback: if funnel returned empty
+            if (archiveRecall.length === 0) {
+                console.warn('[ChapterFunnel] Empty result - falling back to flat retrieval');
+                archiveRecall = await recallArchiveScenes(
+                    activeCampaignId, archiveIndex, input, messages, 3000,
+                    npcLedger, (state as any).semanticFacts
+                );
+            }
+        })()
         : Promise.resolve();
 
     const utilityEndpoint = state.getUtilityEndpoint?.();
@@ -183,8 +239,16 @@ export async function runTurn(
         semanticFactText = formatFactsForContext(facts);
     });
 
-    // Await all async operations simultaneously
-    await Promise.all([timelinePromise, archivePromise, recommenderPromise, factsPromise]);
+    // Await all async operations simultaneously, with a 10s safety timeout.
+    // If any individual operation hangs, we proceed with whatever completed rather than blocking indefinitely.
+    const CONTEXT_GATHER_TIMEOUT_MS = 10_000;
+    await Promise.race([
+        Promise.all([timelinePromise, archivePromise, recommenderPromise, factsPromise]),
+        new Promise<void>((resolve) => setTimeout(() => {
+            console.warn('[TurnOrchestrator] Context gather timeout (10s) — proceeding with partial results');
+            resolve();
+        }, CONTEXT_GATHER_TIMEOUT_MS)),
+    ]);
 
     callbacks.setLoadingStatus?.('Architecting AI Prompt...');
     const payloadResult = buildPayload(
@@ -226,6 +290,8 @@ export async function runTurn(
             if (saveResult.indexSuccess) callbacks.updateContext({ headerIndex: saveResult.headerIndex });
 
             console.log(`[SavePipeline] Canon: ${saveResult.canonSuccess ? '✓' : '✗'}, Index: ${saveResult.indexSuccess ? '✓' : '✗'}`);
+            if (!saveResult.canonSuccess) toast.warning('Canon state update failed — using previous state');
+            if (!saveResult.indexSuccess) toast.warning('Header index update failed — using previous index');
 
             const result = await condenseHistory(
                 currentProvider,
@@ -365,7 +431,10 @@ export async function runTurn(
                                 console.log(`[NPC Auto-Gen] New character detected: "${potentialName}" — spawning background profile generation...`);
                                 const genProvider = state.getFreshProvider();
                                 if (genProvider) {
-                                    generateNPCProfile(genProvider, allMsgs, potentialName, callbacks.addNPC);
+                                    // Fire-and-forget by design (non-blocking). addNPC triggers debouncedSaveNPCLedger
+                                    // which will persist the NPC ~1s after it lands in the store.
+                                    generateNPCProfile(genProvider, allMsgs, potentialName, callbacks.addNPC)
+                                        .catch(err => console.warn(`[NPC Auto-Gen] Background generation failed for "${potentialName}":`, err));
                                 }
                             }
 
@@ -397,7 +466,7 @@ export async function runTurn(
                 } else if (apiRetryCount === 1) {
                     callbacks.updateLastAssistant(`⚠️ Error: ${err}. Retrying without tools...`);
                     toast.warning('Retry failed — trying without tools...');
-                    setTimeout(() => executeTurn(currentPayload, 999, 2), 2000);
+                    setTimeout(() => executeTurn(currentPayload, 999, 2), 4000); // doubled backoff
                 } else {
                     callbacks.updateLastAssistant(`⚠️ Error: ${err}`);
                     toast.error('LLM request failed after retries');

@@ -1,37 +1,55 @@
 import { useState, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Send, Save, Loader2, Zap, Scroll, Edit2, RotateCcw, Trash2, Check, X, Square, FileText, ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useAppStore } from '../store/useAppStore';
-import type { ChatMessage, EndpointConfig, ProviderConfig } from '../types';
+import type { ChatMessage, EndpointConfig, ProviderConfig, ArchiveChapter } from '../types';
 import { condenseHistory } from '../services/condenser';
-import { runSaveFilePipeline } from '../services/saveFileEngine';
+import { runSaveFilePipeline, generateChapterSummary } from '../services/saveFileEngine';
 import { runTurn } from '../services/turnOrchestrator';
 import { api } from '../services/apiClient';
 import { set } from 'idb-keyval';
 import { toast } from './Toast';
+import { shouldAutoSeal } from '../services/archiveChapterEngine';
 
 
 export function ChatArea() {
+    // Split store subscriptions so streaming token updates only re-render the message list,
+    // not the entire ChatArea. Stable/rarely-changing data is grouped with useShallow.
+    const messages = useAppStore(s => s.messages);
+    const condenser = useAppStore(s => s.condenser);
+    const context = useAppStore(s => s.context);
+    const activeCampaignId = useAppStore(s => s.activeCampaignId);
+
+    const { settings, loreChunks, npcLedger, archiveIndex, chapters } = useAppStore(
+        useShallow(s => ({
+            settings: s.settings,
+            loreChunks: s.loreChunks,
+            npcLedger: s.npcLedger,
+            archiveIndex: s.archiveIndex,
+            chapters: s.chapters,
+        }))
+    );
+
     const {
-        messages,
-        settings,
-        context,
-        condenser,
-        loreChunks,
-        npcLedger,
-        archiveIndex,
-        setArchiveIndex,
-        clearArchive,
-        updateLastAssistant,
-        updateContext,
-        setCondensed,
-        setCondensing,
-        activeCampaignId,
-        deleteMessage,
-        deleteMessagesFrom,
-        resetCondenser,
-        setSemanticFacts,
-    } = useAppStore();
+        setArchiveIndex, clearArchive, updateLastAssistant, updateContext,
+        setCondensed, setCondensing, deleteMessage, deleteMessagesFrom,
+        resetCondenser, setSemanticFacts, setChapters,
+    } = useAppStore(
+        useShallow(s => ({
+            setArchiveIndex: s.setArchiveIndex,
+            clearArchive: s.clearArchive,
+            updateLastAssistant: s.updateLastAssistant,
+            updateContext: s.updateContext,
+            setCondensed: s.setCondensed,
+            setCondensing: s.setCondensing,
+            deleteMessage: s.deleteMessage,
+            deleteMessagesFrom: s.deleteMessagesFrom,
+            resetCondenser: s.resetCondenser,
+            setSemanticFacts: s.setSemanticFacts,
+            setChapters: s.setChapters,
+        }))
+    );
 
     const [input, setInput] = useState('');
     const [isStreaming, setStreaming] = useState(false); // Moved from store to local state
@@ -54,16 +72,7 @@ export function ChatArea() {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages.length]);
 
-    // Close dropdown on outside click
-    useEffect(() => {
-        const handleClick = (e: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-                // do nothing now since it's removed, but keeping ref intact in case
-            }
-        };
-        document.addEventListener('mousedown', handleClick);
-        return () => document.removeEventListener('mousedown', handleClick);
-    }, []);
+    // dropdownRef kept for future dropdown dismiss logic
 
     const triggerCondense = async () => {
         if (condenser.isCondensing) {
@@ -86,9 +95,13 @@ export function ChatArea() {
 
             if (saveResult.canonSuccess) {
                 updateContext({ canonState: saveResult.canonState });
+            } else {
+                toast.warning('Canon state update failed — using previous state');
             }
             if (saveResult.indexSuccess) {
                 updateContext({ headerIndex: saveResult.headerIndex });
+            } else {
+                toast.warning('Header index update failed — using previous index');
             }
 
             console.log(`[SavePipeline] Canon: ${saveResult.canonSuccess ? '✓' : '✗'}, Index: ${saveResult.indexSuccess ? '✓' : '✗'}`);
@@ -157,37 +170,169 @@ export function ChatArea() {
 
         abortControllerRef.current = new AbortController();
 
+        // Capture a single getState() snapshot for all stable values needed at turn start.
+        // Getters that need freshness mid-turn (messages, provider) remain as live accessors.
+        const storeSnapshot = useAppStore.getState();
+
         await runTurn({
             input: textToUse,
             displayInput: textToUse,
             settings,
             context,
-            messages: useAppStore.getState().messages,
-            condenser: useAppStore.getState().condenser,
+            messages: storeSnapshot.messages,
+            condenser: storeSnapshot.condenser,
             loreChunks,
             npcLedger,
             archiveIndex,
             activeCampaignId,
-            provider: useAppStore.getState().getActiveStoryEndpoint(),
+            provider: storeSnapshot.getActiveStoryEndpoint(),
             getMessages: () => useAppStore.getState().messages,
             getFreshProvider: () => useAppStore.getState().getActiveStoryEndpoint(),
             getUtilityEndpoint: () => useAppStore.getState().getActiveUtilityEndpoint()
         }, {
             onCheckingNotes: setIsCheckingNotes,
-            addMessage: useAppStore.getState().addMessage,
+            addMessage: storeSnapshot.addMessage,
             updateLastAssistant: updateLastAssistant,
-            updateLastMessage: useAppStore.getState().updateLastMessage,
+            updateLastMessage: storeSnapshot.updateLastMessage,
             updateContext: updateContext,
             setArchiveIndex: setArchiveIndex,
             setSemanticFacts: setSemanticFacts,
-            updateNPC: useAppStore.getState().updateNPC,
-            addNPC: useAppStore.getState().addNPC,
+            updateNPC: storeSnapshot.updateNPC,
+            addNPC: storeSnapshot.addNPC,
             setCondensed: setCondensed,
             setCondensing: setCondensing,
             setStreaming: setStreaming,
             setLoadingStatus: setLoadingStatus,
-            setLastPayloadTrace: useAppStore.getState().setLastPayloadTrace
+            setLastPayloadTrace: storeSnapshot.setLastPayloadTrace
         }, abortControllerRef.current);
+
+        // ─── PHASE 2: Auto-Seal Check (post-turn) ───
+        if (activeCampaignId) {
+            // Fire-and-forget auto-seal check
+            checkAndSealChapter(activeCampaignId);
+        }
+    };
+
+    /**
+     * Generate chapter summary asynchronously and update the chapter.
+     * Fire-and-forget: failures are logged but don't block.
+     * IMPORTANT: All state must be captured at call site to prevent stale closure.
+     */
+    const generateChapterSummaryAsync = async (
+        campaignId: string,
+        chapter: ArchiveChapter,
+        headerIndex: string,  // Captured at call site - prevents stale closure
+        provider: EndpointConfig | ProviderConfig | undefined  // Captured at call site
+    ) => {
+        try {
+            if (!provider) {
+                console.warn('[ChapterSummary] No provider available');
+                return;
+            }
+
+            // Get scenes in chapter range
+            const sceneIds: string[] = [];
+            const startNum = parseInt(chapter.sceneRange[0], 10);
+            const endNum = parseInt(chapter.sceneRange[1], 10);
+            for (let i = startNum; i <= endNum; i++) {
+                sceneIds.push(String(i).padStart(3, '0'));
+            }
+
+            // Fetch scene content from server using apiClient
+            const scenes = await api.archive.fetchScenes(campaignId, sceneIds);
+
+            // Generate summary using captured headerIndex (not from closure)
+            const summaryResult = await generateChapterSummary(
+                provider as EndpointConfig | ProviderConfig,
+                chapter,
+                scenes,
+                headerIndex
+            );
+
+            if (summaryResult) {
+                // Update chapter with summary
+                await api.chapters.update(campaignId, chapter.chapterId, {
+                    title: summaryResult.title,
+                    summary: summaryResult.summary,
+                    keywords: summaryResult.keywords,
+                    npcs: summaryResult.npcs,
+                    majorEvents: summaryResult.majorEvents,
+                    unresolvedThreads: summaryResult.unresolvedThreads,
+                    tone: summaryResult.tone,
+                    themes: summaryResult.themes,
+                });
+
+                // Refresh chapters
+                const freshChapters = await api.chapters.list(campaignId);
+                setChapters(freshChapters);
+                console.log(`[ChapterSummary] Generated for ${chapter.chapterId}`);
+            } else {
+                console.warn(`[ChapterSummary] Failed to generate for ${chapter.chapterId}`);
+                toast.warning('Chapter summary generation failed. You can retry later.');
+            }
+        } catch (err) {
+            console.error('[ChapterSummary] Generation failed:', err);
+            toast.error('Chapter summary failed. Chapter remains sealed with empty summary.');
+        }
+    };
+
+    /**
+     * Check if chapter should be auto-sealed and trigger seal if needed.
+     * Fire-and-forget: runs async without blocking the main flow.
+     */
+    const checkAndSealChapter = async (campaignId: string) => {
+        try {
+            const autoSealResult = shouldAutoSeal(chapters, context.headerIndex);
+            if (autoSealResult.shouldSeal) {
+                console.log(`[AutoSeal] Triggering seal: ${autoSealResult.reason}`);
+                await handleSealChapter(campaignId, undefined, autoSealResult.reason);
+            }
+        } catch (err) {
+            console.warn('[AutoSeal] Check failed:', err);
+        }
+    };
+
+    /**
+     * Seal the current open chapter and generate summary.
+     * @param campaignId - The campaign ID
+     * @param title - Optional custom title for the chapter
+     * @param reason - Reason for sealing (auto-seal reason or 'manual')
+     */
+    const handleSealChapter = async (campaignId: string, title?: string, reason: string = 'manual') => {
+        try {
+            // Show confirmation for manual seals
+            if (reason === 'manual') {
+                const customTitle = window.prompt(
+                    'Seal current chapter?\n\nThis will:\n- Finalize the current chapter\n- Create a new open chapter\n- Generate a summary automatically\n\nEnter an optional title (or leave blank for auto-generated):'
+                );
+                if (customTitle === null) return; // User cancelled
+                title = customTitle || undefined;
+            }
+
+            // Call server to seal
+            const result = await api.chapters.seal(campaignId, title);
+            if (!result) {
+                toast.error('Failed to seal chapter');
+                return;
+            }
+
+            console.log(`[SealChapter] Sealed ${result.sealedChapter.chapterId}, created ${result.newOpenChapter.chapterId}`);
+            toast.success(`Chapter sealed: ${result.sealedChapter.chapterId}`);
+
+            // Refresh chapters from server
+            const freshChapters = await api.chapters.list(campaignId);
+            setChapters(freshChapters);
+
+            // Fire-and-forget summary generation
+            // Capture state before async gap to prevent stale closure
+            const capturedHeaderIndex = context.headerIndex;
+            const capturedProvider = useAppStore.getState().getActiveSummarizerEndpoint?.() 
+                ?? useAppStore.getState().getActiveStoryEndpoint();
+            generateChapterSummaryAsync(campaignId, result.sealedChapter, capturedHeaderIndex, capturedProvider);
+        } catch (err) {
+            console.error('[SealChapter] Failed:', err);
+            toast.error('Failed to seal chapter');
+        }
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -238,6 +383,7 @@ export function ChatArea() {
         const campaignId = useAppStore.getState().activeCampaignId;
         if (!campaignId) return;
         const currentIndex = useAppStore.getState().archiveIndex;
+        const currentChapters = useAppStore.getState().chapters;
         if (!currentIndex.length) return;
 
         // Find the first scene whose timestamp >= fromTimestamp
@@ -245,14 +391,42 @@ export function ChatArea() {
         const target = sorted.find(e => e.timestamp >= fromTimestamp);
         if (!target) return;
 
+        fetch('/api/campaigns/' + campaignId + '/backup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trigger: 'pre-rollback', isAuto: true }),
+        }).catch(() => {});
+
         try {
             await api.archive.deleteFrom(campaignId, target.sceneId);
-            // Refresh index in store
-            const freshIndex = await api.archive.getIndex(campaignId);
+            
+            // Refresh all dependent state
+            const [freshIndex, freshFacts, freshChapters] = await Promise.all([
+                api.archive.getIndex(campaignId),
+                api.facts.get(campaignId),
+                api.chapters.list(campaignId)
+            ]);
+            
             setArchiveIndex(freshIndex);
-            console.log(`[Archive] Rolled back from scene #${target.sceneId}`);
-            const freshFacts = await api.facts.get(campaignId);
             setSemanticFacts(freshFacts);
+            
+            // Check if chapters were affected (count or scene ranges changed)
+            const chaptersChanged = freshChapters.length !== currentChapters.length ||
+                freshChapters.some((c, i) => c.sceneRange[0] !== currentChapters[i]?.sceneRange[0]);
+            
+            if (chaptersChanged) {
+                setChapters(freshChapters);
+                console.log('[Archive] Chapters repaired during rollback');
+            }
+            
+            // Reset condenser (always safe after rollback)
+            useAppStore.getState().setCondenser({
+                condensedSummary: '',
+                condensedUpToIndex: -1,
+                isCondensing: false,
+            });
+            
+            console.log(`[Archive] Rolled back from scene #${target.sceneId}`);
         } catch (err) {
             console.warn('[Archive] Rollback failed:', err);
             toast.warning('Archive rollback failed');
@@ -266,9 +440,23 @@ export function ChatArea() {
 
     const handleClearArchive = async () => {
         if (!activeCampaignId || !window.confirm('Are you sure you want to PERMANENTLY delete the entire archive? This cannot be undone.')) return;
+        await fetch('/api/campaigns/' + activeCampaignId + '/backup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trigger: 'pre-clear-archive', isAuto: true }),
+        }).catch(() => {});
         try {
             await api.archive.clear(activeCampaignId);
             clearArchive();
+            
+            // Clear chapters and reset condenser
+            setChapters([]);
+            useAppStore.getState().setCondenser({
+                condensedSummary: '',
+                condensedUpToIndex: -1,
+                isCondensing: false,
+            });
+            
             console.log('[Archive] Cleared successfully');
         } catch (err) {
             console.warn('[Archive] Failed to clear:', err);
@@ -539,6 +727,15 @@ export function ChatArea() {
                 >
                     <Scroll size={13} />
                     Archive
+                </button>
+                <button
+                    onClick={() => activeCampaignId && handleSealChapter(activeCampaignId)}
+                    disabled={!activeCampaignId || !chapters.find(c => !c.sealedAt)}
+                    className="flex items-center gap-1.5 bg-void border border-amber-500/30 hover:border-amber-500 text-amber-500 text-[10px] sm:text-[11px] uppercase tracking-wider px-2 sm:px-3 py-1.5 transition-all hover:bg-amber-500/5 disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Manually seal current chapter"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    Seal
                 </button>
                 <button
                     onClick={handleClearArchive}

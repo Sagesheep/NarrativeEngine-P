@@ -1,4 +1,4 @@
-import type { Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, ArchiveIndexEntry, SemanticFact } from '../types';
+import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, ArchiveIndexEntry, SemanticFact, BackupMeta } from '../types';
 
 const API = '/api';
 
@@ -81,7 +81,9 @@ export async function getNPCLedger(campaignId: string): Promise<NPCEntry[]> {
     if (!res.ok) return [];
     return res.json();
 }
+
 // ─── Archive Index (Tier 4) ───
+
 /** Load the archive search index from disk. Built automatically by the server on every turn. */
 export async function loadArchiveIndex(campaignId: string): Promise<ArchiveIndexEntry[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/archive/index`);
@@ -92,5 +94,87 @@ export async function loadArchiveIndex(campaignId: string): Promise<ArchiveIndex
 export async function loadSemanticFacts(campaignId: string): Promise<SemanticFact[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/facts`);
     if (!res.ok) return [];
+    return res.json();
+}
+
+// --- Chapters (Phase 1) ---
+
+export async function loadChapters(campaignId: string): Promise<ArchiveChapter[]> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/archive/chapters`);
+    if (!res.ok) return [];
+    return res.json();
+}
+
+export async function createChapter(campaignId: string, title?: string): Promise<ArchiveChapter | undefined> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/archive/chapters`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+    });
+    if (!res.ok) return undefined;
+    return res.json();
+}
+
+export async function createBackup(
+    campaignId: string,
+    opts: { label?: string; trigger?: string; isAuto?: boolean } = {}
+): Promise<{ timestamp: number; hash: string; fileCount: number; skipped?: boolean } | undefined> {
+    try {
+        const res = await fetch(`${API}/campaigns/${campaignId}/backup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(opts),
+        });
+        if (res.ok) return await res.json();
+    } catch (err) {
+        console.warn('[Backup] Create failed:', err);
+    }
+    return undefined;
+}
+
+export async function listBackups(campaignId: string): Promise<BackupMeta[]> {
+    try {
+        const res = await fetch(`${API}/campaigns/${campaignId}/backups`);
+        if (res.ok) {
+            const data = await res.json();
+            return data.backups || [];
+        }
+    } catch (err) {
+        console.warn('[Backup] List failed:', err);
+    }
+    return [];
+}
+
+export async function restoreBackup(campaignId: string, timestamp: number): Promise<boolean> {
+    try {
+        const res = await fetch(`${API}/campaigns/${campaignId}/backups/${timestamp}/restore`, {
+            method: 'POST',
+        });
+        return res.ok;
+    } catch (err) {
+        console.warn('[Backup] Restore failed:', err);
+    }
+    return false;
+}
+
+export async function deleteBackup(campaignId: string, timestamp: number): Promise<boolean> {
+    try {
+        const res = await fetch(`${API}/campaigns/${campaignId}/backups/${timestamp}`, {
+            method: 'DELETE',
+        });
+        return res.ok;
+    } catch (err) {
+        console.warn('[Backup] Delete failed:', err);
+    }
+    return false;
+}
+
+export async function updateChapter(campaignId: string, chapterId: string, patch: Partial<ArchiveChapter>): Promise<ArchiveChapter | undefined> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/archive/chapters/${chapterId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+    });
+    if (!res.ok) return undefined;
     return res.json();
 }

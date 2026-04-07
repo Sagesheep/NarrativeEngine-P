@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { GameContext, ChatMessage, CondenserState, LoreChunk, ArchiveIndexEntry, NPCEntry, SemanticFact } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, SemanticFact } from '../../types';
 import { toast } from '../../components/Toast';
 import { debouncedSaveSettings } from './settingsSlice';
 import {
@@ -10,18 +10,55 @@ import {
 
 const API = '/api';
 
+let autoBackupTimer: ReturnType<typeof setInterval> | null = null;
+
+function preOpBackup(campaignId: string | null, trigger: string) {
+    if (!campaignId) return;
+    fetch(`${API}/campaigns/${campaignId}/backup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trigger, isAuto: true }),
+    }).catch(e => console.warn('[Pre-Op Backup] Failed:', e));
+}
+
 // ── Debounced save helpers ─────────────────────────────────────────────
 
+// Getter registered by the slice creator so we always read fresh state at fire time.
+// This prevents stale-snapshot race conditions where two rapid updates within the 1s
+// debounce window would cause the first update's changes to be overwritten.
+let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState }) | null = null;
+export function _registerCampaignStateGetter(
+    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState }
+) {
+    _getStateForSave = getter;
+}
+
 let stateTimer: ReturnType<typeof setTimeout> | null = null;
-export function debouncedSaveCampaignState(campaignId: string | null, state: { context: GameContext; messages: ChatMessage[]; condenser: CondenserState }) {
-    if (!campaignId) return;
+/** Debounced campaign state save. Always reads fresh state at fire time (no stale closures). */
+export function debouncedSaveCampaignState() {
     if (stateTimer) clearTimeout(stateTimer);
     stateTimer = setTimeout(() => {
-        fetch(`${API}/campaigns/${campaignId}/state`, {
+        if (!_getStateForSave) return;
+        const { activeCampaignId, context, messages, condenser } = _getStateForSave();
+        if (!activeCampaignId) return;
+        fetch(`${API}/campaigns/${activeCampaignId}/state`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(state),
+            body: JSON.stringify({ context, messages, condenser }),
         }).catch((e) => { console.error(e); toast.error('Failed to save campaign state'); });
+    }, 1000);
+}
+
+let loreTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedSaveLoreChunks(campaignId: string | null, chunks: LoreChunk[]) {
+    if (!campaignId) return;
+    if (loreTimer) clearTimeout(loreTimer);
+    loreTimer = setTimeout(() => {
+        fetch(`${API}/campaigns/${campaignId}/lore`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(chunks),
+        }).catch((e) => { console.error(e); toast.error('Failed to save lore'); });
     }, 1000);
 }
 
@@ -173,6 +210,8 @@ export type CampaignSlice = {
     updateLoreChunk: (id: string, patch: Partial<LoreChunk>) => void;
     archiveIndex: ArchiveIndexEntry[];
     setArchiveIndex: (entries: ArchiveIndexEntry[]) => void;
+    chapters: ArchiveChapter[];
+    setChapters: (chapters: ArchiveChapter[]) => void;
     npcLedger: NPCEntry[];
     setNPCLedger: (npcs: NPCEntry[]) => void;
     addNPC: (npc: NPCEntry) => void;
@@ -196,24 +235,64 @@ type CampaignDeps = CampaignSlice & {
 
 // ── Slice creator ──────────────────────────────────────────────────────
 
-export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSlice> = (set, get) => ({
+export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSlice> = (set, get) => {
+    // Register a fresh-state getter so debouncedSaveCampaignState always writes current data,
+    // not a stale closure snapshot from the time the action was called.
+    _registerCampaignStateGetter(() => {
+        const s = get();
+        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser };
+    });
+
+    return {
     activeCampaignId: null,
     setActiveCampaign: (id) => {
+        if (autoBackupTimer) {
+            clearInterval(autoBackupTimer);
+            autoBackupTimer = null;
+        }
+
         set({ activeCampaignId: id } as Partial<CampaignDeps>);
         const s = get();
         debouncedSaveSettings(s.settings, id);
+
+        if (id) {
+            autoBackupTimer = setInterval(async () => {
+                const currentState = get();
+                if (!currentState.activeCampaignId) return;
+                try {
+                    const result = await fetch(`${API}/campaigns/${currentState.activeCampaignId}/backup`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ trigger: 'auto', isAuto: true }),
+                    });
+                    if (result.ok) {
+                        const data = await result.json();
+                        if (!data.skipped) {
+                            console.log('[Auto-Backup] Created at', new Date().toLocaleTimeString());
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[Auto-Backup] Failed:', e);
+                }
+            }, 10 * 60 * 1000);
+        }
     },
     loreChunks: [],
-    setLoreChunks: (chunks) => set({ loreChunks: chunks } as Partial<CampaignDeps>),
+    setLoreChunks: (chunks) => set((s) => {
+        debouncedSaveLoreChunks(s.activeCampaignId, chunks);
+        return { loreChunks: chunks } as Partial<CampaignDeps>;
+    }),
     updateLoreChunk: (id, patch) => set((s) => {
         const newChunks = s.loreChunks.map(c => c.id === id ? { ...c, ...patch } : c);
-        if (s.activeCampaignId) {
-            import('../../store/campaignStore').then(mod => mod.saveLoreChunks(s.activeCampaignId!, newChunks));
-        }
+        debouncedSaveLoreChunks(s.activeCampaignId, newChunks);
         return { loreChunks: newChunks };
     }),
     archiveIndex: [],
+    // Read-only hydration setter — archive index is rebuilt server-side on each turn.
     setArchiveIndex: (entries) => set({ archiveIndex: entries } as Partial<CampaignDeps>),
+    chapters: [],
+    // Read-only hydration setter — individual chapter mutations go through api.chapters.*
+    setChapters: (chapters) => set({ chapters } as Partial<CampaignDeps>),
     npcLedger: [],
     setNPCLedger: (npcs) => set((s) => {
         debouncedSaveNPCLedger(s.activeCampaignId, npcs);
@@ -237,18 +316,21 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         return { npcLedger: newLedger };
     }),
     removeNPC: (id) => set((s) => {
+        preOpBackup(s.activeCampaignId, 'pre-delete-npc');
         const newLedger = s.npcLedger.filter(n => n.id !== id);
         debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
         return { npcLedger: newLedger };
     }),
     semanticFacts: [],
+    // Read-only hydration setter — facts are derived server-side from archive. No client persistence needed.
     setSemanticFacts: (facts) => set({ semanticFacts: facts } as Partial<CampaignDeps>),
 
     context: { ...defaultContext },
     updateContext: (patch) =>
         set((s) => {
             const newContext = { ...s.context, ...patch };
-            debouncedSaveCampaignState(s.activeCampaignId, { context: newContext, messages: s.messages, condenser: s.condenser });
+            debouncedSaveCampaignState();
             return { context: newContext };
         }),
-});
+    }; // end of returned slice object
+}; // end of createCampaignSlice

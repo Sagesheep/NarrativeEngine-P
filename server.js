@@ -3,6 +3,7 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -12,10 +13,12 @@ const PORT = 3001;
 const DATA_DIR = path.join(__dirname, 'data');
 const CAMPAIGNS_DIR = path.join(DATA_DIR, 'campaigns');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
 
 function ensureDirs() {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     if (!fs.existsSync(CAMPAIGNS_DIR)) fs.mkdirSync(CAMPAIGNS_DIR, { recursive: true });
+    if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 }
 ensureDirs();
 
@@ -28,7 +31,112 @@ function readJson(filePath, fallback = null) {
 }
 
 function writeJson(filePath, data) {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    try {
+        // Write to a temp file first, then rename for atomicity (prevents partial writes on crash/disk-full)
+        const tmp = filePath + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
+        fs.renameSync(tmp, filePath);
+    } catch (err) {
+        console.error(`[writeJson] Failed to write ${filePath}:`, err);
+        throw err; // re-throw so callers can return 500
+    }
+}
+
+function computeCampaignHash(id) {
+    const fileNames = [
+        `${id}.json`, `${id}.state.json`, `${id}.lore.json`, `${id}.npcs.json`,
+        `${id}.archive.md`, `${id}.archive.index.json`, `${id}.archive.chapters.json`, `${id}.facts.json`,
+    ];
+    const hash = crypto.createHash('md5');
+    for (const name of fileNames) {
+        const fp = path.join(CAMPAIGNS_DIR, name);
+        if (fs.existsSync(fp)) {
+            hash.update(fs.readFileSync(fp, 'utf-8'));
+        }
+    }
+    return hash.digest('hex');
+}
+
+function campaignFiles(id) {
+    const names = [
+        `${id}.json`, `${id}.state.json`, `${id}.lore.json`, `${id}.npcs.json`,
+        `${id}.archive.md`, `${id}.archive.index.json`, `${id}.archive.chapters.json`, `${id}.facts.json`,
+    ];
+    return names.filter(n => fs.existsSync(path.join(CAMPAIGNS_DIR, n)));
+}
+
+function createBackup(id, opts = {}) {
+    const { label = '', trigger = 'manual', isAuto = false } = opts;
+    const now = Date.now();
+    const hash = computeCampaignHash(id);
+
+    if (isAuto) {
+        const backupDir = path.join(BACKUPS_DIR, id);
+        if (fs.existsSync(backupDir)) {
+            const folders = fs.readdirSync(backupDir)
+                .filter(f => fs.statSync(path.join(backupDir, f)).isDirectory())
+                .sort()
+                .reverse();
+            for (const folder of folders) {
+                const metaFile = path.join(backupDir, folder, 'meta.json');
+                if (fs.existsSync(metaFile)) {
+                    const meta = readJson(metaFile);
+                    if (meta && meta.isAuto && meta.hash === hash) {
+                        return { skipped: true };
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    const backupPath = path.join(BACKUPS_DIR, id, String(now));
+    fs.mkdirSync(backupPath, { recursive: true });
+
+    const files = campaignFiles(id);
+    for (const name of files) {
+        const src = path.join(CAMPAIGNS_DIR, name);
+        const dst = path.join(backupPath, name);
+        fs.copyFileSync(src, dst);
+    }
+
+    const campaignMeta = readJson(path.join(CAMPAIGNS_DIR, `${id}.json`), {});
+
+    const meta = {
+        timestamp: now,
+        label,
+        trigger,
+        hash,
+        fileCount: files.length,
+        isAuto,
+        campaignName: campaignMeta.name || 'Unknown',
+    };
+    writeJson(path.join(backupPath, 'meta.json'), meta);
+
+    if (isAuto) {
+        pruneAutoBackups(id, 10);
+    }
+
+    return { timestamp: now, hash, fileCount: files.length };
+}
+
+function pruneAutoBackups(id, keep) {
+    const backupDir = path.join(BACKUPS_DIR, id);
+    if (!fs.existsSync(backupDir)) return;
+
+    const folders = fs.readdirSync(backupDir)
+        .filter(f => fs.statSync(path.join(backupDir, f)).isDirectory())
+        .map(f => {
+            const meta = readJson(path.join(backupDir, f, 'meta.json'), {});
+            return { folder: f, isAuto: meta.isAuto || false };
+        })
+        .filter(f => f.isAuto)
+        .sort((a, b) => Number(b.folder) - Number(a.folder));
+
+    for (let i = keep; i < folders.length; i++) {
+        const dirToRemove = path.join(backupDir, folders[i].folder);
+        fs.rmSync(dirToRemove, { recursive: true, force: true });
+    }
 }
 
 /** Strip all apiKey values before writing to disk. Keys live in the browser's IndexedDB only. */
@@ -191,6 +299,10 @@ function archivePath(id) {
 
 function archiveIndexPath(id) {
     return path.join(CAMPAIGNS_DIR, `${id}.archive.index.json`);
+}
+
+function chaptersPath(id) {
+    return path.join(CAMPAIGNS_DIR, `${id}.archive.chapters.json`);
 }
 
 function factsPath(id) {
@@ -368,6 +480,7 @@ app.get('/api/campaigns/:id/archive/next-scene', (req, res) => {
 
 // Append a scene (user + assistant exchange) — also writes index entry
 app.post('/api/campaigns/:id/archive', (req, res) => {
+    try {
     ensureDirs();
     const { userContent, assistantContent } = req.body;
     const fp = archivePath(req.params.id);
@@ -432,7 +545,40 @@ app.post('/api/campaigns/:id/archive', (req, res) => {
         writeJson(factsFile, existingFacts);
     }
 
+    // --- NEW: Chapter Auto-Lifecycle ---
+    const cp = chaptersPath(req.params.id);
+    let chapters = readJson(cp, []);
+    let openChapter = chapters.find(c => !c.sealedAt);
+
+    if (!openChapter) {
+        // Create new open chapter if none exists
+        const nextNum = chapters.length + 1;
+        openChapter = {
+            chapterId: `CH${String(nextNum).padStart(2, '0')}`,
+            title: `Chapter ${nextNum}`,
+            sceneRange: [sceneId, sceneId],
+            summary: '',
+            keywords: [],
+            npcs: [],
+            majorEvents: [],
+            unresolvedThreads: [],
+            tone: '',
+            themes: [],
+            sceneCount: 1,
+        };
+        chapters.push(openChapter);
+    } else {
+        // Update existing open chapter
+        openChapter.sceneRange[1] = sceneId;
+        openChapter.sceneCount++;
+    }
+    writeJson(cp, chapters);
+
     res.json({ ok: true, sceneNumber: sceneNum, sceneId });
+    } catch (err) {
+        console.error('[Archive Append] Write failed:', err);
+        res.status(500).json({ error: 'Failed to append scene', detail: err.message });
+    }
 });
 
 // Clear archive (.archive.md and .archive.index.json)
@@ -441,11 +587,12 @@ app.delete('/api/campaigns/:id/archive', (req, res) => {
     const files = [
         archivePath(id),
         archiveIndexPath(id),
+        chaptersPath(id),
     ];
     for (const f of files) {
         if (fs.existsSync(f)) fs.unlinkSync(f);
     }
-    res.json({ ok: true });
+    res.json({ ok: true, chaptersCleared: true });
 });
 
 // Get current scene count
@@ -454,6 +601,198 @@ app.get('/api/campaigns/:id/archive', (req, res) => {
     if (!fs.existsSync(fp)) return res.json({ exists: false, sceneCount: 0 });
     const nextScene = getNextSceneNumber(req.params.id);
     res.json({ exists: true, sceneCount: nextScene - 1 });
+});
+
+// ═══════════════════════════════════════════
+//  Chapters (Tier 4.5)
+// ═══════════════════════════════════════════
+
+app.get('/api/campaigns/:id/archive/chapters', (req, res) => {
+    const chapters = readJson(chaptersPath(req.params.id), []);
+    res.json(chapters);
+});
+
+app.post('/api/campaigns/:id/archive/chapters', (req, res) => {
+    const cp = chaptersPath(req.params.id);
+    const existing = readJson(cp, []);
+    
+    // Auto-assign ID: CH01, CH02, etc.
+    const nextNum = existing.length + 1;
+    const chapterId = `CH${String(nextNum).padStart(2, '0')}`;
+    
+    // Default scene range: starting from next available scene
+    const nextScene = getNextSceneNumber(req.params.id);
+    const nextSceneId = String(nextScene).padStart(3, '0');
+    
+    const newChapter = {
+        chapterId,
+        title: req.body.title || `Chapter ${nextNum}`,
+        sceneRange: [nextSceneId, nextSceneId],
+        summary: '',
+        keywords: [],
+        npcs: [],
+        majorEvents: [],
+        unresolvedThreads: [],
+        tone: '',
+        themes: [],
+        sceneCount: 0,
+        // sealedAt is undefined -> open chapter
+    };
+    
+    existing.push(newChapter);
+    writeJson(cp, existing);
+    res.json(newChapter);
+});
+
+app.patch('/api/campaigns/:id/archive/chapters/:chapterId', (req, res) => {
+    const cp = chaptersPath(req.params.id);
+    const existing = readJson(cp, []);
+    const idx = existing.findIndex(c => c.chapterId === req.params.chapterId);
+    
+    if (idx === -1) return res.status(404).json({ error: 'Chapter not found' });
+    
+    // Only allow editing title for now
+    if (req.body.title !== undefined) {
+        existing[idx].title = req.body.title;
+    }
+    
+    writeJson(cp, existing);
+    res.json(existing[idx]);
+});
+
+// POST /api/campaigns/:id/archive/chapters/seal — Manual seal trigger
+app.post('/api/campaigns/:id/archive/chapters/seal', (req, res) => {
+    const cp = chaptersPath(req.params.id);
+    const existing = readJson(cp, []);
+    const openChapter = existing.find(c => !c.sealedAt);
+    
+    if (!openChapter) {
+        return res.status(400).json({ error: 'No open chapter to seal' });
+    }
+    
+    // Seal the open chapter
+    const sealed = {
+        ...openChapter,
+        sealedAt: Date.now(),
+    };
+    
+    // Update title if provided
+    if (req.body.title) {
+        sealed.title = req.body.title;
+    }
+    
+    // Determine next scene number
+    const lastScene = parseInt(sealed.sceneRange[1], 10);
+    const nextScene = String(lastScene + 1).padStart(3, '0');
+    
+    // Create new open chapter
+    const nextChapterNum = existing.length + 1;
+    const newOpen = {
+        chapterId: `CH${String(nextChapterNum).padStart(2, '0')}`,
+        title: 'Open Chapter',
+        sceneRange: [nextScene, nextScene],
+        summary: '',
+        keywords: [],
+        npcs: [],
+        majorEvents: [],
+        unresolvedThreads: [],
+        tone: '',
+        themes: [],
+        sceneCount: 0,
+    };
+    
+    // Replace open chapter with sealed, add new open chapter
+    const openIdx = existing.findIndex(c => c.chapterId === openChapter.chapterId);
+    existing[openIdx] = sealed;
+    existing.push(newOpen);
+    
+    writeJson(cp, existing);
+    res.json({ sealedChapter: sealed, newOpenChapter: newOpen });
+});
+
+// POST /api/campaigns/:id/archive/chapters/merge — Merge two adjacent chapters
+app.post('/api/campaigns/:id/archive/chapters/merge', (req, res) => {
+    const { chapterIdA, chapterIdB } = req.body;
+    const cp = chaptersPath(req.params.id);
+    const existing = readJson(cp, []);
+    
+    const idxA = existing.findIndex(c => c.chapterId === chapterIdA);
+    const idxB = existing.findIndex(c => c.chapterId === chapterIdB);
+    
+    if (idxA === -1 || idxB === -1) {
+        return res.status(404).json({ error: 'One or both chapters not found' });
+    }
+    
+    // Validate adjacency by array position
+    const isAdjacent = Math.abs(idxA - idxB) === 1;
+    if (!isAdjacent) {
+        return res.status(400).json({ error: 'Chapters must be adjacent to merge' });
+    }
+    
+    const firstIdx = Math.min(idxA, idxB);
+    const secondIdx = Math.max(idxA, idxB);
+    
+    const chapterA = existing[firstIdx];
+    const chapterB = existing[secondIdx];
+    
+    // Merged chapter
+    const merged = {
+        ...chapterA,
+        title: `${chapterA.title} & ${chapterB.title}`,
+        sceneRange: [chapterA.sceneRange[0], chapterB.sceneRange[1]],
+        sceneCount: (chapterA.sceneCount || 0) + (chapterB.sceneCount || 0),
+        keywords: Array.from(new Set([...(chapterA.keywords || []), ...(chapterB.keywords || [])])),
+        npcs: Array.from(new Set([...(chapterA.npcs || []), ...(chapterB.npcs || [])])),
+        invalidated: true,
+        summary: `[MERGED] ${chapterA.summary}\n\n${chapterB.summary}`,
+    };
+    
+    // Remove the two old ones, insert the merged one
+    existing.splice(firstIdx, 2, merged);
+    
+    writeJson(cp, existing);
+    res.json(merged);
+});
+
+// POST /api/campaigns/:id/archive/chapters/:chapterId/split — Split a chapter at a scene
+app.post('/api/campaigns/:id/archive/chapters/:chapterId/split', (req, res) => {
+    const { atSceneId } = req.body;
+    const cp = chaptersPath(req.params.id);
+    const existing = readJson(cp, []);
+    
+    const idx = existing.findIndex(c => c.chapterId === req.params.chapterId);
+    if (idx === -1) return res.status(404).json({ error: 'Chapter not found' });
+    
+    const chapter = existing[idx];
+    const startNum = parseInt(chapter.sceneRange[0], 10);
+    const endNum = parseInt(chapter.sceneRange[1], 10);
+    const splitNum = parseInt(atSceneId, 10);
+    
+    if (splitNum <= startNum || splitNum > endNum) {
+        return res.status(400).json({ error: 'Split point must be within chapter range (excluding start)' });
+    }
+    
+    const chapterA = {
+        ...chapter,
+        chapterId: `${chapter.chapterId}A`,
+        sceneRange: [chapter.sceneRange[0], String(splitNum - 1).padStart(3, '0')],
+        sceneCount: splitNum - startNum,
+        invalidated: true,
+    };
+    
+    const chapterB = {
+        ...chapter,
+        chapterId: `${chapter.chapterId}B`,
+        sceneRange: [String(splitNum).padStart(3, '0'), chapter.sceneRange[1]],
+        sceneCount: endNum - splitNum + 1,
+        invalidated: true,
+    };
+    
+    // Replace original with the two new halves
+    existing.splice(idx, 1, chapterA, chapterB);
+    
+    writeJson(cp, existing);
+    res.json({ chapterA, chapterB });
 });
 
 // ═══════════════════════════════════════════
@@ -523,7 +862,59 @@ app.delete('/api/campaigns/:id/archive/scenes-from/:sceneId', (req, res) => {
         writeJson(factsFile, keptFacts);
     }
 
-    res.json({ ok: true, removedFrom: fromId });
+    // --- NEW: Chapter Rollback Cascade ---
+    const cp = chaptersPath(req.params.id);
+    let chaptersRepaired = false;
+    if (fs.existsSync(cp)) {
+        let chapters = readJson(cp, []);
+        const originalCount = chapters.length;
+
+        // 1. Filter out chapters fully ahead of rollback point
+        chapters = chapters.filter(ch => parseInt(ch.sceneRange[0], 10) < fromNum);
+
+        // 2. Repair chapters spanning the rollback point
+        for (const ch of chapters) {
+            const endNum = parseInt(ch.sceneRange[1], 10);
+            if (endNum >= fromNum) {
+                ch.sceneRange[1] = String(fromNum - 1).padStart(3, '0');
+                ch.invalidated = true;
+                delete ch.sealedAt; // unseal — summary no longer valid
+                ch.sceneCount = fromNum - parseInt(ch.sceneRange[0], 10);
+                chaptersRepaired = true;
+            }
+        }
+
+        if (chapters.length !== originalCount) chaptersRepaired = true;
+
+        // 3. Ensure an open chapter exists starting at fromNum - 1 (if archive not empty)
+        const openChapter = chapters.find(ch => !ch.sealedAt);
+        if (!openChapter) {
+            const nextNum = chapters.length + 1;
+            chapters.push({
+                chapterId: `CH${String(nextNum).padStart(2, '0')}`,
+                title: `Chapter ${nextNum}`,
+                sceneRange: [fromId, fromId],
+                summary: '',
+                keywords: [],
+                npcs: [],
+                majorEvents: [],
+                unresolvedThreads: [],
+                tone: '',
+                themes: [],
+                sceneCount: 0, // Will be incremented on next append
+            });
+            chaptersRepaired = true;
+        }
+
+        writeJson(cp, chapters);
+    }
+
+    res.json({ 
+        ok: true, 
+        removedFrom: fromId, 
+        chaptersRepaired, 
+        condenserResetRecommended: true 
+    });
 });
 
 // Open archive in OS default app
@@ -586,6 +977,107 @@ app.post('/api/assets/download', async (req, res) => {
     } catch (err) {
         console.error('[Asset Download] Error:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ═══════════════════════════════════════════
+//  Campaign Backups
+// ═══════════════════════════════════════════
+
+app.post('/api/campaigns/:id/backup', (req, res) => {
+    try {
+        const id = req.params.id;
+        const campaignFile = path.join(CAMPAIGNS_DIR, `${id}.json`);
+        if (!fs.existsSync(campaignFile)) {
+            return res.status(404).json({ error: 'Campaign not found' });
+        }
+        const result = createBackup(id, {
+            label: req.body.label || '',
+            trigger: req.body.trigger || 'manual',
+            isAuto: req.body.isAuto || false,
+        });
+        res.json(result);
+    } catch (err) {
+        console.error('[Backup] Create failed:', err);
+        res.status(500).json({ error: 'Failed to create backup', detail: err.message });
+    }
+});
+
+app.get('/api/campaigns/:id/backups', (req, res) => {
+    try {
+        const backupDir = path.join(BACKUPS_DIR, req.params.id);
+        if (!fs.existsSync(backupDir)) return res.json({ backups: [] });
+
+        const backups = fs.readdirSync(backupDir)
+            .filter(f => fs.statSync(path.join(backupDir, f)).isDirectory())
+            .map(f => {
+                const meta = readJson(path.join(backupDir, f, 'meta.json'), null);
+                if (!meta) return null;
+                return { ...meta, timestamp: Number(f) };
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.timestamp - a.timestamp);
+
+        res.json({ backups });
+    } catch (err) {
+        console.error('[Backup] List failed:', err);
+        res.status(500).json({ error: 'Failed to list backups' });
+    }
+});
+
+app.get('/api/campaigns/:id/backups/:ts', (req, res) => {
+    try {
+        const backupPath = path.join(BACKUPS_DIR, req.params.id, req.params.ts);
+        if (!fs.existsSync(backupPath)) {
+            return res.status(404).json({ error: 'Backup not found' });
+        }
+        const meta = readJson(path.join(backupPath, 'meta.json'), {});
+        const files = fs.readdirSync(backupPath).filter(f => f !== 'meta.json');
+        res.json({ meta, files });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to read backup' });
+    }
+});
+
+app.post('/api/campaigns/:id/backups/:ts/restore', (req, res) => {
+    try {
+        const id = req.params.id;
+        const ts = req.params.ts;
+        const backupPath = path.join(BACKUPS_DIR, id, ts);
+        if (!fs.existsSync(backupPath)) {
+            return res.status(404).json({ error: 'Backup not found' });
+        }
+
+        const restoreBackup = createBackup(id, {
+            label: `Pre-restore from ${new Date(Number(ts)).toLocaleString()}`,
+            trigger: 'pre-restore',
+            isAuto: false,
+        });
+
+        const backupFiles = fs.readdirSync(backupPath).filter(f => f !== 'meta.json');
+        for (const name of backupFiles) {
+            const src = path.join(backupPath, name);
+            const dst = path.join(CAMPAIGNS_DIR, name);
+            fs.copyFileSync(src, dst);
+        }
+
+        res.json({ ok: true, preRestoreBackup: restoreBackup });
+    } catch (err) {
+        console.error('[Backup] Restore failed:', err);
+        res.status(500).json({ error: 'Failed to restore backup', detail: err.message });
+    }
+});
+
+app.delete('/api/campaigns/:id/backups/:ts', (req, res) => {
+    try {
+        const backupPath = path.join(BACKUPS_DIR, req.params.id, req.params.ts);
+        if (!fs.existsSync(backupPath)) {
+            return res.status(404).json({ error: 'Backup not found' });
+        }
+        fs.rmSync(backupPath, { recursive: true, force: true });
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete backup' });
     }
 });
 

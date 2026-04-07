@@ -1,4 +1,4 @@
-import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig, CoreMemorySlot } from '../types';
+import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig, CoreMemorySlot, ArchiveChapter } from '../types';
 import { countTokens } from './tokenizer';
 
 // ─── Header Index Section Headers (from header_index.md template) ───
@@ -283,7 +283,9 @@ export function mergeHeaderIndex(existing: string, llmOutput: string): string {
 
     // Build merged Section 1: existing + new entries appended
     let mergedSection1 = existingSections.section1;
-    if (newSceneBlocks.length > 0) {
+    if (!mergedSection1.trim()) {
+        mergedSection1 = newSections.section1;
+    } else if (newSceneBlocks.length > 0) {
         mergedSection1 = mergedSection1.trimEnd() + '\n\n' + newSceneBlocks.join('\n\n');
     }
 
@@ -334,8 +336,11 @@ export async function runSaveFilePipeline(
     recentMessages: ChatMessage[],
     context: GameContext
 ): Promise<{ canonState: string; headerIndex: string; canonSuccess: boolean; indexSuccess: boolean; coreMemorySlots?: CoreMemorySlot[] }> {
-    const canonResult = await generateCanonState(provider, recentMessages, context.canonState);
-    const indexResult = await generateHeaderIndex(provider, recentMessages, context.headerIndex);
+    // Run both LLM calls in parallel — each takes 5-15s, so sequential was 10-30s total.
+    const [canonResult, indexResult] = await Promise.all([
+        generateCanonState(provider, recentMessages, context.canonState),
+        generateHeaderIndex(provider, recentMessages, context.headerIndex),
+    ]);
 
     return {
         canonState: canonResult.canonState,
@@ -344,6 +349,147 @@ export async function runSaveFilePipeline(
         indexSuccess: indexResult.success,
         coreMemorySlots: canonResult.slots,
     };
+}
+
+// ─── Chapter Summary Generator ───
+
+const CHAPTER_SUMMARY_TOKEN_BUDGET = 8000;
+
+export type ChapterSummaryOutput = {
+    title: string;
+    summary: string;
+    keywords: string[];
+    npcs: string[];
+    majorEvents: string[];
+    unresolvedThreads: string[];
+    tone: string;
+    themes: string[];
+};
+
+function truncateScenesToBudget(
+    scenes: { sceneId: string; content: string }[],
+    budget: number = CHAPTER_SUMMARY_TOKEN_BUDGET
+): { sceneId: string; content: string }[] {
+    const totalTokens = scenes.reduce((sum, s) => sum + countTokens(s.content), 0);
+    if (totalTokens <= budget) return scenes;
+
+    // Strategy: keep ~20% oldest + ~60% newest, drop middle oldest scenes
+    const keepCount = Math.floor(scenes.length * 0.8);
+    const dropCount = scenes.length - keepCount;
+    const dropFromStart = Math.floor(dropCount * 0.25); // Keep some oldest context
+    const dropFromEnd = dropCount - dropFromStart;
+
+    return [
+        ...scenes.slice(0, scenes.length - dropFromEnd - dropFromStart),
+        ...scenes.slice(scenes.length - dropFromEnd),
+    ];
+}
+
+function buildChapterSummaryPrompt(
+    chapter: ArchiveChapter,
+    scenes: { sceneId: string; content: string }[],
+    headerIndex: string
+): string {
+    const truncated = truncateScenesToBudget(scenes);
+    const sceneContent = truncated.map(s => `--- SCENE ${s.sceneId} ---\n${s.content}`).join('\n\n');
+    const sceneRangeStr = `${chapter.sceneRange[0]} to ${chapter.sceneRange[1]}`;
+
+    return [
+        'You are a TTRPG campaign archivist. Generate a structured chapter summary.',
+        '',
+        `CHAPTER: ${chapter.title || 'Untitled'}`,
+        `SCENES: ${sceneRangeStr} (${chapter.sceneCount} scenes)`,
+        '',
+        'OUTPUT FORMAT — respond with a JSON object:',
+        '{',
+        '    "title": "Short evocative chapter title",',
+        '    "summary": "3-5 sentence narrative summary of what happened",',
+        '    "keywords": ["keyword1", "keyword2", ...],',
+        '    "npcs": ["NPC Name 1", "NPC Name 2", ...],',
+        '    "majorEvents": ["Event description 1", "Event description 2"],',
+        '    "unresolvedThreads": ["Thread 1", "Thread 2"],',
+        '    "tone": "one of: combat-heavy, exploration, social, mystery, political, emotional, mixed",',
+        '    "themes": ["theme1", "theme2"]',
+        '}',
+        '',
+        'RULES:',
+        '1. Keywords should be distinctive nouns/places/factions — not generic words',
+        '2. NPCs should include all significant named characters who appeared or were discussed',
+        '3. Major events are plot-critical beats only (not every combat round)',
+        '4. Unresolved threads are open plot hooks, promises, or mysteries',
+        '5. Title should be 2-5 words, evocative',
+        '6. Summary should read like a campaign journal entry, not a list',
+        '',
+        'HEADER INDEX REFERENCE (for thread tracking):',
+        headerIndex.slice(0, 2000), // Truncate header index if very long
+        '',
+        'SCENE CONTENT:',
+        sceneContent,
+    ].join('\n');
+}
+
+/**
+ * Extract JSON from LLM output, handling markdown fences and common errors.
+ */
+export function parseChapterSummaryOutput(raw: string): ChapterSummaryOutput | null {
+    let cleaned = raw.trim();
+
+    // Remove markdown fences
+    const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) cleaned = fenceMatch[1].trim();
+
+    try {
+        const parsed = JSON.parse(cleaned);
+
+        // Validate required fields
+        const required: (keyof ChapterSummaryOutput)[] = [
+            'title', 'summary', 'keywords', 'npcs',
+            'majorEvents', 'unresolvedThreads', 'tone', 'themes'
+        ];
+
+        for (const field of required) {
+            if (!(field in parsed)) {
+                console.warn(`[ChapterSummary] Missing field: ${field}`);
+                parsed[field] = field === 'summary' || field === 'tone' ? '' : [];
+            }
+        }
+
+        return parsed as ChapterSummaryOutput;
+    } catch (e) {
+        console.error('[ChapterSummary] Failed to parse JSON:', e);
+        return null;
+    }
+}
+
+export async function generateChapterSummary(
+    provider: ProviderConfig | EndpointConfig,
+    chapter: ArchiveChapter,
+    scenes: { sceneId: string; content: string }[],
+    headerIndex: string,
+    maxRetries = 1
+): Promise<ChapterSummaryOutput | null> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const prompt = attempt === 0
+            ? buildChapterSummaryPrompt(chapter, scenes, headerIndex)
+            : buildChapterSummaryPrompt(chapter, scenes, headerIndex) +
+            '\n\nPREVIOUS ATTEMPT FAILED. Output ONLY valid JSON with all required fields.';
+
+        console.log(`[SaveFileEngine] Generating Chapter Summary... (Attempt ${attempt + 1})`, {
+            chapterId: chapter.chapterId,
+            sceneCount: scenes.length,
+            promptTokens: countTokens(prompt)
+        });
+
+        const output = await llmCall(provider, prompt);
+        const result = parseChapterSummaryOutput(output);
+
+        if (result) {
+            return result;
+        }
+        console.warn(`[SaveFileEngine] Chapter Summary attempt ${attempt + 1} failed parsing`);
+    }
+
+    return null;
 }
 
 

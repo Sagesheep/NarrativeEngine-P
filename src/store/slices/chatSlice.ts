@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { ChatMessage, CondenserState, GameContext } from '../../types';
+import type { ArchiveIndexEntry, ChatMessage, CondenserState, GameContext } from '../../types';
 import { debouncedSaveCampaignState } from './campaignSlice';
 
 // ── Slice type ─────────────────────────────────────────────────────────
@@ -21,6 +21,7 @@ export type ChatSlice = {
     setCondensed: (summary: string, upToIndex: number) => void;
     setCondensing: (v: boolean) => void;
     resetCondenser: () => void;
+    setCondenser: (state: CondenserState) => void;
 };
 
 // ── Cross-slice dependencies ───────────────────────────────────────────
@@ -28,6 +29,8 @@ export type ChatSlice = {
 type ChatDeps = ChatSlice & {
     activeCampaignId: string | null;
     context: GameContext;
+    // archiveIndex lives in CampaignSlice but clearArchive touches it
+    archiveIndex: ArchiveIndexEntry[];
 };
 
 // ── Slice creator ──────────────────────────────────────────────────────
@@ -42,13 +45,19 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
     setCondensed: (summary, upToIndex) =>
         set((s) => {
             const newCondenser = { ...s.condenser, condensedSummary: summary, condensedUpToIndex: upToIndex };
-            debouncedSaveCampaignState(s.activeCampaignId, { context: s.context, messages: s.messages, condenser: newCondenser });
+            debouncedSaveCampaignState();
             return { condenser: newCondenser };
         }),
+    // isCondensing is ephemeral — intentionally not persisted. App.tsx hydration resets it to false on load.
     setCondensing: (v) =>
         set((s) => ({ condenser: { ...s.condenser, isCondensing: v } })),
     resetCondenser: () =>
         set({ condenser: { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false } } as Partial<ChatDeps>),
+    setCondenser: (state) =>
+        set((_s) => {
+            debouncedSaveCampaignState();
+            return { condenser: state };
+        }),
 
     // Chat defaults
     messages: [],
@@ -76,13 +85,13 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
     updateMessageContent: (id, content) =>
         set((s) => {
             const msgs = s.messages.map(m => m.id === id ? { ...m, content } : m);
-            debouncedSaveCampaignState(s.activeCampaignId, { context: s.context, messages: msgs, condenser: s.condenser });
+            debouncedSaveCampaignState();
             return { messages: msgs };
         }),
     deleteMessage: (id) =>
         set((s) => {
             const msgs = s.messages.filter(m => m.id !== id);
-            debouncedSaveCampaignState(s.activeCampaignId, { context: s.context, messages: msgs, condenser: s.condenser });
+            debouncedSaveCampaignState();
             return { messages: msgs };
         }),
     deleteMessagesFrom: (id) =>
@@ -90,14 +99,15 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
             const index = s.messages.findIndex(m => m.id === id);
             if (index === -1) return { messages: s.messages };
             const msgs = s.messages.slice(0, index);
-            debouncedSaveCampaignState(s.activeCampaignId, { context: s.context, messages: msgs, condenser: s.condenser });
+            debouncedSaveCampaignState();
             return { messages: msgs };
         }),
     setStreaming: (v) => set({ isStreaming: v } as Partial<ChatDeps>),
-    clearChat: () => set((s) => {
+    clearChat: () => set((_s) => {
         const newCondenser = { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false };
-        debouncedSaveCampaignState(s.activeCampaignId, { context: s.context, messages: [], condenser: newCondenser });
+        debouncedSaveCampaignState();
         return { messages: [], condenser: newCondenser };
     }),
-    clearArchive: () => set({ archiveIndex: [] } as unknown as Partial<ChatDeps>),
+    // Fixed: archiveIndex belongs to CampaignSlice, so ChatDeps now includes it for valid typing.
+    clearArchive: () => set({ archiveIndex: [] } as Partial<ChatDeps>),
 });

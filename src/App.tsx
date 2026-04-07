@@ -7,10 +7,11 @@ import { ContextDrawer } from './components/ContextDrawer';
 import { ChatArea } from './components/ChatArea';
 import { SettingsModal } from './components/SettingsModal';
 import { NPCLedgerModal } from './components/NPCLedgerModal';
+import { BackupModal } from './components/BackupModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import {
-  loadCampaignState, getLoreChunks, getNPCLedger, loadArchiveIndex, loadSemanticFacts,
+  loadCampaignState, getLoreChunks, getNPCLedger, loadArchiveIndex, loadSemanticFacts, loadChapters,
 } from './store/campaignStore';
 
 const DEFAULT_CONDENSER = { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false };
@@ -44,12 +45,13 @@ export default function App() {
     setCampaignLoaded(false);
 
     (async () => {
-      const [state, chunks, npcs, archiveIndex, semanticFacts] = await Promise.all([
+      const [state, chunks, npcs, archiveIndex, semanticFacts, chapters] = await Promise.all([
         loadCampaignState(activeCampaignId),
         getLoreChunks(activeCampaignId),
         getNPCLedger(activeCampaignId),
         loadArchiveIndex(activeCampaignId),
         loadSemanticFacts(activeCampaignId),
+        loadChapters(activeCampaignId),
       ]);
       if (cancelled) return;
 
@@ -61,6 +63,7 @@ export default function App() {
         npcLedger: npcs,
         archiveIndex,
         semanticFacts,
+        chapters,
       });
       setCampaignLoaded(true);
     })();
@@ -85,6 +88,7 @@ export default function App() {
       <ErrorBoundary>
         <CampaignHub />
         <SettingsModal />
+        <BackupModal />
         <ToastContainer />
       </ErrorBoundary>
     );
@@ -99,6 +103,7 @@ export default function App() {
       </div>
       <SettingsModal />
       <NPCLedgerModal />
+      <BackupModal />
       <ToastContainer />
     </ErrorBoundary>
   );

@@ -62,30 +62,31 @@ function scoreEntry(
  * Returns a map of keyword -> activation weight (0-1).
  * User message = 1.0, last 3 assistant messages = 0.7, last 10 messages = 0.3.
  */
-function extractContextActivations(
+export function extractContextActivations(
     userMessage: string,
     recentMessages: ChatMessage[],
     npcLedger?: NPCEntry[]
 ): Record<string, number> {
     const activations: Record<string, number> = {};
 
-    const userWords = userMessage.toLowerCase().match(/[a-z]{3,}/g) || [];
+    // 2-char minimum to capture short NPC names common in fantasy settings (e.g. "Xi", "Ka", "Al")
+    const userWords = userMessage.toLowerCase().match(/[a-z]{2,}/g) || [];
     for (const word of userWords) activations[word] = 1.0;
 
-    const userProperNouns = userMessage.match(/[A-Z][A-Za-z]{2,}(?:\s[A-Z][A-Za-z]{2,})*/g) || [];
+    const userProperNouns = userMessage.match(/[A-Z][A-Za-z]{1,}(?:\s[A-Z][A-Za-z]{1,})*/g) || [];
     for (const noun of userProperNouns) activations[noun.toLowerCase()] = 1.0;
 
     const last3 = recentMessages.filter(m => m.role === 'assistant').slice(-3);
     for (const msg of last3) {
-        const words = (msg.content || '').toLowerCase().match(/[a-z]{3,}/g) || [];
-        const properNouns = (msg.content || '').match(/[A-Z][A-Za-z]{2,}(?:\s[A-Z][A-Za-z]{2,})*/g) || [];
+        const words = (msg.content || '').toLowerCase().match(/[a-z]{2,}/g) || [];
+        const properNouns = (msg.content || '').match(/[A-Z][A-Za-z]{1,}(?:\s[A-Z][A-Za-z]{1,})*/g) || [];
         for (const word of words) { if (!activations[word]) activations[word] = 0.7; }
         for (const noun of properNouns) { if (!activations[noun.toLowerCase()]) activations[noun.toLowerCase()] = 0.7; }
     }
 
     const last10 = recentMessages.slice(-10);
     for (const msg of last10) {
-        const words = (msg.content || '').toLowerCase().match(/[a-z]{3,}/g) || [];
+        const words = (msg.content || '').toLowerCase().match(/[a-z]{2,}/g) || [];
         for (const word of words) { if (!activations[word]) activations[word] = 0.3; }
     }
 
@@ -108,7 +109,7 @@ function extractContextActivations(
  * If context mentions "Malachar" and a fact says "X killed_by Malachar",
  * then "x" also gets activated (weaker weight).
  */
-function expandActivationsWithFacts(
+export function expandActivationsWithFacts(
     activations: Record<string, number>,
     facts?: { subject: string; predicate: string; object: string; importance: number }[]
 ): Record<string, number> {
@@ -140,7 +141,8 @@ export function retrieveArchiveMemory(
     recentMessages: ChatMessage[],
     npcLedger?: NPCEntry[],
     maxScenes?: number,
-    semanticFacts?: { subject: string; predicate: string; object: string; importance: number }[]
+    semanticFacts?: { subject: string; predicate: string; object: string; importance: number }[],
+    sceneRanges?: [string, string][]
 ): string[] {
     if (!index || index.length === 0) {
         console.log('[Archive Retrieval] Index is empty — no recall.');
@@ -155,8 +157,21 @@ export function retrieveArchiveMemory(
     let contextActivations = extractContextActivations(userMessage, recentMessages, npcLedger);
     contextActivations = expandActivationsWithFacts(contextActivations, semanticFacts);
 
-    const totalScenes = index.length;
-    const scored = index.map(entry => ({
+    // NEW: Filter index to only scenes within provided scene ranges (if any)
+    let scopedIndex = index;
+    if (sceneRanges && sceneRanges.length > 0) {
+        scopedIndex = index.filter(entry => {
+            const sceneNum = parseInt(entry.sceneId, 10);
+            return sceneRanges.some(([start, end]) => {
+                const s = parseInt(start, 10);
+                const e = parseInt(end, 10);
+                return sceneNum >= s && sceneNum <= e;
+            });
+        });
+    }
+
+    const totalScenes = scopedIndex.length;
+    const scored = scopedIndex.map(entry => ({
         sceneId: entry.sceneId,
         score: scoreEntry(entry, contextText, contextActivations, totalScenes),
     }));
@@ -202,7 +217,17 @@ export async function fetchArchiveScenes(
 
         for (const scene of sorted) {
             const tokens = countTokens(scene.content);
-            if (usedTokens + tokens > tokenBudget) break;
+            if (usedTokens + tokens > tokenBudget) {
+                // Partially include the scene if there's a meaningful amount of budget remaining
+                const remaining = tokenBudget - usedTokens;
+                if (remaining > 150) {
+                    // ~4 chars per token; truncate to fit remaining budget
+                    const maxChars = Math.floor(remaining * 4);
+                    const truncated = scene.content.slice(0, maxChars) + '\n[...scene truncated for context budget...]';
+                    selected.push({ sceneId: scene.sceneId, content: truncated, tokens: remaining });
+                }
+                break;
+            }
             selected.push({ sceneId: scene.sceneId, content: scene.content, tokens });
             usedTokens += tokens;
         }

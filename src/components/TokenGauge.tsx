@@ -1,29 +1,38 @@
+import { useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import { countTokens } from '../services/tokenizer';
 
 export function TokenGauge() {
-    const { context, messages, settings, condenser } = useAppStore();
+    const { context, settings, condenser } = useAppStore(
+        useShallow(s => ({ context: s.context, settings: s.settings, condenser: s.condenser }))
+    );
+    const messages = useAppStore(s => s.messages);
 
-    const systemParts: string[] = [];
-    if (context.loreRaw) systemParts.push(context.loreRaw);
-    if (context.rulesRaw) systemParts.push(context.rulesRaw);
-    if (context.canonStateActive && context.canonState) systemParts.push(context.canonState);
-    if (context.headerIndexActive && context.headerIndex) systemParts.push(context.headerIndex);
-    if (context.starterActive && context.starter) systemParts.push(context.starter);
-    if (context.continuePromptActive && context.continuePrompt) systemParts.push(context.continuePrompt);
-    if (context.characterProfileActive && context.characterProfile) systemParts.push(`[CHARACTER PROFILE]\n${context.characterProfile}`);
-    if (context.inventoryActive && context.inventory) systemParts.push(`[PLAYER INVENTORY]\n${context.inventory}`);
-    if (condenser.condensedSummary) systemParts.push(condenser.condensedSummary);
+    const systemText = useMemo(() => {
+        const parts: string[] = [];
+        if (context.loreRaw) parts.push(context.loreRaw);
+        if (context.rulesRaw) parts.push(context.rulesRaw);
+        if (context.canonStateActive && context.canonState) parts.push(context.canonState);
+        if (context.headerIndexActive && context.headerIndex) parts.push(context.headerIndex);
+        if (context.starterActive && context.starter) parts.push(context.starter);
+        if (context.continuePromptActive && context.continuePrompt) parts.push(context.continuePrompt);
+        if (context.characterProfileActive && context.characterProfile) parts.push(`[CHARACTER PROFILE]\n${context.characterProfile}`);
+        if (context.inventoryActive && context.inventory) parts.push(`[PLAYER INVENTORY]\n${context.inventory}`);
+        if (condenser.condensedSummary) parts.push(condenser.condensedSummary);
+        return parts.join('\n\n');
+    }, [context, condenser.condensedSummary]);
 
-    const systemText = systemParts.join('\n\n');
-    const systemTokens = countTokens(systemText);
+    const systemTokens = useMemo(() => countTokens(systemText), [systemText]);
 
-    const activeMessages = (condenser.condensedUpToIndex !== undefined && condenser.condensedUpToIndex >= 0)
-        ? messages.slice(condenser.condensedUpToIndex + 1)
-        : messages;
+    const historyText = useMemo(() => {
+        const activeMessages = (condenser.condensedUpToIndex !== undefined && condenser.condensedUpToIndex >= 0)
+            ? messages.slice(condenser.condensedUpToIndex + 1)
+            : messages;
+        return activeMessages.map((m) => m.content || '').join('');
+    }, [messages, condenser.condensedUpToIndex]);
 
-    const historyText = activeMessages.map((m) => m.content || '').join('');
-    const historyTokens = countTokens(historyText);
+    const historyTokens = useMemo(() => countTokens(historyText), [historyText]);
 
     const total = settings.contextLimit;
     const remaining = Math.max(0, total - systemTokens - historyTokens);

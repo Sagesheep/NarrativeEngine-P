@@ -6,12 +6,15 @@ import { LoreTab } from './context-drawer/LoreTab';
 import { EnginesTab } from './context-drawer/EnginesTab';
 import { SaveFileTab } from './context-drawer/SaveFileTab';
 import { BookkeepingTab } from './context-drawer/BookkeepingTab';
+import { ChapterTab } from './context-drawer/ChapterTab';
+import { BookOpen } from 'lucide-react';
 
 const TABS = [
     { key: 'sys'   as const, Icon: ScrollText, label: 'System Context' },
     { key: 'world' as const, Icon: Database,   label: 'World Info' },
     { key: 'eng'   as const, Icon: Sparkles,   label: 'Engine Tuning' },
     { key: 'narr'  as const, Icon: List,       label: 'Save File' },
+    { key: 'chpt'  as const, Icon: BookOpen,   label: 'Chapters' },
     { key: 'chr'   as const, Icon: User,       label: 'Bookkeeping' },
 ];
 
@@ -73,6 +76,7 @@ export function ContextDrawer() {
                     {activeTab === 'world' && <LoreTab />}
                     {activeTab === 'eng' && <EnginesTab />}
                     {activeTab === 'narr' && <SaveFileTab />}
+                    {activeTab === 'chpt' && <ChapterTab />}
                     {activeTab === 'chr' && <BookkeepingTab />}
                 </div>
             </aside>

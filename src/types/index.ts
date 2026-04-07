@@ -301,3 +301,29 @@ export type SemanticFact = {
     timestamp: number;
 };
 
+export type ArchiveChapter = {
+    chapterId: string;            // "CH01"
+    title: string;                // Auto-generated or user-edited
+    sceneRange: [string, string]; // ["001", "023"] — inclusive
+    summary: string;              // LLM-generated on seal (empty if unsealed)
+    keywords: string[];           // Aggregated + deduped from child scenes
+    npcs: string[];               // Aggregated from child scenes
+    majorEvents: string[];        // Key beats from header index
+    unresolvedThreads: string[];  // Carried from header index Section 2
+    tone: string;                 // "combat-heavy", "exploration", "social", etc.
+    themes: string[];             // Thematic tags
+    sceneCount: number;           // Number of scenes in range
+    sealedAt?: number;            // undefined = open chapter
+    invalidated?: boolean;        // true = summary stale due to rollback, needs re-gen
+    _lastSeenSessionId?: string;  // Internal: for auto-seal session boundary detection
+};
+
+export type BackupMeta = {
+    timestamp: number;
+    label: string;
+    trigger: string;
+    hash: string;
+    fileCount: number;
+    isAuto: boolean;
+    campaignName: string;
+};
