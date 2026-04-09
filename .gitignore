@@ -27,4 +27,10 @@ data
 
 # Repomix / codebase export files
 repomix-output.xml
+repomix-output.md
 *.docx
+
+# Upgrade / AI planning docs
+Upgrade/
+PLAN-*.md
+GLM-CODE-REVIEW-HANDOFF.md
