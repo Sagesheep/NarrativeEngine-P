@@ -18,6 +18,7 @@ import { scanInventory } from './inventoryParser';
 import { toast } from '../components/Toast';
 import { sanitizePayloadForApi } from './lib/payloadSanitizer';
 import { handleInterventions } from './aiPlayerEngine';
+import { TOOL_DEFINITIONS, handleLoreTool, handleNotebookTool } from './toolHandlers';
 
 export type TurnCallbacks = {
     onCheckingNotes: (checking: boolean) => void;
@@ -268,43 +269,7 @@ export async function runTurn(
         const allowTools = toolCallCount < 2 && apiRetryCount < 2;
         const requestPayload = sanitizePayloadForApi(currentPayload, allowTools);
 
-        const tools = allowTools ? [{
-            type: 'function',
-            function: {
-                name: 'query_campaign_lore',
-                description: 'Search the Game Master notes for specific lore, rules, characters, or locations. Do NOT call this sequentially or spam it. If no relevant lore is found, immediately proceed with the narrative response. IMPORTANT: You MUST use the standard JSON tool call format. NEVER output raw XML <|DSML|> tags in your response text.',
-                parameters: {
-                    type: 'object',
-                    properties: { query: { type: 'string', description: 'The specific search query' } },
-                    required: ['query']
-                }
-            }
-        }, {
-            type: 'function',
-            function: {
-                name: 'update_scene_notebook',
-                description: 'Update the scene notebook for tracking temporary state — active spells, timers, NPC positions, environmental conditions, combat state. Actions: add (create note), remove (delete by text match), clear (wipe all). Max 50 notes, max 5 actions per call. Use sparingly — only for volatile scene state that changes within a scene.',
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        actions: {
-                            type: 'array',
-                            items: {
-                                type: 'object',
-                                properties: {
-                                    op: { type: 'string', enum: ['add', 'remove', 'clear'] },
-                                    text: { type: 'string', description: 'Note text (ignored for clear op)' }
-                                },
-                                required: ['op']
-                            },
-                            description: 'Array of notebook actions to perform (max 5)',
-                            maxItems: 5
-                        }
-                    },
-                    required: ['actions']
-                }
-            }
-        }] : undefined;
+        const tools = allowTools ? TOOL_DEFINITIONS : undefined;
 
         callbacks.setLoadingStatus?.(null);
         await sendMessage(
@@ -318,7 +283,7 @@ export async function runTurn(
                     callbacks.onCheckingNotes(true);
                     callbacks.setStreaming(false);
                     callbacks.updateLastAssistant(finalText);
-                    
+
                     callbacks.updateLastMessage({
                         tool_calls: [{
                             id: toolCall.id,
@@ -333,22 +298,13 @@ export async function runTurn(
                         tool_calls: [{ id: toolCall.id, type: 'function', function: { name: toolCall.name, arguments: toolCall.arguments } }]
                     } as unknown as import('./chatEngine').OpenAIMessage);
 
-                    let query = '';
-                    try { query = JSON.parse(toolCall.arguments).query || ''; } catch { /* Ignore */ }
-
-                    let toolResult = "No relevant lore found.";
-                    if (query) {
-                        const found = searchLoreByQuery(loreChunks, query);
-                        if (found.length > 0) {
-                            toolResult = found.map(c => `### ${c.header}\n${c.content}`).join('\n\n');
-                        }
-                    }
+                    const { toolResult: loreResult } = handleLoreTool(toolCall.arguments, { loreChunks, notebook: state.context.notebook });
 
                     const toolMsgId = uid();
                     callbacks.addMessage({
                         id: toolMsgId,
                         role: 'tool' as const,
-                        content: toolResult,
+                        content: loreResult,
                         timestamp: Date.now(),
                         name: toolCall.name,
                         tool_call_id: toolCall.id,
@@ -357,7 +313,7 @@ export async function runTurn(
 
                     currentPayload.push({
                         role: 'tool',
-                        content: toolResult,
+                        content: loreResult,
                         name: toolCall.name,
                         tool_call_id: toolCall.id
                     } as unknown as import('./chatEngine').OpenAIMessage);
@@ -386,37 +342,14 @@ export async function runTurn(
                         tool_calls: [{ id: toolCall.id, type: 'function', function: { name: toolCall.name, arguments: toolCall.arguments } }]
                     } as unknown as import('./chatEngine').OpenAIMessage);
 
-                    let notebookActions: { op: string; text?: string }[] = [];
-                    try { notebookActions = JSON.parse(toolCall.arguments).actions || []; } catch { /* Ignore */ }
+                    const { toolResult: notebookResult, updatedNotebook } = handleNotebookTool(toolCall.arguments, { loreChunks, notebook: state.context.notebook });
+                    callbacks.updateContext({ notebook: updatedNotebook });
 
-                    const currentNotebook = [...state.context.notebook];
-                    let opsCount = 0;
-                    const MAX_NOTEBOOK_OPS = 5;
-                    const MAX_NOTEBOOK_NOTES = 50;
-
-                    for (const action of notebookActions) {
-                        if (opsCount >= MAX_NOTEBOOK_OPS) break;
-                        if (action.op === 'add' && action.text && currentNotebook.length < MAX_NOTEBOOK_NOTES) {
-                            currentNotebook.push({ id: uid(), text: action.text.trim(), timestamp: Date.now() });
-                        } else if (action.op === 'remove' && action.text) {
-                            const searchLower = action.text.toLowerCase().trim();
-                            const idx = currentNotebook.findIndex(n => n.text.toLowerCase().includes(searchLower));
-                            if (idx !== -1) currentNotebook.splice(idx, 1);
-                        } else if (action.op === 'clear') {
-                            currentNotebook.length = 0;
-                        }
-                        opsCount++;
-                    }
-
-                    callbacks.updateContext({ notebook: currentNotebook });
-                    console.log(`[Notebook] Updated: ${currentNotebook.length} notes active (${opsCount} ops)`);
-
-                    const toolResult = `Notebook updated. ${currentNotebook.length} notes active.`;
                     const toolMsgId = uid();
                     callbacks.addMessage({
                         id: toolMsgId,
                         role: 'tool' as const,
-                        content: toolResult,
+                        content: notebookResult,
                         timestamp: Date.now(),
                         name: toolCall.name,
                         tool_call_id: toolCall.id,
@@ -425,7 +358,7 @@ export async function runTurn(
 
                     currentPayload.push({
                         role: 'tool',
-                        content: toolResult,
+                        content: notebookResult,
                         name: toolCall.name,
                         tool_call_id: toolCall.id
                     } as unknown as import('./chatEngine').OpenAIMessage);
