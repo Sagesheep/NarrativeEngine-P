@@ -52,7 +52,7 @@ export function buildPayload(
     archiveRecall?: ArchiveScene[],
     sceneNumber?: string,
     recommendedNPCNames?: string[],
-    semanticFactText?: string,
+    _semanticFactText?: string,
     archiveIndex?: ArchiveIndexEntry[],
     timelineEvents?: TimelineEvent[]
 ): { messages: OpenAIMessage[]; trace?: PayloadTrace[] } {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Trash2, BookOpen, Pencil, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
+import type { GameContext } from '../types';
 import {
     listCampaigns, deleteCampaign, loadCampaignState,
     saveCampaign, saveCampaignState, saveLoreChunks, getLoreChunks,
@@ -161,7 +162,7 @@ export function CampaignHub() {
 
         const existingState = await loadCampaignState(campaign.id);
         if (!existingState || rulesFile || seeds) {
-            const ctx = { ...DEFAULT_CONTEXT, ...(existingState?.context ?? {}) };
+            const ctx = { ...DEFAULT_CONTEXT, ...(existingState?.context ?? {}) } as GameContext;
             if (rulesFile) ctx.rulesRaw = await rulesFile.text();
             if (seeds) {
                 ctx.surpriseConfig = {
@@ -186,7 +187,7 @@ export function CampaignHub() {
                 };
             }
             await saveCampaignState(campaign.id, {
-                context: ctx, messages: existingState?.messages ?? [],
+                context: { ...DEFAULT_CONTEXT, ...ctx }, messages: existingState?.messages ?? [],
                 condenser: { ...(existingState?.condenser ?? DEFAULT_CONDENSER), isCondensing: false },
             });
         }
@@ -205,7 +206,7 @@ export function CampaignHub() {
             loadEntities(campaign.id),
         ]);
         useAppStore.setState({
-            context: { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) },
+            context: { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) } as GameContext,
             messages: state?.messages ?? [],
             condenser: { ...(state?.condenser ?? DEFAULT_CONDENSER), isCondensing: false },
             loreChunks: chunks, npcLedger: npcs, archiveIndex, timeline, entities,

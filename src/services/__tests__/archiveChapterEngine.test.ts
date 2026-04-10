@@ -724,9 +724,9 @@ describe('iterativeChapterFilter', () => {
         vi.stubGlobal('fetch', mockFetch);
 
         const chapters: ArchiveChapter[] = [
-            createChapter('CH01', ['001', '010']), // Oldest
+            createChapter('CH03', ['021', '030']), // Most recent (should be first when pre-ranked)
             createChapter('CH02', ['011', '020']),
-            createChapter('CH03', ['021', '030']), // Most recent
+            createChapter('CH01', ['001', '010']), // Oldest
         ];
 
         const result = await iterativeChapterFilter(
@@ -736,7 +736,7 @@ describe('iterativeChapterFilter', () => {
             createMockProvider()
         );
 
-        // Most recent chapter should be validated first
+        // First ranked chapter should be validated first
         expect(result[0].chapterId).toBe('CH03');
     });
 
