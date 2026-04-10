@@ -1,4 +1,4 @@
-import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, ArchiveScene, TimelineEvent, EndpointConfig, ProviderConfig } from '../types';
+import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, ArchiveScene, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter } from '../types';
 import { uid } from '../utils/uid';
 import { API_BASE as API } from '../lib/apiBase';
 import { buildPayload, sendMessage, generateNPCProfile, updateExistingNPCs } from './chatEngine';
@@ -52,6 +52,15 @@ export type TurnState = {
     getUtilityEndpoint?: () => EndpointConfig | undefined; // optional — context recommender
     forcedInterventions?: ('enemy' | 'neutral' | 'ally')[]; // For manual triggers from UI
     timeline?: TimelineEvent[];
+    // Phase 2B: store-lifted fields (eliminate useAppStore.getState() inside runTurn)
+    chapters: ArchiveChapter[];
+    pinnedChapterIds: string[];
+    clearPinnedChapters: () => void;
+    setChapters: (chapters: ArchiveChapter[]) => void;
+    incrementBookkeepingTurnCounter: () => number;
+    resetBookkeepingTurnCounter: () => void;
+    autoBookkeepingInterval: number;
+    getFreshContext: () => GameContext;
 };
 
 const sanitizePayloadForApi = (rawPayload: any[], allowTools: boolean) => {
