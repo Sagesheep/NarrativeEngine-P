@@ -269,7 +269,7 @@ export async function runTurn(
                     callbacks.setLoadingStatus?.(null);
                 }
             },
-            tools,
+            tools ? [...tools] : undefined,
             abortController
         );
     };
