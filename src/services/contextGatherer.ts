@@ -12,6 +12,8 @@ export type GatheredContext = {
     recommendedNPCNames: string[] | undefined;
     timelineEvents: TimelineEvent[];
     relevantLore: LoreChunk[] | undefined;
+    semanticArchiveIds: string[] | undefined;
+    semanticLoreIds: string[] | undefined;
 };
 
 type GatherDeps = {
@@ -27,14 +29,42 @@ export async function gatherContext(
 ): Promise<GatheredContext> {
     const { input, messages, loreChunks, npcLedger, archiveIndex, activeCampaignId, context } = state;
 
-    const relevantLore = loreChunks.length > 0
-        ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex, input, 1200, messages)
-        : undefined;
-
-    // Prepare parallel promises
+    // Prepare mutable state for parallel promises
     let sceneNumber: string | undefined;
     let archiveRecall: ArchiveScene[] | undefined;
     let recommendedNPCNames: string[] | undefined;
+    let semanticArchiveIds: string[] | undefined;
+    let semanticLoreIds: string[] | undefined;
+
+    // ─── Semantic Candidate Pre-filter ───
+    const semanticPromise = activeCampaignId
+        ? (async () => {
+            try {
+                const [archiveRes, loreRes] = await Promise.all([
+                    fetch(`${API}/campaigns/${activeCampaignId}/archive/semantic-candidates`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query: input }),
+                    }),
+                    fetch(`${API}/campaigns/${activeCampaignId}/lore/semantic-candidates`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query: input }),
+                    }),
+                ]);
+                if (archiveRes.ok) {
+                    const data = await archiveRes.json();
+                    semanticArchiveIds = data.sceneIds;
+                }
+                if (loreRes.ok) {
+                    const data = await loreRes.json();
+                    semanticLoreIds = data.loreIds;
+                }
+            } catch (err) {
+                console.warn('[ContextGatherer] Semantic candidates fetch failed:', err);
+            }
+        })()
+        : Promise.resolve();
 
     const timelinePromise = activeCampaignId
         ? fetch(`${API}/campaigns/${activeCampaignId}/archive/next-scene`)
@@ -50,25 +80,25 @@ export async function gatherContext(
     // ─── Phase 4A: Two-Stage Chapter Funnel Retrieval ───
     const archivePromise = (archiveIndex.length > 0 && activeCampaignId)
         ? (async () => {
+            await semanticPromise;
+
             const chapters = deps.chapters;
             const hasSealedChapters = chapters.some(c => c.sealedAt && c.summary);
 
             if (!hasSealedChapters) {
-                // No sealed chapters - use flat retrieval unchanged
                 const result = await recallArchiveScenes(
                     activeCampaignId, archiveIndex, input, messages, 3000,
-                    npcLedger, (state as any).semanticFacts
+                    npcLedger, (state as any).semanticFacts,
+                    undefined, undefined, semanticArchiveIds
                 );
                 archiveRecall = result;
                 return;
             }
 
-            // Stage 1: Synchronous 3D scoring (~1ms)
             const rankedChapters = rankChapters(
                 chapters, input, messages, npcLedger, (state as any).semanticFacts
             );
 
-            // Stage 2: LLM validation with funnel timeout
             const utilityConfig = state.getUtilityEndpoint?.();
             const FUNNEL_TIMEOUT_MS = 8000;
 
@@ -89,7 +119,8 @@ export async function gatherContext(
 
                     const matchedIds = retrieveArchiveMemory(
                         archiveIndex, input, messages, npcLedger,
-                        undefined, (state as any).semanticFacts, fallbackRanges
+                        undefined, (state as any).semanticFacts, fallbackRanges,
+                        undefined, semanticArchiveIds
                     );
                     fetchArchiveScenes(activeCampaignId!, matchedIds, 3000)
                         .then(resolve)
@@ -99,12 +130,12 @@ export async function gatherContext(
 
             archiveRecall = await Promise.race([funnelPromise, timeoutPromise]);
 
-            // Double-fallback: if funnel returned empty
             if (archiveRecall.length === 0) {
                 console.warn('[ChapterFunnel] Empty result - falling back to flat retrieval');
                 archiveRecall = await recallArchiveScenes(
                     activeCampaignId, archiveIndex, input, messages, 3000,
-                    npcLedger, (state as any).semanticFacts
+                    npcLedger, (state as any).semanticFacts,
+                    undefined, undefined, semanticArchiveIds
                 );
             }
         })()
@@ -124,18 +155,28 @@ export async function gatherContext(
         console.warn('[ContextGatherer] UtilityAI recommender failed:', err);
     }) : Promise.resolve();
 
+    // Lore retrieval — wait for semantic candidates first
+    const lorePromise = (async () => {
+        await semanticPromise;
+        return loreChunks.length > 0
+            ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex, input, 1200, messages, semanticLoreIds)
+            : undefined;
+    })();
+
     // Timeline events — from state, used directly in buildPayload
     const timelineEvents: TimelineEvent[] = state.timeline || [];
 
     // Await all async operations simultaneously, with a 15s safety timeout.
     const CONTEXT_GATHER_TIMEOUT_MS = 15_000;
     await Promise.race([
-        Promise.all([timelinePromise, archivePromise, recommenderPromise]),
+        Promise.all([timelinePromise, archivePromise, recommenderPromise, lorePromise]),
         new Promise<void>((resolve) => setTimeout(() => {
             console.warn('[ContextGatherer] Context gather timeout — proceeding with partial results');
             resolve();
         }, CONTEXT_GATHER_TIMEOUT_MS)),
     ]);
+
+    const relevantLore = await lorePromise;
 
     // ─── Pinned Chapter Injection ──────────────────────────────────────
     if (deps.pinnedChapterIds.length > 0 && activeCampaignId) {
@@ -161,5 +202,5 @@ export async function gatherContext(
         deps.clearPinnedChapters();
     }
 
-    return { sceneNumber, archiveRecall, recommendedNPCNames, timelineEvents, relevantLore };
+    return { sceneNumber, archiveRecall, recommendedNPCNames, timelineEvents, relevantLore, semanticArchiveIds, semanticLoreIds };
 }

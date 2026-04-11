@@ -16,7 +16,9 @@
     "electron:build": "vite build && node build-server.mjs && electron-builder --win"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.0.1",
     "@tailwindcss/typography": "^0.5.19",
+    "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "idb-keyval": "^6.2.2",
@@ -25,6 +27,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
+    "sqlite-vec": "^0.1.9",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
@@ -68,7 +71,11 @@
       "!.exe/**"
     ],
     "asarUnpack": [
-      "server.bundle.cjs"
+      "server.bundle.cjs",
+      "node_modules/better-sqlite3/**",
+      "node_modules/sqlite-vec/**",
+      "node_modules/onnxruntime-node/**",
+      "node_modules/@huggingface/transformers/**"
     ],
     "directories": {
       "output": "build-output"

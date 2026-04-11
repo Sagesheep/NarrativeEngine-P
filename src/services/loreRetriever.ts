@@ -13,7 +13,8 @@ export function retrieveRelevantLore(
     _headerIndex: string,
     userMessage: string,
     tokenBudget = 1200,
-    recentMessages?: ChatMessage[]
+    recentMessages?: ChatMessage[],
+    semanticCandidateIds?: string[]
 ): LoreChunk[] {
     if (chunks.length === 0) return [];
 
@@ -85,6 +86,10 @@ export function retrieveRelevantLore(
             }
             if (chunk.category === 'economy' && (scanText.includes('buy') || scanText.includes('sell') || scanText.includes('cost') || scanText.includes('gold') || scanText.includes('money'))) {
                 score += 15;
+            }
+
+            if (semanticCandidateIds?.length && semanticCandidateIds.includes(chunk.id)) {
+                score += 5;
             }
 
             scored.push({ chunk, score });

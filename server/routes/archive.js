@@ -12,6 +12,8 @@ import {
 } from '../lib/nlp.js';
 import { extractWitnessesLLM, extractTimelineEventsLLM } from '../services/llmProxy.js';
 import { normalizeEntityName } from '../lib/entityResolution.js';
+import { embedText, buildArchiveText, buildLoreText } from '../lib/embedder.js';
+import { storeArchiveEmbedding, storeLoreEmbedding, searchArchive, searchLore } from '../lib/vectorStore.js';
 
 export function createArchiveRouter() {
     const router = Router();
@@ -76,6 +78,10 @@ export function createArchiveRouter() {
         const existing = readJson(idxp, []);
         existing.push(indexEntry);
         writeJson(idxp, existing);
+
+        embedText(buildArchiveText(indexEntry))
+            .then(embedding => storeArchiveEmbedding(req.params.id, sceneId, embedding))
+            .catch(err => console.error('[Archive] Embedding failed:', err.message));
 
         // Extract timeline events (LLM with regex fallback) and append to timeline store
         const entitiesFile = entitiesPath(req.params.id);
@@ -334,6 +340,34 @@ export function createArchiveRouter() {
                 res.json({ ok: true });
             });
         });
+    });
+
+    router.post('/api/campaigns/:id/archive/semantic-candidates', async (req, res) => {
+        try {
+            const { query, limit } = req.body;
+            if (!query?.trim()) return res.json({ sceneIds: [] });
+            const embedding = await embedText(query);
+            const results = searchArchive(req.params.id, embedding, limit || 20);
+            console.log(`[VectorStore] archive candidates for "${query.slice(0, 50)}": [${results.map(r => r.sceneId).join(', ')}]`);
+            res.json({ sceneIds: results.map(r => r.sceneId) });
+        } catch (err) {
+            console.error('[Archive] Semantic candidate search failed:', err.message);
+            res.json({ sceneIds: [] });
+        }
+    });
+
+    router.post('/api/campaigns/:id/lore/semantic-candidates', async (req, res) => {
+        try {
+            const { query, limit } = req.body;
+            if (!query?.trim()) return res.json({ loreIds: [] });
+            const embedding = await embedText(query);
+            const results = searchLore(req.params.id, embedding, limit || 15);
+            console.log(`[VectorStore] lore candidates for "${query.slice(0, 50)}": [${results.map(r => r.loreId).join(', ')}]`);
+            res.json({ loreIds: results.map(r => r.loreId) });
+        } catch (err) {
+            console.error('[Archive] Lore semantic candidate search failed:', err.message);
+            res.json({ loreIds: [] });
+        }
     });
 
     return router;

@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
 import { CAMPAIGNS_DIR, readJson, writeJson, ensureDirs } from '../lib/fileStore.js';
+import { embedText, buildLoreText } from '../lib/embedder.js';
+import { storeLoreEmbedding, deleteCampaignEmbeddings } from '../lib/vectorStore.js';
 
 export function createCampaignsRouter() {
     const router = Router();
@@ -103,6 +105,22 @@ export function createCampaignsRouter() {
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.lore.json`);
         writeJson(filePath, req.body);
         res.json({ ok: true });
+
+        const chunks = req.body;
+        if (Array.isArray(chunks)) {
+            (async () => {
+                for (const chunk of chunks) {
+                    try {
+                        const text = buildLoreText(chunk);
+                        const embedding = await embedText(text);
+                        storeLoreEmbedding(req.params.id, chunk.id, embedding);
+                    } catch (err) {
+                        console.error(`[Lore Embed] Failed for ${chunk.id}:`, err.message);
+                    }
+                }
+                console.log(`[Lore Embed] Stored ${chunks.length} lore embeddings for ${req.params.id}`);
+            })().catch(err => console.error('[Lore Embed] Batch failed:', err.message));
+        }
     });
 
     // ═══════════════════════════════════════════

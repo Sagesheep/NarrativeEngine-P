@@ -323,7 +323,7 @@ var require_browser = __commonJS({
   "node_modules/debug/src/browser.js"(exports2, module2) {
     exports2.formatArgs = formatArgs;
     exports2.save = save;
-    exports2.load = load;
+    exports2.load = load2;
     exports2.useColors = useColors;
     exports2.storage = localstorage();
     exports2.destroy = /* @__PURE__ */ (() => {
@@ -459,7 +459,7 @@ var require_browser = __commonJS({
       } catch (error) {
       }
     }
-    function load() {
+    function load2() {
       let r;
       try {
         r = exports2.storage.getItem("debug") || exports2.storage.getItem("DEBUG");
@@ -612,7 +612,7 @@ var require_node = __commonJS({
     exports2.log = log;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
-    exports2.load = load;
+    exports2.load = load2;
     exports2.useColors = useColors;
     exports2.destroy = util.deprecate(
       () => {
@@ -754,7 +754,7 @@ var require_node = __commonJS({
         delete process.env.DEBUG;
       }
     }
-    function load() {
+    function load2() {
       return process.env.DEBUG;
     }
     function init(debug) {
@@ -15244,7 +15244,7 @@ var require_mimeScore = __commonJS({
 var require_mime_types = __commonJS({
   "node_modules/mime-types/index.js"(exports2) {
     "use strict";
-    var db = require_mime_db();
+    var db2 = require_mime_db();
     var extname = require("path").extname;
     var mimeScore = require_mimeScore();
     var EXTRACT_TYPE_REGEXP = /^\s*([^;\s]*)(?:;|\s|$)/;
@@ -15263,7 +15263,7 @@ var require_mime_types = __commonJS({
         return false;
       }
       var match = EXTRACT_TYPE_REGEXP.exec(type);
-      var mime = match && db[match[1].toLowerCase()];
+      var mime = match && db2[match[1].toLowerCase()];
       if (mime && mime.charset) {
         return mime.charset;
       }
@@ -15297,19 +15297,19 @@ var require_mime_types = __commonJS({
       }
       return exts[0];
     }
-    function lookup(path3) {
-      if (!path3 || typeof path3 !== "string") {
+    function lookup(path9) {
+      if (!path9 || typeof path9 !== "string") {
         return false;
       }
-      var extension2 = extname("x." + path3).toLowerCase().slice(1);
+      var extension2 = extname("x." + path9).toLowerCase().slice(1);
       if (!extension2) {
         return false;
       }
       return exports2.types[extension2] || false;
     }
     function populateMaps(extensions, types) {
-      Object.keys(db).forEach(function forEachMimeType(type) {
-        var mime = db[type];
+      Object.keys(db2).forEach(function forEachMimeType(type) {
+        var mime = db2[type];
         var exts = mime.extensions;
         if (!exts || !exts.length) {
           return;
@@ -15330,14 +15330,14 @@ var require_mime_types = __commonJS({
       });
     }
     function _preferredType(ext, type0, type1) {
-      var score0 = type0 ? mimeScore(type0, db[type0].source) : 0;
-      var score1 = type1 ? mimeScore(type1, db[type1].source) : 0;
+      var score0 = type0 ? mimeScore(type0, db2[type0].source) : 0;
+      var score1 = type1 ? mimeScore(type1, db2[type1].source) : 0;
       return score0 > score1 ? type0 : type1;
     }
     function _preferredTypeLegacy(ext, type0, type1) {
       var SOURCE_RANK = ["nginx", "apache", void 0, "iana"];
-      var score0 = type0 ? SOURCE_RANK.indexOf(db[type0].source) : 0;
-      var score1 = type1 ? SOURCE_RANK.indexOf(db[type1].source) : 0;
+      var score0 = type0 ? SOURCE_RANK.indexOf(db2[type0].source) : 0;
+      var score1 = type1 ? SOURCE_RANK.indexOf(db2[type1].source) : 0;
       if (exports2.types[extension] !== "application/octet-stream" && (score0 > score1 || score0 === score1 && exports2.types[extension]?.slice(0, 12) === "application/")) {
         return type0;
       }
@@ -18773,13 +18773,13 @@ var require_view = __commonJS({
   "node_modules/express/lib/view.js"(exports2, module2) {
     "use strict";
     var debug = require_src()("express:view");
-    var path3 = require("node:path");
-    var fs3 = require("node:fs");
-    var dirname = path3.dirname;
-    var basename = path3.basename;
-    var extname = path3.extname;
-    var join = path3.join;
-    var resolve = path3.resolve;
+    var path9 = require("node:path");
+    var fs11 = require("node:fs");
+    var dirname = path9.dirname;
+    var basename = path9.basename;
+    var extname = path9.extname;
+    var join = path9.join;
+    var resolve = path9.resolve;
     module2.exports = View;
     function View(name, options) {
       var opts = options || {};
@@ -18808,17 +18808,17 @@ var require_view = __commonJS({
       this.path = this.lookup(fileName);
     }
     View.prototype.lookup = function lookup(name) {
-      var path4;
+      var path10;
       var roots = [].concat(this.root);
       debug('lookup "%s"', name);
-      for (var i = 0; i < roots.length && !path4; i++) {
+      for (var i = 0; i < roots.length && !path10; i++) {
         var root = roots[i];
         var loc = resolve(root, name);
         var dir = dirname(loc);
         var file = basename(loc);
-        path4 = this.resolve(dir, file);
+        path10 = this.resolve(dir, file);
       }
-      return path4;
+      return path10;
     };
     View.prototype.render = function render(options, callback) {
       var sync = true;
@@ -18840,21 +18840,21 @@ var require_view = __commonJS({
     };
     View.prototype.resolve = function resolve2(dir, file) {
       var ext = this.ext;
-      var path4 = join(dir, file);
-      var stat = tryStat(path4);
+      var path10 = join(dir, file);
+      var stat = tryStat(path10);
       if (stat && stat.isFile()) {
-        return path4;
+        return path10;
       }
-      path4 = join(dir, basename(file, ext), "index" + ext);
-      stat = tryStat(path4);
+      path10 = join(dir, basename(file, ext), "index" + ext);
+      stat = tryStat(path10);
       if (stat && stat.isFile()) {
-        return path4;
+        return path10;
       }
     };
-    function tryStat(path4) {
-      debug('stat "%s"', path4);
+    function tryStat(path10) {
+      debug('stat "%s"', path10);
       try {
-        return fs3.statSync(path4);
+        return fs11.statSync(path10);
       } catch (e) {
         return void 0;
       }
@@ -20052,15 +20052,15 @@ var require_dist = __commonJS({
           if (token.type === endType)
             break;
           if (token.type === "char" || token.type === "escape") {
-            let path3 = token.value;
+            let path9 = token.value;
             let cur = tokens[pos];
             while (cur.type === "char" || cur.type === "escape") {
-              path3 += cur.value;
+              path9 += cur.value;
               cur = tokens[++pos];
             }
             output.push({
               type: "text",
-              value: encodePath(path3)
+              value: encodePath(path9)
             });
             continue;
           }
@@ -20084,16 +20084,16 @@ var require_dist = __commonJS({
       }
       return new TokenData(consumeUntil("end"), str);
     }
-    function compile(path3, options = {}) {
+    function compile(path9, options = {}) {
       const { encode = encodeURIComponent, delimiter = DEFAULT_DELIMITER } = options;
-      const data = typeof path3 === "object" ? path3 : parse(path3, options);
+      const data = typeof path9 === "object" ? path9 : parse(path9, options);
       const fn = tokensToFunction(data.tokens, delimiter, encode);
-      return function path4(params = {}) {
-        const [path5, ...missing] = fn(params);
+      return function path10(params = {}) {
+        const [path11, ...missing] = fn(params);
         if (missing.length) {
           throw new TypeError(`Missing parameters: ${missing.join(", ")}`);
         }
-        return path5;
+        return path11;
       };
     }
     function tokensToFunction(tokens, delimiter, encode) {
@@ -20149,9 +20149,9 @@ var require_dist = __commonJS({
         return [encodeValue(value)];
       };
     }
-    function match(path3, options = {}) {
+    function match(path9, options = {}) {
       const { decode = decodeURIComponent, delimiter = DEFAULT_DELIMITER } = options;
-      const { regexp, keys } = pathToRegexp(path3, options);
+      const { regexp, keys } = pathToRegexp(path9, options);
       const decoders = keys.map((key) => {
         if (decode === false)
           return NOOP_VALUE;
@@ -20163,7 +20163,7 @@ var require_dist = __commonJS({
         const m = regexp.exec(input);
         if (!m)
           return false;
-        const path4 = m[0];
+        const path10 = m[0];
         const params = /* @__PURE__ */ Object.create(null);
         for (let i = 1; i < m.length; i++) {
           if (m[i] === void 0)
@@ -20172,15 +20172,15 @@ var require_dist = __commonJS({
           const decoder = decoders[i - 1];
           params[key.name] = decoder(m[i]);
         }
-        return { path: path4, params };
+        return { path: path10, params };
       };
     }
-    function pathToRegexp(path3, options = {}) {
+    function pathToRegexp(path9, options = {}) {
       const { delimiter = DEFAULT_DELIMITER, end = true, sensitive = false, trailing = true } = options;
       const keys = [];
       const flags = sensitive ? "" : "i";
       const sources = [];
-      for (const input of pathsToArray(path3, [])) {
+      for (const input of pathsToArray(path9, [])) {
         const data = typeof input === "object" ? input : parse(input, options);
         for (const tokens of flatten(data.tokens, 0, [])) {
           sources.push(toRegExpSource(tokens, delimiter, keys, data.originalPath));
@@ -20310,18 +20310,18 @@ var require_layer = __commonJS({
     var TRAILING_SLASH_REGEXP = /\/+$/;
     var MATCHING_GROUP_REGEXP = /\((?:\?<(.*?)>)?(?!\?)/g;
     module2.exports = Layer;
-    function Layer(path3, options, fn) {
+    function Layer(path9, options, fn) {
       if (!(this instanceof Layer)) {
-        return new Layer(path3, options, fn);
+        return new Layer(path9, options, fn);
       }
-      debug("new %o", path3);
+      debug("new %o", path9);
       const opts = options || {};
       this.handle = fn;
       this.keys = [];
       this.name = fn.name || "<anonymous>";
       this.params = void 0;
       this.path = void 0;
-      this.slash = path3 === "/" && opts.end === false;
+      this.slash = path9 === "/" && opts.end === false;
       function matcher(_path) {
         if (_path instanceof RegExp) {
           const keys = [];
@@ -20360,7 +20360,7 @@ var require_layer = __commonJS({
           decode: decodeParam
         });
       }
-      this.matchers = Array.isArray(path3) ? path3.map(matcher) : [matcher(path3)];
+      this.matchers = Array.isArray(path9) ? path9.map(matcher) : [matcher(path9)];
     }
     Layer.prototype.handleError = function handleError(error, req, res, next) {
       const fn = this.handle;
@@ -20400,9 +20400,9 @@ var require_layer = __commonJS({
         next(err);
       }
     };
-    Layer.prototype.match = function match(path3) {
+    Layer.prototype.match = function match(path9) {
       let match2;
-      if (path3 != null) {
+      if (path9 != null) {
         if (this.slash) {
           this.params = {};
           this.path = "";
@@ -20410,7 +20410,7 @@ var require_layer = __commonJS({
         }
         let i = 0;
         while (!match2 && i < this.matchers.length) {
-          match2 = this.matchers[i](path3);
+          match2 = this.matchers[i](path9);
           i++;
         }
       }
@@ -20438,13 +20438,13 @@ var require_layer = __commonJS({
         throw err;
       }
     }
-    function loosen(path3) {
-      if (path3 instanceof RegExp || path3 === "/") {
-        return path3;
+    function loosen(path9) {
+      if (path9 instanceof RegExp || path9 === "/") {
+        return path9;
       }
-      return Array.isArray(path3) ? path3.map(function(p) {
+      return Array.isArray(path9) ? path9.map(function(p) {
         return loosen(p);
-      }) : String(path3).replace(TRAILING_SLASH_REGEXP, "");
+      }) : String(path9).replace(TRAILING_SLASH_REGEXP, "");
     }
   }
 });
@@ -20460,9 +20460,9 @@ var require_route = __commonJS({
     var flatten = Array.prototype.flat;
     var methods = METHODS.map((method) => method.toLowerCase());
     module2.exports = Route;
-    function Route(path3) {
-      debug("new %o", path3);
-      this.path = path3;
+    function Route(path9) {
+      debug("new %o", path9);
+      this.path = path9;
       this.stack = [];
       this.methods = /* @__PURE__ */ Object.create(null);
     }
@@ -20583,11 +20583,11 @@ var require_router = __commonJS({
     var slice = Array.prototype.slice;
     var flatten = Array.prototype.flat;
     var methods = METHODS.map((method) => method.toLowerCase());
-    module2.exports = Router;
+    module2.exports = Router10;
     module2.exports.Route = Route;
-    function Router(options) {
-      if (!(this instanceof Router)) {
-        return new Router(options);
+    function Router10(options) {
+      if (!(this instanceof Router10)) {
+        return new Router10(options);
       }
       const opts = options || {};
       function router(req, res, next) {
@@ -20601,9 +20601,9 @@ var require_router = __commonJS({
       router.stack = [];
       return router;
     }
-    Router.prototype = function() {
+    Router10.prototype = function() {
     };
-    Router.prototype.param = function param(name, fn) {
+    Router10.prototype.param = function param(name, fn) {
       if (!name) {
         throw new TypeError("argument name is required");
       }
@@ -20623,7 +20623,7 @@ var require_router = __commonJS({
       params.push(fn);
       return this;
     };
-    Router.prototype.handle = function handle(req, res, callback) {
+    Router10.prototype.handle = function handle(req, res, callback) {
       if (!callback) {
         throw new TypeError("argument callback is required");
       }
@@ -20670,8 +20670,8 @@ var require_router = __commonJS({
         if (++sync > 100) {
           return setImmediate(next, err);
         }
-        const path3 = getPathname(req);
-        if (path3 == null) {
+        const path9 = getPathname(req);
+        if (path9 == null) {
           return done(layerError);
         }
         let layer;
@@ -20679,7 +20679,7 @@ var require_router = __commonJS({
         let route;
         while (match !== true && idx < stack.length) {
           layer = stack[idx++];
-          match = matchLayer(layer, path3);
+          match = matchLayer(layer, path9);
           route = layer.route;
           if (typeof match !== "boolean") {
             layerError = layerError || match;
@@ -20717,18 +20717,18 @@ var require_router = __commonJS({
           } else if (route) {
             layer.handleRequest(req, res, next);
           } else {
-            trimPrefix(layer, layerError, layerPath, path3);
+            trimPrefix(layer, layerError, layerPath, path9);
           }
           sync = 0;
         });
       }
-      function trimPrefix(layer, layerError, layerPath, path3) {
+      function trimPrefix(layer, layerError, layerPath, path9) {
         if (layerPath.length !== 0) {
-          if (layerPath !== path3.substring(0, layerPath.length)) {
+          if (layerPath !== path9.substring(0, layerPath.length)) {
             next(layerError);
             return;
           }
-          const c = path3[layerPath.length];
+          const c = path9[layerPath.length];
           if (c && c !== "/") {
             next(layerError);
             return;
@@ -20750,9 +20750,9 @@ var require_router = __commonJS({
         }
       }
     };
-    Router.prototype.use = function use(handler) {
+    Router10.prototype.use = function use(handler) {
       let offset = 0;
-      let path3 = "/";
+      let path9 = "/";
       if (typeof handler !== "function") {
         let arg = handler;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -20760,7 +20760,7 @@ var require_router = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path3 = handler;
+          path9 = handler;
         }
       }
       const callbacks = flatten.call(slice.call(arguments, offset), Infinity);
@@ -20772,8 +20772,8 @@ var require_router = __commonJS({
         if (typeof fn !== "function") {
           throw new TypeError("argument handler must be a function");
         }
-        debug("use %o %s", path3, fn.name || "<anonymous>");
-        const layer = new Layer(path3, {
+        debug("use %o %s", path9, fn.name || "<anonymous>");
+        const layer = new Layer(path9, {
           sensitive: this.caseSensitive,
           strict: false,
           end: false
@@ -20783,9 +20783,9 @@ var require_router = __commonJS({
       }
       return this;
     };
-    Router.prototype.route = function route(path3) {
-      const route2 = new Route(path3);
-      const layer = new Layer(path3, {
+    Router10.prototype.route = function route(path9) {
+      const route2 = new Route(path9);
+      const layer = new Layer(path9, {
         sensitive: this.caseSensitive,
         strict: this.strict,
         end: true
@@ -20798,8 +20798,8 @@ var require_router = __commonJS({
       return route2;
     };
     methods.concat("all").forEach(function(method) {
-      Router.prototype[method] = function(path3) {
-        const route = this.route(path3);
+      Router10.prototype[method] = function(path9) {
+        const route = this.route(path9);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
@@ -20828,9 +20828,9 @@ var require_router = __commonJS({
       const fqdnIndex = url.substring(0, pathLength).indexOf("://");
       return fqdnIndex !== -1 ? url.substring(0, url.indexOf("/", 3 + fqdnIndex)) : void 0;
     }
-    function matchLayer(layer, path3) {
+    function matchLayer(layer, path9) {
       try {
-        return layer.match(path3);
+        return layer.match(path9);
       } catch (err) {
         return err;
       }
@@ -20981,7 +20981,7 @@ var require_application = __commonJS({
     var compileTrust = require_utils3().compileTrust;
     var resolve = require("node:path").resolve;
     var once = require_once();
-    var Router = require_router();
+    var Router10 = require_router();
     var slice = Array.prototype.slice;
     var flatten = Array.prototype.flat;
     var app2 = exports2 = module2.exports = {};
@@ -20997,7 +20997,7 @@ var require_application = __commonJS({
         enumerable: true,
         get: function getrouter() {
           if (router === null) {
-            router = new Router({
+            router = new Router10({
               caseSensitive: this.enabled("case sensitive routing"),
               strict: this.enabled("strict routing")
             });
@@ -21058,7 +21058,7 @@ var require_application = __commonJS({
     };
     app2.use = function use(fn) {
       var offset = 0;
-      var path3 = "/";
+      var path9 = "/";
       if (typeof fn !== "function") {
         var arg = fn;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -21066,7 +21066,7 @@ var require_application = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path3 = fn;
+          path9 = fn;
         }
       }
       var fns = flatten.call(slice.call(arguments, offset), Infinity);
@@ -21076,12 +21076,12 @@ var require_application = __commonJS({
       var router = this.router;
       fns.forEach(function(fn2) {
         if (!fn2 || !fn2.handle || !fn2.set) {
-          return router.use(path3, fn2);
+          return router.use(path9, fn2);
         }
-        debug(".use app under %s", path3);
-        fn2.mountpath = path3;
+        debug(".use app under %s", path9);
+        fn2.mountpath = path9;
         fn2.parent = this;
-        router.use(path3, function mounted_app(req, res, next) {
+        router.use(path9, function mounted_app(req, res, next) {
           var orig = req.app;
           fn2.handle(req, res, function(err) {
             Object.setPrototypeOf(req, orig.request);
@@ -21093,8 +21093,8 @@ var require_application = __commonJS({
       }, this);
       return this;
     };
-    app2.route = function route(path3) {
-      return this.router.route(path3);
+    app2.route = function route(path9) {
+      return this.router.route(path9);
     };
     app2.engine = function engine(ext, fn) {
       if (typeof fn !== "function") {
@@ -21137,7 +21137,7 @@ var require_application = __commonJS({
       }
       return this;
     };
-    app2.path = function path3() {
+    app2.path = function path9() {
       return this.parent ? this.parent.path() + this.mountpath : "";
     };
     app2.enabled = function enabled(setting) {
@@ -21153,17 +21153,17 @@ var require_application = __commonJS({
       return this.set(setting, false);
     };
     methods.forEach(function(method) {
-      app2[method] = function(path3) {
+      app2[method] = function(path9) {
         if (method === "get" && arguments.length === 1) {
-          return this.set(path3);
+          return this.set(path9);
         }
-        var route = this.route(path3);
+        var route = this.route(path9);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
     });
-    app2.all = function all(path3) {
-      var route = this.route(path3);
+    app2.all = function all(path9) {
+      var route = this.route(path9);
       var args = slice.call(arguments, 1);
       for (var i = 0; i < methods.length; i++) {
         route[methods[i]].apply(route, args);
@@ -22073,7 +22073,7 @@ var require_request = __commonJS({
       var subdomains2 = !isIP(hostname) ? hostname.split(".").reverse() : [hostname];
       return subdomains2.slice(offset);
     });
-    defineGetter(req, "path", function path3() {
+    defineGetter(req, "path", function path9() {
       return parse(this).pathname;
     });
     defineGetter(req, "host", function host() {
@@ -22480,32 +22480,32 @@ var require_send = __commonJS({
     var escapeHtml = require_escape_html();
     var etag = require_etag();
     var fresh = require_fresh();
-    var fs3 = require("fs");
+    var fs11 = require("fs");
     var mime = require_mime_types();
     var ms = require_ms();
     var onFinished = require_on_finished();
     var parseRange = require_range_parser();
-    var path3 = require("path");
+    var path9 = require("path");
     var statuses = require_statuses();
     var Stream = require("stream");
     var util = require("util");
-    var extname = path3.extname;
-    var join = path3.join;
-    var normalize = path3.normalize;
-    var resolve = path3.resolve;
-    var sep = path3.sep;
+    var extname = path9.extname;
+    var join = path9.join;
+    var normalize = path9.normalize;
+    var resolve = path9.resolve;
+    var sep = path9.sep;
     var BYTES_RANGE_REGEXP = /^ *bytes=/;
     var MAX_MAXAGE = 60 * 60 * 24 * 365 * 1e3;
     var UP_PATH_REGEXP = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
     module2.exports = send;
-    function send(req, path4, options) {
-      return new SendStream(req, path4, options);
+    function send(req, path10, options) {
+      return new SendStream(req, path10, options);
     }
-    function SendStream(req, path4, options) {
+    function SendStream(req, path10, options) {
       Stream.call(this);
       var opts = options || {};
       this.options = opts;
-      this.path = path4;
+      this.path = path10;
       this.req = req;
       this._acceptRanges = opts.acceptRanges !== void 0 ? Boolean(opts.acceptRanges) : true;
       this._cacheControl = opts.cacheControl !== void 0 ? Boolean(opts.cacheControl) : true;
@@ -22619,10 +22619,10 @@ var require_send = __commonJS({
       var lastModified = this.res.getHeader("Last-Modified");
       return parseHttpDate(lastModified) <= parseHttpDate(ifRange);
     };
-    SendStream.prototype.redirect = function redirect(path4) {
+    SendStream.prototype.redirect = function redirect(path10) {
       var res = this.res;
       if (hasListeners(this, "directory")) {
-        this.emit("directory", res, path4);
+        this.emit("directory", res, path10);
         return;
       }
       if (this.hasTrailingSlash()) {
@@ -22642,38 +22642,38 @@ var require_send = __commonJS({
     SendStream.prototype.pipe = function pipe(res) {
       var root = this._root;
       this.res = res;
-      var path4 = decode(this.path);
-      if (path4 === -1) {
+      var path10 = decode(this.path);
+      if (path10 === -1) {
         this.error(400);
         return res;
       }
-      if (~path4.indexOf("\0")) {
+      if (~path10.indexOf("\0")) {
         this.error(400);
         return res;
       }
       var parts;
       if (root !== null) {
-        if (path4) {
-          path4 = normalize("." + sep + path4);
+        if (path10) {
+          path10 = normalize("." + sep + path10);
         }
-        if (UP_PATH_REGEXP.test(path4)) {
-          debug('malicious path "%s"', path4);
+        if (UP_PATH_REGEXP.test(path10)) {
+          debug('malicious path "%s"', path10);
           this.error(403);
           return res;
         }
-        parts = path4.split(sep);
-        path4 = normalize(join(root, path4));
+        parts = path10.split(sep);
+        path10 = normalize(join(root, path10));
       } else {
-        if (UP_PATH_REGEXP.test(path4)) {
-          debug('malicious path "%s"', path4);
+        if (UP_PATH_REGEXP.test(path10)) {
+          debug('malicious path "%s"', path10);
           this.error(403);
           return res;
         }
-        parts = normalize(path4).split(sep);
-        path4 = resolve(path4);
+        parts = normalize(path10).split(sep);
+        path10 = resolve(path10);
       }
       if (containsDotFile(parts)) {
-        debug('%s dotfile "%s"', this._dotfiles, path4);
+        debug('%s dotfile "%s"', this._dotfiles, path10);
         switch (this._dotfiles) {
           case "allow":
             break;
@@ -22687,13 +22687,13 @@ var require_send = __commonJS({
         }
       }
       if (this._index.length && this.hasTrailingSlash()) {
-        this.sendIndex(path4);
+        this.sendIndex(path10);
         return res;
       }
-      this.sendFile(path4);
+      this.sendFile(path10);
       return res;
     };
-    SendStream.prototype.send = function send2(path4, stat) {
+    SendStream.prototype.send = function send2(path10, stat) {
       var len = stat.size;
       var options = this.options;
       var opts = {};
@@ -22705,9 +22705,9 @@ var require_send = __commonJS({
         this.headersAlreadySent();
         return;
       }
-      debug('pipe "%s"', path4);
-      this.setHeader(path4, stat);
-      this.type(path4);
+      debug('pipe "%s"', path10);
+      this.setHeader(path10, stat);
+      this.type(path10);
       if (this.isConditionalGET()) {
         if (this.isPreconditionFailure()) {
           this.error(412);
@@ -22756,30 +22756,30 @@ var require_send = __commonJS({
         res.end();
         return;
       }
-      this.stream(path4, opts);
+      this.stream(path10, opts);
     };
-    SendStream.prototype.sendFile = function sendFile(path4) {
+    SendStream.prototype.sendFile = function sendFile(path10) {
       var i = 0;
       var self = this;
-      debug('stat "%s"', path4);
-      fs3.stat(path4, function onstat(err, stat) {
-        var pathEndsWithSep = path4[path4.length - 1] === sep;
-        if (err && err.code === "ENOENT" && !extname(path4) && !pathEndsWithSep) {
+      debug('stat "%s"', path10);
+      fs11.stat(path10, function onstat(err, stat) {
+        var pathEndsWithSep = path10[path10.length - 1] === sep;
+        if (err && err.code === "ENOENT" && !extname(path10) && !pathEndsWithSep) {
           return next(err);
         }
         if (err) return self.onStatError(err);
-        if (stat.isDirectory()) return self.redirect(path4);
+        if (stat.isDirectory()) return self.redirect(path10);
         if (pathEndsWithSep) return self.error(404);
-        self.emit("file", path4, stat);
-        self.send(path4, stat);
+        self.emit("file", path10, stat);
+        self.send(path10, stat);
       });
       function next(err) {
         if (self._extensions.length <= i) {
           return err ? self.onStatError(err) : self.error(404);
         }
-        var p = path4 + "." + self._extensions[i++];
+        var p = path10 + "." + self._extensions[i++];
         debug('stat "%s"', p);
-        fs3.stat(p, function(err2, stat) {
+        fs11.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self.emit("file", p, stat);
@@ -22787,7 +22787,7 @@ var require_send = __commonJS({
         });
       }
     };
-    SendStream.prototype.sendIndex = function sendIndex(path4) {
+    SendStream.prototype.sendIndex = function sendIndex(path10) {
       var i = -1;
       var self = this;
       function next(err) {
@@ -22795,9 +22795,9 @@ var require_send = __commonJS({
           if (err) return self.onStatError(err);
           return self.error(404);
         }
-        var p = join(path4, self._index[i]);
+        var p = join(path10, self._index[i]);
         debug('stat "%s"', p);
-        fs3.stat(p, function(err2, stat) {
+        fs11.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self.emit("file", p, stat);
@@ -22806,10 +22806,10 @@ var require_send = __commonJS({
       }
       next();
     };
-    SendStream.prototype.stream = function stream(path4, options) {
+    SendStream.prototype.stream = function stream(path10, options) {
       var self = this;
       var res = this.res;
-      var stream2 = fs3.createReadStream(path4, options);
+      var stream2 = fs11.createReadStream(path10, options);
       this.emit("stream", stream2);
       stream2.pipe(res);
       function cleanup() {
@@ -22824,17 +22824,17 @@ var require_send = __commonJS({
         self.emit("end");
       });
     };
-    SendStream.prototype.type = function type(path4) {
+    SendStream.prototype.type = function type(path10) {
       var res = this.res;
       if (res.getHeader("Content-Type")) return;
-      var ext = extname(path4);
+      var ext = extname(path10);
       var type2 = mime.contentType(ext) || "application/octet-stream";
       debug("content-type %s", type2);
       res.setHeader("Content-Type", type2);
     };
-    SendStream.prototype.setHeader = function setHeader(path4, stat) {
+    SendStream.prototype.setHeader = function setHeader(path10, stat) {
       var res = this.res;
-      this.emit("headers", res, path4, stat);
+      this.emit("headers", res, path10, stat);
       if (this._acceptRanges && !res.getHeader("Accept-Ranges")) {
         debug("accept ranges");
         res.setHeader("Accept-Ranges", "bytes");
@@ -22892,9 +22892,9 @@ var require_send = __commonJS({
       }
       return err instanceof Error ? createError(status, err, { expose: false }) : createError(status, err);
     }
-    function decode(path4) {
+    function decode(path10) {
       try {
-        return decodeURIComponent(path4);
+        return decodeURIComponent(path10);
       } catch (err) {
         return -1;
       }
@@ -23038,7 +23038,7 @@ var require_response = __commonJS({
     var http = require("node:http");
     var onFinished = require_on_finished();
     var mime = require_mime_types();
-    var path3 = require("node:path");
+    var path9 = require("node:path");
     var pathIsAbsolute = require("node:path").isAbsolute;
     var statuses = require_statuses();
     var sign = require_cookie_signature().sign;
@@ -23047,8 +23047,8 @@ var require_response = __commonJS({
     var setCharset = require_utils3().setCharset;
     var cookie = require_cookie();
     var send = require_send();
-    var extname = path3.extname;
-    var resolve = path3.resolve;
+    var extname = path9.extname;
+    var resolve = path9.resolve;
     var vary = require_vary();
     var { Buffer: Buffer2 } = require("node:buffer");
     var res = Object.create(http.ServerResponse.prototype);
@@ -23194,26 +23194,26 @@ var require_response = __commonJS({
       this.type("txt");
       return this.send(body);
     };
-    res.sendFile = function sendFile(path4, options, callback) {
+    res.sendFile = function sendFile(path10, options, callback) {
       var done = callback;
       var req = this.req;
       var res2 = this;
       var next = req.next;
       var opts = options || {};
-      if (!path4) {
+      if (!path10) {
         throw new TypeError("path argument is required to res.sendFile");
       }
-      if (typeof path4 !== "string") {
+      if (typeof path10 !== "string") {
         throw new TypeError("path must be a string to res.sendFile");
       }
       if (typeof options === "function") {
         done = options;
         opts = {};
       }
-      if (!opts.root && !pathIsAbsolute(path4)) {
+      if (!opts.root && !pathIsAbsolute(path10)) {
         throw new TypeError("path must be absolute or specify root to res.sendFile");
       }
-      var pathname = encodeURI(path4);
+      var pathname = encodeURI(path10);
       opts.etag = this.app.enabled("etag");
       var file = send(req, pathname, opts);
       sendfile(res2, file, opts, function(err) {
@@ -23224,7 +23224,7 @@ var require_response = __commonJS({
         }
       });
     };
-    res.download = function download(path4, filename, options, callback) {
+    res.download = function download(path10, filename, options, callback) {
       var done = callback;
       var name = filename;
       var opts = options || null;
@@ -23241,7 +23241,7 @@ var require_response = __commonJS({
         opts = filename;
       }
       var headers = {
-        "Content-Disposition": contentDisposition(name || path4)
+        "Content-Disposition": contentDisposition(name || path10)
       };
       if (opts && opts.headers) {
         var keys = Object.keys(opts.headers);
@@ -23254,7 +23254,7 @@ var require_response = __commonJS({
       }
       opts = Object.create(opts);
       opts.headers = headers;
-      var fullPath = !opts.root ? resolve(path4) : path4;
+      var fullPath = !opts.root ? resolve(path10) : path10;
       return this.sendFile(fullPath, opts, done);
     };
     res.contentType = res.type = function contentType(type) {
@@ -23537,11 +23537,11 @@ var require_serve_static = __commonJS({
         }
         var forwardError = !fallthrough;
         var originalUrl = parseUrl.original(req);
-        var path3 = parseUrl(req).pathname;
-        if (path3 === "/" && originalUrl.pathname.substr(-1) !== "/") {
-          path3 = "";
+        var path9 = parseUrl(req).pathname;
+        if (path9 === "/" && originalUrl.pathname.substr(-1) !== "/") {
+          path9 = "";
         }
-        var stream = send(req, path3, opts);
+        var stream = send(req, path9, opts);
         stream.on("directory", onDirectory);
         if (setHeaders) {
           stream.on("headers", setHeaders);
@@ -23608,7 +23608,7 @@ var require_express = __commonJS({
     var EventEmitter = require("node:events").EventEmitter;
     var mixin = require_merge_descriptors();
     var proto = require_application();
-    var Router = require_router();
+    var Router10 = require_router();
     var req = require_request();
     var res = require_response();
     exports2 = module2.exports = createApplication;
@@ -23630,8 +23630,8 @@ var require_express = __commonJS({
     exports2.application = proto;
     exports2.request = req;
     exports2.response = res;
-    exports2.Route = Router.Route;
-    exports2.Router = Router;
+    exports2.Route = Router10.Route;
+    exports2.Router = Router10;
     exports2.json = bodyParser.json;
     exports2.raw = bodyParser.raw;
     exports2.static = require_serve_static();
@@ -23927,12 +23927,8 @@ var require_lib3 = __commonJS({
 });
 
 // server.js
-var import_express = __toESM(require_express2(), 1);
+var import_express10 = __toESM(require_express2(), 1);
 var import_cors = __toESM(require_lib3(), 1);
-var import_fs2 = __toESM(require("fs"), 1);
-var import_path2 = __toESM(require("path"), 1);
-var import_url = require("url");
-var import_crypto2 = __toESM(require("crypto"), 1);
 
 // server/vault.js
 var import_crypto = __toESM(require("crypto"), 1);
@@ -24177,32 +24173,23 @@ var KeyVault = class {
   }
 };
 
-// server.js
-var __dirname = import_path2.default.dirname((0, import_url.fileURLToPath)(__importMetaUrl));
-var app = (0, import_express.default)();
-var PORT = 3001;
-var DATA_DIR = process.env.DATA_DIR || import_path2.default.join(__dirname, "data");
+// server/lib/fileStore.js
+var import_fs2 = __toESM(require("fs"), 1);
+var import_path2 = __toESM(require("path"), 1);
+var import_url = require("url");
+var import_crypto2 = __toESM(require("crypto"), 1);
+var __fileDir = import_path2.default.dirname((0, import_url.fileURLToPath)(__importMetaUrl));
+var __projectRoot = import_path2.default.join(__fileDir, "../..");
+var DATA_DIR = process.env.DATA_DIR || import_path2.default.join(__projectRoot, "data");
 var CAMPAIGNS_DIR = import_path2.default.join(DATA_DIR, "campaigns");
 var SETTINGS_FILE = import_path2.default.join(DATA_DIR, "settings.json");
 var BACKUPS_DIR = import_path2.default.join(DATA_DIR, "backups");
-var vault = new KeyVault(DATA_DIR);
+var PUBLIC_ASSETS_DIR = process.env.NODE_ENV === "production" ? import_path2.default.join(DATA_DIR, "portraits") : import_path2.default.join(__projectRoot, "public", "assets", "portraits");
 function ensureDirs() {
   if (!import_fs2.default.existsSync(DATA_DIR)) import_fs2.default.mkdirSync(DATA_DIR, { recursive: true });
   if (!import_fs2.default.existsSync(CAMPAIGNS_DIR)) import_fs2.default.mkdirSync(CAMPAIGNS_DIR, { recursive: true });
   if (!import_fs2.default.existsSync(BACKUPS_DIR)) import_fs2.default.mkdirSync(BACKUPS_DIR, { recursive: true });
-}
-ensureDirs();
-if (!vault.exists()) {
-  vault.create({ presets: [] }, null);
-  console.log("[Vault] Auto-created with machine key");
-}
-if (!vault.isUnlocked()) {
-  try {
-    vault.unlock(null);
-    console.log("[Vault] Auto-unlocked with machine key");
-  } catch (e) {
-    console.log("[Vault] Password-protected vault, manual unlock required");
-  }
+  if (!import_fs2.default.existsSync(PUBLIC_ASSETS_DIR)) import_fs2.default.mkdirSync(PUBLIC_ASSETS_DIR, { recursive: true });
 }
 function readJson(filePath, fallback = null) {
   try {
@@ -24221,6 +24208,34 @@ function writeJson(filePath, data) {
     console.error(`[writeJson] Failed to write ${filePath}:`, err);
     throw err;
   }
+}
+function archivePath(id) {
+  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.archive.md`);
+}
+function archiveIndexPath(id) {
+  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.archive.index.json`);
+}
+function chaptersPath(id) {
+  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.archive.chapters.json`);
+}
+function factsPath(id) {
+  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.facts.json`);
+}
+function entitiesPath(id) {
+  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.entities.json`);
+}
+function timelinePath(id) {
+  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.timeline.json`);
+}
+function getNextSceneNumber(id) {
+  const fp = archivePath(id);
+  if (!import_fs2.default.existsSync(fp)) return 1;
+  const content = import_fs2.default.readFileSync(fp, "utf-8");
+  const matches = content.match(/^## SCENE (\d+)/gm);
+  if (!matches || matches.length === 0) return 1;
+  const last = matches[matches.length - 1];
+  const num = parseInt(last.replace("## SCENE ", ""), 10);
+  return num + 1;
 }
 function computeCampaignHash(id) {
   const fileNames = [
@@ -24257,62 +24272,142 @@ function campaignFiles(id) {
   ];
   return names.filter((n) => import_fs2.default.existsSync(import_path2.default.join(CAMPAIGNS_DIR, n)));
 }
-function createBackup(id, opts = {}) {
-  const { label = "", trigger = "manual", isAuto = false } = opts;
-  const now = Date.now();
-  const hash = computeCampaignHash(id);
-  if (isAuto) {
-    const backupDir = import_path2.default.join(BACKUPS_DIR, id);
-    if (import_fs2.default.existsSync(backupDir)) {
-      const folders = import_fs2.default.readdirSync(backupDir).filter((f) => import_fs2.default.statSync(import_path2.default.join(backupDir, f)).isDirectory()).sort().reverse();
-      for (const folder of folders) {
-        const metaFile = import_path2.default.join(backupDir, folder, "meta.json");
-        if (import_fs2.default.existsSync(metaFile)) {
-          const meta2 = readJson(metaFile);
-          if (meta2 && meta2.isAuto && meta2.hash === hash) {
-            return { skipped: true };
-          }
-          break;
-        }
+
+// server/routes/vault.js
+var import_express = __toESM(require_express2(), 1);
+function createVaultRouter(vault2) {
+  const router = (0, import_express.Router)();
+  router.get("/api/vault/status", (_req, res) => {
+    res.json({
+      exists: vault2.exists(),
+      unlocked: vault2.isUnlocked(),
+      hasRemember: vault2.hasRememberedKey()
+    });
+  });
+  router.post("/api/vault/setup", (req, res) => {
+    try {
+      const { password, presets } = req.body;
+      if (vault2.exists()) {
+        return res.status(400).json({ error: "Vault already exists" });
       }
+      const initialData = { presets: presets || [] };
+      vault2.create(initialData, password);
+      res.json({ ok: true, unlocked: true });
+    } catch (err) {
+      console.error("[Vault Setup] Error:", err);
+      res.status(500).json({ error: err.message });
     }
-  }
-  const backupPath = import_path2.default.join(BACKUPS_DIR, id, String(now));
-  import_fs2.default.mkdirSync(backupPath, { recursive: true });
-  const files = campaignFiles(id);
-  for (const name of files) {
-    const src = import_path2.default.join(CAMPAIGNS_DIR, name);
-    const dst = import_path2.default.join(backupPath, name);
-    import_fs2.default.copyFileSync(src, dst);
-  }
-  const campaignMeta = readJson(import_path2.default.join(CAMPAIGNS_DIR, `${id}.json`), {});
-  const meta = {
-    timestamp: now,
-    label,
-    trigger,
-    hash,
-    fileCount: files.length,
-    isAuto,
-    campaignName: campaignMeta.name || "Unknown"
-  };
-  writeJson(import_path2.default.join(backupPath, "meta.json"), meta);
-  if (isAuto) {
-    pruneAutoBackups(id, 10);
-  }
-  return { timestamp: now, hash, fileCount: files.length };
+  });
+  router.post("/api/vault/unlock", (req, res) => {
+    try {
+      const { password, remember } = req.body;
+      if (!vault2.exists()) {
+        return res.status(404).json({ error: "Vault does not exist" });
+      }
+      vault2.unlock(password);
+      if (remember && password) {
+        vault2.saveRememberedKey();
+      }
+      res.json({ ok: true, unlocked: true });
+    } catch (err) {
+      console.error("[Vault Unlock] Error:", err);
+      res.status(401).json({ error: "Invalid password" });
+    }
+  });
+  router.post("/api/vault/unlock-remembered", (_req, res) => {
+    try {
+      if (!vault2.hasRememberedKey()) {
+        return res.status(400).json({ error: "No remembered key" });
+      }
+      const success = vault2.unlockWithRemembered();
+      res.json({ ok: true, unlocked: success });
+    } catch (err) {
+      console.error("[Vault Unlock Remembered] Error:", err);
+      res.status(401).json({ error: "Remembered key failed" });
+    }
+  });
+  router.post("/api/vault/lock", (_req, res) => {
+    vault2.lock();
+    res.json({ ok: true, unlocked: false });
+  });
+  router.get("/api/vault/keys", (_req, res) => {
+    try {
+      const data = vault2.getData();
+      res.json(data);
+    } catch (err) {
+      res.status(403).json({ error: "Vault is locked" });
+    }
+  });
+  router.put("/api/vault/keys", (req, res) => {
+    try {
+      vault2.saveData(req.body);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[Vault Save] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+  router.post("/api/vault/export", (req, res) => {
+    try {
+      const { password } = req.body;
+      const buffer = vault2.exportWithPassword(password);
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Disposition", 'attachment; filename="narrative-engine-keys.nevault"');
+      res.send(buffer);
+    } catch (err) {
+      console.error("[Vault Export] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+  router.post("/api/vault/import", (req, res) => {
+    try {
+      const { file, password, merge = true } = req.body;
+      if (!file || !password) {
+        return res.status(400).json({ error: "Missing file or password" });
+      }
+      const buffer = Buffer.from(file, "base64");
+      const importedData = KeyVault.importFromBuffer(buffer, password);
+      if (merge && vault2.isUnlocked()) {
+        const existing = vault2.getData();
+        const existingPresets = existing.presets || [];
+        const importedPresets = importedData.presets || [];
+        const mergedPresets = [...existingPresets];
+        for (const importedPreset of importedPresets) {
+          const existingIndex = mergedPresets.findIndex((p) => p.name === importedPreset.name);
+          if (existingIndex >= 0) {
+            mergedPresets[existingIndex] = importedPreset;
+          } else {
+            mergedPresets.push(importedPreset);
+          }
+        }
+        vault2.saveData({ presets: mergedPresets });
+      } else {
+        vault2.saveData(importedData);
+      }
+      res.json({ ok: true, unlocked: true });
+    } catch (err) {
+      console.error("[Vault Import] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+  router.delete("/api/vault/remember", (_req, res) => {
+    vault2.clearRememberedKey();
+    res.json({ ok: true });
+  });
+  router.delete("/api/vault", (_req, res) => {
+    try {
+      vault2.delete();
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[Vault Delete] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+  return router;
 }
-function pruneAutoBackups(id, keep) {
-  const backupDir = import_path2.default.join(BACKUPS_DIR, id);
-  if (!import_fs2.default.existsSync(backupDir)) return;
-  const folders = import_fs2.default.readdirSync(backupDir).filter((f) => import_fs2.default.statSync(import_path2.default.join(backupDir, f)).isDirectory()).map((f) => {
-    const meta = readJson(import_path2.default.join(backupDir, f, "meta.json"), {});
-    return { folder: f, isAuto: meta.isAuto || false };
-  }).filter((f) => f.isAuto).sort((a, b) => Number(b.folder) - Number(a.folder));
-  for (let i = keep; i < folders.length; i++) {
-    const dirToRemove = import_path2.default.join(backupDir, folders[i].folder);
-    import_fs2.default.rmSync(dirToRemove, { recursive: true, force: true });
-  }
-}
+
+// server/routes/settings.js
+var import_express2 = __toESM(require_express2(), 1);
 function stripApiKeys(body) {
   if (!body || typeof body !== "object") return body;
   const stripped = JSON.parse(JSON.stringify(body));
@@ -24326,256 +24421,307 @@ function stripApiKeys(body) {
   }
   return stripped;
 }
-app.use((0, import_cors.default)());
-app.use(import_express.default.json({ limit: "50mb" }));
-var PUBLIC_ASSETS_DIR = process.env.NODE_ENV === "production" ? import_path2.default.join(DATA_DIR, "portraits") : import_path2.default.join(__dirname, "public", "assets", "portraits");
-if (!import_fs2.default.existsSync(PUBLIC_ASSETS_DIR)) import_fs2.default.mkdirSync(PUBLIC_ASSETS_DIR, { recursive: true });
-app.use("/assets/portraits", import_express.default.static(PUBLIC_ASSETS_DIR));
-app.get("/api/settings", (_req, res) => {
-  const settings = readJson(SETTINGS_FILE, {});
-  res.json(settings);
-});
-app.put("/api/settings", (req, res) => {
-  const sanitized = stripApiKeys(req.body);
-  writeJson(SETTINGS_FILE, sanitized);
-  res.json({ ok: true });
-});
-app.get("/api/vault/status", (_req, res) => {
-  res.json({
-    exists: vault.exists(),
-    unlocked: vault.isUnlocked(),
-    hasRemember: vault.hasRememberedKey()
+function createSettingsRouter() {
+  const router = (0, import_express2.Router)();
+  router.get("/api/settings", (_req, res) => {
+    const settings = readJson(SETTINGS_FILE, {});
+    res.json(settings);
   });
-});
-app.post("/api/vault/setup", (req, res) => {
-  try {
-    const { password, presets } = req.body;
-    if (vault.exists()) {
-      return res.status(400).json({ error: "Vault already exists" });
-    }
-    const initialData = { presets: presets || [] };
-    vault.create(initialData, password);
-    res.json({ ok: true, unlocked: true });
-  } catch (err) {
-    console.error("[Vault Setup] Error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/vault/unlock", (req, res) => {
-  try {
-    const { password, remember } = req.body;
-    if (!vault.exists()) {
-      return res.status(404).json({ error: "Vault does not exist" });
-    }
-    vault.unlock(password);
-    if (remember && password) {
-      vault.saveRememberedKey();
-    }
-    res.json({ ok: true, unlocked: true });
-  } catch (err) {
-    console.error("[Vault Unlock] Error:", err);
-    res.status(401).json({ error: "Invalid password" });
-  }
-});
-app.post("/api/vault/unlock-remembered", (_req, res) => {
-  try {
-    if (!vault.hasRememberedKey()) {
-      return res.status(400).json({ error: "No remembered key" });
-    }
-    const success = vault.unlockWithRemembered();
-    res.json({ ok: true, unlocked: success });
-  } catch (err) {
-    console.error("[Vault Unlock Remembered] Error:", err);
-    res.status(401).json({ error: "Remembered key failed" });
-  }
-});
-app.post("/api/vault/lock", (_req, res) => {
-  vault.lock();
-  res.json({ ok: true, unlocked: false });
-});
-app.get("/api/vault/keys", (_req, res) => {
-  try {
-    const data = vault.getData();
-    res.json(data);
-  } catch (err) {
-    res.status(403).json({ error: "Vault is locked" });
-  }
-});
-app.put("/api/vault/keys", (req, res) => {
-  try {
-    vault.saveData(req.body);
+  router.put("/api/settings", (req, res) => {
+    const sanitized = stripApiKeys(req.body);
+    writeJson(SETTINGS_FILE, sanitized);
     res.json({ ok: true });
-  } catch (err) {
-    console.error("[Vault Save] Error:", err);
-    res.status(500).json({ error: err.message });
+  });
+  return router;
+}
+
+// server/routes/campaigns.js
+var import_fs5 = __toESM(require("fs"), 1);
+var import_path5 = __toESM(require("path"), 1);
+var import_express3 = __toESM(require_express2(), 1);
+
+// server/lib/embedder.js
+var import_path3 = __toESM(require("path"), 1);
+var import_fs3 = __toESM(require("fs"), 1);
+var MODEL_ID = "Xenova/mxbai-embed-large-v1";
+var CACHE_DIR = import_path3.default.join(DATA_DIR, ".embeddings_cache");
+var ACTIVE_DIMS = 1024;
+var extractor = null;
+var warmupPromise = null;
+function ensureCacheDir() {
+  if (!import_fs3.default.existsSync(CACHE_DIR)) {
+    import_fs3.default.mkdirSync(CACHE_DIR, { recursive: true });
   }
-});
-app.post("/api/vault/export", (req, res) => {
-  try {
-    const { password } = req.body;
-    const buffer = vault.exportWithPassword(password);
-    res.setHeader("Content-Type", "application/octet-stream");
-    res.setHeader("Content-Disposition", 'attachment; filename="narrative-engine-keys.nevault"');
-    res.send(buffer);
-  } catch (err) {
-    console.error("[Vault Export] Error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/vault/import", (req, res) => {
-  try {
-    const { file, password, merge = true } = req.body;
-    if (!file || !password) {
-      return res.status(400).json({ error: "Missing file or password" });
+}
+async function loadModel() {
+  if (extractor) return extractor;
+  ensureCacheDir();
+  const { pipeline } = await import("@huggingface/transformers");
+  extractor = await pipeline("feature-extraction", MODEL_ID, {
+    dtype: "fp32",
+    model_cache_dir: CACHE_DIR
+  });
+  console.log(`[Embedder] Model loaded: ${MODEL_ID} (${ACTIVE_DIMS} dims, CPU)`);
+  return extractor;
+}
+async function warmup() {
+  if (warmupPromise) return warmupPromise;
+  warmupPromise = (async () => {
+    try {
+      const start = Date.now();
+      const model = await loadModel();
+      const result = await model("warmup", { pooling: "mean", normalize: true });
+      const ms = Date.now() - start;
+      console.log(`[Embedder] Warmup complete (${ms}ms)`);
+      return true;
+    } catch (err) {
+      console.error("[Embedder] Warmup failed:", err.message);
+      warmupPromise = null;
+      return false;
     }
-    const buffer = Buffer.from(file, "base64");
-    const importedData = KeyVault.importFromBuffer(buffer, password);
-    if (merge && vault.isUnlocked()) {
-      const existing = vault.getData();
-      const existingPresets = existing.presets || [];
-      const importedPresets = importedData.presets || [];
-      const mergedPresets = [...existingPresets];
-      for (const importedPreset of importedPresets) {
-        const existingIndex = mergedPresets.findIndex((p) => p.name === importedPreset.name);
-        if (existingIndex >= 0) {
-          mergedPresets[existingIndex] = importedPreset;
-        } else {
-          mergedPresets.push(importedPreset);
-        }
-      }
-      vault.saveData({ presets: mergedPresets });
-    } else {
-      vault.saveData(importedData);
-    }
-    res.json({ ok: true, unlocked: true });
-  } catch (err) {
-    console.error("[Vault Import] Error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-app.delete("/api/vault/remember", (_req, res) => {
-  vault.clearRememberedKey();
-  res.json({ ok: true });
-});
-app.delete("/api/vault", (_req, res) => {
+  })();
+  return warmupPromise;
+}
+async function embedText(text) {
+  if (!text || !text.trim()) return new Float32Array(ACTIVE_DIMS);
+  const model = await loadModel();
+  const output = await model(text, { pooling: "mean", normalize: true });
+  const data = output.data;
+  return new Float32Array(data.buffer ? data : Float32Array.from(data));
+}
+function getActiveDims() {
+  return ACTIVE_DIMS;
+}
+function buildArchiveText(indexEntry) {
+  const parts = [];
+  if (indexEntry.witnesses?.length) parts.push(indexEntry.witnesses.join(" "));
+  if (indexEntry.npcsMentioned?.length) parts.push(indexEntry.npcsMentioned.join(" "));
+  if (indexEntry.keywords?.length) parts.push(indexEntry.keywords.join(" "));
+  if (indexEntry.userSnippet) parts.push(indexEntry.userSnippet);
+  return parts.join(" ").slice(0, 500);
+}
+function buildLoreText(chunk) {
+  const parts = [];
+  if (chunk.header) parts.push(chunk.header);
+  if (chunk.summary) parts.push(chunk.summary);
+  if (chunk.triggerKeywords?.length) parts.push(chunk.triggerKeywords.join(" "));
+  if (chunk.linkedEntities?.length) parts.push(chunk.linkedEntities.join(" "));
+  return parts.join(" ").slice(0, 500);
+}
+
+// server/lib/vectorStore.js
+var import_better_sqlite3 = __toESM(require("better-sqlite3"), 1);
+var sqliteVec = __toESM(require("sqlite-vec"), 1);
+var import_path4 = __toESM(require("path"), 1);
+var import_fs4 = __toESM(require("fs"), 1);
+var DB_PATH = import_path4.default.join(DATA_DIR, "embeddings.db");
+var VEC_DIMS_KEY = "embeddingDims";
+var db = null;
+var currentDims = null;
+function resolveDims() {
+  const settings = readJson(SETTINGS_FILE, {});
+  const dims = settings?.settings?.[VEC_DIMS_KEY];
+  if (dims) return dims;
+  return getActiveDims();
+}
+function getStoredSchemaDims() {
+  if (!db) return null;
   try {
-    vault.delete();
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("[Vault Delete] Error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-app.get("/api/campaigns", (_req, res) => {
-  ensureDirs();
-  const files = import_fs2.default.readdirSync(CAMPAIGNS_DIR).filter(
-    (f) => f.endsWith(".json") && !f.includes(".state") && !f.includes(".lore") && !f.includes(".npcs") && !f.includes(".archive") && !f.includes(".index")
-  );
-  const campaigns = files.map((f) => {
-    const data = readJson(import_path2.default.join(CAMPAIGNS_DIR, f));
-    if (data && data.id && data.name && data.id !== "undefined" && data.id !== "null") {
-      return {
-        ...data,
-        lastPlayedAt: Number(data.lastPlayedAt) || 0
-      };
-    }
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='archive_vss'").get();
+    if (!row) return null;
+    const match = row.sql.match(/float\[(\d+)\]/i);
+    return match ? parseInt(match[1], 10) : null;
+  } catch {
     return null;
-  }).filter((c) => c !== null);
-  console.log(`[API] Returning ${campaigns.length} campaigns:`, campaigns.map((c) => c.id).join(", "));
-  campaigns.sort((a, b) => (Number(b.lastPlayedAt) || 0) - (Number(a.lastPlayedAt) || 0));
-  res.json(campaigns);
-});
-app.get("/api/campaigns/:id", (req, res) => {
-  const filePath = import_path2.default.join(CAMPAIGNS_DIR, `${req.params.id}.json`);
-  const campaign = readJson(filePath);
-  if (!campaign) return res.status(404).json({ error: "Not found" });
-  res.json(campaign);
-});
-app.put("/api/campaigns/:id", (req, res) => {
-  ensureDirs();
-  const filePath = import_path2.default.join(CAMPAIGNS_DIR, `${req.params.id}.json`);
-  writeJson(filePath, req.body);
-  res.json({ ok: true });
-});
-app.delete("/api/campaigns/:id", (req, res) => {
-  const id = req.params.id;
-  const files = [
-    import_path2.default.join(CAMPAIGNS_DIR, `${id}.json`),
-    import_path2.default.join(CAMPAIGNS_DIR, `${id}.state.json`),
-    import_path2.default.join(CAMPAIGNS_DIR, `${id}.lore.json`),
-    import_path2.default.join(CAMPAIGNS_DIR, `${id}.npcs.json`),
-    import_path2.default.join(CAMPAIGNS_DIR, `${id}.archive.md`),
-    import_path2.default.join(CAMPAIGNS_DIR, `${id}.archive.index.json`),
-    import_path2.default.join(CAMPAIGNS_DIR, `${id}.facts.json`),
-    import_path2.default.join(CAMPAIGNS_DIR, `${id}.entities.json`)
-  ];
-  for (const f of files) {
-    if (import_fs2.default.existsSync(f)) import_fs2.default.unlinkSync(f);
   }
-  res.json({ ok: true });
-});
-app.get("/api/campaigns/:id/state", (req, res) => {
-  const filePath = import_path2.default.join(CAMPAIGNS_DIR, `${req.params.id}.state.json`);
-  const state = readJson(filePath);
-  if (!state) return res.status(404).json({ error: "Not found" });
-  res.json(state);
-});
-app.put("/api/campaigns/:id/state", (req, res) => {
-  ensureDirs();
-  const filePath = import_path2.default.join(CAMPAIGNS_DIR, `${req.params.id}.state.json`);
-  writeJson(filePath, req.body);
-  res.json({ ok: true });
-});
-app.get("/api/campaigns/:id/lore", (req, res) => {
-  const filePath = import_path2.default.join(CAMPAIGNS_DIR, `${req.params.id}.lore.json`);
-  const lore = readJson(filePath, []);
-  res.json(lore);
-});
-app.put("/api/campaigns/:id/lore", (req, res) => {
-  ensureDirs();
-  const filePath = import_path2.default.join(CAMPAIGNS_DIR, `${req.params.id}.lore.json`);
-  writeJson(filePath, req.body);
-  res.json({ ok: true });
-});
-app.get("/api/campaigns/:id/npcs", (req, res) => {
-  const filePath = import_path2.default.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
-  const npcs = readJson(filePath, []);
-  res.json(npcs);
-});
-app.put("/api/campaigns/:id/npcs", (req, res) => {
-  ensureDirs();
-  const filePath = import_path2.default.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
-  writeJson(filePath, req.body);
-  res.json({ ok: true });
-});
-function archivePath(id) {
-  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.archive.md`);
 }
-function archiveIndexPath(id) {
-  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.archive.index.json`);
+function initDb() {
+  const dir = import_path4.default.dirname(DB_PATH);
+  if (!import_fs4.default.existsSync(dir)) import_fs4.default.mkdirSync(dir, { recursive: true });
+  db = new import_better_sqlite3.default(DB_PATH);
+  sqliteVec.load(db);
+  const version = db.prepare("select vec_version() as v").get();
+  console.log(`[VectorStore] sqlite-vec v${version.v} loaded`);
+  currentDims = resolveDims();
+  const storedDims = getStoredSchemaDims();
+  if (storedDims !== null && storedDims !== currentDims) {
+    console.warn(`[VectorStore] Dimension mismatch: schema=${storedDims}, active=${currentDims}. Rebuilding tables.`);
+    db.exec("DROP TABLE IF EXISTS archive_vss");
+    db.exec("DROP TABLE IF EXISTS lore_vss");
+    console.warn("[VectorStore] Tables dropped \u2014 run migrateEmbeddings.js to re-index");
+  }
+  db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS archive_vss USING vec0(
+            campaign_id TEXT,
+            scene_id TEXT,
+            embedding FLOAT[${currentDims}] distance_metric=cosine
+        )
+    `);
+  db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS lore_vss USING vec0(
+            campaign_id TEXT,
+            lore_id TEXT,
+            embedding FLOAT[${currentDims}] distance_metric=cosine
+        )
+    `);
+  const settings = readJson(SETTINGS_FILE, {});
+  if (settings?.settings && !settings.settings[VEC_DIMS_KEY]) {
+    settings.settings[VEC_DIMS_KEY] = currentDims;
+    writeJson(SETTINGS_FILE, settings);
+  }
+  console.log(`[VectorStore] Initialized (${currentDims} dims, cosine)`);
 }
-function chaptersPath(id) {
-  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.archive.chapters.json`);
+function storeArchiveEmbedding(campaignId, sceneId, embedding) {
+  if (!db) return;
+  db.prepare("DELETE FROM archive_vss WHERE campaign_id = ? AND scene_id = ?").run(campaignId, sceneId);
+  db.prepare("INSERT INTO archive_vss(campaign_id, scene_id, embedding) VALUES (?, ?, ?)").run(campaignId, sceneId, embedding);
 }
-function factsPath(id) {
-  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.facts.json`);
+function storeLoreEmbedding(campaignId, loreId, embedding) {
+  if (!db) return;
+  db.prepare("DELETE FROM lore_vss WHERE campaign_id = ? AND lore_id = ?").run(campaignId, loreId);
+  db.prepare("INSERT INTO lore_vss(campaign_id, lore_id, embedding) VALUES (?, ?, ?)").run(campaignId, loreId, embedding);
 }
-function entitiesPath(id) {
-  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.entities.json`);
+function searchArchive(campaignId, queryEmbedding, limit = 20) {
+  if (!db) return [];
+  try {
+    const rows = db.prepare(`
+            SELECT scene_id, distance
+            FROM archive_vss
+            WHERE embedding MATCH ? AND campaign_id = ?
+            ORDER BY distance
+            LIMIT ?
+        `).all(queryEmbedding, campaignId, limit);
+    return rows.map((r) => ({ sceneId: r.scene_id, distance: r.distance }));
+  } catch (err) {
+    console.error("[VectorStore] archive search failed:", err.message);
+    return [];
+  }
 }
-function timelinePath(id) {
-  return import_path2.default.join(CAMPAIGNS_DIR, `${id}.timeline.json`);
+function searchLore(campaignId, queryEmbedding, limit = 15) {
+  if (!db) return [];
+  try {
+    const rows = db.prepare(`
+            SELECT lore_id, distance
+            FROM lore_vss
+            WHERE embedding MATCH ? AND campaign_id = ?
+            ORDER BY distance
+            LIMIT ?
+        `).all(queryEmbedding, campaignId, limit);
+    return rows.map((r) => ({ loreId: r.lore_id, distance: r.distance }));
+  } catch (err) {
+    console.error("[VectorStore] lore search failed:", err.message);
+    return [];
+  }
 }
-function getNextSceneNumber(id) {
-  const fp = archivePath(id);
-  if (!import_fs2.default.existsSync(fp)) return 1;
-  const content = import_fs2.default.readFileSync(fp, "utf-8");
-  const matches = content.match(/^## SCENE (\d+)/gm);
-  if (!matches || matches.length === 0) return 1;
-  const last = matches[matches.length - 1];
-  const num = parseInt(last.replace("## SCENE ", ""), 10);
-  return num + 1;
+
+// server/routes/campaigns.js
+function createCampaignsRouter() {
+  const router = (0, import_express3.Router)();
+  router.get("/api/campaigns", (_req, res) => {
+    ensureDirs();
+    const files = import_fs5.default.readdirSync(CAMPAIGNS_DIR).filter(
+      (f) => f.endsWith(".json") && !f.includes(".state") && !f.includes(".lore") && !f.includes(".npcs") && !f.includes(".archive") && !f.includes(".index")
+    );
+    const campaigns = files.map((f) => {
+      const data = readJson(import_path5.default.join(CAMPAIGNS_DIR, f));
+      if (data && data.id && data.name && data.id !== "undefined" && data.id !== "null") {
+        return {
+          ...data,
+          lastPlayedAt: Number(data.lastPlayedAt) || 0
+        };
+      }
+      return null;
+    }).filter((c) => c !== null);
+    console.log(`[API] Returning ${campaigns.length} campaigns:`, campaigns.map((c) => c.id).join(", "));
+    campaigns.sort((a, b) => (Number(b.lastPlayedAt) || 0) - (Number(a.lastPlayedAt) || 0));
+    res.json(campaigns);
+  });
+  router.get("/api/campaigns/:id", (req, res) => {
+    const filePath = import_path5.default.join(CAMPAIGNS_DIR, `${req.params.id}.json`);
+    const campaign = readJson(filePath);
+    if (!campaign) return res.status(404).json({ error: "Not found" });
+    res.json(campaign);
+  });
+  router.put("/api/campaigns/:id", (req, res) => {
+    ensureDirs();
+    const filePath = import_path5.default.join(CAMPAIGNS_DIR, `${req.params.id}.json`);
+    writeJson(filePath, req.body);
+    res.json({ ok: true });
+  });
+  router.delete("/api/campaigns/:id", (req, res) => {
+    const id = req.params.id;
+    const files = [
+      import_path5.default.join(CAMPAIGNS_DIR, `${id}.json`),
+      import_path5.default.join(CAMPAIGNS_DIR, `${id}.state.json`),
+      import_path5.default.join(CAMPAIGNS_DIR, `${id}.lore.json`),
+      import_path5.default.join(CAMPAIGNS_DIR, `${id}.npcs.json`),
+      import_path5.default.join(CAMPAIGNS_DIR, `${id}.archive.md`),
+      import_path5.default.join(CAMPAIGNS_DIR, `${id}.archive.index.json`),
+      import_path5.default.join(CAMPAIGNS_DIR, `${id}.facts.json`),
+      import_path5.default.join(CAMPAIGNS_DIR, `${id}.entities.json`)
+    ];
+    for (const f of files) {
+      if (import_fs5.default.existsSync(f)) import_fs5.default.unlinkSync(f);
+    }
+    res.json({ ok: true });
+  });
+  router.get("/api/campaigns/:id/state", (req, res) => {
+    const filePath = import_path5.default.join(CAMPAIGNS_DIR, `${req.params.id}.state.json`);
+    const state = readJson(filePath);
+    if (!state) return res.status(404).json({ error: "Not found" });
+    res.json(state);
+  });
+  router.put("/api/campaigns/:id/state", (req, res) => {
+    ensureDirs();
+    const filePath = import_path5.default.join(CAMPAIGNS_DIR, `${req.params.id}.state.json`);
+    writeJson(filePath, req.body);
+    res.json({ ok: true });
+  });
+  router.get("/api/campaigns/:id/lore", (req, res) => {
+    const filePath = import_path5.default.join(CAMPAIGNS_DIR, `${req.params.id}.lore.json`);
+    const lore = readJson(filePath, []);
+    res.json(lore);
+  });
+  router.put("/api/campaigns/:id/lore", (req, res) => {
+    ensureDirs();
+    const filePath = import_path5.default.join(CAMPAIGNS_DIR, `${req.params.id}.lore.json`);
+    writeJson(filePath, req.body);
+    res.json({ ok: true });
+    const chunks = req.body;
+    if (Array.isArray(chunks)) {
+      (async () => {
+        for (const chunk of chunks) {
+          try {
+            const text = buildLoreText(chunk);
+            const embedding = await embedText(text);
+            storeLoreEmbedding(req.params.id, chunk.id, embedding);
+          } catch (err) {
+            console.error(`[Lore Embed] Failed for ${chunk.id}:`, err.message);
+          }
+        }
+        console.log(`[Lore Embed] Stored ${chunks.length} lore embeddings for ${req.params.id}`);
+      })().catch((err) => console.error("[Lore Embed] Batch failed:", err.message));
+    }
+  });
+  router.get("/api/campaigns/:id/npcs", (req, res) => {
+    const filePath = import_path5.default.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
+    const npcs = readJson(filePath, []);
+    res.json(npcs);
+  });
+  router.put("/api/campaigns/:id/npcs", (req, res) => {
+    ensureDirs();
+    const filePath = import_path5.default.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
+    writeJson(filePath, req.body);
+    res.json({ ok: true });
+  });
+  return router;
 }
+
+// server/routes/archive.js
+var import_fs6 = __toESM(require("fs"), 1);
+var import_express4 = __toESM(require_express2(), 1);
+
+// server/lib/nlp.js
 function extractIndexKeywords(text) {
   const keywords = /* @__PURE__ */ new Set();
   const properNouns = text.match(/[A-Z][A-Za-z]{2,}(?:\s[A-Z][A-Za-z]{2,})*/g) || [];
@@ -24720,105 +24866,6 @@ function extractWitnessesHeuristic(npcNames, userContent, assistantContent) {
   }
   return { witnesses, mentioned };
 }
-async function extractWitnessesLLM(npcNames, userContent, assistantContent, utilityConfig) {
-  if (!utilityConfig?.endpoint) return null;
-  const combinedText = `${userContent}
-${assistantContent}`.slice(0, 2e3);
-  const prompt = `Given this RPG scene transcript and a list of NPCs mentioned, classify each NPC as either a WITNESS (physically present, actively participating, speaking, or directly addressed) or merely MENTIONED (talked about but not present).
-
-NPCs to classify: ${JSON.stringify(npcNames)}
-
-Scene:
-${combinedText}
-
-Respond ONLY with valid JSON:
-{
-  "witnesses": ["NPCs who were physically present/active"],
-  "mentioned": ["NPCs who were only talked about"]
-}`;
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5e3);
-    const response = await fetch(`${utilityConfig.endpoint}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${utilityConfig.apiKey}`
-      },
-      body: JSON.stringify({
-        model: utilityConfig.model,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        stream: false
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timeout);
-    if (!response.ok) return null;
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "";
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    const parsed = JSON.parse(jsonMatch[0]);
-    if (Array.isArray(parsed.witnesses) && Array.isArray(parsed.mentioned)) {
-      return parsed;
-    }
-    return null;
-  } catch (err) {
-    console.warn("[Witness Extraction] LLM failed:", err.message);
-    return null;
-  }
-}
-function normalizeEntityName(name, knownEntities) {
-  const lower = name.toLowerCase().trim();
-  const exactMatch = knownEntities.find(
-    (e) => e.name.toLowerCase() === lower || e.aliases.some((a) => a.toLowerCase() === lower)
-  );
-  if (exactMatch) return exactMatch.name;
-  const substringMatch = knownEntities.find(
-    (e) => lower.includes(e.name.toLowerCase()) || e.name.toLowerCase().includes(lower)
-  );
-  if (substringMatch) return substringMatch.name;
-  if (lower.length >= 3) {
-    const threshold = lower.length <= 6 ? 2 : 3;
-    for (const entity of knownEntities) {
-      const el = entity.name.toLowerCase();
-      if (Math.abs(el.length - lower.length) > threshold) continue;
-      if (levenshtein(el, lower) <= threshold) return entity.name;
-    }
-  }
-  return name;
-}
-function levenshtein(a, b) {
-  const matrix = [];
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      const cost = a[j - 1] === b[i - 1] ? 0 : 1;
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,
-        matrix[i][j - 1] + 1,
-        matrix[i - 1][j - 1] + cost
-      );
-    }
-  }
-  return matrix[b.length][a.length];
-}
-var TIMELINE_PREDICATES_SERVER = [
-  "status",
-  "located_in",
-  "holds",
-  "allied_with",
-  "enemy_of",
-  "killed_by",
-  "controls",
-  "relationship_to",
-  "seeks",
-  "knows_about",
-  "destroyed",
-  "misc"
-];
 function extractTimelineEventsRegex(npcNames, text, sceneId, chapterId) {
   const events = [];
   for (const name of npcNames) {
@@ -24894,6 +24941,94 @@ function extractTimelineEventsRegex(npcNames, text, sceneId, chapterId) {
   }
   return events;
 }
+
+// server/services/llmProxy.js
+var TIMELINE_PREDICATES_SERVER = [
+  "status",
+  "located_in",
+  "holds",
+  "allied_with",
+  "enemy_of",
+  "killed_by",
+  "controls",
+  "relationship_to",
+  "seeks",
+  "knows_about",
+  "destroyed",
+  "misc"
+];
+async function callLLMWithRetry(prompt, config, { retries = 1, timeoutMs = 6e3, jsonPattern = /\{[\s\S]*\}/ } = {}) {
+  let attempts = 0;
+  while (attempts < retries) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const response = await fetch(`${config.endpoint}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${config.apiKey}`
+        },
+        body: JSON.stringify({
+          model: config.model,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.1,
+          stream: false
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!response.ok) {
+        attempts++;
+        continue;
+      }
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || "";
+      const jsonMatch = content.match(jsonPattern);
+      if (!jsonMatch) {
+        attempts++;
+        continue;
+      }
+      return jsonMatch[0];
+    } catch (err) {
+      console.warn(`[LLM] attempt ${attempts + 1} failed:`, err.message);
+      attempts++;
+    }
+  }
+  return null;
+}
+async function extractWitnessesLLM(npcNames, userContent, assistantContent, utilityConfig) {
+  if (!utilityConfig?.endpoint) return null;
+  const combinedText = `${userContent}
+${assistantContent}`.slice(0, 2e3);
+  const prompt = `Given this RPG scene transcript and a list of NPCs mentioned, classify each NPC as either a WITNESS (physically present, actively participating, speaking, or directly addressed) or merely MENTIONED (talked about but not present).
+
+NPCs to classify: ${JSON.stringify(npcNames)}
+
+Scene:
+${combinedText}
+
+Respond ONLY with valid JSON:
+{
+  "witnesses": ["NPCs who were physically present/active"],
+  "mentioned": ["NPCs who were only talked about"]
+}`;
+  const raw = await callLLMWithRetry(prompt, utilityConfig, {
+    retries: 1,
+    timeoutMs: 5e3,
+    jsonPattern: /\{[\s\S]*\}/
+  });
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed.witnesses) && Array.isArray(parsed.mentioned)) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 async function extractTimelineEventsLLM(entityNames, text, sceneId, chapterId, utilityConfig) {
   if (!utilityConfig?.endpoint) return null;
   const truncatedText = text.slice(0, 3e3);
@@ -24919,655 +25054,834 @@ Respond ONLY with a JSON array:
 ]
 
 If no state changes, return: []`;
-  let attempts = 0;
-  while (attempts < 2) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6e3);
-      const response = await fetch(`${utilityConfig.endpoint}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${utilityConfig.apiKey}`
-        },
-        body: JSON.stringify({
-          model: utilityConfig.model,
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.1,
-          stream: false
-        }),
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-      if (!response.ok) {
-        attempts++;
-        continue;
-      }
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content || "";
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) {
-        attempts++;
-        continue;
-      }
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(parsed)) {
-        attempts++;
-        continue;
-      }
-      return parsed.filter(
-        (e) => e.subject && e.predicate && e.object && typeof e.importance === "number"
-      ).map((e) => ({
-        sceneId,
-        chapterId,
-        subject: e.subject,
-        predicate: TIMELINE_PREDICATES_SERVER.includes(e.predicate) ? e.predicate : "misc",
-        object: e.object,
-        summary: e.summary || `${e.subject} ${e.predicate} ${e.object}`,
-        importance: Math.min(10, Math.max(1, e.importance)),
-        source: "llm"
-      }));
-    } catch (err) {
-      console.warn(`[Timeline Extraction] LLM attempt ${attempts + 1} failed:`, err.message);
-      attempts++;
+  const raw = await callLLMWithRetry(prompt, utilityConfig, {
+    retries: 2,
+    timeoutMs: 6e3,
+    jsonPattern: /\[[\s\S]*\]/
+  });
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter(
+      (e) => e.subject && e.predicate && e.object && typeof e.importance === "number"
+    ).map((e) => ({
+      sceneId,
+      chapterId,
+      subject: e.subject,
+      predicate: TIMELINE_PREDICATES_SERVER.includes(e.predicate) ? e.predicate : "misc",
+      object: e.object,
+      summary: e.summary || `${e.subject} ${e.predicate} ${e.object}`,
+      importance: Math.min(10, Math.max(1, e.importance)),
+      source: "llm"
+    }));
+  } catch {
+    return null;
+  }
+}
+
+// server/lib/entityResolution.js
+function levenshtein(a, b) {
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      const cost = a[j - 1] === b[i - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
     }
   }
-  return null;
+  return matrix[b.length][a.length];
 }
-app.get("/api/campaigns/:id/archive/next-scene", (req, res) => {
-  const next = getNextSceneNumber(req.params.id);
-  const padded = String(next).padStart(3, "0");
-  res.json({ sceneNumber: next, sceneId: padded });
-});
-app.post("/api/campaigns/:id/archive", async (req, res) => {
-  try {
-    ensureDirs();
-    const { userContent, assistantContent, importance: clientImportance, utilityConfig } = req.body;
+function normalizeEntityName(name, knownEntities) {
+  const lower = name.toLowerCase().trim();
+  const exactMatch = knownEntities.find(
+    (e) => e.name.toLowerCase() === lower || e.aliases.some((a) => a.toLowerCase() === lower)
+  );
+  if (exactMatch) return exactMatch.name;
+  const substringMatch = knownEntities.find(
+    (e) => lower.includes(e.name.toLowerCase()) || e.name.toLowerCase().includes(lower)
+  );
+  if (substringMatch) return substringMatch.name;
+  if (lower.length >= 3) {
+    const threshold = lower.length <= 6 ? 2 : 3;
+    for (const entity of knownEntities) {
+      const el = entity.name.toLowerCase();
+      if (Math.abs(el.length - lower.length) > threshold) continue;
+      if (levenshtein(el, lower) <= threshold) return entity.name;
+    }
+  }
+  return name;
+}
+
+// server/routes/archive.js
+function createArchiveRouter() {
+  const router = (0, import_express4.Router)();
+  router.get("/api/campaigns/:id/archive/next-scene", (req, res) => {
+    const next = getNextSceneNumber(req.params.id);
+    const padded = String(next).padStart(3, "0");
+    res.json({ sceneNumber: next, sceneId: padded });
+  });
+  router.post("/api/campaigns/:id/archive", async (req, res) => {
+    try {
+      ensureDirs();
+      const { userContent, assistantContent, importance: clientImportance, utilityConfig } = req.body;
+      const fp = archivePath(req.params.id);
+      const idxp = archiveIndexPath(req.params.id);
+      const sceneNum = getNextSceneNumber(req.params.id);
+      const sceneId = String(sceneNum).padStart(3, "0");
+      const timestamp = Date.now();
+      const timestampStr = new Date(timestamp).toLocaleString();
+      const entry = [
+        `## SCENE ${sceneId}`,
+        `*${timestampStr}*`,
+        "",
+        `**[USER]**`,
+        userContent,
+        "",
+        `**[GM]**`,
+        assistantContent,
+        "",
+        "---",
+        ""
+      ].join("\n");
+      import_fs6.default.appendFileSync(fp, entry, "utf-8");
+      const combinedText = `${userContent}
+${assistantContent}`;
+      const keywords = extractIndexKeywords(combinedText);
+      const npcNames = extractNPCNames(assistantContent);
+      let witnessResult = null;
+      if (utilityConfig?.endpoint && npcNames.length > 0) {
+        witnessResult = await extractWitnessesLLM(npcNames, userContent, assistantContent, utilityConfig);
+      }
+      const { witnesses, mentioned: npcOnlyMentioned } = witnessResult || extractWitnessesHeuristic(npcNames, userContent, assistantContent);
+      const indexEntry = {
+        sceneId,
+        timestamp,
+        keywords,
+        keywordStrengths: extractKeywordStrengths(combinedText, keywords),
+        npcsMentioned: npcOnlyMentioned,
+        witnesses,
+        npcStrengths: extractNPCStrengths(assistantContent, [...npcOnlyMentioned, ...witnesses]),
+        importance: typeof clientImportance === "number" && clientImportance >= 1 && clientImportance <= 10 ? clientImportance : estimateImportance(combinedText),
+        userSnippet: userContent.slice(0, 120)
+      };
+      const existing = readJson(idxp, []);
+      existing.push(indexEntry);
+      writeJson(idxp, existing);
+      embedText(buildArchiveText(indexEntry)).then((embedding) => storeArchiveEmbedding(req.params.id, sceneId, embedding)).catch((err) => console.error("[Archive] Embedding failed:", err.message));
+      const entitiesFile = entitiesPath(req.params.id);
+      const knownEntities = readJson(entitiesFile, []);
+      const allEntityNames = [
+        ...npcNames,
+        ...knownEntities.map((e) => e.name),
+        ...knownEntities.flatMap((e) => e.aliases)
+      ];
+      const uniqueEntityNames = [...new Set(allEntityNames.map((n) => n.toLowerCase()))].map((lower) => allEntityNames.find((n) => n.toLowerCase() === lower) || lower);
+      const chaptersList = readJson(chaptersPath(req.params.id), []);
+      const openChapterForTimeline = chaptersList.find((c) => !c.sealedAt) || chaptersList[chaptersList.length - 1];
+      const currentChapterId = openChapterForTimeline?.chapterId || "CH01";
+      let newEvents = null;
+      if (utilityConfig?.endpoint && npcNames.length > 0) {
+        newEvents = await extractTimelineEventsLLM(uniqueEntityNames, combinedText, sceneId, currentChapterId, utilityConfig);
+      }
+      if (newEvents === null) {
+        newEvents = extractTimelineEventsRegex(npcNames, combinedText, sceneId, currentChapterId);
+      } else {
+        for (const ev of newEvents) {
+          ev.subject = normalizeEntityName(ev.subject, knownEntities);
+          ev.object = normalizeEntityName(ev.object, knownEntities);
+        }
+      }
+      if (newEvents.length > 0) {
+        const tp = timelinePath(req.params.id);
+        const existingEvents = readJson(tp, []);
+        for (const ev of newEvents) {
+          existingEvents.push({
+            id: `tl_${String(existingEvents.length + 1).padStart(4, "0")}`,
+            ...ev
+          });
+        }
+        writeJson(tp, existingEvents);
+      }
+      const updatedEntities = [...knownEntities];
+      for (const name of npcNames) {
+        const canonical = normalizeEntityName(name, updatedEntities);
+        if (canonical === name && !updatedEntities.some(
+          (e) => e.name.toLowerCase() === name.toLowerCase()
+        )) {
+          updatedEntities.push({
+            id: `ent_${String(updatedEntities.length + 1).padStart(4, "0")}`,
+            name,
+            type: "npc",
+            aliases: [],
+            firstSeen: sceneId
+          });
+        }
+      }
+      writeJson(entitiesFile, updatedEntities);
+      const cp = chaptersPath(req.params.id);
+      let chapters = readJson(cp, []);
+      let openChapter = chapters.find((c) => !c.sealedAt);
+      if (!openChapter) {
+        const nextNum = chapters.length + 1;
+        openChapter = {
+          chapterId: `CH${String(nextNum).padStart(2, "0")}`,
+          title: `Chapter ${nextNum}`,
+          sceneRange: [sceneId, sceneId],
+          summary: "",
+          keywords: [],
+          npcs: [],
+          majorEvents: [],
+          unresolvedThreads: [],
+          tone: "",
+          themes: [],
+          sceneCount: 1
+        };
+        chapters.push(openChapter);
+      } else {
+        openChapter.sceneRange[1] = sceneId;
+        openChapter.sceneCount++;
+      }
+      writeJson(cp, chapters);
+      res.json({ ok: true, sceneNumber: sceneNum, sceneId });
+    } catch (err) {
+      console.error("[Archive Append] Write failed:", err);
+      res.status(500).json({ error: "Failed to append scene", detail: err.message });
+    }
+  });
+  router.delete("/api/campaigns/:id/archive", (req, res) => {
+    const id = req.params.id;
+    const files = [
+      archivePath(id),
+      archiveIndexPath(id),
+      chaptersPath(id),
+      timelinePath(id)
+    ];
+    for (const f of files) {
+      if (import_fs6.default.existsSync(f)) import_fs6.default.unlinkSync(f);
+    }
+    res.json({ ok: true, chaptersCleared: true });
+  });
+  router.get("/api/campaigns/:id/archive", (req, res) => {
+    const fp = archivePath(req.params.id);
+    if (!import_fs6.default.existsSync(fp)) return res.json({ exists: false, sceneCount: 0 });
+    const nextScene = getNextSceneNumber(req.params.id);
+    res.json({ exists: true, sceneCount: nextScene - 1 });
+  });
+  router.get("/api/campaigns/:id/archive/index", (req, res) => {
+    const entries = readJson(archiveIndexPath(req.params.id), []);
+    res.json(entries);
+  });
+  router.get("/api/campaigns/:id/archive/scenes", (req, res) => {
+    const fp = archivePath(req.params.id);
+    if (!import_fs6.default.existsSync(fp)) return res.json([]);
+    const idsParam = req.query.ids || "";
+    const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
+    if (ids.length === 0) return res.json([]);
+    const raw = import_fs6.default.readFileSync(fp, "utf-8");
+    const sceneBlocks = raw.split(/^(?=## SCENE )/m);
+    const result = [];
+    for (const block of sceneBlocks) {
+      const match = block.match(/^## SCENE (\d+)/);
+      if (!match) continue;
+      const sceneId = match[1].padStart(3, "0");
+      if (ids.includes(sceneId)) {
+        result.push({ sceneId, content: block.trim() });
+      }
+    }
+    res.json(result);
+  });
+  router.delete("/api/campaigns/:id/archive/scenes-from/:sceneId", (req, res) => {
     const fp = archivePath(req.params.id);
     const idxp = archiveIndexPath(req.params.id);
-    const sceneNum = getNextSceneNumber(req.params.id);
-    const sceneId = String(sceneNum).padStart(3, "0");
-    const timestamp = Date.now();
-    const timestampStr = new Date(timestamp).toLocaleString();
-    const entry = [
-      `## SCENE ${sceneId}`,
-      `*${timestampStr}*`,
-      "",
-      `**[USER]**`,
-      userContent,
-      "",
-      `**[GM]**`,
-      assistantContent,
-      "",
-      "---",
-      ""
-    ].join("\n");
-    import_fs2.default.appendFileSync(fp, entry, "utf-8");
-    const combinedText = `${userContent}
-${assistantContent}`;
-    const keywords = extractIndexKeywords(combinedText);
-    const npcNames = extractNPCNames(assistantContent);
-    let witnessResult = null;
-    if (utilityConfig?.endpoint && npcNames.length > 0) {
-      witnessResult = await extractWitnessesLLM(npcNames, userContent, assistantContent, utilityConfig);
+    const fromId = req.params.sceneId.padStart(3, "0");
+    const fromNum = parseInt(fromId, 10);
+    if (import_fs6.default.existsSync(fp)) {
+      const raw = import_fs6.default.readFileSync(fp, "utf-8");
+      const sceneBlocks = raw.split(/^(?=## SCENE )/m);
+      const kept = sceneBlocks.filter((block) => {
+        const match = block.match(/^## SCENE (\d+)/);
+        if (!match) return true;
+        return parseInt(match[1], 10) < fromNum;
+      });
+      import_fs6.default.writeFileSync(fp, kept.join(""), "utf-8");
     }
-    const { witnesses, mentioned: npcOnlyMentioned } = witnessResult || extractWitnessesHeuristic(npcNames, userContent, assistantContent);
-    const indexEntry = {
-      sceneId,
-      timestamp,
-      keywords,
-      keywordStrengths: extractKeywordStrengths(combinedText, keywords),
-      npcsMentioned: npcOnlyMentioned,
-      witnesses,
-      npcStrengths: extractNPCStrengths(assistantContent, [...npcOnlyMentioned, ...witnesses]),
-      importance: typeof clientImportance === "number" && clientImportance >= 1 && clientImportance <= 10 ? clientImportance : estimateImportance(combinedText),
-      userSnippet: userContent.slice(0, 120)
-    };
-    const existing = readJson(idxp, []);
-    existing.push(indexEntry);
-    writeJson(idxp, existing);
-    const entitiesFile = entitiesPath(req.params.id);
-    const knownEntities = readJson(entitiesFile, []);
-    const allEntityNames = [
-      ...npcNames,
-      ...knownEntities.map((e) => e.name),
-      ...knownEntities.flatMap((e) => e.aliases)
-    ];
-    const uniqueEntityNames = [...new Set(allEntityNames.map((n) => n.toLowerCase()))].map((lower) => allEntityNames.find((n) => n.toLowerCase() === lower) || lower);
-    const chaptersList = readJson(chaptersPath(req.params.id), []);
-    const openChapterForTimeline = chaptersList.find((c) => !c.sealedAt) || chaptersList[chaptersList.length - 1];
-    const currentChapterId = openChapterForTimeline?.chapterId || "CH01";
-    let newEvents = null;
-    if (utilityConfig?.endpoint && npcNames.length > 0) {
-      newEvents = await extractTimelineEventsLLM(uniqueEntityNames, combinedText, sceneId, currentChapterId, utilityConfig);
+    if (import_fs6.default.existsSync(idxp)) {
+      const entries = readJson(idxp, []);
+      const kept = entries.filter((e) => parseInt(e.sceneId, 10) < fromNum);
+      writeJson(idxp, kept);
     }
-    if (newEvents === null) {
-      newEvents = extractTimelineEventsRegex(npcNames, combinedText, sceneId, currentChapterId);
-    } else {
-      for (const ev of newEvents) {
-        ev.subject = normalizeEntityName(ev.subject, knownEntities);
-        ev.object = normalizeEntityName(ev.object, knownEntities);
-      }
+    const tlp = timelinePath(req.params.id);
+    if (import_fs6.default.existsSync(tlp)) {
+      const timeline = readJson(tlp, []);
+      const keptTimeline = timeline.filter((e) => parseInt(e.sceneId, 10) < fromNum);
+      writeJson(tlp, keptTimeline);
     }
-    if (newEvents.length > 0) {
-      const tp = timelinePath(req.params.id);
-      const existingEvents = readJson(tp, []);
-      for (const ev of newEvents) {
-        existingEvents.push({
-          id: `tl_${String(existingEvents.length + 1).padStart(4, "0")}`,
-          ...ev
-        });
-      }
-      writeJson(tp, existingEvents);
-    }
-    const updatedEntities = [...knownEntities];
-    for (const name of npcNames) {
-      const canonical = normalizeEntityName(name, updatedEntities);
-      if (canonical === name && !updatedEntities.some(
-        (e) => e.name.toLowerCase() === name.toLowerCase()
-      )) {
-        updatedEntities.push({
-          id: `ent_${String(updatedEntities.length + 1).padStart(4, "0")}`,
-          name,
-          type: "npc",
-          aliases: [],
-          firstSeen: sceneId
-        });
-      }
-    }
-    writeJson(entitiesFile, updatedEntities);
     const cp = chaptersPath(req.params.id);
-    let chapters = readJson(cp, []);
-    let openChapter = chapters.find((c) => !c.sealedAt);
-    if (!openChapter) {
-      const nextNum = chapters.length + 1;
-      openChapter = {
-        chapterId: `CH${String(nextNum).padStart(2, "0")}`,
-        title: `Chapter ${nextNum}`,
-        sceneRange: [sceneId, sceneId],
-        summary: "",
-        keywords: [],
-        npcs: [],
-        majorEvents: [],
-        unresolvedThreads: [],
-        tone: "",
-        themes: [],
-        sceneCount: 1
-      };
-      chapters.push(openChapter);
-    } else {
-      openChapter.sceneRange[1] = sceneId;
-      openChapter.sceneCount++;
-    }
-    writeJson(cp, chapters);
-    res.json({ ok: true, sceneNumber: sceneNum, sceneId });
-  } catch (err) {
-    console.error("[Archive Append] Write failed:", err);
-    res.status(500).json({ error: "Failed to append scene", detail: err.message });
-  }
-});
-app.delete("/api/campaigns/:id/archive", (req, res) => {
-  const id = req.params.id;
-  const files = [
-    archivePath(id),
-    archiveIndexPath(id),
-    chaptersPath(id),
-    timelinePath(id)
-  ];
-  for (const f of files) {
-    if (import_fs2.default.existsSync(f)) import_fs2.default.unlinkSync(f);
-  }
-  res.json({ ok: true, chaptersCleared: true });
-});
-app.get("/api/campaigns/:id/archive", (req, res) => {
-  const fp = archivePath(req.params.id);
-  if (!import_fs2.default.existsSync(fp)) return res.json({ exists: false, sceneCount: 0 });
-  const nextScene = getNextSceneNumber(req.params.id);
-  res.json({ exists: true, sceneCount: nextScene - 1 });
-});
-app.get("/api/campaigns/:id/archive/chapters", (req, res) => {
-  const chapters = readJson(chaptersPath(req.params.id), []);
-  res.json(chapters);
-});
-app.post("/api/campaigns/:id/archive/chapters", (req, res) => {
-  const cp = chaptersPath(req.params.id);
-  const existing = readJson(cp, []);
-  const nextNum = existing.length + 1;
-  const chapterId = `CH${String(nextNum).padStart(2, "0")}`;
-  const nextScene = getNextSceneNumber(req.params.id);
-  const nextSceneId = String(nextScene).padStart(3, "0");
-  const newChapter = {
-    chapterId,
-    title: req.body.title || `Chapter ${nextNum}`,
-    sceneRange: [nextSceneId, nextSceneId],
-    summary: "",
-    keywords: [],
-    npcs: [],
-    majorEvents: [],
-    unresolvedThreads: [],
-    tone: "",
-    themes: [],
-    sceneCount: 0
-    // sealedAt is undefined -> open chapter
-  };
-  existing.push(newChapter);
-  writeJson(cp, existing);
-  res.json(newChapter);
-});
-app.patch("/api/campaigns/:id/archive/chapters/:chapterId", (req, res) => {
-  const cp = chaptersPath(req.params.id);
-  const existing = readJson(cp, []);
-  const idx = existing.findIndex((c) => c.chapterId === req.params.chapterId);
-  if (idx === -1) return res.status(404).json({ error: "Chapter not found" });
-  if (req.body.title !== void 0) {
-    existing[idx].title = req.body.title;
-  }
-  writeJson(cp, existing);
-  res.json(existing[idx]);
-});
-app.post("/api/campaigns/:id/archive/chapters/seal", (req, res) => {
-  const cp = chaptersPath(req.params.id);
-  const existing = readJson(cp, []);
-  const openChapter = existing.find((c) => !c.sealedAt);
-  if (!openChapter) {
-    return res.status(400).json({ error: "No open chapter to seal" });
-  }
-  const sealed = {
-    ...openChapter,
-    sealedAt: Date.now()
-  };
-  if (req.body.title) {
-    sealed.title = req.body.title;
-  }
-  const lastScene = parseInt(sealed.sceneRange[1], 10);
-  const nextScene = String(lastScene + 1).padStart(3, "0");
-  const nextChapterNum = existing.length + 1;
-  const newOpen = {
-    chapterId: `CH${String(nextChapterNum).padStart(2, "0")}`,
-    title: "Open Chapter",
-    sceneRange: [nextScene, nextScene],
-    summary: "",
-    keywords: [],
-    npcs: [],
-    majorEvents: [],
-    unresolvedThreads: [],
-    tone: "",
-    themes: [],
-    sceneCount: 0
-  };
-  const openIdx = existing.findIndex((c) => c.chapterId === openChapter.chapterId);
-  existing[openIdx] = sealed;
-  existing.push(newOpen);
-  writeJson(cp, existing);
-  res.json({ sealedChapter: sealed, newOpenChapter: newOpen });
-});
-app.post("/api/campaigns/:id/archive/chapters/merge", (req, res) => {
-  const { chapterIdA, chapterIdB } = req.body;
-  const cp = chaptersPath(req.params.id);
-  const existing = readJson(cp, []);
-  const idxA = existing.findIndex((c) => c.chapterId === chapterIdA);
-  const idxB = existing.findIndex((c) => c.chapterId === chapterIdB);
-  if (idxA === -1 || idxB === -1) {
-    return res.status(404).json({ error: "One or both chapters not found" });
-  }
-  const isAdjacent = Math.abs(idxA - idxB) === 1;
-  if (!isAdjacent) {
-    return res.status(400).json({ error: "Chapters must be adjacent to merge" });
-  }
-  const firstIdx = Math.min(idxA, idxB);
-  const secondIdx = Math.max(idxA, idxB);
-  const chapterA = existing[firstIdx];
-  const chapterB = existing[secondIdx];
-  const merged = {
-    ...chapterA,
-    title: `${chapterA.title} & ${chapterB.title}`,
-    sceneRange: [chapterA.sceneRange[0], chapterB.sceneRange[1]],
-    sceneCount: (chapterA.sceneCount || 0) + (chapterB.sceneCount || 0),
-    keywords: Array.from(/* @__PURE__ */ new Set([...chapterA.keywords || [], ...chapterB.keywords || []])),
-    npcs: Array.from(/* @__PURE__ */ new Set([...chapterA.npcs || [], ...chapterB.npcs || []])),
-    invalidated: true,
-    summary: `[MERGED] ${chapterA.summary}
-
-${chapterB.summary}`
-  };
-  existing.splice(firstIdx, 2, merged);
-  writeJson(cp, existing);
-  res.json(merged);
-});
-app.post("/api/campaigns/:id/archive/chapters/:chapterId/split", (req, res) => {
-  const { atSceneId } = req.body;
-  const cp = chaptersPath(req.params.id);
-  const existing = readJson(cp, []);
-  const idx = existing.findIndex((c) => c.chapterId === req.params.chapterId);
-  if (idx === -1) return res.status(404).json({ error: "Chapter not found" });
-  const chapter = existing[idx];
-  const startNum = parseInt(chapter.sceneRange[0], 10);
-  const endNum = parseInt(chapter.sceneRange[1], 10);
-  const splitNum = parseInt(atSceneId, 10);
-  if (splitNum <= startNum || splitNum > endNum) {
-    return res.status(400).json({ error: "Split point must be within chapter range (excluding start)" });
-  }
-  const chapterA = {
-    ...chapter,
-    chapterId: `${chapter.chapterId}A`,
-    sceneRange: [chapter.sceneRange[0], String(splitNum - 1).padStart(3, "0")],
-    sceneCount: splitNum - startNum,
-    invalidated: true
-  };
-  const chapterB = {
-    ...chapter,
-    chapterId: `${chapter.chapterId}B`,
-    sceneRange: [String(splitNum).padStart(3, "0"), chapter.sceneRange[1]],
-    sceneCount: endNum - splitNum + 1,
-    invalidated: true
-  };
-  existing.splice(idx, 1, chapterA, chapterB);
-  writeJson(cp, existing);
-  res.json({ chapterA, chapterB });
-});
-app.get("/api/campaigns/:id/archive/index", (req, res) => {
-  const entries = readJson(archiveIndexPath(req.params.id), []);
-  res.json(entries);
-});
-app.get("/api/campaigns/:id/archive/scenes", (req, res) => {
-  const fp = archivePath(req.params.id);
-  if (!import_fs2.default.existsSync(fp)) return res.json([]);
-  const idsParam = req.query.ids || "";
-  const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
-  if (ids.length === 0) return res.json([]);
-  const raw = import_fs2.default.readFileSync(fp, "utf-8");
-  const sceneBlocks = raw.split(/^(?=## SCENE )/m);
-  const result = [];
-  for (const block of sceneBlocks) {
-    const match = block.match(/^## SCENE (\d+)/);
-    if (!match) continue;
-    const sceneId = match[1].padStart(3, "0");
-    if (ids.includes(sceneId)) {
-      result.push({ sceneId, content: block.trim() });
-    }
-  }
-  res.json(result);
-});
-app.delete("/api/campaigns/:id/archive/scenes-from/:sceneId", (req, res) => {
-  const fp = archivePath(req.params.id);
-  const idxp = archiveIndexPath(req.params.id);
-  const fromId = req.params.sceneId.padStart(3, "0");
-  const fromNum = parseInt(fromId, 10);
-  if (import_fs2.default.existsSync(fp)) {
-    const raw = import_fs2.default.readFileSync(fp, "utf-8");
-    const sceneBlocks = raw.split(/^(?=## SCENE )/m);
-    const kept = sceneBlocks.filter((block) => {
-      const match = block.match(/^## SCENE (\d+)/);
-      if (!match) return true;
-      return parseInt(match[1], 10) < fromNum;
-    });
-    import_fs2.default.writeFileSync(fp, kept.join(""), "utf-8");
-  }
-  if (import_fs2.default.existsSync(idxp)) {
-    const entries = readJson(idxp, []);
-    const kept = entries.filter((e) => parseInt(e.sceneId, 10) < fromNum);
-    writeJson(idxp, kept);
-  }
-  const tlp = timelinePath(req.params.id);
-  if (import_fs2.default.existsSync(tlp)) {
-    const timeline = readJson(tlp, []);
-    const keptTimeline = timeline.filter((e) => parseInt(e.sceneId, 10) < fromNum);
-    writeJson(tlp, keptTimeline);
-  }
-  const cp = chaptersPath(req.params.id);
-  let chaptersRepaired = false;
-  if (import_fs2.default.existsSync(cp)) {
-    let chapters = readJson(cp, []);
-    const originalCount = chapters.length;
-    chapters = chapters.filter((ch) => parseInt(ch.sceneRange[0], 10) < fromNum);
-    for (const ch of chapters) {
-      const endNum = parseInt(ch.sceneRange[1], 10);
-      if (endNum >= fromNum) {
-        ch.sceneRange[1] = String(fromNum - 1).padStart(3, "0");
-        ch.invalidated = true;
-        delete ch.sealedAt;
-        ch.sceneCount = fromNum - parseInt(ch.sceneRange[0], 10);
+    let chaptersRepaired = false;
+    if (import_fs6.default.existsSync(cp)) {
+      let chapters = readJson(cp, []);
+      const originalCount = chapters.length;
+      chapters = chapters.filter((ch) => parseInt(ch.sceneRange[0], 10) < fromNum);
+      for (const ch of chapters) {
+        const endNum = parseInt(ch.sceneRange[1], 10);
+        if (endNum >= fromNum) {
+          ch.sceneRange[1] = String(fromNum - 1).padStart(3, "0");
+          ch.invalidated = true;
+          delete ch.sealedAt;
+          ch.sceneCount = fromNum - parseInt(ch.sceneRange[0], 10);
+          chaptersRepaired = true;
+        }
+      }
+      if (chapters.length !== originalCount) chaptersRepaired = true;
+      const openChapter = chapters.find((ch) => !ch.sealedAt);
+      if (!openChapter) {
+        const nextNum = chapters.length + 1;
+        chapters.push({
+          chapterId: `CH${String(nextNum).padStart(2, "0")}`,
+          title: `Chapter ${nextNum}`,
+          sceneRange: [fromId, fromId],
+          summary: "",
+          keywords: [],
+          npcs: [],
+          majorEvents: [],
+          unresolvedThreads: [],
+          tone: "",
+          themes: [],
+          sceneCount: 0
+          // Will be incremented on next append
+        });
         chaptersRepaired = true;
       }
+      writeJson(cp, chapters);
     }
-    if (chapters.length !== originalCount) chaptersRepaired = true;
-    const openChapter = chapters.find((ch) => !ch.sealedAt);
-    if (!openChapter) {
-      const nextNum = chapters.length + 1;
-      chapters.push({
-        chapterId: `CH${String(nextNum).padStart(2, "0")}`,
-        title: `Chapter ${nextNum}`,
-        sceneRange: [fromId, fromId],
-        summary: "",
-        keywords: [],
-        npcs: [],
-        majorEvents: [],
-        unresolvedThreads: [],
-        tone: "",
-        themes: [],
-        sceneCount: 0
-        // Will be incremented on next append
+    res.json({
+      ok: true,
+      removedFrom: fromId,
+      chaptersRepaired,
+      condenserResetRecommended: true
+    });
+  });
+  router.get("/api/campaigns/:id/archive/open", (req, res) => {
+    const fp = archivePath(req.params.id);
+    if (!import_fs6.default.existsSync(fp)) {
+      return res.status(404).json({ error: "No archive yet" });
+    }
+    const cmd = process.platform === "win32" ? 'start ""' : process.platform === "darwin" ? "open" : "xdg-open";
+    import("child_process").then(({ exec }) => {
+      exec(`${cmd} "${fp}"`, (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ ok: true });
       });
-      chaptersRepaired = true;
-    }
-    writeJson(cp, chapters);
-  }
-  res.json({
-    ok: true,
-    removedFrom: fromId,
-    chaptersRepaired,
-    condenserResetRecommended: true
+    });
   });
-});
-app.get("/api/campaigns/:id/timeline", (req, res) => {
-  const id = req.params.id;
-  const tp = timelinePath(id);
-  if (!import_fs2.default.existsSync(tp)) {
-    const fp = factsPath(id);
-    if (import_fs2.default.existsSync(fp)) {
-      const facts = readJson(fp, []);
-      const migrated = facts.map((f) => ({
-        id: `tl_${f.id ? f.id.replace("fact_", "") : String(Math.random()).slice(2, 6)}`,
-        sceneId: f.sceneId || "000",
-        chapterId: "CH00",
-        subject: f.subject || "",
-        predicate: TIMELINE_PREDICATES_SERVER.includes(f.predicate) ? f.predicate : "misc",
-        object: f.object || "",
-        summary: `${f.subject} ${f.predicate} ${f.object}`,
-        importance: typeof f.importance === "number" ? f.importance : 5,
-        source: f.source || "regex"
-      }));
-      writeJson(tp, migrated);
-      return res.json(migrated);
+  router.post("/api/campaigns/:id/archive/semantic-candidates", async (req, res) => {
+    try {
+      const { query, limit } = req.body;
+      if (!query?.trim()) return res.json({ sceneIds: [] });
+      const embedding = await embedText(query);
+      const results = searchArchive(req.params.id, embedding, limit || 20);
+      console.log(`[VectorStore] archive candidates for "${query.slice(0, 50)}": [${results.map((r) => r.sceneId).join(", ")}]`);
+      res.json({ sceneIds: results.map((r) => r.sceneId) });
+    } catch (err) {
+      console.error("[Archive] Semantic candidate search failed:", err.message);
+      res.json({ sceneIds: [] });
     }
-    return res.json([]);
-  }
-  res.json(readJson(tp, []));
-});
-app.post("/api/campaigns/:id/timeline", (req, res) => {
-  const tp = timelinePath(req.params.id);
-  const existing = readJson(tp, []);
-  const { subject, predicate, object: obj, summary, importance, sceneId: evSceneId, chapterId } = req.body;
-  if (!subject || !predicate || !obj) {
-    return res.status(400).json({ error: "subject, predicate, and object are required" });
-  }
-  const event = {
-    id: `tl_${String(existing.length + 1).padStart(4, "0")}`,
-    sceneId: evSceneId || "000",
-    chapterId: chapterId || "CH00",
-    subject,
-    predicate: TIMELINE_PREDICATES_SERVER.includes(predicate) ? predicate : "misc",
-    object: obj,
-    summary: summary || `${subject} ${predicate} ${obj}`,
-    importance: Math.min(10, Math.max(1, typeof importance === "number" ? importance : 5)),
-    source: "manual"
-  };
-  existing.push(event);
-  writeJson(tp, existing);
-  res.json(event);
-});
-app.delete("/api/campaigns/:id/timeline/:eventId", (req, res) => {
-  const tp = timelinePath(req.params.id);
-  const existing = readJson(tp, []);
-  const filtered = existing.filter((e) => e.id !== req.params.eventId);
-  writeJson(tp, filtered);
-  res.json({ ok: true, removed: existing.length - filtered.length });
-});
-app.get("/api/campaigns/:id/archive/open", (req, res) => {
-  const fp = archivePath(req.params.id);
-  if (!import_fs2.default.existsSync(fp)) {
-    return res.status(404).json({ error: "No archive yet" });
-  }
-  const cmd = process.platform === "win32" ? 'start ""' : process.platform === "darwin" ? "open" : "xdg-open";
-  import("child_process").then(({ exec }) => {
-    exec(`${cmd} "${fp}"`, (err) => {
-      if (err) return res.status(500).json({ error: err.message });
+  });
+  router.post("/api/campaigns/:id/lore/semantic-candidates", async (req, res) => {
+    try {
+      const { query, limit } = req.body;
+      if (!query?.trim()) return res.json({ loreIds: [] });
+      const embedding = await embedText(query);
+      const results = searchLore(req.params.id, embedding, limit || 15);
+      console.log(`[VectorStore] lore candidates for "${query.slice(0, 50)}": [${results.map((r) => r.loreId).join(", ")}]`);
+      res.json({ loreIds: results.map((r) => r.loreId) });
+    } catch (err) {
+      console.error("[Archive] Lore semantic candidate search failed:", err.message);
+      res.json({ loreIds: [] });
+    }
+  });
+  return router;
+}
+
+// server/routes/chapters.js
+var import_express5 = __toESM(require_express2(), 1);
+function createChaptersRouter() {
+  const router = (0, import_express5.Router)();
+  router.get("/api/campaigns/:id/archive/chapters", (req, res) => {
+    const chapters = readJson(chaptersPath(req.params.id), []);
+    res.json(chapters);
+  });
+  router.post("/api/campaigns/:id/archive/chapters", (req, res) => {
+    const cp = chaptersPath(req.params.id);
+    const existing = readJson(cp, []);
+    const nextNum = existing.length + 1;
+    const chapterId = `CH${String(nextNum).padStart(2, "0")}`;
+    const nextScene = getNextSceneNumber(req.params.id);
+    const nextSceneId = String(nextScene).padStart(3, "0");
+    const newChapter = {
+      chapterId,
+      title: req.body.title || `Chapter ${nextNum}`,
+      sceneRange: [nextSceneId, nextSceneId],
+      summary: "",
+      keywords: [],
+      npcs: [],
+      majorEvents: [],
+      unresolvedThreads: [],
+      tone: "",
+      themes: [],
+      sceneCount: 0
+      // sealedAt is undefined -> open chapter
+    };
+    existing.push(newChapter);
+    writeJson(cp, existing);
+    res.json(newChapter);
+  });
+  router.patch("/api/campaigns/:id/archive/chapters/:chapterId", (req, res) => {
+    const cp = chaptersPath(req.params.id);
+    const existing = readJson(cp, []);
+    const idx = existing.findIndex((c) => c.chapterId === req.params.chapterId);
+    if (idx === -1) return res.status(404).json({ error: "Chapter not found" });
+    if (req.body.title !== void 0) {
+      existing[idx].title = req.body.title;
+    }
+    writeJson(cp, existing);
+    res.json(existing[idx]);
+  });
+  router.post("/api/campaigns/:id/archive/chapters/seal", (req, res) => {
+    const cp = chaptersPath(req.params.id);
+    const existing = readJson(cp, []);
+    const openChapter = existing.find((c) => !c.sealedAt);
+    if (!openChapter) {
+      return res.status(400).json({ error: "No open chapter to seal" });
+    }
+    const sealed = {
+      ...openChapter,
+      sealedAt: Date.now()
+    };
+    if (req.body.title) {
+      sealed.title = req.body.title;
+    }
+    const lastScene = parseInt(sealed.sceneRange[1], 10);
+    const nextScene = String(lastScene + 1).padStart(3, "0");
+    const nextChapterNum = existing.length + 1;
+    const newOpen = {
+      chapterId: `CH${String(nextChapterNum).padStart(2, "0")}`,
+      title: "Open Chapter",
+      sceneRange: [nextScene, nextScene],
+      summary: "",
+      keywords: [],
+      npcs: [],
+      majorEvents: [],
+      unresolvedThreads: [],
+      tone: "",
+      themes: [],
+      sceneCount: 0
+    };
+    const openIdx = existing.findIndex((c) => c.chapterId === openChapter.chapterId);
+    existing[openIdx] = sealed;
+    existing.push(newOpen);
+    writeJson(cp, existing);
+    res.json({ sealedChapter: sealed, newOpenChapter: newOpen });
+  });
+  router.post("/api/campaigns/:id/archive/chapters/merge", (req, res) => {
+    const { chapterIdA, chapterIdB } = req.body;
+    const cp = chaptersPath(req.params.id);
+    const existing = readJson(cp, []);
+    const idxA = existing.findIndex((c) => c.chapterId === chapterIdA);
+    const idxB = existing.findIndex((c) => c.chapterId === chapterIdB);
+    if (idxA === -1 || idxB === -1) {
+      return res.status(404).json({ error: "One or both chapters not found" });
+    }
+    const isAdjacent = Math.abs(idxA - idxB) === 1;
+    if (!isAdjacent) {
+      return res.status(400).json({ error: "Chapters must be adjacent to merge" });
+    }
+    const firstIdx = Math.min(idxA, idxB);
+    const secondIdx = Math.max(idxA, idxB);
+    const chapterA = existing[firstIdx];
+    const chapterB = existing[secondIdx];
+    const merged = {
+      ...chapterA,
+      title: `${chapterA.title} & ${chapterB.title}`,
+      sceneRange: [chapterA.sceneRange[0], chapterB.sceneRange[1]],
+      sceneCount: (chapterA.sceneCount || 0) + (chapterB.sceneCount || 0),
+      keywords: Array.from(/* @__PURE__ */ new Set([...chapterA.keywords || [], ...chapterB.keywords || []])),
+      npcs: Array.from(/* @__PURE__ */ new Set([...chapterA.npcs || [], ...chapterB.npcs || []])),
+      invalidated: true,
+      summary: `[MERGED] ${chapterA.summary}
+
+${chapterB.summary}`
+    };
+    existing.splice(firstIdx, 2, merged);
+    writeJson(cp, existing);
+    res.json(merged);
+  });
+  router.post("/api/campaigns/:id/archive/chapters/:chapterId/split", (req, res) => {
+    const { atSceneId } = req.body;
+    const cp = chaptersPath(req.params.id);
+    const existing = readJson(cp, []);
+    const idx = existing.findIndex((c) => c.chapterId === req.params.chapterId);
+    if (idx === -1) return res.status(404).json({ error: "Chapter not found" });
+    const chapter = existing[idx];
+    const startNum = parseInt(chapter.sceneRange[0], 10);
+    const endNum = parseInt(chapter.sceneRange[1], 10);
+    const splitNum = parseInt(atSceneId, 10);
+    if (splitNum <= startNum || splitNum > endNum) {
+      return res.status(400).json({ error: "Split point must be within chapter range (excluding start)" });
+    }
+    const chapterA = {
+      ...chapter,
+      chapterId: `${chapter.chapterId}A`,
+      sceneRange: [chapter.sceneRange[0], String(splitNum - 1).padStart(3, "0")],
+      sceneCount: splitNum - startNum,
+      invalidated: true
+    };
+    const chapterB = {
+      ...chapter,
+      chapterId: `${chapter.chapterId}B`,
+      sceneRange: [String(splitNum).padStart(3, "0"), chapter.sceneRange[1]],
+      sceneCount: endNum - splitNum + 1,
+      invalidated: true
+    };
+    existing.splice(idx, 1, chapterA, chapterB);
+    writeJson(cp, existing);
+    res.json({ chapterA, chapterB });
+  });
+  return router;
+}
+
+// server/routes/timeline.js
+var import_fs7 = __toESM(require("fs"), 1);
+var import_express6 = __toESM(require_express2(), 1);
+function createTimelineRouter() {
+  const router = (0, import_express6.Router)();
+  router.get("/api/campaigns/:id/timeline", (req, res) => {
+    const id = req.params.id;
+    const tp = timelinePath(id);
+    if (!import_fs7.default.existsSync(tp)) {
+      const fp = factsPath(id);
+      if (import_fs7.default.existsSync(fp)) {
+        const facts = readJson(fp, []);
+        const migrated = facts.map((f) => ({
+          id: `tl_${f.id ? f.id.replace("fact_", "") : String(Math.random()).slice(2, 6)}`,
+          sceneId: f.sceneId || "000",
+          chapterId: "CH00",
+          subject: f.subject || "",
+          predicate: TIMELINE_PREDICATES_SERVER.includes(f.predicate) ? f.predicate : "misc",
+          object: f.object || "",
+          summary: `${f.subject} ${f.predicate} ${f.object}`,
+          importance: typeof f.importance === "number" ? f.importance : 5,
+          source: f.source || "regex"
+        }));
+        writeJson(tp, migrated);
+        return res.json(migrated);
+      }
+      return res.json([]);
+    }
+    res.json(readJson(tp, []));
+  });
+  router.post("/api/campaigns/:id/timeline", (req, res) => {
+    const tp = timelinePath(req.params.id);
+    const existing = readJson(tp, []);
+    const { subject, predicate, object: obj, summary, importance, sceneId: evSceneId, chapterId } = req.body;
+    if (!subject || !predicate || !obj) {
+      return res.status(400).json({ error: "subject, predicate, and object are required" });
+    }
+    const event = {
+      id: `tl_${String(existing.length + 1).padStart(4, "0")}`,
+      sceneId: evSceneId || "000",
+      chapterId: chapterId || "CH00",
+      subject,
+      predicate: TIMELINE_PREDICATES_SERVER.includes(predicate) ? predicate : "misc",
+      object: obj,
+      summary: summary || `${subject} ${predicate} ${obj}`,
+      importance: Math.min(10, Math.max(1, typeof importance === "number" ? importance : 5)),
+      source: "manual"
+    };
+    existing.push(event);
+    writeJson(tp, existing);
+    res.json(event);
+  });
+  router.delete("/api/campaigns/:id/timeline/:eventId", (req, res) => {
+    const tp = timelinePath(req.params.id);
+    const existing = readJson(tp, []);
+    const filtered = existing.filter((e) => e.id !== req.params.eventId);
+    writeJson(tp, filtered);
+    res.json({ ok: true, removed: existing.length - filtered.length });
+  });
+  return router;
+}
+
+// server/routes/facts.js
+var import_express7 = __toESM(require_express2(), 1);
+function createFactsRouter() {
+  const router = (0, import_express7.Router)();
+  router.get("/api/campaigns/:id/facts", (req, res) => {
+    const facts = readJson(factsPath(req.params.id), []);
+    res.json(facts);
+  });
+  router.put("/api/campaigns/:id/facts", (req, res) => {
+    ensureDirs();
+    writeJson(factsPath(req.params.id), req.body);
+    res.json({ ok: true });
+  });
+  router.get("/api/campaigns/:id/entities", (req, res) => {
+    const entities = readJson(entitiesPath(req.params.id), []);
+    res.json(entities);
+  });
+  router.post("/api/campaigns/:id/entities/merge", (req, res) => {
+    try {
+      const { survivorId, consumedId } = req.body;
+      const fp = entitiesPath(req.params.id);
+      const entities = readJson(fp, []);
+      const survivor = entities.find((e) => e.id === survivorId);
+      const consumed = entities.find((e) => e.id === consumedId);
+      if (!survivor || !consumed) {
+        return res.status(404).json({ error: "Entity not found" });
+      }
+      survivor.aliases = [.../* @__PURE__ */ new Set([
+        ...survivor.aliases,
+        consumed.name,
+        ...consumed.aliases
+      ])];
+      const factsFile = factsPath(req.params.id);
+      const facts = readJson(factsFile, []);
+      for (const fact of facts) {
+        if (fact.subject === consumed.name) fact.subject = survivor.name;
+        if (fact.object === consumed.name) fact.object = survivor.name;
+      }
+      writeJson(factsFile, facts);
+      const updated = entities.filter((e) => e.id !== consumedId);
+      writeJson(fp, updated);
       res.json({ ok: true });
-    });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
-});
-app.get("/api/campaigns/:id/facts", (req, res) => {
-  const facts = readJson(factsPath(req.params.id), []);
-  res.json(facts);
-});
-app.put("/api/campaigns/:id/facts", (req, res) => {
-  ensureDirs();
-  writeJson(factsPath(req.params.id), req.body);
-  res.json({ ok: true });
-});
-app.get("/api/campaigns/:id/entities", (req, res) => {
-  const entities = readJson(entitiesPath(req.params.id), []);
-  res.json(entities);
-});
-app.post("/api/campaigns/:id/entities/merge", (req, res) => {
-  try {
-    const { survivorId, consumedId } = req.body;
-    const fp = entitiesPath(req.params.id);
-    const entities = readJson(fp, []);
-    const survivor = entities.find((e) => e.id === survivorId);
-    const consumed = entities.find((e) => e.id === consumedId);
-    if (!survivor || !consumed) {
-      return res.status(404).json({ error: "Entity not found" });
+  return router;
+}
+
+// server/routes/backups.js
+var import_fs9 = __toESM(require("fs"), 1);
+var import_path7 = __toESM(require("path"), 1);
+var import_express8 = __toESM(require_express2(), 1);
+
+// server/services/backup.js
+var import_fs8 = __toESM(require("fs"), 1);
+var import_path6 = __toESM(require("path"), 1);
+function createBackup(id, opts = {}) {
+  const { label = "", trigger = "manual", isAuto = false } = opts;
+  const now = Date.now();
+  const hash = computeCampaignHash(id);
+  if (isAuto) {
+    const backupDir = import_path6.default.join(BACKUPS_DIR, id);
+    if (import_fs8.default.existsSync(backupDir)) {
+      const folders = import_fs8.default.readdirSync(backupDir).filter((f) => import_fs8.default.statSync(import_path6.default.join(backupDir, f)).isDirectory()).sort().reverse();
+      for (const folder of folders) {
+        const metaFile = import_path6.default.join(backupDir, folder, "meta.json");
+        if (import_fs8.default.existsSync(metaFile)) {
+          const meta2 = readJson(metaFile);
+          if (meta2 && meta2.isAuto && meta2.hash === hash) {
+            return { skipped: true };
+          }
+          break;
+        }
+      }
     }
-    survivor.aliases = [.../* @__PURE__ */ new Set([
-      ...survivor.aliases,
-      consumed.name,
-      ...consumed.aliases
-    ])];
-    const factsFile = factsPath(req.params.id);
-    const facts = readJson(factsFile, []);
-    for (const fact of facts) {
-      if (fact.subject === consumed.name) fact.subject = survivor.name;
-      if (fact.object === consumed.name) fact.object = survivor.name;
+  }
+  const backupPath = import_path6.default.join(BACKUPS_DIR, id, String(now));
+  import_fs8.default.mkdirSync(backupPath, { recursive: true });
+  const files = campaignFiles(id);
+  for (const name of files) {
+    const src = import_path6.default.join(CAMPAIGNS_DIR, name);
+    const dst = import_path6.default.join(backupPath, name);
+    import_fs8.default.copyFileSync(src, dst);
+  }
+  const campaignMeta = readJson(import_path6.default.join(CAMPAIGNS_DIR, `${id}.json`), {});
+  const meta = {
+    timestamp: now,
+    label,
+    trigger,
+    hash,
+    fileCount: files.length,
+    isAuto,
+    campaignName: campaignMeta.name || "Unknown"
+  };
+  writeJson(import_path6.default.join(backupPath, "meta.json"), meta);
+  if (isAuto) {
+    pruneAutoBackups(id, 10);
+  }
+  return { timestamp: now, hash, fileCount: files.length };
+}
+function pruneAutoBackups(id, keep) {
+  const backupDir = import_path6.default.join(BACKUPS_DIR, id);
+  if (!import_fs8.default.existsSync(backupDir)) return;
+  const folders = import_fs8.default.readdirSync(backupDir).filter((f) => import_fs8.default.statSync(import_path6.default.join(backupDir, f)).isDirectory()).map((f) => {
+    const meta = readJson(import_path6.default.join(backupDir, f, "meta.json"), {});
+    return { folder: f, isAuto: meta.isAuto || false };
+  }).filter((f) => f.isAuto).sort((a, b) => Number(b.folder) - Number(a.folder));
+  for (let i = keep; i < folders.length; i++) {
+    const dirToRemove = import_path6.default.join(backupDir, folders[i].folder);
+    import_fs8.default.rmSync(dirToRemove, { recursive: true, force: true });
+  }
+}
+
+// server/routes/backups.js
+function createBackupsRouter() {
+  const router = (0, import_express8.Router)();
+  router.post("/api/campaigns/:id/backup", (req, res) => {
+    try {
+      const id = req.params.id;
+      const campaignFile = import_path7.default.join(CAMPAIGNS_DIR, `${id}.json`);
+      if (!import_fs9.default.existsSync(campaignFile)) {
+        return res.json({ skipped: true, reason: "Campaign file not yet saved to disk" });
+      }
+      const result = createBackup(id, {
+        label: req.body.label || "",
+        trigger: req.body.trigger || "manual",
+        isAuto: req.body.isAuto || false
+      });
+      res.json(result);
+    } catch (err) {
+      console.error("[Backup] Create failed:", err);
+      res.status(500).json({ error: "Failed to create backup", detail: err.message });
     }
-    writeJson(factsFile, facts);
-    const updated = entities.filter((e) => e.id !== consumedId);
-    writeJson(fp, updated);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/assets/download", async (req, res) => {
-  const { url, filename } = req.body;
-  if (!url || !filename) return res.status(400).json({ error: "Missing url or filename" });
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const filePath = import_path2.default.join(PUBLIC_ASSETS_DIR, filename);
-    import_fs2.default.writeFileSync(filePath, buffer);
-    const relativePath = `/assets/portraits/${filename}`;
-    res.json({ ok: true, path: relativePath });
-  } catch (err) {
-    console.error("[Asset Download] Error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/campaigns/:id/backup", (req, res) => {
-  try {
-    const id = req.params.id;
-    const campaignFile = import_path2.default.join(CAMPAIGNS_DIR, `${id}.json`);
-    if (!import_fs2.default.existsSync(campaignFile)) {
-      return res.json({ skipped: true, reason: "Campaign file not yet saved to disk" });
+  });
+  router.get("/api/campaigns/:id/backups", (req, res) => {
+    try {
+      const backupDir = import_path7.default.join(BACKUPS_DIR, req.params.id);
+      if (!import_fs9.default.existsSync(backupDir)) return res.json({ backups: [] });
+      const backups = import_fs9.default.readdirSync(backupDir).filter((f) => import_fs9.default.statSync(import_path7.default.join(backupDir, f)).isDirectory()).map((f) => {
+        const meta = readJson(import_path7.default.join(backupDir, f, "meta.json"), null);
+        if (!meta) return null;
+        return { ...meta, timestamp: Number(f) };
+      }).filter(Boolean).sort((a, b) => b.timestamp - a.timestamp);
+      res.json({ backups });
+    } catch (err) {
+      console.error("[Backup] List failed:", err);
+      res.status(500).json({ error: "Failed to list backups" });
     }
-    const result = createBackup(id, {
-      label: req.body.label || "",
-      trigger: req.body.trigger || "manual",
-      isAuto: req.body.isAuto || false
-    });
-    res.json(result);
-  } catch (err) {
-    console.error("[Backup] Create failed:", err);
-    res.status(500).json({ error: "Failed to create backup", detail: err.message });
-  }
-});
-app.get("/api/campaigns/:id/backups", (req, res) => {
-  try {
-    const backupDir = import_path2.default.join(BACKUPS_DIR, req.params.id);
-    if (!import_fs2.default.existsSync(backupDir)) return res.json({ backups: [] });
-    const backups = import_fs2.default.readdirSync(backupDir).filter((f) => import_fs2.default.statSync(import_path2.default.join(backupDir, f)).isDirectory()).map((f) => {
-      const meta = readJson(import_path2.default.join(backupDir, f, "meta.json"), null);
-      if (!meta) return null;
-      return { ...meta, timestamp: Number(f) };
-    }).filter(Boolean).sort((a, b) => b.timestamp - a.timestamp);
-    res.json({ backups });
-  } catch (err) {
-    console.error("[Backup] List failed:", err);
-    res.status(500).json({ error: "Failed to list backups" });
-  }
-});
-app.get("/api/campaigns/:id/backups/:ts", (req, res) => {
-  try {
-    const backupPath = import_path2.default.join(BACKUPS_DIR, req.params.id, req.params.ts);
-    if (!import_fs2.default.existsSync(backupPath)) {
-      return res.status(404).json({ error: "Backup not found" });
+  });
+  router.get("/api/campaigns/:id/backups/:ts", (req, res) => {
+    try {
+      const backupPath = import_path7.default.join(BACKUPS_DIR, req.params.id, req.params.ts);
+      if (!import_fs9.default.existsSync(backupPath)) {
+        return res.status(404).json({ error: "Backup not found" });
+      }
+      const meta = readJson(import_path7.default.join(backupPath, "meta.json"), {});
+      const files = import_fs9.default.readdirSync(backupPath).filter((f) => f !== "meta.json");
+      res.json({ meta, files });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to read backup" });
     }
-    const meta = readJson(import_path2.default.join(backupPath, "meta.json"), {});
-    const files = import_fs2.default.readdirSync(backupPath).filter((f) => f !== "meta.json");
-    res.json({ meta, files });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to read backup" });
-  }
-});
-app.post("/api/campaigns/:id/backups/:ts/restore", (req, res) => {
+  });
+  router.post("/api/campaigns/:id/backups/:ts/restore", async (req, res) => {
+    try {
+      const id = req.params.id;
+      const ts = req.params.ts;
+      const backupPath = import_path7.default.join(BACKUPS_DIR, id, ts);
+      if (!import_fs9.default.existsSync(backupPath)) {
+        return res.status(404).json({ error: "Backup not found" });
+      }
+      const restoreBackup = createBackup(id, {
+        label: `Pre-restore from ${new Date(Number(ts)).toLocaleString()}`,
+        trigger: "pre-restore",
+        isAuto: false
+      });
+      const backupFiles = import_fs9.default.readdirSync(backupPath).filter((f) => f !== "meta.json");
+      for (const name of backupFiles) {
+        const src = import_path7.default.join(backupPath, name);
+        const dst = import_path7.default.join(CAMPAIGNS_DIR, name);
+        import_fs9.default.copyFileSync(src, dst);
+      }
+      res.json({ ok: true, preRestoreBackup: restoreBackup });
+    } catch (err) {
+      console.error("[Backup] Restore failed:", err);
+      res.status(500).json({ error: "Failed to restore backup", detail: err.message });
+    }
+  });
+  router.delete("/api/campaigns/:id/backups/:ts", (req, res) => {
+    try {
+      const backupPath = import_path7.default.join(BACKUPS_DIR, req.params.id, req.params.ts);
+      if (!import_fs9.default.existsSync(backupPath)) {
+        return res.status(404).json({ error: "Backup not found" });
+      }
+      import_fs9.default.rmSync(backupPath, { recursive: true, force: true });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete backup" });
+    }
+  });
+  return router;
+}
+
+// server/routes/assets.js
+var import_fs10 = __toESM(require("fs"), 1);
+var import_path8 = __toESM(require("path"), 1);
+var import_express9 = __toESM(require_express2(), 1);
+function createAssetsRouter() {
+  const router = (0, import_express9.Router)();
+  router.post("/api/assets/download", async (req, res) => {
+    const { url, filename } = req.body;
+    if (!url || !filename) return res.status(400).json({ error: "Missing url or filename" });
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const filePath = import_path8.default.join(PUBLIC_ASSETS_DIR, filename);
+      import_fs10.default.writeFileSync(filePath, buffer);
+      const relativePath = `/assets/portraits/${filename}`;
+      res.json({ ok: true, path: relativePath });
+    } catch (err) {
+      console.error("[Asset Download] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+  return router;
+}
+
+// server.js
+var app = (0, import_express10.default)();
+var PORT = 3001;
+var vault = new KeyVault(DATA_DIR);
+ensureDirs();
+if (!vault.exists()) {
+  vault.create({ presets: [] }, null);
+  console.log("[Vault] Auto-created with machine key");
+}
+if (!vault.isUnlocked()) {
   try {
-    const id = req.params.id;
-    const ts = req.params.ts;
-    const backupPath = import_path2.default.join(BACKUPS_DIR, id, ts);
-    if (!import_fs2.default.existsSync(backupPath)) {
-      return res.status(404).json({ error: "Backup not found" });
-    }
-    const restoreBackup = createBackup(id, {
-      label: `Pre-restore from ${new Date(Number(ts)).toLocaleString()}`,
-      trigger: "pre-restore",
-      isAuto: false
-    });
-    const backupFiles = import_fs2.default.readdirSync(backupPath).filter((f) => f !== "meta.json");
-    for (const name of backupFiles) {
-      const src = import_path2.default.join(backupPath, name);
-      const dst = import_path2.default.join(CAMPAIGNS_DIR, name);
-      import_fs2.default.copyFileSync(src, dst);
-    }
-    res.json({ ok: true, preRestoreBackup: restoreBackup });
-  } catch (err) {
-    console.error("[Backup] Restore failed:", err);
-    res.status(500).json({ error: "Failed to restore backup", detail: err.message });
+    vault.unlock(null);
+    console.log("[Vault] Auto-unlocked with machine key");
+  } catch (e) {
+    console.log("[Vault] Password-protected vault, manual unlock required");
   }
-});
-app.delete("/api/campaigns/:id/backups/:ts", (req, res) => {
-  try {
-    const backupPath = import_path2.default.join(BACKUPS_DIR, req.params.id, req.params.ts);
-    if (!import_fs2.default.existsSync(backupPath)) {
-      return res.status(404).json({ error: "Backup not found" });
-    }
-    import_fs2.default.rmSync(backupPath, { recursive: true, force: true });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to delete backup" });
-  }
-});
+}
+app.use((0, import_cors.default)());
+app.use(import_express10.default.json({ limit: "50mb" }));
+app.use("/assets/portraits", import_express10.default.static(PUBLIC_ASSETS_DIR));
+try {
+  initDb();
+} catch (err) {
+  console.error("[VectorStore] Init failed:", err.message);
+}
+warmup().catch((err) => console.error("[Embedder] Warmup failed:", err.message));
+app.use(createVaultRouter(vault));
+app.use(createSettingsRouter());
+app.use(createCampaignsRouter());
+app.use(createArchiveRouter());
+app.use(createChaptersRouter());
+app.use(createTimelineRouter());
+app.use(createFactsRouter());
+app.use(createBackupsRouter());
+app.use(createAssetsRouter());
 app.listen(PORT, () => {
   console.log(`[GM-Cockpit API] \u2713 Running on http://localhost:${PORT}`);
   console.log(`[GM-Cockpit API]   Data dir: ${DATA_DIR}`);

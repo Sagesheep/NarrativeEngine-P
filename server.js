@@ -11,6 +11,8 @@ import { createTimelineRouter } from './server/routes/timeline.js';
 import { createFactsRouter } from './server/routes/facts.js';
 import { createBackupsRouter } from './server/routes/backups.js';
 import { createAssetsRouter } from './server/routes/assets.js';
+import { initDb } from './server/lib/vectorStore.js';
+import { warmup as warmupEmbedder } from './server/lib/embedder.js';
 
 const app = express();
 const PORT = 3001;
@@ -39,6 +41,14 @@ if (!vault.isUnlocked()) {
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use('/assets/portraits', express.static(PUBLIC_ASSETS_DIR));
+
+// ─── Vector Search Init ───
+try {
+    initDb();
+} catch (err) {
+    console.error('[VectorStore] Init failed:', err.message);
+}
+warmupEmbedder().catch(err => console.error('[Embedder] Warmup failed:', err.message));
 
 // ─── Routes ───
 app.use(createVaultRouter(vault));

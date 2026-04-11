@@ -195,7 +195,8 @@ export function retrieveArchiveMemory(
     maxScenes?: number,
     semanticFacts?: { subject: string; predicate: string; object: string; importance: number }[],
     sceneRanges?: [string, string][],
-    npcPerspective?: string
+    npcPerspective?: string,
+    semanticCandidateIds?: string[]
 ): string[] {
     if (!index || index.length === 0) {
         console.log('[Archive Retrieval] Index is empty — no recall.');
@@ -221,6 +222,11 @@ export function retrieveArchiveMemory(
                 return sceneNum >= s && sceneNum <= e;
             });
         });
+    }
+
+    if (semanticCandidateIds && semanticCandidateIds.length > 0) {
+        const candidateSet = new Set(semanticCandidateIds);
+        scopedIndex = scopedIndex.filter(entry => candidateSet.has(entry.sceneId));
     }
 
     const totalScenes = scopedIndex.length;
@@ -309,9 +315,10 @@ export async function recallArchiveScenes(
     tokenBudget = 3000,
     npcLedger?: NPCEntry[],
     semanticFacts?: { subject: string; predicate: string; object: string; importance: number }[],
-    npcPerspective?: string
+    npcPerspective?: string,
+    semanticCandidateIds?: string[]
 ): Promise<ArchiveScene[]> {
-    const matchedIds = retrieveArchiveMemory(index, userMessage, recentMessages, npcLedger, undefined, semanticFacts, undefined, npcPerspective);
+    const matchedIds = retrieveArchiveMemory(index, userMessage, recentMessages, npcLedger, undefined, semanticFacts, undefined, npcPerspective, semanticCandidateIds);
     if (matchedIds.length === 0) return [];
     return fetchArchiveScenes(campaignId, matchedIds, tokenBudget);
 }

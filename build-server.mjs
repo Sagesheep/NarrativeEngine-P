@@ -9,6 +9,12 @@ await esbuild.build({
   platform: 'node',
   format: 'cjs',
   outfile: 'server.bundle.cjs',
+  external: [
+    'better-sqlite3',
+    'sqlite-vec',
+    '@huggingface/transformers',
+    'onnxruntime-node',
+  ],
   // Inject a proper import.meta.url shim so fileURLToPath(import.meta.url)
   // resolves correctly inside the CJS bundle
   define: {
