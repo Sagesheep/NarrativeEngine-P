@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { SETTINGS_FILE, readJson, writeJson } from '../lib/fileStore.js';
+import { wrapAsync } from '../lib/asyncHandler.js';
 
 /** Strip all apiKey values before writing to disk. Keys live in the browser's IndexedDB only. */
 function stripApiKeys(body) {
@@ -19,16 +20,16 @@ function stripApiKeys(body) {
 export function createSettingsRouter() {
     const router = Router();
 
-    router.get('/api/settings', (_req, res) => {
+    router.get('/api/settings', wrapAsync((_req, res) => {
         const settings = readJson(SETTINGS_FILE, {});
         res.json(settings);
-    });
+    }));
 
-    router.put('/api/settings', (req, res) => {
+    router.put('/api/settings', wrapAsync((req, res) => {
         const sanitized = stripApiKeys(req.body);
         writeJson(SETTINGS_FILE, sanitized);
         res.json({ ok: true });
-    });
+    }));
 
     return router;
 }

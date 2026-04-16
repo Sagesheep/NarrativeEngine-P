@@ -1,6 +1,7 @@
 import { Trash2, Save, Loader2, Sparkles, Users } from 'lucide-react';
 import { NPCPortraitSection } from './NPCPortraitSection';
 import type { NPCEntry, NPCVisualProfile } from '../../types';
+import { DEFAULT_VISUAL_PROFILE } from '../../types';
 
 type Props = {
     form: Partial<NPCEntry>;
@@ -273,8 +274,3 @@ export function NPCEditForm({
         </div>
     );
 }
-
-const DEFAULT_VISUAL_PROFILE: NPCVisualProfile = {
-    race: '', gender: '', ageRange: '', build: '', symmetry: '',
-    hairStyle: '', eyeColor: '', skinTone: '', gait: '', distinctMarks: '', clothing: '', artStyle: 'Anime'
-};

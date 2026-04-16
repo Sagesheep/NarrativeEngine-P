@@ -101,6 +101,9 @@ describe('gatherContext', () => {
         const pinnedScene: ArchiveScene = { sceneId: '005', content: 'pinned content', tokens: 10 };
         mockFetchArchiveScenes.mockResolvedValueOnce([pinnedScene]);
 
+        const { retrieveArchiveMemory } = await import('../archiveMemory');
+        vi.mocked(retrieveArchiveMemory).mockReturnValueOnce(['005']);
+
         const clearPinnedChapters = vi.fn();
         const state = makeState({ activeCampaignId: 'c1' });
         const deps = noDeps({
@@ -123,9 +126,9 @@ describe('gatherContext', () => {
 
     it('does not duplicate scenes already in archiveRecall', async () => {
         const existingScene: ArchiveScene = { sceneId: '005', content: 'existing', tokens: 10 };
-        // archiveRecall already has scene 005 (from archive retrieval)
-        const { recallArchiveScenes } = await import('../archiveMemory');
+        const { recallArchiveScenes, retrieveArchiveMemory } = await import('../archiveMemory');
         vi.mocked(recallArchiveScenes).mockResolvedValueOnce([existingScene]);
+        vi.mocked(retrieveArchiveMemory).mockReturnValueOnce(['005', '006']);
 
         const pinnedScene: ArchiveScene = { sceneId: '006', content: 'pinned only', tokens: 10 };
         mockFetchArchiveScenes.mockResolvedValueOnce([pinnedScene]);
@@ -148,11 +151,9 @@ describe('gatherContext', () => {
 
         const result = await gatherContext(state, 'look', deps);
 
-        // Scene 005 should not be fetched again (alreadyCoveredIds skips it)
         const fetchedIds = mockFetchArchiveScenes.mock.calls[0]?.[1] ?? [];
         expect(fetchedIds).not.toContain('005');
         expect(fetchedIds).toContain('006');
-        // Result contains both
         expect(result.archiveRecall).toEqual(expect.arrayContaining([existingScene, pinnedScene]));
     });
 

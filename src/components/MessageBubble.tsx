@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import { Edit2, RotateCcw, Trash2, Loader2 } from 'lucide-react';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, DebugSection } from '../types';
+import { DebugPayloadView } from './DebugPayloadView';
 
 interface MessageBubbleProps {
     message: ChatMessage;
@@ -118,14 +119,7 @@ export function MessageBubble({
                 </div>
 
                 {hasDebug && (
-                    <details className="mt-2 border-t border-border/50 pt-2 text-[10px]">
-                        <summary className="cursor-pointer text-terminal/60 hover:text-terminal transition-colors select-none">
-                            [View Raw Payload]
-                        </summary>
-                        <pre className="mt-2 bg-void p-2 overflow-x-auto text-text-dim text-[9px] font-mono leading-tight whitespace-pre-wrap break-all">
-                            {JSON.stringify(msg.debugPayload, null, 2)}
-                        </pre>
-                    </details>
+                    <DebugPayloadView debugPayload={msg.debugPayload as { sections?: DebugSection[]; raw?: unknown }} />
                 )}
             </div>
         </div>

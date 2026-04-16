@@ -193,23 +193,25 @@ export class KeyVault {
      */
     unlockWithRemembered() {
         if (!this.hasRememberedKey()) return false;
-        
+
         try {
             const hexKey = fs.readFileSync(this.rememberPath, 'utf-8').trim();
             const key = Buffer.from(hexKey, 'hex');
-            
+
             const encrypted = fs.readFileSync(this.vaultPath);
-            const vaultData = encrypted.slice(0, -SALT_LENGTH); // assume password mode
-            
-            // We need to extract salt from the file for re-encryption later
-            this.currentSalt = encrypted.slice(-SALT_LENGTH);
-            
+
+            let vaultData;
+            if (this.isMachineKey) {
+                vaultData = encrypted;
+            } else {
+                vaultData = encrypted.slice(0, -SALT_LENGTH);
+                this.currentSalt = encrypted.slice(-SALT_LENGTH);
+            }
+
             this.unlockedData = decryptData(vaultData, key);
             this.derivedKey = key;
-            this.isMachineKey = false;
             return true;
         } catch (err) {
-            // Remembered key failed, clear it
             this.clearRememberedKey();
             return false;
         }

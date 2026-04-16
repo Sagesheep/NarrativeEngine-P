@@ -106,7 +106,7 @@ export function CoverflowCarousel({
                                 height: 5, cursor: 'pointer',
                                 width: i === activeIdx ? 18 : 5,
                                 borderRadius: i === activeIdx ? 3 : '50%',
-                                background: i === activeIdx ? '#D47E30' : 'rgba(212,126,48,0.25)',
+                                background: i === activeIdx ? 'var(--color-terminal)' : 'rgba(106,159,212,0.25)',
                                 transition: 'all 0.3s ease',
                             }}
                         />
@@ -126,19 +126,19 @@ export function CoverflowCarousel({
                         marginTop: 28, zIndex: 2, position: 'relative',
                         fontFamily: "'JetBrains Mono', monospace",
                         fontSize: 10, letterSpacing: '0.3em',
-                        textTransform: 'uppercase', color: '#D47E30',
+                        textTransform: 'uppercase', color: 'var(--color-terminal)',
                         background: 'transparent',
-                        border: '1px solid rgba(212,126,48,0.35)',
+                        border: '1px solid rgba(106,159,212,0.35)',
                         borderRadius: 3, padding: '11px 32px',
                         cursor: 'pointer', transition: 'all 0.25s',
                     }}
                     onMouseEnter={e => {
-                        (e.currentTarget as HTMLButtonElement).style.background = 'rgba(212,126,48,0.1)';
-                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(212,126,48,0.7)';
+                        (e.currentTarget as HTMLButtonElement).style.background = 'rgba(106,159,212,0.10)';
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.70)';
                     }}
                     onMouseLeave={e => {
                         (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(212,126,48,0.35)';
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.35)';
                     }}
                 >
                     Enter — {activeCampaign.name}
@@ -153,11 +153,11 @@ export function CoverflowCarousel({
                     fontFamily: "'JetBrains Mono', monospace",
                     fontSize: 9, letterSpacing: '0.22em',
                     textTransform: 'uppercase',
-                    color: 'rgba(140,120,90,0.4)',
+                    color: 'rgba(107,107,107,0.45)',
                     cursor: 'pointer', transition: 'color 0.2s',
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(212,126,48,0.6)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(140,120,90,0.4)'; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(106,159,212,0.65)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(107,107,107,0.45)'; }}
             >
                 + New Campaign
             </div>
@@ -196,7 +196,7 @@ function CoverCard({ campaign, isActive, slotStyle, onClick, onEdit, onDelete }:
                 width: '100%', height: '100%', borderRadius: 8, overflow: 'hidden',
                 position: 'relative',
                 boxShadow: isActive
-                    ? '0 0 0 1px rgba(212,126,48,0.45), 0 24px 80px rgba(0,0,0,0.7), 0 4px 20px rgba(212,126,48,0.15)'
+                    ? '0 0 0 1px rgba(106,159,212,0.45), 0 24px 80px rgba(0,0,0,0.7), 0 4px 20px rgba(106,159,212,0.15)'
                     : '0 20px 60px rgba(0,0,0,0.6), 0 4px 16px rgba(0,0,0,0.4)',
                 transition: 'box-shadow 0.4s ease',
             }}>
@@ -211,10 +211,10 @@ function CoverCard({ campaign, isActive, slotStyle, onClick, onEdit, onDelete }:
                     />
                 ) : (
                     <div style={{
-                        width: '100%', height: '100%', background: '#1A1525',
+                        width: '100%', height: '100%', background: 'var(--color-surface)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
-                        <BookOpen size={40} style={{ color: '#D47E30', opacity: 0.15 }} />
+                        <BookOpen size={40} style={{ color: 'var(--color-terminal)', opacity: 0.15 }} />
                     </div>
                 )}
 
@@ -232,21 +232,21 @@ function CoverCard({ campaign, isActive, slotStyle, onClick, onEdit, onDelete }:
                         <div style={{
                             fontFamily: "'JetBrains Mono', monospace",
                             fontSize: 8.5, letterSpacing: '0.2em',
-                            textTransform: 'uppercase', color: '#D47E30',
+                            textTransform: 'uppercase', color: 'var(--color-terminal)',
                             marginBottom: 7, opacity: 0.85,
                         }}>
                             {timeAgo(campaign.lastPlayedAt)}
                         </div>
                         <div style={{
                             fontFamily: "'Cinzel', serif", fontSize: 14,
-                            fontWeight: 600, color: '#F0E8D8',
+                            fontWeight: 600, color: '#F0F0F0',
                             lineHeight: 1.25, marginBottom: 8, letterSpacing: '0.03em',
                         }}>
                             {campaign.name}
                         </div>
                         <div style={{
                             fontFamily: "'EB Garamond', serif", fontStyle: 'italic',
-                            fontSize: 12.5, color: 'rgba(200,185,160,0.7)', lineHeight: 1.55,
+                            fontSize: 12.5, color: 'rgba(200,200,200,0.65)', lineHeight: 1.55,
                         }}>
                             Click to enter this world
                         </div>
@@ -277,14 +277,14 @@ function EmptyState({ onNew }: { onNew: () => void }) {
         }}>
             <div style={{
                 width: 72, height: 72, borderRadius: '50%',
-                border: '1px dashed rgba(212,126,48,0.3)',
+                border: '1px dashed rgba(106,159,212,0.30)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'rgba(212,126,48,0.35)',
+                color: 'rgba(106,159,212,0.40)',
             }}>
                 <BookOpen size={28} />
             </div>
             <p style={{
-                color: 'rgba(180,160,130,0.4)', fontStyle: 'italic', fontSize: 15,
+                color: 'rgba(107,107,107,0.55)', fontStyle: 'italic', fontSize: 15,
                 textAlign: 'center', maxWidth: 260,
             }}>
                 No campaigns yet. Begin your first chronicle.
@@ -294,9 +294,9 @@ function EmptyState({ onNew }: { onNew: () => void }) {
                 style={{
                     fontFamily: "'JetBrains Mono', monospace",
                     fontSize: 10, letterSpacing: '0.3em',
-                    textTransform: 'uppercase', color: '#D47E30',
+                    textTransform: 'uppercase', color: 'var(--color-terminal)',
                     background: 'transparent',
-                    border: '1px solid rgba(212,126,48,0.35)',
+                    border: '1px solid rgba(106,159,212,0.35)',
                     borderRadius: 3, padding: '11px 32px',
                     cursor: 'pointer', marginTop: 8,
                 }}
@@ -313,9 +313,9 @@ function NavBtn({ onClick, disabled, children }: { onClick: () => void; disabled
             onClick={onClick} disabled={disabled}
             style={{
                 width: 38, height: 38, borderRadius: '50%',
-                border: '1px solid rgba(212,126,48,0.25)',
+                border: '1px solid rgba(106,159,212,0.25)',
                 background: 'rgba(255,255,255,0.04)',
-                color: disabled ? 'rgba(212,126,48,0.2)' : 'rgba(212,126,48,0.6)',
+                color: disabled ? 'rgba(106,159,212,0.20)' : 'rgba(106,159,212,0.65)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: disabled ? 'default' : 'pointer',
                 transition: 'all 0.2s',
@@ -337,9 +337,9 @@ function ActionBtn({ onClick, title, danger, children }: {
             onClick={onClick} title={title}
             style={{
                 width: 26, height: 26, borderRadius: 3,
-                background: 'rgba(14,13,26,0.85)',
-                border: `1px solid ${danger ? 'rgba(192,57,43,0.3)' : 'rgba(212,126,48,0.2)'}`,
-                color: danger ? '#C0392B' : 'rgba(180,160,130,0.6)',
+                background: 'rgba(0,0,0,0.70)',
+                border: `1px solid ${danger ? 'rgba(192,57,43,0.3)' : 'rgba(106,159,212,0.20)'}`,
+                color: danger ? 'var(--color-danger)' : 'rgba(144,144,144,0.7)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: 'pointer', backdropFilter: 'blur(4px)',
             }}

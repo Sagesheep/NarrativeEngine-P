@@ -61,6 +61,12 @@ app.use(createFactsRouter());
 app.use(createBackupsRouter());
 app.use(createAssetsRouter());
 
+// ─── Central Error Handler ───
+app.use((err, _req, res, _next) => {
+    console.error('[Server] Unhandled error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+});
+
 // ─── Start ───
 app.listen(PORT, () => {
     console.log(`[GM-Cockpit API] ✓ Running on http://localhost:${PORT}`);

@@ -9,7 +9,8 @@ import { getEventsByChapter } from '../../services/timelineResolver';
 import { CHAPTER_SCENE_SOFT_CAP } from '../../types';
 
 function SummaryText({ text }: { text: string }) {
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const safe = typeof text === 'string' ? text : Array.isArray(text) ? text.join('\n') : String(text ?? '');
+    const lines = safe.split('\n').map(l => l.trim()).filter(Boolean);
     const isBullet = (l: string) => l.startsWith('- ') || l.startsWith('• ');
     if (lines.some(isBullet)) {
         return (
@@ -24,7 +25,7 @@ function SummaryText({ text }: { text: string }) {
     }
     return (
         <p className="text-text-secondary leading-relaxed font-serif italic text-[13px] bg-void-dark/50 p-2 rounded border border-border/30">
-            {text}
+            {safe}
         </p>
     );
 }

@@ -1,4 +1,5 @@
 import type { ChatMessage, ProviderConfig, EndpointConfig } from '../types';
+import { callLLM } from './callLLM';
 
 const IMPORTANCE_PROMPT = `Rate the narrative importance of the scene below on a 1-5 scale.
 
@@ -20,28 +21,6 @@ SCENE TO RATE:
 User: {userText}
 GM: {gmText}`;
 
-async function llmCall(provider: ProviderConfig | EndpointConfig, prompt: string): Promise<string> {
-    const url = `${provider.endpoint.replace(/\/+$/, '')}/chat/completions`;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (provider.apiKey) {
-        headers['Authorization'] = `Bearer ${provider.apiKey}`;
-    }
-
-    const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-            model: provider.modelName,
-            messages: [{ role: 'user', content: prompt }],
-            stream: false,
-        }),
-    });
-
-    if (!res.ok) return '';
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content ?? '';
-}
-
 export async function rateImportance(
     provider: ProviderConfig | EndpointConfig,
     userText: string,
@@ -59,7 +38,7 @@ export async function rateImportance(
         .replace('{gmText}', gmText.slice(0, 1200));
 
     try {
-        const raw = await llmCall(provider, prompt);
+        const raw = await callLLM(provider, prompt, { priority: 'low' });
         const match = raw.trim().match(/\b([1-5])\b/);
         if (match) return parseInt(match[1], 10);
     } catch (err) {

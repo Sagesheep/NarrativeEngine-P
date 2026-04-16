@@ -26,7 +26,7 @@ export function createBackupsRouter() {
             res.json(result);
         } catch (err) {
             console.error('[Backup] Create failed:', err);
-            res.status(500).json({ error: 'Failed to create backup', detail: err.message });
+            res.status(500).json({ error: 'Failed to create backup' });
         }
     });
 
@@ -91,7 +91,7 @@ export function createBackupsRouter() {
             res.json({ ok: true, preRestoreBackup: restoreBackup });
         } catch (err) {
             console.error('[Backup] Restore failed:', err);
-            res.status(500).json({ error: 'Failed to restore backup', detail: err.message });
+            res.status(500).json({ error: 'Failed to restore backup' });
         }
     });
 

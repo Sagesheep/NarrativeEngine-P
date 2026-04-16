@@ -74,51 +74,36 @@ export function initDb() {
     console.log(`[VectorStore] Initialized (${currentDims} dims, cosine)`);
 }
 
-export function storeArchiveEmbedding(campaignId, sceneId, embedding) {
-    if (!db) return;
-    db.prepare("DELETE FROM archive_vss WHERE campaign_id = ? AND scene_id = ?").run(campaignId, sceneId);
-    db.prepare("INSERT INTO archive_vss(campaign_id, scene_id, embedding) VALUES (?, ?, ?)").run(campaignId, sceneId, embedding);
+function createStoreFn(table, idCol) {
+    return (campaignId, itemId, embedding) => {
+        if (!db) return;
+        db.prepare(`DELETE FROM ${table} WHERE campaign_id = ? AND ${idCol} = ?`).run(campaignId, itemId);
+        db.prepare(`INSERT INTO ${table}(campaign_id, ${idCol}, embedding) VALUES (?, ?, ?)`).run(campaignId, itemId, embedding);
+    };
 }
+export const storeArchiveEmbedding = createStoreFn('archive_vss', 'scene_id');
+export const storeLoreEmbedding = createStoreFn('lore_vss', 'lore_id');
 
-export function storeLoreEmbedding(campaignId, loreId, embedding) {
-    if (!db) return;
-    db.prepare("DELETE FROM lore_vss WHERE campaign_id = ? AND lore_id = ?").run(campaignId, loreId);
-    db.prepare("INSERT INTO lore_vss(campaign_id, lore_id, embedding) VALUES (?, ?, ?)").run(campaignId, loreId, embedding);
+function createSearchFn(table, idCol, resultKey) {
+    return (campaignId, queryEmbedding, limit) => {
+        if (!db) return [];
+        try {
+            const rows = db.prepare(`
+                SELECT ${idCol}, distance
+                FROM ${table}
+                WHERE embedding MATCH ? AND campaign_id = ?
+                ORDER BY distance
+                LIMIT ?
+            `).all(queryEmbedding, campaignId, limit);
+            return rows.map(r => ({ [resultKey]: r[idCol], distance: r.distance }));
+        } catch (err) {
+            console.error(`[VectorStore] ${table} search failed:`, err.message);
+            return [];
+        }
+    };
 }
-
-export function searchArchive(campaignId, queryEmbedding, limit = 20) {
-    if (!db) return [];
-    try {
-        const rows = db.prepare(`
-            SELECT scene_id, distance
-            FROM archive_vss
-            WHERE embedding MATCH ? AND campaign_id = ?
-            ORDER BY distance
-            LIMIT ?
-        `).all(queryEmbedding, campaignId, limit);
-        return rows.map(r => ({ sceneId: r.scene_id, distance: r.distance }));
-    } catch (err) {
-        console.error('[VectorStore] archive search failed:', err.message);
-        return [];
-    }
-}
-
-export function searchLore(campaignId, queryEmbedding, limit = 15) {
-    if (!db) return [];
-    try {
-        const rows = db.prepare(`
-            SELECT lore_id, distance
-            FROM lore_vss
-            WHERE embedding MATCH ? AND campaign_id = ?
-            ORDER BY distance
-            LIMIT ?
-        `).all(queryEmbedding, campaignId, limit);
-        return rows.map(r => ({ loreId: r.lore_id, distance: r.distance }));
-    } catch (err) {
-        console.error('[VectorStore] lore search failed:', err.message);
-        return [];
-    }
-}
+export const searchArchive = createSearchFn('archive_vss', 'scene_id', 'sceneId');
+export const searchLore = createSearchFn('lore_vss', 'lore_id', 'loreId');
 
 export function deleteArchiveEmbedding(campaignId, sceneId) {
     if (!db) return;

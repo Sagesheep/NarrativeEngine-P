@@ -1,7 +1,10 @@
+export type ApiFormat = 'openai' | 'ollama';
+
 export type EndpointConfig = {
     endpoint: string;
     apiKey: string;
     modelName: string;
+    apiFormat?: ApiFormat;
 };
 
 export type AIPreset = {
@@ -244,6 +247,11 @@ export type NPCVisualProfile = {
     artStyle: string;
 };
 
+export const DEFAULT_VISUAL_PROFILE: NPCVisualProfile = {
+    race: '', gender: '', ageRange: '', build: '', symmetry: '',
+    hairStyle: '', eyeColor: '', skinTone: '', gait: '', distinctMarks: '', clothing: '', artStyle: 'Anime',
+};
+
 export type NPCEntry = {
     id: string;
     name: string;
@@ -284,6 +292,14 @@ export type OpenAITool = {
 };
 
 export type ContextSourceClassification = 'stable_truth' | 'summary' | 'world_context' | 'volatile_state' | 'scene_local';
+
+export type DebugSection = {
+    label: string;
+    role: string;
+    tokens?: number;
+    content: string;
+    classification?: ContextSourceClassification;
+};
 
 export type PayloadTrace = {
     source: string;

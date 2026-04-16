@@ -3,52 +3,52 @@
 
 @theme {
   /*
-   * Warm Parchment Theme (Light — Default)
+   * Clean Neutral Theme (Light — Default)
    * ────────────────────
-   * Cream background, dark-brown text, amber accents.
-   * Easy on the eyes, readable, RPG-manuscript vibe.
+   * Warm off-white background, near-black text, soft steel blue accents.
+   * Professional minimalist — clean, readable, modern.
    */
-  --color-void: #F5F5DC;
-  /* Cream – main background         */
-  --color-void-light: #EDE8C8;
-  /* Slightly deeper cream            */
-  --color-void-lighter: #E6DFBA;
-  /* Warm tan inset panels            */
-  --color-void-darker: #DDD6B0;
-  /* Deeper cream for contrast bg     */
+  --color-void: #FAFAF8;
+  /* Warm off-white – main background */
+  --color-void-light: #F4F4F1;
+  /* Slightly deeper bg               */
+  --color-void-lighter: #EDEDEA;
+  /* Inset panels / code blocks       */
+  --color-void-darker: #E5E5E2;
+  /* Deeper contrast bg               */
 
-  --color-terminal: #D47E30;
-  /* Amber – primary accent           */
-  --color-terminal-dim: #B5641E;
-  /* Muted amber                      */
+  --color-terminal: #6A9FD4;
+  /* Soft steel blue – primary accent */
+  --color-terminal-dim: #5585B5;
+  /* Muted accent                     */
 
-  --color-ember: #6F4E37;
-  /* Coffee – secondary accent        */
-  --color-ember-dim: #5A3D2B;
-  /* Deeper coffee                    */
+  --color-ember: #5A6B80;
+  /* Blue-gray – secondary accent     */
+  --color-ember-dim: #475869;
+  /* Deeper blue-gray                 */
 
-  --color-ice: #6D3B07;
-  /* Dark brown – high-contrast label */
-  --color-ice-dim: #8B6A3E;
-  /* Warm khaki                       */
+  --color-ice: #1A1A1A;
+  /* Near-black – headings/labels     */
+  --color-ice-dim: #3D3D3D;
+  /* Dark gray                        */
 
   --color-danger: #C0392B;
-  /* Warm red – errors                */
+  /* Red – errors                     */
 
-  --color-surface: #FFFDF0;
-  /* Near-white warm – cards/modals   */
-  --color-border: #6D3B07;
-  /* Dark brown border                */
+  --color-surface: #F0EFED;
+  /* Warm off-white – cards/modals    */
+  --color-border: #DEDEDE;
+  /* Light gray border                */
 
-  --color-text-primary: #3B2310;
-  /* Rich dark brown – body text      */
-  --color-text-dim: #8B7355;
-  /* Muted brown                      */
+  --color-text-primary: #1A1A1A;
+  /* Near-black – body text           */
+  --color-text-dim: #6B6B6B;
+  /* Medium gray                      */
 
-  --color-overlay: rgba(90, 61, 43, 0.40);
+  --color-overlay: rgba(0, 0, 0, 0.25);
   /* Backdrop overlay                 */
-  --color-grain: rgba(110, 80, 40, 0.03);
-  /* Parchment grain tint             */
+  --color-grain: rgba(0, 0, 0, 0.012);
+  /* Subtle grain tint                */
 
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 }
@@ -56,34 +56,34 @@
 /*
  * Dark Theme Overrides
  * ────────────────────
- * Deep navy background, warm gold/parchment accents.
+ * Dark charcoal background, near-white text, same soft steel blue accent.
  * High contrast, low glare for long reading sessions.
  */
 [data-theme="dark"] {
-  --color-void: #1A1A2E;
-  --color-void-light: #16213E;
-  --color-void-lighter: #0F3460;
-  --color-void-darker: #111125;
+  --color-void: #161618;
+  --color-void-light: #1C1C1F;
+  --color-void-lighter: #232327;
+  --color-void-darker: #111113;
 
-  --color-terminal: #E2A04F;
-  --color-terminal-dim: #C68A3A;
+  --color-terminal: #6A9FD4;
+  --color-terminal-dim: #5585B5;
 
-  --color-ember: #C49A6C;
-  --color-ember-dim: #A07D56;
+  --color-ember: #8CA8C0;
+  --color-ember-dim: #7090A8;
 
-  --color-ice: #E8D5B7;
-  --color-ice-dim: #B8A080;
+  --color-ice: #EBEBEB;
+  --color-ice-dim: #ADADAD;
 
-  --color-danger: #E74C3C;
+  --color-danger: #E05555;
 
-  --color-surface: #1E2A45;
-  --color-border: #3A4A6E;
+  --color-surface: #1E1E21;
+  --color-border: #2E2E33;
 
-  --color-text-primary: #E6DCC8;
-  --color-text-dim: #8899AA;
+  --color-text-primary: #EBEBEB;
+  --color-text-dim: #909090;
 
-  --color-overlay: rgba(0, 0, 0, 0.55);
-  --color-grain: rgba(100, 130, 180, 0.025);
+  --color-overlay: rgba(0, 0, 0, 0.60);
+  --color-grain: rgba(255, 255, 255, 0.010);
 }
 
 @layer base {
@@ -157,11 +157,11 @@
 
 @layer utilities {
   .glow-green {
-    text-shadow: 0 0 6px rgba(212, 126, 48, 0.35);
+    text-shadow: 0 0 8px rgba(106, 159, 212, 0.40);
   }
 
   .glow-border {
-    box-shadow: 0 0 6px rgba(212, 126, 48, 0.12), inset 0 0 6px rgba(212, 126, 48, 0.04);
+    box-shadow: 0 0 8px rgba(106, 159, 212, 0.15), inset 0 0 6px rgba(106, 159, 212, 0.05);
   }
 
   .animate-pulse-slow {

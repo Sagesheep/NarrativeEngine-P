@@ -5,20 +5,13 @@ import { generateNPCPortrait, updateExistingNPCs } from '../services/chatEngine'
 import { parseNPCsFromLore } from '../services/loreNPCParser';
 import { downloadImageToLocal } from '../services/assetService';
 import type { NPCEntry, NPCVisualProfile } from '../types';
+import { DEFAULT_VISUAL_PROFILE } from '../types';
 import { toast } from './Toast';
+import { uid } from '../utils/uid';
 
 import { NPCListView } from './npc-ledger/NPCListView';
 import { NPCGalleryView } from './npc-ledger/NPCGalleryView';
 import { NPCEditForm } from './npc-ledger/NPCEditForm';
-
-const DEFAULT_VISUAL_PROFILE: NPCVisualProfile = {
-    race: '', gender: '', ageRange: '', build: '', symmetry: '',
-    hairStyle: '', eyeColor: '', skinTone: '', gait: '', distinctMarks: '', clothing: '', artStyle: 'Anime'
-};
-
-function uid(): string {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
 
 export function NPCLedgerModal() {
     const { npcLedger, npcLedgerOpen, toggleNPCLedger, addNPC, updateNPC, removeNPC, setNPCLedger, addNPCs } = useAppStore();

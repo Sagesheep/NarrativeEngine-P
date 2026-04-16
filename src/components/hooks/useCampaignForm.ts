@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { saveCampaign } from '../../store/campaignStore';
 import { initializeCampaignState } from '../../services/campaignInit';
+import { uid } from '../../utils/uid';
 import type { Campaign } from '../../types';
 
 export function useCampaignForm(params: {
@@ -48,7 +49,7 @@ export function useCampaignForm(params: {
         const campaign: Campaign = isEdit
             ? { ...editingCampaign!, name: name.trim(), lastPlayedAt: Date.now() }
             : {
-                id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+                id: uid(),
                 name: name.trim(), coverImage: '',
                 createdAt: Date.now(), lastPlayedAt: Date.now(),
             };

@@ -1,0 +1,9 @@
+data/
+graphify-out/
+build-output/
+dist/
+node_modules/
+.exe/
+.exe-new/
+*.bundle.cjs
+Upgrade/repomix-output.md

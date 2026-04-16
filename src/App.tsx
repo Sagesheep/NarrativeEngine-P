@@ -11,11 +11,7 @@ import { BackupModal } from './components/BackupModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import { VaultUnlockModal } from './components/VaultUnlockModal';
-import {
-  loadCampaignState, getLoreChunks, getNPCLedger, loadArchiveIndex, loadTimeline, loadChapters, loadEntities,
-} from './store/campaignStore';
-
-const DEFAULT_CONDENSER = { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false };
+import { hydrateCampaign } from './store/campaignHydrator';
 
 export default function App() {
   const activeCampaignId = useAppStore((s) => s.activeCampaignId);
@@ -71,28 +67,8 @@ export default function App() {
     setCampaignLoaded(false);
 
     (async () => {
-      const [state, chunks, npcs, archiveIndex, timeline, chapters, entities] = await Promise.all([
-        loadCampaignState(activeCampaignId),
-        getLoreChunks(activeCampaignId),
-        getNPCLedger(activeCampaignId),
-        loadArchiveIndex(activeCampaignId),
-        loadTimeline(activeCampaignId),
-        loadChapters(activeCampaignId),
-        loadEntities(activeCampaignId),
-      ]);
+      await hydrateCampaign(activeCampaignId);
       if (cancelled) return;
-
-      useAppStore.setState({
-        context: state?.context ?? useAppStore.getState().context,
-        messages: state?.messages ?? [],
-        condenser: { ...(state?.condenser ?? DEFAULT_CONDENSER), isCondensing: false },
-        loreChunks: chunks,
-        npcLedger: npcs,
-        archiveIndex,
-        timeline,
-        chapters,
-        entities,
-      });
       setCampaignLoaded(true);
     })();
 

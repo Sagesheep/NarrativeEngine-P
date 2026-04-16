@@ -2,12 +2,9 @@ import { useState, useRef } from 'react';
 import { X, Loader2, CheckCircle, XCircle, Plus, Trash2, ChevronDown, ChevronRight, Download, Upload, Lock } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { testConnection } from '../services/chatEngine';
-import type { AIPreset, EndpointConfig } from '../types';
+import type { AIPreset, EndpointConfig, ApiFormat } from '../types';
 import { toast } from './Toast';
-
-function uid(): string {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
+import { uid } from '../utils/uid';
 
 export function SettingsModal() {
     const { settings, updateSettings, settingsOpen, toggleSettings, addPreset, updatePreset, removePreset } = useAppStore();
@@ -47,9 +44,9 @@ export function SettingsModal() {
         const newPreset: AIPreset = {
             id: uid(),
             name: `Preset ${settings.presets.length + 1}`,
-            storyAI: { endpoint: 'http://localhost:11434/v1', apiKey: '', modelName: 'llama3' },
+            storyAI: { endpoint: 'http://localhost:11434/v1', apiKey: '', modelName: 'llama3', apiFormat: 'openai' },
             imageAI: { endpoint: '', apiKey: '', modelName: '' },
-            summarizerAI: { endpoint: 'http://localhost:11434/v1', apiKey: '', modelName: 'llama3' },
+            summarizerAI: { endpoint: 'http://localhost:11434/v1', apiKey: '', modelName: 'llama3', apiFormat: 'openai' },
             utilityAI: { endpoint: '', apiKey: '', modelName: '' }
         };
         addPreset(newPreset);
@@ -75,12 +72,28 @@ export function SettingsModal() {
         updatePreset(activePreset.id, { [section]: updatedConfig });
     };
 
+    const handleApiFormatChange = (section: 'storyAI' | 'imageAI' | 'summarizerAI' | 'utilityAI', newFormat: ApiFormat) => {
+        if (!activePreset) return;
+        const config = activePreset[section] ?? { endpoint: '', apiKey: '', modelName: '' };
+        let endpoint = (config.endpoint || '').replace(/\/+$/, '');
+        if (newFormat === 'ollama') {
+            // Strip /v1 suffix for native Ollama mode
+            endpoint = endpoint.replace(/\/v1\/?$/, '').replace(/\/+$/, '');
+        } else {
+            // Auto-append /v1 for local Ollama switching to OpenAI-compat mode
+            if (endpoint && !endpoint.endsWith('/v1') && /localhost:11434|127\.0\.0\.1:11434/.test(endpoint)) {
+                endpoint = endpoint + '/v1';
+            }
+        }
+        updatePreset(activePreset.id, { [section]: { ...config, apiFormat: newFormat, endpoint } });
+    };
+
     const toggleSection = (section: string) => {
         setExpanded(prev => ({ ...prev, [section]: !prev[section] }));
     };
 
     const renderEndpointConfig = (section: 'storyAI' | 'imageAI' | 'summarizerAI' | 'utilityAI', title: string) => {
-        const config = activePreset[section] ?? { endpoint: '', apiKey: '', modelName: '' };
+        const config = activePreset[section] ?? { endpoint: '', apiKey: '', modelName: '', apiFormat: 'openai' as ApiFormat };
         const isExpanded = expanded[section];
         const isTesting = testingSection === section;
         const result = testResults[section];
@@ -105,9 +118,28 @@ export function SettingsModal() {
                                 type="text"
                                 value={config.endpoint}
                                 onChange={(e) => handleUpdateEndpoint(section, 'endpoint', e.target.value)}
-                                placeholder="http://localhost:11434/v1"
+                                placeholder={(config.apiFormat || 'openai') === 'ollama' ? 'http://localhost:11434' : 'http://localhost:11434/v1'}
                                 className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
                             />
+                            {(config.apiFormat || 'openai') === 'ollama' && (
+                                <p className="text-[10px] text-text-dim mt-1">
+                                    Local: <span className="font-mono">http://localhost:11434</span> &middot; Cloud: <span className="font-mono">https://api.ollama.com</span> (needs API key)
+                                </p>
+                            )}
+                        </div>
+                        <div>
+                            <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">API Format</label>
+                            <div className="flex border border-border overflow-hidden rounded">
+                                {(['openai', 'ollama'] as ApiFormat[]).map(fmt => (
+                                    <button
+                                        key={fmt}
+                                        onClick={() => handleApiFormatChange(section, fmt)}
+                                        className={`flex-1 px-4 py-2 text-[10px] uppercase tracking-wider transition-colors focus:outline-none ${(config.apiFormat || 'openai') === fmt ? 'bg-terminal text-surface font-bold' : 'bg-void text-text-dim hover:text-text-primary'}`}
+                                    >
+                                        {fmt === 'openai' ? 'OpenAI /v1' : 'Ollama /api'}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                         <div>
                             <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Model Name</label>

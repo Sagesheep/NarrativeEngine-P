@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent } from '../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection } from '../types';
 import type { OpenAIMessage } from './llmService';
 import { countTokens } from './tokenizer';
 import { buildBehaviorDirective, buildDriftAlert, buildKnowledgeBoundary } from './npcBehaviorDirective';
@@ -55,8 +55,9 @@ export function buildPayload(
     _semanticFactText?: string,
     archiveIndex?: ArchiveIndexEntry[],
     timelineEvents?: TimelineEvent[]
-): { messages: OpenAIMessage[]; trace?: PayloadTrace[] } {
+): { messages: OpenAIMessage[]; trace?: PayloadTrace[]; debugSections?: DebugSection[] } {
     const trace: PayloadTrace[] = [];
+    const debugSections: DebugSection[] = [];
     const isDebug = settings.debugMode === true;
     const limit = settings.contextLimit || 8192;
 
@@ -73,6 +74,9 @@ export function buildPayload(
     // Helper to log to trace if debug
     const addTrace = (t: PayloadTrace) => {
         if (isDebug) trace.push(t);
+    };
+    const addSection = (s: DebugSection) => {
+        if (isDebug) debugSections.push(s);
     };
 
     // --- 2. Calculate Stable Truth & Summary (High Priority) ---
@@ -96,6 +100,7 @@ export function buildPayload(
     const stableContent = stableParts.join('\n\n');
     const stableTokens = countTokens(stableContent);
     addTrace({ source: 'Stable Preamble', classification: 'stable_truth', tokens: stableTokens, reason: 'Rules & Core state', included: true, position: 'system_static' });
+    addSection({ label: 'Stable Preamble', role: 'system', tokens: stableTokens, content: stableContent, classification: 'stable_truth' });
 
     let summaryContent = '';
     if (condensedSummary) {
@@ -103,6 +108,7 @@ export function buildPayload(
     }
     const summaryTokens = countTokens(summaryContent);
     addTrace({ source: 'Condensed Summary', classification: 'summary', tokens: summaryTokens, reason: 'Compressed session history', included: !!summaryContent, position: 'system_summary' });
+    addSection({ label: 'Condensed Summary', role: 'system', tokens: summaryTokens, content: summaryContent, classification: 'summary' });
 
     // --- 3. Gather trimmable World Context (Medium Priority) ---
     const worldBlocks: { source: string; content: string; tokens: number; reason: string }[] = [];
@@ -226,6 +232,7 @@ export function buildPayload(
             worldContent += (worldContent ? '\n\n' : '') + block.content;
             currentWorldTokens += block.tokens;
             addTrace({ source: block.source, classification: 'world_context', tokens: block.tokens, reason: block.reason, included: true, position: 'system_dynamic' });
+            addSection({ label: block.source, role: 'system', tokens: block.tokens, content: block.content, classification: 'world_context' });
         } else {
             addTrace({ source: block.source, classification: 'world_context', tokens: block.tokens, reason: `Dropped: Exceeds World budget (${budgetMap.world} t)`, included: false, position: 'system_dynamic' });
         }
@@ -256,6 +263,7 @@ export function buildPayload(
     const volatileContent = volatileParts.join('\n\n');
     const volatileTokens = countTokens(volatileContent);
     addTrace({ source: 'Profile/Inventory', classification: 'volatile_state', tokens: volatileTokens, reason: 'Player state', included: true, position: 'system_dynamic' });
+    addSection({ label: 'Profile/Inventory', role: 'system', tokens: volatileTokens, content: volatileContent, classification: 'volatile_state' });
 
     // --- 6. Fit History ---
     const userTokens = countTokens(userMessage);
@@ -312,7 +320,16 @@ export function buildPayload(
     while (fitted.length > 0 && fitted[0].role === 'tool') fitted.shift();
 
     addTrace({ source: 'Fitted History', classification: 'summary', tokens: historyUsed, reason: `Included ${fitted.length} msgs within ${historyBudget} budget`, included: true, position: 'history' });
+    fitted.forEach(m => {
+        addSection({
+            label: m.role === 'tool' && m.name ? `Tool: ${m.name}` : m.role,
+            role: m.role,
+            content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''),
+            classification: 'summary'
+        });
+    });
     addTrace({ source: 'User Message', classification: 'volatile_state', tokens: userTokens, reason: 'Current turn', included: true, position: 'user' });
+    addSection({ label: 'User Message', role: 'user', tokens: userTokens, content: userMessage, classification: 'volatile_state' });
 
     // --- 7. Depth-Based Scene Note Insertion ---
     if (context.sceneNoteActive && context.sceneNote) {
@@ -325,10 +342,12 @@ export function buildPayload(
             const index = Math.max(0, fitted.length - depth);
             fitted.splice(index, 0, noteMsg);
             addTrace({ source: 'Scene Note (Depth)', classification: 'scene_local', tokens: countTokens(noteText), reason: `Injected at depth ${depth}`, included: true, position: `history_at_${depth}` });
+            addSection({ label: 'Scene Note', role: 'system', tokens: countTokens(noteText), content: noteText, classification: 'scene_local' });
         } else {
             // Fallback to end of system prompt if no history
             fitted.push(noteMsg);
             addTrace({ source: 'Scene Note (Fallback)', classification: 'scene_local', tokens: countTokens(noteText), reason: 'Injected after system (no history)', included: true, position: 'dynamic_suffix' });
+            addSection({ label: 'Scene Note', role: 'system', tokens: countTokens(noteText), content: noteText, classification: 'scene_local' });
         }
     }
 
@@ -342,5 +361,5 @@ export function buildPayload(
     messages.push(...fitted);
     messages.push({ role: 'user', content: userMessage });
 
-    return { messages, trace: isDebug ? trace : undefined };
+    return { messages, trace: isDebug ? trace : undefined, debugSections: isDebug ? debugSections : undefined };
 }

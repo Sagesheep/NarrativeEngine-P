@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { X, RotateCcw, Trash2, Save, Clock, Loader2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { listBackups, createBackup, restoreBackup, deleteBackup, loadCampaignState, getLoreChunks, getNPCLedger, loadArchiveIndex, loadTimeline, loadChapters, loadEntities } from '../store/campaignStore';
-import { cancelPendingSaves, defaultContext } from '../store/slices/campaignSlice';
+import { listBackups, createBackup, restoreBackup, deleteBackup } from '../store/campaignStore';
+import { hydrateCampaign } from '../store/campaignHydrator';
+import { cancelPendingSaves } from '../store/slices/campaignSlice';
 import type { BackupMeta } from '../types';
 import { toast } from './Toast';
 
@@ -63,27 +64,8 @@ export function BackupModal() {
         const ok = await restoreBackup(activeCampaignId, ts);
         if (ok) {
             try {
-                const [state, chunks, npcs, archiveIndex, timeline, chapters, entities] = await Promise.all([
-                    loadCampaignState(activeCampaignId),
-                    getLoreChunks(activeCampaignId),
-                    getNPCLedger(activeCampaignId),
-                    loadArchiveIndex(activeCampaignId),
-                    loadTimeline(activeCampaignId),
-                    loadChapters(activeCampaignId),
-                    loadEntities(activeCampaignId),
-                ]);
-                const DEFAULT_CONDENSER = { condensedSummary: '', condensedUpToIndex: -1, isCondensing: false };
-                useAppStore.setState({
-                    context: { ...defaultContext, ...(state?.context ?? {}) },
-                    messages: state?.messages ?? [],
-                    condenser: { ...(state?.condenser ?? DEFAULT_CONDENSER), isCondensing: false },
-                    loreChunks: chunks,
-                    npcLedger: npcs,
-                    archiveIndex: archiveIndex ?? [],
-                    timeline: timeline ?? [],
-                    chapters: chapters ?? [],
-                    entities: entities ?? [],
-                });
+                cancelPendingSaves();
+                await hydrateCampaign(activeCampaignId);
                 toast.success('Restored from backup');
                 await loadBackups();
             } catch (err) {

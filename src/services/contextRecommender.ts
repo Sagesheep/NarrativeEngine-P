@@ -8,7 +8,8 @@
  * Falls back silently on any error (caller handles fallback to substring scan).
  */
 
-import type { EndpointConfig, NPCEntry, LoreChunk, ChatMessage } from '../types';
+import type { EndpointConfig, NPCEntry, LoreChunk, ChatMessage, ArchiveChapter } from '../types';
+import { callLLM } from './callLLM';
 
 export type RecommenderResult = {
     relevantNPCNames: string[];   // NPC names the model considers relevant
@@ -53,11 +54,22 @@ function buildConversationExcerpt(messages: ChatMessage[], userMessage: string, 
     const recent = messages.slice(-depth);
     const lines = recent.map(m => {
         const role = m.role === 'user' ? 'PLAYER' : m.role === 'assistant' ? 'GM' : m.role.toUpperCase();
-        const text = (m.content || '').slice(0, 300); // Truncate long messages
+        const text = (m.content || '').slice(0, 300);
         return `[${role}]: ${text}`;
     });
     lines.push(`[PLAYER]: ${userMessage.slice(0, 300)}`);
     return lines.join('\n\n');
+}
+
+function buildPinnedChapterContext(chapters: ArchiveChapter[]): string {
+    return chapters.map(ch => {
+        const parts = [`[${ch.chapterId}] ${ch.title} (Scenes ${ch.sceneRange[0]}–${ch.sceneRange[1]})`];
+        if (ch.summary) parts.push(`  Summary: ${ch.summary.slice(0, 200)}`);
+        if (ch.npcs.length > 0) parts.push(`  NPCs: ${ch.npcs.join(', ')}`);
+        if (ch.keywords.length > 0) parts.push(`  Keywords: ${ch.keywords.slice(0, 10).join(', ')}`);
+        if (ch.majorEvents.length > 0) parts.push(`  Events: ${ch.majorEvents.slice(0, 3).join('; ')}`);
+        return parts.join('\n');
+    }).join('\n\n');
 }
 
 const RECOMMENDER_PROMPT = `You are a context selector for a tabletop RPG game engine. Given a conversation excerpt, a roster of NPCs, and an index of lore entries, determine which NPCs and lore entries are RELEVANT to the current scene.
@@ -66,7 +78,8 @@ RULES:
 1. An NPC is relevant if they are: mentioned by name/alias, physically present in the scene, directly referenced, or their faction/goals are materially involved.
 2. A lore entry is relevant if: its subject matter relates to the current location, active quest, mentioned organizations, or ongoing conflict.
 3. Be SELECTIVE — only include truly relevant entries, not everything tangentially related.
-4. Return ONLY valid JSON in exactly this format, no other text:
+4. DM-PINNED CHAPTERS are manually flagged as important by the DM. Strongly favor NPCs and lore entries mentioned in pinned chapters.
+5. Return ONLY valid JSON in exactly this format, no other text:
 
 {"npcs": ["Name1", "Name2"], "lore": ["id1", "id2"]}
 
@@ -84,11 +97,16 @@ export async function recommendContext(
     loreChunks: LoreChunk[],
     messages: ChatMessage[],
     userMessage: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    pinnedChapters?: ArchiveChapter[]
 ): Promise<RecommenderResult> {
     const npcRoster = buildNPCRoster(npcLedger);
     const loreIndex = buildLoreIndex(loreChunks);
     const conversation = buildConversationExcerpt(messages, userMessage);
+
+    const pinnedSection = (pinnedChapters && pinnedChapters.length > 0)
+        ? `\n[DM-PINNED CHAPTERS — manually selected as relevant]\n${buildPinnedChapterContext(pinnedChapters)}\n`
+        : '';
 
     const userContent = `${RECOMMENDER_PROMPT}
 
@@ -97,37 +115,20 @@ ${npcRoster}
 
 [LORE INDEX — ${loreChunks.filter(c => !c.alwaysInclude).length} entries]
 ${loreIndex}
-
+${pinnedSection}
 [RECENT CONVERSATION]
 ${conversation}
 
 Respond with the JSON object now:`;
 
-    const url = `${utilityEndpoint.endpoint.replace(/\/+$/, '')}/chat/completions`;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (utilityEndpoint.apiKey) headers['Authorization'] = `Bearer ${utilityEndpoint.apiKey}`;
-
     console.log(`[ContextRecommender] Sending recommendation request to ${utilityEndpoint.modelName}...`);
 
-    const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-            model: utilityEndpoint.modelName,
-            messages: [{ role: 'user', content: userContent }],
-            stream: false,
-            temperature: 0.1, // Low temperature for consistent structured output
-        }),
+    // High priority — story AI cannot start until this returns
+    const rawContent = await callLLM(utilityEndpoint, userContent, {
+        temperature: 0.1, // Low temperature for consistent structured output
         signal,
+        priority: 'high',
     });
-
-    if (!res.ok) {
-        const errBody = await res.text();
-        throw new Error(`ContextRecommender API error ${res.status}: ${errBody}`);
-    }
-
-    const data = await res.json();
-    const rawContent = data.choices?.[0]?.message?.content ?? '';
 
     // Parse the JSON response — handle <think> blocks and markdown wrapping
     let cleanContent = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, '');

@@ -68,6 +68,7 @@ export async function runTurn(
     const engineResult = rollEngines(context);
     finalInput += engineResult.appendToInput;
     callbacks.updateContext(engineResult.updatedDCs);
+    const historyInput = finalInput;
     finalInput += rollDiceFairness(context);
     
     // --- AI INTERVENTION PHASE (Enemy, Neutral, Ally) ---
@@ -78,7 +79,7 @@ export async function runTurn(
     callbacks.addMessage({ 
         id: userMsgId, 
         role: 'user', 
-        content: finalInput, 
+        content: historyInput, 
         displayContent: displayInput, 
         timestamp: Date.now() 
     });
@@ -120,7 +121,7 @@ export async function runTurn(
     
     // Attach the debug payload to the user message we added earlier (memory-only, never persisted)
     if (settings.debugMode) {
-        callbacks.updateLastMessage({ debugPayload: payload });
+        callbacks.updateLastMessage({ debugPayload: { sections: payloadResult.debugSections, raw: payload } });
     }
 
     const stripLLMSceneHeader = (text: string): string =>
@@ -194,7 +195,7 @@ export async function runTurn(
 
                     setTimeout(() => {
                         callbacks.onCheckingNotes(false);
-                        executeTurn(currentPayload, toolCallCount + 1);
+                        executeTurn(currentPayload, toolCallCount + 1, 0, assistantMsgId);
                     }, 800);
                     return;
                 }
@@ -241,7 +242,7 @@ export async function runTurn(
                     } as unknown as import('./chatEngine').OpenAIMessage);
 
                     setTimeout(() => {
-                        executeTurn(currentPayload, toolCallCount + 1);
+                        executeTurn(currentPayload, toolCallCount + 1, 0, assistantMsgId);
                     }, 800);
                     return;
                 }
@@ -264,22 +265,36 @@ export async function runTurn(
                 }
             },
             (err) => {
-                if (err === 'AbortError' || err === 'The user aborted a request.') {
+                const isUserAbort = abortController.signal.aborted
+                    || err === 'AbortError'
+                    || err === 'The user aborted a request.'
+                    || (typeof err === 'string' && err.includes('abort'));
+
+                if (isUserAbort) {
                     callbacks.setStreaming(false);
                     callbacks.onCheckingNotes(false);
                     callbacks.setLoadingStatus?.(null);
                     return;
                 }
+
+                const currentAssistantContent = state.getMessages().find(m => m.id === assistantMsgId)?.content || '';
+
                 if (apiRetryCount === 0) {
-                    callbacks.updateLastAssistant(`⚠️ Error: ${err}. Retrying...`);
+                    if (!currentAssistantContent) {
+                        callbacks.updateLastAssistant(`⚠️ Error: ${err}. Retrying...`);
+                    }
                     toast.warning('LLM request failed — retrying...');
                     setTimeout(() => executeTurn(currentPayload, toolCallCount, 1, assistantMsgId), 2000);
                 } else if (apiRetryCount === 1) {
-                    callbacks.updateLastAssistant(`⚠️ Error: ${err}. Retrying without tools...`);
+                    if (!currentAssistantContent) {
+                        callbacks.updateLastAssistant(`⚠️ Error: ${err}. Retrying without tools...`);
+                    }
                     toast.warning('Retry failed — trying without tools...');
-                    setTimeout(() => executeTurn(currentPayload, 999, 2, assistantMsgId), 4000); // doubled backoff
+                    setTimeout(() => executeTurn(currentPayload, 999, 2, assistantMsgId), 4000);
                 } else {
-                    callbacks.updateLastAssistant(`⚠️ Error: ${err}`);
+                    if (!currentAssistantContent) {
+                        callbacks.updateLastAssistant(`⚠️ Error: ${err}`);
+                    }
                     toast.error('LLM request failed after retries');
                     callbacks.setStreaming(false);
                     callbacks.onCheckingNotes(false);

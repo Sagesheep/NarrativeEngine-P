@@ -1,6 +1,7 @@
 import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig, ArchiveChapter } from '../types';
 import { countTokens } from './tokenizer';
 import { extractJson } from './payloadBuilder';
+import { callLLM } from './callLLM';
 
 const BATCH_TOKEN_LIMIT = 100_000; // max tokens per LLM call for save engine
 
@@ -55,34 +56,6 @@ export function validateHeaderIndex(output: string): { valid: boolean; missing: 
         ...HEADER_INDEX_REQUIRED_FIELDS.filter((f) => !containsNormalized(output, f)),
     ];
     return { valid: missing.length === 0, missing };
-}
-
-// ─── LLM Call Helper ───
-
-async function llmCall(provider: ProviderConfig | EndpointConfig, prompt: string): Promise<string> {
-    const url = `${provider.endpoint.replace(/\/+$/, '')}/chat/completions`;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (provider.apiKey) {
-        headers['Authorization'] = `Bearer ${provider.apiKey}`;
-    }
-
-    const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-            model: provider.modelName,
-            messages: [{ role: 'user', content: prompt }],
-            stream: false,
-        }),
-    });
-
-    if (!res.ok) {
-        const errBody = await res.text();
-        throw new Error(`SaveFileEngine API error ${res.status}: ${errBody}`);
-    }
-
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content ?? '';
 }
 
 // ─── Header Index Generator ───
@@ -232,7 +205,7 @@ export async function generateHeaderIndex(
                 promptTokens: countTokens(prompt)
             });
 
-            const output = await llmCall(provider, prompt);
+            const output = await callLLM(provider, prompt, { priority: 'low' });
             const { valid } = validateHeaderIndex(output);
 
             if (valid) {
@@ -370,6 +343,9 @@ export function parseChapterSummaryOutput(raw: string): ChapterSummaryOutput | n
             }
         }
 
+        if (Array.isArray(parsed.summary)) parsed.summary = parsed.summary.join('\n');
+        if (Array.isArray(parsed.tone)) parsed.tone = parsed.tone.join(', ');
+
         return parsed as ChapterSummaryOutput;
     } catch (e) {
         console.error('[ChapterSummary] Failed to parse JSON:', e);
@@ -396,7 +372,7 @@ export async function generateChapterSummary(
             promptTokens: countTokens(prompt)
         });
 
-        const output = await llmCall(provider, prompt);
+        const output = await callLLM(provider, prompt, { priority: 'low' });
         const result = parseChapterSummaryOutput(output);
 
         if (result) {

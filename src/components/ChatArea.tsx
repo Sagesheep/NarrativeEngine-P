@@ -5,6 +5,7 @@ import { useAppStore } from '../store/useAppStore';
 import { runTurn } from '../services/turnOrchestrator';
 import { set } from 'idb-keyval';
 import { toast } from './Toast';
+import { debouncedSaveCampaignState } from '../store/slices/campaignSlice';
 import { rollbackArchiveFrom, openArchive as openArchiveFn, clearArchive as clearArchiveFn } from '../services/archiveManager';
 import { MessageBubble } from './MessageBubble';
 import { CondensedPanel } from './CondensedPanel';
@@ -190,6 +191,7 @@ export function ChatArea() {
         setStreaming(false);
         setIsCheckingNotes(false);
         setLoadingStatus(null);
+        debouncedSaveCampaignState();
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

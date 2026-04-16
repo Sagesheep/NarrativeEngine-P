@@ -9,6 +9,14 @@ export const TIMELINE_PREDICATES_SERVER = [
     'destroyed', 'misc',
 ];
 
+export function validatePredicate(predicate) {
+    return TIMELINE_PREDICATES_SERVER.includes(predicate) ? predicate : 'misc';
+}
+
+export function clampImportance(val) {
+    return Math.min(10, Math.max(1, typeof val === 'number' ? val : 5));
+}
+
 /**
  * Shared fetch-retry helper.
  * Returns the raw matched JSON string from the response, or null on failure.
@@ -134,10 +142,10 @@ If no state changes, return: []`;
             sceneId,
             chapterId,
             subject: e.subject,
-            predicate: TIMELINE_PREDICATES_SERVER.includes(e.predicate) ? e.predicate : 'misc',
+            predicate: validatePredicate(e.predicate),
             object: e.object,
             summary: e.summary || `${e.subject} ${e.predicate} ${e.object}`,
-            importance: Math.min(10, Math.max(1, e.importance)),
+            importance: clampImportance(e.importance),
             source: 'llm',
         }));
     } catch {

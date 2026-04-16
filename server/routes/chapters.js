@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { readJson, writeJson, chaptersPath, getNextSceneNumber } from '../lib/fileStore.js';
+import { readJson, writeJson, chaptersPath, getNextSceneNumber, createDefaultChapter } from '../lib/fileStore.js';
+import { wrapAsync } from '../lib/asyncHandler.js';
 
 export function createChaptersRouter() {
     const router = Router();
@@ -8,12 +9,12 @@ export function createChaptersRouter() {
     //  Chapters (Tier 4.5)
     // ═══════════════════════════════════════════
 
-    router.get('/api/campaigns/:id/archive/chapters', (req, res) => {
+    router.get('/api/campaigns/:id/archive/chapters', wrapAsync((req, res) => {
         const chapters = readJson(chaptersPath(req.params.id), []);
         res.json(chapters);
-    });
+    }));
 
-    router.post('/api/campaigns/:id/archive/chapters', (req, res) => {
+    router.post('/api/campaigns/:id/archive/chapters', wrapAsync((req, res) => {
         const cp = chaptersPath(req.params.id);
         const existing = readJson(cp, []);
 
@@ -25,27 +26,18 @@ export function createChaptersRouter() {
         const nextScene = getNextSceneNumber(req.params.id);
         const nextSceneId = String(nextScene).padStart(3, '0');
 
-        const newChapter = {
+        const newChapter = createDefaultChapter(
             chapterId,
-            title: req.body.title || `Chapter ${nextNum}`,
-            sceneRange: [nextSceneId, nextSceneId],
-            summary: '',
-            keywords: [],
-            npcs: [],
-            majorEvents: [],
-            unresolvedThreads: [],
-            tone: '',
-            themes: [],
-            sceneCount: 0,
-            // sealedAt is undefined -> open chapter
-        };
+            req.body.title || `Chapter ${nextNum}`,
+            nextSceneId,
+        );
 
         existing.push(newChapter);
         writeJson(cp, existing);
         res.json(newChapter);
-    });
+    }));
 
-    router.patch('/api/campaigns/:id/archive/chapters/:chapterId', (req, res) => {
+    router.patch('/api/campaigns/:id/archive/chapters/:chapterId', wrapAsync((req, res) => {
         const cp = chaptersPath(req.params.id);
         const existing = readJson(cp, []);
         const idx = existing.findIndex(c => c.chapterId === req.params.chapterId);
@@ -64,10 +56,10 @@ export function createChaptersRouter() {
 
         writeJson(cp, existing);
         res.json(existing[idx]);
-    });
+    }));
 
     // POST /api/campaigns/:id/archive/chapters/seal — Manual seal trigger
-    router.post('/api/campaigns/:id/archive/chapters/seal', (req, res) => {
+    router.post('/api/campaigns/:id/archive/chapters/seal', wrapAsync((req, res) => {
         const cp = chaptersPath(req.params.id);
         const existing = readJson(cp, []);
         const openChapter = existing.find(c => !c.sealedAt);
@@ -93,19 +85,11 @@ export function createChaptersRouter() {
 
         // Create new open chapter
         const nextChapterNum = existing.length + 1;
-        const newOpen = {
-            chapterId: `CH${String(nextChapterNum).padStart(2, '0')}`,
-            title: 'Open Chapter',
-            sceneRange: [nextScene, nextScene],
-            summary: '',
-            keywords: [],
-            npcs: [],
-            majorEvents: [],
-            unresolvedThreads: [],
-            tone: '',
-            themes: [],
-            sceneCount: 0,
-        };
+        const newOpen = createDefaultChapter(
+            `CH${String(nextChapterNum).padStart(2, '0')}`,
+            'Open Chapter',
+            nextScene,
+        );
 
         // Replace open chapter with sealed, add new open chapter
         const openIdx = existing.findIndex(c => c.chapterId === openChapter.chapterId);
@@ -114,10 +98,10 @@ export function createChaptersRouter() {
 
         writeJson(cp, existing);
         res.json({ sealedChapter: sealed, newOpenChapter: newOpen });
-    });
+    }));
 
     // POST /api/campaigns/:id/archive/chapters/merge — Merge two adjacent chapters
-    router.post('/api/campaigns/:id/archive/chapters/merge', (req, res) => {
+    router.post('/api/campaigns/:id/archive/chapters/merge', wrapAsync((req, res) => {
         const { chapterIdA, chapterIdB } = req.body;
         const cp = chaptersPath(req.params.id);
         const existing = readJson(cp, []);
@@ -158,10 +142,10 @@ export function createChaptersRouter() {
 
         writeJson(cp, existing);
         res.json(merged);
-    });
+    }));
 
     // POST /api/campaigns/:id/archive/chapters/:chapterId/split — Split a chapter at a scene
-    router.post('/api/campaigns/:id/archive/chapters/:chapterId/split', (req, res) => {
+    router.post('/api/campaigns/:id/archive/chapters/:chapterId/split', wrapAsync((req, res) => {
         const { atSceneId } = req.body;
         const cp = chaptersPath(req.params.id);
         const existing = readJson(cp, []);
@@ -199,7 +183,7 @@ export function createChaptersRouter() {
 
         writeJson(cp, existing);
         res.json({ chapterA, chapterB });
-    });
+    }));
 
     return router;
 }

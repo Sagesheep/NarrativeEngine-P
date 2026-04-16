@@ -27,7 +27,7 @@ export function createVaultRouter(vault) {
             res.json({ ok: true, unlocked: true });
         } catch (err) {
             console.error('[Vault Setup] Error:', err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Internal server error' });
         }
     });
 
@@ -86,7 +86,7 @@ export function createVaultRouter(vault) {
             res.json({ ok: true });
         } catch (err) {
             console.error('[Vault Save] Error:', err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Internal server error' });
         }
     });
 
@@ -100,7 +100,7 @@ export function createVaultRouter(vault) {
             res.send(buffer);
         } catch (err) {
             console.error('[Vault Export] Error:', err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Internal server error' });
         }
     });
 
@@ -140,7 +140,7 @@ export function createVaultRouter(vault) {
             res.json({ ok: true, unlocked: true });
         } catch (err) {
             console.error('[Vault Import] Error:', err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Internal server error' });
         }
     });
 
@@ -155,7 +155,7 @@ export function createVaultRouter(vault) {
             res.json({ ok: true });
         } catch (err) {
             console.error('[Vault Delete] Error:', err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Internal server error' });
         }
     });
 

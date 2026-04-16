@@ -145,13 +145,17 @@ export async function gatherContext(
         : Promise.resolve();
 
     const utilityEndpoint = state.getUtilityEndpoint?.();
+    const pinnedChaptersForRecommender = deps.pinnedChapterIds.length > 0
+        ? deps.chapters.filter(c => deps.pinnedChapterIds.includes(c.chapterId))
+        : undefined;
     const recommenderPromise = utilityEndpoint?.endpoint ? recommendContext(
         utilityEndpoint,
         npcLedger,
         loreChunks,
         messages,
         finalInput,
-        signal
+        signal,
+        pinnedChaptersForRecommender
     ).then(result => {
         recommendedNPCNames = result.relevantNPCNames;
         console.log(`[ContextGatherer] Recommender returned: ${recommendedNPCNames.length} NPCs, ${result.relevantLoreIds.length} lore`);
@@ -185,21 +189,26 @@ export async function gatherContext(
     // ─── Pinned Chapter Injection ──────────────────────────────────────
     if (deps.pinnedChapterIds.length > 0 && activeCampaignId) {
         const alreadyCoveredIds = new Set((archiveRecall ?? []).map(s => s.sceneId));
-        for (const pinnedId of deps.pinnedChapterIds) {
-            const pinnedChapter = deps.chapters.find(c => c.chapterId === pinnedId);
-            if (!pinnedChapter) continue;
-            const startNum = parseInt(pinnedChapter.sceneRange[0], 10);
-            const endNum = parseInt(pinnedChapter.sceneRange[1], 10);
-            const sceneIds = Array.from({ length: endNum - startNum + 1 }, (_, i) =>
-                String(startNum + i).padStart(3, '0')
+
+        const pinnedRanges: [string, string][] = deps.pinnedChapterIds
+            .map(id => deps.chapters.find(c => c.chapterId === id))
+            .filter((c): c is ArchiveChapter => !!c)
+            .map(c => c.sceneRange);
+
+        if (pinnedRanges.length > 0) {
+            const scoredIds = retrieveArchiveMemory(
+                archiveIndex, input, messages, npcLedger,
+                undefined, (state as any).semanticFacts,
+                pinnedRanges, undefined, semanticArchiveIds
             ).filter(id => !alreadyCoveredIds.has(id));
-            if (sceneIds.length > 0) {
+
+            if (scoredIds.length > 0) {
                 try {
-                    const pinnedScenes = await fetchArchiveScenes(activeCampaignId, sceneIds, 1500);
+                    const pinnedScenes = await fetchArchiveScenes(activeCampaignId, scoredIds, 1500);
                     archiveRecall = [...(archiveRecall ?? []), ...pinnedScenes];
-                    console.log(`[Pin] Injected ${pinnedScenes.length} scenes from pinned chapter ${pinnedId}`);
+                    console.log(`[Pin] Injected ${pinnedScenes.length} scored scenes from ${pinnedRanges.length} pinned chapter(s)`);
                 } catch (err) {
-                    console.warn(`[Pin] Failed to fetch pinned chapter ${pinnedId}:`, err);
+                    console.warn('[Pin] Failed to fetch pinned scenes:', err);
                 }
             }
         }

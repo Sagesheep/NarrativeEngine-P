@@ -3,7 +3,7 @@ import { Router } from 'express';
 import {
     readJson, writeJson, ensureDirs,
     archivePath, archiveIndexPath, chaptersPath, entitiesPath, timelinePath,
-    getNextSceneNumber,
+    getNextSceneNumber, createDefaultChapter,
 } from '../lib/fileStore.js';
 import {
     extractIndexKeywords, extractNPCNames, estimateImportance,
@@ -14,20 +14,20 @@ import { extractWitnessesLLM, extractTimelineEventsLLM } from '../services/llmPr
 import { normalizeEntityName } from '../lib/entityResolution.js';
 import { embedText, buildArchiveText, buildLoreText } from '../lib/embedder.js';
 import { storeArchiveEmbedding, storeLoreEmbedding, searchArchive, searchLore } from '../lib/vectorStore.js';
+import { wrapAsync } from '../lib/asyncHandler.js';
 
 export function createArchiveRouter() {
     const router = Router();
 
     // Pre-assign next scene number — called by client BEFORE sending to AI
-    router.get('/api/campaigns/:id/archive/next-scene', (req, res) => {
+    router.get('/api/campaigns/:id/archive/next-scene', wrapAsync((req, res) => {
         const next = getNextSceneNumber(req.params.id);
         const padded = String(next).padStart(3, '0');
         res.json({ sceneNumber: next, sceneId: padded });
-    });
+    }));
 
     // Append a scene (user + assistant exchange) — also writes index entry
-    router.post('/api/campaigns/:id/archive', async (req, res) => {
-        try {
+    router.post('/api/campaigns/:id/archive', wrapAsync(async (req, res) => {
         ensureDirs();
         const { userContent, assistantContent, importance: clientImportance, utilityConfig } = req.body;
         const fp = archivePath(req.params.id);
@@ -116,9 +116,14 @@ export function createArchiveRouter() {
         if (newEvents.length > 0) {
             const tp = timelinePath(req.params.id);
             const existingEvents = readJson(tp, []);
+            const maxId = existingEvents.reduce((max, e) => {
+                const num = parseInt(e.id.replace('tl_', ''), 10);
+                return num > max ? num : max;
+            }, 0);
+            let idCounter = maxId + 1;
             for (const ev of newEvents) {
                 existingEvents.push({
-                    id: `tl_${String(existingEvents.length + 1).padStart(4, '0')}`,
+                    id: `tl_${String(idCounter++).padStart(4, '0')}`,
                     ...ev,
                 });
             }
@@ -151,19 +156,12 @@ export function createArchiveRouter() {
         if (!openChapter) {
             // Create new open chapter if none exists
             const nextNum = chapters.length + 1;
-            openChapter = {
-                chapterId: `CH${String(nextNum).padStart(2, '0')}`,
-                title: `Chapter ${nextNum}`,
-                sceneRange: [sceneId, sceneId],
-                summary: '',
-                keywords: [],
-                npcs: [],
-                majorEvents: [],
-                unresolvedThreads: [],
-                tone: '',
-                themes: [],
-                sceneCount: 1,
-            };
+            openChapter = createDefaultChapter(
+                `CH${String(nextNum).padStart(2, '0')}`,
+                `Chapter ${nextNum}`,
+                sceneId,
+                1,
+            );
             chapters.push(openChapter);
         } else {
             // Update existing open chapter
@@ -173,14 +171,10 @@ export function createArchiveRouter() {
         writeJson(cp, chapters);
 
         res.json({ ok: true, sceneNumber: sceneNum, sceneId });
-        } catch (err) {
-            console.error('[Archive Append] Write failed:', err);
-            res.status(500).json({ error: 'Failed to append scene', detail: err.message });
-        }
-    });
+    }));
 
     // Clear archive (.archive.md and .archive.index.json)
-    router.delete('/api/campaigns/:id/archive', (req, res) => {
+    router.delete('/api/campaigns/:id/archive', wrapAsync((req, res) => {
         const id = req.params.id;
         const files = [
             archivePath(id),
@@ -192,28 +186,28 @@ export function createArchiveRouter() {
             if (fs.existsSync(f)) fs.unlinkSync(f);
         }
         res.json({ ok: true, chaptersCleared: true });
-    });
+    }));
 
     // Get current scene count
-    router.get('/api/campaigns/:id/archive', (req, res) => {
+    router.get('/api/campaigns/:id/archive', wrapAsync((req, res) => {
         const fp = archivePath(req.params.id);
         if (!fs.existsSync(fp)) return res.json({ exists: false, sceneCount: 0 });
         const nextScene = getNextSceneNumber(req.params.id);
         res.json({ exists: true, sceneCount: nextScene - 1 });
-    });
+    }));
 
     // ═══════════════════════════════════════════
     //  Archive Index & Scene Retrieval (Tier 4)
     // ═══════════════════════════════════════════
 
     // Return the full .archive.index.json for client-side retrieval
-    router.get('/api/campaigns/:id/archive/index', (req, res) => {
+    router.get('/api/campaigns/:id/archive/index', wrapAsync((req, res) => {
         const entries = readJson(archiveIndexPath(req.params.id), []);
         res.json(entries);
-    });
+    }));
 
     // Fetch full verbatim scenes by comma-separated scene IDs
-    router.get('/api/campaigns/:id/archive/scenes', (req, res) => {
+    router.get('/api/campaigns/:id/archive/scenes', wrapAsync((req, res) => {
         const fp = archivePath(req.params.id);
         if (!fs.existsSync(fp)) return res.json([]);
         const idsParam = req.query.ids || '';
@@ -233,10 +227,10 @@ export function createArchiveRouter() {
             }
         }
         res.json(result);
-    });
+    }));
 
     // Rollback: remove all scenes >= sceneId from .archive.md and .archive.index.json
-    router.delete('/api/campaigns/:id/archive/scenes-from/:sceneId', (req, res) => {
+    router.delete('/api/campaigns/:id/archive/scenes-from/:sceneId', wrapAsync((req, res) => {
         const fp = archivePath(req.params.id);
         const idxp = archiveIndexPath(req.params.id);
         const fromId = req.params.sceneId.padStart(3, '0');
@@ -297,19 +291,11 @@ export function createArchiveRouter() {
             const openChapter = chapters.find(ch => !ch.sealedAt);
             if (!openChapter) {
                 const nextNum = chapters.length + 1;
-                chapters.push({
-                    chapterId: `CH${String(nextNum).padStart(2, '0')}`,
-                    title: `Chapter ${nextNum}`,
-                    sceneRange: [fromId, fromId],
-                    summary: '',
-                    keywords: [],
-                    npcs: [],
-                    majorEvents: [],
-                    unresolvedThreads: [],
-                    tone: '',
-                    themes: [],
-                    sceneCount: 0, // Will be incremented on next append
-                });
+                chapters.push(createDefaultChapter(
+                    `CH${String(nextNum).padStart(2, '0')}`,
+                    `Chapter ${nextNum}`,
+                    fromId,
+                ));
                 chaptersRepaired = true;
             }
 
@@ -322,10 +308,10 @@ export function createArchiveRouter() {
             chaptersRepaired,
             condenserResetRecommended: true
         });
-    });
+    }));
 
     // Open archive in OS default app
-    router.get('/api/campaigns/:id/archive/open', (req, res) => {
+    router.get('/api/campaigns/:id/archive/open', wrapAsync((req, res) => {
         const fp = archivePath(req.params.id);
         if (!fs.existsSync(fp)) {
             return res.status(404).json({ error: 'No archive yet' });
@@ -336,39 +322,29 @@ export function createArchiveRouter() {
 
         import('child_process').then(({ exec }) => {
             exec(`${cmd} "${fp}"`, (err) => {
-                if (err) return res.status(500).json({ error: err.message });
+                if (err) return res.status(500).json({ error: 'Failed to open archive' });
                 res.json({ ok: true });
             });
         });
-    });
+    }));
 
-    router.post('/api/campaigns/:id/archive/semantic-candidates', async (req, res) => {
-        try {
-            const { query, limit } = req.body;
-            if (!query?.trim()) return res.json({ sceneIds: [] });
-            const embedding = await embedText(query);
-            const results = searchArchive(req.params.id, embedding, limit || 20);
-            console.log(`[VectorStore] archive candidates for "${query.slice(0, 50)}": [${results.map(r => r.sceneId).join(', ')}]`);
-            res.json({ sceneIds: results.map(r => r.sceneId) });
-        } catch (err) {
-            console.error('[Archive] Semantic candidate search failed:', err.message);
-            res.json({ sceneIds: [] });
-        }
-    });
+    router.post('/api/campaigns/:id/archive/semantic-candidates', wrapAsync(async (req, res) => {
+        const { query, limit } = req.body;
+        if (!query?.trim()) return res.json({ sceneIds: [] });
+        const embedding = await embedText(query);
+        const results = searchArchive(req.params.id, embedding, limit || 20);
+        console.log(`[VectorStore] archive candidates for "${query.slice(0, 50)}": [${results.map(r => r.sceneId).join(', ')}]`);
+        res.json({ sceneIds: results.map(r => r.sceneId) });
+    }));
 
-    router.post('/api/campaigns/:id/lore/semantic-candidates', async (req, res) => {
-        try {
-            const { query, limit } = req.body;
-            if (!query?.trim()) return res.json({ loreIds: [] });
-            const embedding = await embedText(query);
-            const results = searchLore(req.params.id, embedding, limit || 15);
-            console.log(`[VectorStore] lore candidates for "${query.slice(0, 50)}": [${results.map(r => r.loreId).join(', ')}]`);
-            res.json({ loreIds: results.map(r => r.loreId) });
-        } catch (err) {
-            console.error('[Archive] Lore semantic candidate search failed:', err.message);
-            res.json({ loreIds: [] });
-        }
-    });
+    router.post('/api/campaigns/:id/lore/semantic-candidates', wrapAsync(async (req, res) => {
+        const { query, limit } = req.body;
+        if (!query?.trim()) return res.json({ loreIds: [] });
+        const embedding = await embedText(query);
+        const results = searchLore(req.params.id, embedding, limit || 15);
+        console.log(`[VectorStore] lore candidates for "${query.slice(0, 50)}": [${results.map(r => r.loreId).join(', ')}]`);
+        res.json({ loreIds: results.map(r => r.loreId) });
+    }));
 
     return router;
 }

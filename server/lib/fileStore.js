@@ -75,13 +75,35 @@ export function getNextSceneNumber(id) {
     return num + 1;
 }
 
+export function createDefaultChapter(chapterId, title, sceneRangeStart, sceneCount = 0) {
+    return {
+        chapterId,
+        title,
+        sceneRange: [sceneRangeStart, sceneRangeStart],
+        summary: '',
+        keywords: [],
+        npcs: [],
+        majorEvents: [],
+        unresolvedThreads: [],
+        tone: '',
+        themes: [],
+        sceneCount,
+    };
+}
+
+const CAMPAIGN_FILE_SUFFIXES = [
+    '.json', '.state.json', '.lore.json', '.npcs.json',
+    '.archive.md', '.archive.index.json', '.archive.chapters.json',
+    '.timeline.json', '.entities.json', '.facts.json',
+];
+
+export function campaignFileNames(id) {
+    return CAMPAIGN_FILE_SUFFIXES.map(s => `${id}${s}`);
+}
+
 export function computeCampaignHash(id) {
-     const fileNames = [
-        `${id}.json`, `${id}.state.json`, `${id}.lore.json`, `${id}.npcs.json`,
-        `${id}.archive.md`, `${id}.archive.index.json`, `${id}.archive.chapters.json`, `${id}.timeline.json`, `${id}.entities.json`,
-    ];
     const hash = crypto.createHash('md5');
-    for (const name of fileNames) {
+    for (const name of campaignFileNames(id)) {
         const fp = path.join(CAMPAIGNS_DIR, name);
         if (fs.existsSync(fp)) {
             hash.update(fs.readFileSync(fp, 'utf-8'));
@@ -91,9 +113,5 @@ export function computeCampaignHash(id) {
 }
 
 export function campaignFiles(id) {
-     const names = [
-        `${id}.json`, `${id}.state.json`, `${id}.lore.json`, `${id}.npcs.json`,
-        `${id}.archive.md`, `${id}.archive.index.json`, `${id}.archive.chapters.json`, `${id}.timeline.json`, `${id}.entities.json`,
-    ];
-    return names.filter(n => fs.existsSync(path.join(CAMPAIGNS_DIR, n)));
+    return campaignFileNames(id).filter(n => fs.existsSync(path.join(CAMPAIGNS_DIR, n)));
 }
