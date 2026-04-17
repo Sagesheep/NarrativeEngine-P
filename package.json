@@ -27,6 +27,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "sqlite-vec": "^0.1.9",
     "zustand": "^5.0.11"
   },

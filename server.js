@@ -39,7 +39,7 @@ if (!vault.isUnlocked()) {
 
 // ─── Middleware ───
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '200mb' }));
 app.use('/assets/portraits', express.static(PUBLIC_ASSETS_DIR));
 
 // ─── Vector Search Init ───

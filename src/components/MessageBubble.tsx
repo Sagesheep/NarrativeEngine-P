@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Edit2, RotateCcw, Trash2, Loader2 } from 'lucide-react';
 import type { ChatMessage, DebugSection } from '../types';
 import { DebugPayloadView } from './DebugPayloadView';
@@ -105,7 +106,7 @@ export function MessageBubble({
                             </div>
                         </details>
                     )}
-                    <ReactMarkdown>{markdownContent}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdownContent}</ReactMarkdown>
                     {hasSummary && (
                         <div className="mt-2 pl-3 border-l-2 border-terminal/30 text-[10px] text-text-dim">
                             <div className="uppercase tracking-widest text-terminal/60 mb-1">Generated Output:</div>
