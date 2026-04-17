@@ -17,6 +17,7 @@ interface UseCondenserDeps {
     setTimeline: (events: any[]) => void;
     updateContext: (patch: Partial<GameContext>) => void;
     setLoadingStatus: (s: string | null) => void;
+    getActiveSummarizerEndpoint?: () => EndpointConfig | ProviderConfig | undefined;
     getActiveStoryEndpoint: () => EndpointConfig | ProviderConfig | undefined;
     getFreshContext: () => GameContext;
     getNpcLedger: () => NPCEntry[];
@@ -47,7 +48,8 @@ export function useCondenser(deps: UseCondenserDeps) {
         condenseAbortRef.current = new AbortController();
         deps.setCondensing(true);
         try {
-            const provider = deps.getActiveStoryEndpoint();
+            const provider = deps.getActiveSummarizerEndpoint?.()
+                ?? deps.getActiveStoryEndpoint();
             if (!provider) return;
             const currentCtx = deps.getFreshContext();
             const uncondensed = deps.messages.slice(deps.condenser.condensedUpToIndex + 1);

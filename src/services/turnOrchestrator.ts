@@ -1,4 +1,4 @@
-import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter } from '../types';
+import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase } from '../types';
 import { uid } from '../utils/uid';
 import { buildPayload, sendMessage } from './chatEngine';
 import { rollEngines, rollDiceFairness } from './engineRolls';
@@ -24,6 +24,7 @@ export type TurnCallbacks = {
     setStreaming: (v: boolean) => void;
     setLastPayloadTrace?: (trace: any) => void;
     setLoadingStatus?: (status: string | null) => void;
+    setPipelinePhase?: (phase: PipelinePhase) => void;
 };
 
 export type TurnState = {
@@ -52,6 +53,7 @@ export type TurnState = {
     resetBookkeepingTurnCounter: () => void;
     autoBookkeepingInterval: number;
     getFreshContext: () => GameContext;
+    sampling?: SamplingConfig;
 };
 
 
@@ -65,6 +67,7 @@ export async function runTurn(
     if (!provider) return;
 
     let finalInput = input;
+    callbacks.setPipelinePhase?.('rolling-dice');
     const engineResult = rollEngines(context);
     finalInput += engineResult.appendToInput;
     callbacks.updateContext(engineResult.updatedDCs);
@@ -72,6 +75,7 @@ export async function runTurn(
     finalInput += rollDiceFairness(context);
     
     // --- AI INTERVENTION PHASE (Enemy, Neutral, Ally) ---
+    callbacks.setPipelinePhase?.('ai-intervention');
     await handleInterventions(state, callbacks, finalInput, abortController);
 
     // Provide immediate UI feedback by adding the user message synchronously before heavy async operations
@@ -84,6 +88,7 @@ export async function runTurn(
         timestamp: Date.now() 
     });
     callbacks.setStreaming(true);
+    callbacks.setPipelinePhase?.('gathering-context');
     callbacks.setLoadingStatus?.('Gathering Context & Memories concurrently...');
 
     // ─── Context Gathering (parallel: archive, timeline, recommender, lore, pinned chapters) ───
@@ -96,6 +101,7 @@ export async function runTurn(
 
     if (abortController.signal.aborted) return;
 
+    callbacks.setPipelinePhase?.('building-prompt');
     callbacks.setLoadingStatus?.('Architecting AI Prompt...');
     const payloadResult = buildPayload(
         settings,
@@ -143,6 +149,7 @@ export async function runTurn(
 
         const tools = allowTools ? TOOL_DEFINITIONS : undefined;
 
+        callbacks.setPipelinePhase?.('generating');
         callbacks.setLoadingStatus?.(null);
         await sendMessage(
             provider,
@@ -152,6 +159,7 @@ export async function runTurn(
             ),
             async (finalText, toolCall) => {
                 if (toolCall && toolCall.name === 'query_campaign_lore') {
+                    callbacks.setPipelinePhase?.('checking-notes');
                     callbacks.onCheckingNotes(true);
                     callbacks.setStreaming(false);
                     const loreEngineText = sceneNumber
@@ -195,6 +203,7 @@ export async function runTurn(
 
                     setTimeout(() => {
                         callbacks.onCheckingNotes(false);
+                        callbacks.setPipelinePhase?.('generating');
                         executeTurn(currentPayload, toolCallCount + 1, 0, assistantMsgId);
                     }, 800);
                     return;
@@ -249,6 +258,7 @@ export async function runTurn(
 
                 callbacks.setStreaming(false);
                 callbacks.onCheckingNotes(false);
+                callbacks.setPipelinePhase?.('post-processing');
                 const engineText = sceneNumber
                     ? `Scene #${sceneNumber} | ${stripLLMSceneHeader(finalText)}`
                     : finalText;
@@ -263,6 +273,7 @@ export async function runTurn(
                 if (combinedContent && activeCampaignId) {
                     await runPostTurnPipeline(state, callbacks, combinedContent, allMsgs);
                 }
+                callbacks.setPipelinePhase?.('idle');
             },
             (err) => {
                 const isUserAbort = abortController.signal.aborted
@@ -274,6 +285,7 @@ export async function runTurn(
                     callbacks.setStreaming(false);
                     callbacks.onCheckingNotes(false);
                     callbacks.setLoadingStatus?.(null);
+                    callbacks.setPipelinePhase?.('idle');
                     return;
                 }
 
@@ -299,10 +311,12 @@ export async function runTurn(
                     callbacks.setStreaming(false);
                     callbacks.onCheckingNotes(false);
                     callbacks.setLoadingStatus?.(null);
+                    callbacks.setPipelinePhase?.('idle');
                 }
             },
             tools ? [...tools] : undefined,
-            abortController
+            abortController,
+            state.sampling
         );
     };
 

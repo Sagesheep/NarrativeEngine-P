@@ -1,4 +1,4 @@
-import type { EndpointConfig, ProviderConfig } from '../types';
+import type { EndpointConfig, ProviderConfig, SamplingConfig } from '../types';
 import { uid } from '../utils/uid';
 import { llmQueue } from './llmRequestQueue';
 import { getChatUrl, getModelsUrl, buildChatHeaders, buildChatBody, getApiFormat } from '../utils/llmApiHelper';
@@ -18,14 +18,15 @@ export async function sendMessage(
     onDone: (text: string, toolCall?: { id: string; name: string; arguments: string }) => void,
     onError: (err: string) => void,
     tools?: unknown[],
-    abortController?: AbortController
+    abortController?: AbortController,
+    sampling?: SamplingConfig
 ) {
     const url = getChatUrl(provider);
     const headers = buildChatHeaders(provider);
     const isOllama = getApiFormat(provider) === 'ollama';
 
     try {
-        const payload = buildChatBody(provider, messages, { stream: true, tools: tools ?? [] });
+        const payload = buildChatBody(provider, messages, { stream: true, tools: tools ?? [], sampling });
 
         const controller = abortController || new AbortController();
         let timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds timeout

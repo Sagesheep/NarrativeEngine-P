@@ -1,10 +1,39 @@
 export type ApiFormat = 'openai' | 'ollama';
 
+export type PipelinePhase =
+    | 'idle'
+    | 'rolling-dice'
+    | 'ai-intervention'
+    | 'gathering-context'
+    | 'building-prompt'
+    | 'generating'
+    | 'checking-notes'
+    | 'post-processing';
+
+export type StreamingStats = {
+    tokens: number;
+    elapsed: number;
+    speed: number;
+};
+
 export type EndpointConfig = {
     endpoint: string;
     apiKey: string;
     modelName: string;
     apiFormat?: ApiFormat;
+};
+
+export type SamplingConfig = {
+    temperature?: number;
+    top_p?: number;
+    top_k?: number;
+    min_p?: number;
+    frequency_penalty?: number;
+    presence_penalty?: number;
+    repetition_penalty?: number;
+    dry_multiplier?: number;
+    dry_base?: number;
+    dry_allowed_length?: number;
 };
 
 export type AIPreset = {
@@ -13,10 +42,11 @@ export type AIPreset = {
     storyAI: EndpointConfig;
     imageAI: EndpointConfig;
     summarizerAI: EndpointConfig;
-    utilityAI?: EndpointConfig; // Context recommender — optional, fallback to substring scan if empty
+    utilityAI?: EndpointConfig;
     enemyAI?: EndpointConfig;
     neutralAI?: EndpointConfig;
     allyAI?: EndpointConfig;
+    sampling?: SamplingConfig;
 };
 
 export type ProviderConfig = {

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { X, Plus, Users, LayoutGrid, List, CheckSquare, Upload, Download, BookOpen, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { X, Plus, Users, LayoutGrid, List, CheckSquare, Upload, Download, BookOpen, Trash2, Search, ArrowDownAZ, ArrowUpZA } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { generateNPCPortrait, updateExistingNPCs } from '../services/chatEngine';
 import { parseNPCsFromLore } from '../services/loreNPCParser';
@@ -23,7 +23,24 @@ export function NPCLedgerModal() {
 
     const [selectMode, setSelectMode] = useState(false);
     const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+    const [searchQuery, setSearchQuery] = useState('');
+    const [sortOrder, setSortOrder] = useState<'none' | 'az' | 'za'>('none');
     const importRef = useRef<HTMLInputElement>(null);
+
+    const displayedNPCs = useMemo(() => {
+        let list = npcLedger;
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase();
+            list = list.filter(n =>
+                n.name.toLowerCase().includes(q) ||
+                n.aliases?.toLowerCase().includes(q) ||
+                n.faction?.toLowerCase().includes(q)
+            );
+        }
+        if (sortOrder === 'az') return [...list].sort((a, b) => a.name.localeCompare(b.name));
+        if (sortOrder === 'za') return [...list].sort((a, b) => b.name.localeCompare(a.name));
+        return list;
+    }, [npcLedger, searchQuery, sortOrder]);
 
     const [form, setForm] = useState<Partial<NPCEntry>>({
         status: 'Alive', voice: '', personality: '', exampleOutput: '',
@@ -86,10 +103,10 @@ export function NPCLedgerModal() {
         });
     };
 
-    const allChecked = npcLedger.length > 0 && checkedIds.size === npcLedger.length;
+    const allChecked = displayedNPCs.length > 0 && checkedIds.size === displayedNPCs.length;
 
     const handleSelectAll = () => {
-        setCheckedIds(allChecked ? new Set() : new Set(npcLedger.map(n => n.id)));
+        setCheckedIds(allChecked ? new Set() : new Set(displayedNPCs.map(n => n.id)));
     };
 
     const handleDeleteSelected = () => {
@@ -263,7 +280,29 @@ export function NPCLedgerModal() {
                                     <LayoutGrid size={14} />
                                 </button>
                             </div>
+                            <button onClick={() => setSortOrder(prev => prev === 'none' ? 'az' : prev === 'az' ? 'za' : 'none')} className={`p-1.5 border border-border rounded transition-colors ${sortOrder !== 'none' ? 'bg-terminal text-void border-terminal' : 'text-text-dim hover:text-text-primary'}`} title={sortOrder === 'az' ? 'Sorted A→Z (click for Z→A)' : sortOrder === 'za' ? 'Sorted Z→A (click to clear)' : 'Sort alphabetically'}>
+                                {sortOrder === 'za' ? <ArrowUpZA size={14} /> : <ArrowDownAZ size={14} />}
+                            </button>
                             <button onClick={toggleNPCLedger} className="text-text-dim hover:text-text-primary p-1 sm:hidden"><X size={18} /></button>
+                        </div>
+                    </div>
+
+                    {/* Search Bar */}
+                    <div className="px-3 py-2 border-b border-border bg-void-lighter shrink-0">
+                        <div className="relative">
+                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim" />
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                                placeholder="Search name, alias, faction..."
+                                className="w-full pl-8 pr-3 py-1.5 bg-surface border border-border rounded text-xs text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal transition-colors"
+                            />
+                            {searchQuery && (
+                                <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary transition-colors">
+                                    <X size={12} />
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -299,9 +338,14 @@ export function NPCLedgerModal() {
                     </div>
 
                     {/* List or Gallery */}
+                    {searchQuery.trim() && displayedNPCs.length !== npcLedger.length && (
+                        <div className="px-3 py-1.5 text-[10px] text-text-dim border-b border-border bg-void-lighter shrink-0">
+                            Showing {displayedNPCs.length} of {npcLedger.length} records
+                        </div>
+                    )}
                     {viewMode === 'list'
-                        ? <NPCListView npcLedger={npcLedger} selectedId={selectedId} selectMode={selectMode} checkedIds={checkedIds} onSelect={handleSelect} onToggleCheck={toggleCheck} onDelete={handleDelete} />
-                        : <NPCGalleryView npcLedger={npcLedger} selectedId={selectedId} selectMode={selectMode} checkedIds={checkedIds} onSelect={handleSelect} onToggleCheck={toggleCheck} onDelete={handleDelete} />
+                        ? <NPCListView npcLedger={displayedNPCs} selectedId={selectedId} selectMode={selectMode} checkedIds={checkedIds} onSelect={handleSelect} onToggleCheck={toggleCheck} onDelete={handleDelete} />
+                        : <NPCGalleryView npcLedger={displayedNPCs} selectedId={selectedId} selectMode={selectMode} checkedIds={checkedIds} onSelect={handleSelect} onToggleCheck={toggleCheck} onDelete={handleDelete} />
                     }
                 </div>
 

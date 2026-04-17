@@ -2,9 +2,10 @@ import { useState, useRef } from 'react';
 import { X, Loader2, CheckCircle, XCircle, Plus, Trash2, ChevronDown, ChevronRight, Download, Upload, Lock } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { testConnection } from '../services/chatEngine';
-import type { AIPreset, EndpointConfig, ApiFormat } from '../types';
+import type { AIPreset, EndpointConfig, ApiFormat, SamplingConfig } from '../types';
 import { toast } from './Toast';
 import { uid } from '../utils/uid';
+import { SamplingPanel } from './SamplingPanel';
 
 export function SettingsModal() {
     const { settings, updateSettings, settingsOpen, toggleSettings, addPreset, updatePreset, removePreset } = useAppStore();
@@ -90,6 +91,11 @@ export function SettingsModal() {
 
     const toggleSection = (section: string) => {
         setExpanded(prev => ({ ...prev, [section]: !prev[section] }));
+    };
+
+    const handleUpdateSampling = (sampling: SamplingConfig) => {
+        if (!activePreset) return;
+        updatePreset(activePreset.id, { sampling });
     };
 
     const renderEndpointConfig = (section: 'storyAI' | 'imageAI' | 'summarizerAI' | 'utilityAI', title: string) => {
@@ -255,6 +261,8 @@ export function SettingsModal() {
                             {renderEndpointConfig('summarizerAI', 'Summarizer & Context AI')}
                             {renderEndpointConfig('imageAI', 'Image Generation AI')}
                             {renderEndpointConfig('utilityAI', 'Utility AI (Context Recommender)')}
+
+                            <SamplingPanel preset={activePreset} onUpdate={handleUpdateSampling} />
                         </div>
                     )}
 

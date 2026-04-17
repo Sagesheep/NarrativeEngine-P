@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Briefcase, RefreshCw, User, Settings2 } from 'lucide-react';
+import { Briefcase, RefreshCw, User, Settings2, List, Database } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { scanInventory } from '../../services/inventoryParser';
 import { scanCharacterProfile } from '../../services/characterProfileParser';
@@ -68,7 +68,7 @@ export function BookkeepingTab() {
     return (
         <div className="px-4 py-4 space-y-4">
             <p className="text-[9px] text-text-dim/50">
-                Toggle ON = appended to context. Use Check Inventory to auto-update.
+                Toggle ON = appended to context. Use scan buttons to auto-update inventory/profile.
             </p>
 
             <div>
@@ -125,6 +125,36 @@ export function BookkeepingTab() {
                         {isScanningProfile ? 'Scanning...' : 'Populate Profile'}
                     </button>
                 </div>
+            </div>
+
+            <div className="pt-4 border-t border-border/50">
+                <TemplateField
+                    icon={<List size={13} />}
+                    label="Header Index"
+                    color="text-ice"
+                    value={context.headerIndex}
+                    onChange={(v) => updateContext({ headerIndex: v })}
+                    placeholder="Scene headers and pending loops..."
+                    rows={4}
+                    active={context.headerIndexActive}
+                    onToggle={() => updateContext({ headerIndexActive: !context.headerIndexActive })}
+                    hint="Auto-generated on condense"
+                />
+            </div>
+
+            <div className="pt-4 border-t border-border/50">
+                <TemplateField
+                    icon={<Database size={13} />}
+                    label="Canon State"
+                    color="text-ember"
+                    value={context.canonState}
+                    onChange={(v) => updateContext({ canonState: v })}
+                    placeholder="Persistent narrative canon..."
+                    rows={6}
+                    active={context.canonStateActive}
+                    onToggle={() => updateContext({ canonStateActive: !context.canonStateActive })}
+                    hint="Auto-generated on condense"
+                />
             </div>
 
             <div className="pt-4 border-t border-border/50">

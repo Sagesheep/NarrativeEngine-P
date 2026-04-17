@@ -9,9 +9,11 @@ import { debouncedSaveCampaignState } from '../store/slices/campaignSlice';
 import { rollbackArchiveFrom, openArchive as openArchiveFn, clearArchive as clearArchiveFn } from '../services/archiveManager';
 import { MessageBubble } from './MessageBubble';
 import { CondensedPanel } from './CondensedPanel';
+import { GenerationProgress } from './GenerationProgress';
 import { useCondenser } from './hooks/useCondenser';
 import { useChapterSealing } from './hooks/useChapterSealing';
 import { useMessageEditor } from './hooks/useMessageEditor';
+import type { PipelinePhase, StreamingStats } from '../types';
 
 
 export function ChatArea() {
@@ -52,8 +54,10 @@ export function ChatArea() {
 
     const [input, setInput] = useState('');
     const [isStreaming, setStreaming] = useState(false);
-    const [isCheckingNotes, setIsCheckingNotes] = useState(false);
+    const [, setIsCheckingNotes] = useState(false);
     const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
+    const [pipelinePhase, setPipelinePhase] = useState<PipelinePhase>('idle');
+    const [streamingStats, setStreamingStats] = useState<StreamingStats | null>(null);
     const [visibleCount, setVisibleCount] = useState(10);
     const [loadStep, setLoadStep] = useState(10);
     const [showCondensed, setShowCondensed] = useState(false);
@@ -61,10 +65,34 @@ export function ChatArea() {
     const bottomRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const streamStartRef = useRef<number>(0);
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages.length]);
+
+    useEffect(() => {
+        if (pipelinePhase === 'generating') {
+            streamStartRef.current = Date.now();
+        }
+    }, [pipelinePhase]);
+
+    useEffect(() => {
+        if (pipelinePhase !== 'generating') {
+            setStreamingStats(null);
+            return;
+        }
+        const interval = setInterval(() => {
+            const msgs = useAppStore.getState().messages;
+            const last = msgs[msgs.length - 1];
+            if (!last || last.role !== 'assistant') return;
+            const tokens = Math.round(last.content.length / 4);
+            const elapsed = Date.now() - streamStartRef.current;
+            const speed = elapsed > 0 ? (tokens / (elapsed / 1000)) : 0;
+            setStreamingStats({ tokens, elapsed, speed });
+        }, 500);
+        return () => clearInterval(interval);
+    }, [pipelinePhase]);
 
     const resetTextareaHeight = () => {
         if (inputRef.current) {
@@ -84,6 +112,7 @@ export function ChatArea() {
         setTimeline,
         updateContext,
         setLoadingStatus,
+        getActiveSummarizerEndpoint: () => useAppStore.getState().getActiveSummarizerEndpoint?.(),
         getActiveStoryEndpoint: () => useAppStore.getState().getActiveStoryEndpoint(),
         getFreshContext: () => useAppStore.getState().context,
         getNpcLedger: () => useAppStore.getState().npcLedger,
@@ -135,6 +164,7 @@ export function ChatArea() {
             resetBookkeepingTurnCounter: storeSnapshot.resetBookkeepingTurnCounter,
             autoBookkeepingInterval: storeSnapshot.autoBookkeepingInterval,
             getFreshContext: () => useAppStore.getState().context,
+            sampling: storeSnapshot.getActivePreset()?.sampling,
         }, {
             onCheckingNotes: setIsCheckingNotes,
             addMessage: storeSnapshot.addMessage,
@@ -149,6 +179,7 @@ export function ChatArea() {
             setCondensing: setCondensing,
             setStreaming: setStreaming,
             setLoadingStatus: setLoadingStatus,
+            setPipelinePhase: setPipelinePhase,
             setLastPayloadTrace: storeSnapshot.setLastPayloadTrace
         }, abortControllerRef.current);
 
@@ -191,6 +222,7 @@ export function ChatArea() {
         setStreaming(false);
         setIsCheckingNotes(false);
         setLoadingStatus(null);
+        setPipelinePhase('idle');
         debouncedSaveCampaignState();
     };
 
@@ -302,24 +334,14 @@ export function ChatArea() {
                     />
                 ))}
 
-                <div aria-live="polite" aria-atomic="true">
-                    {loadingStatus ? (
-                        <div className="flex items-center gap-2 text-terminal text-xs px-4">
-                            <Loader2 size={12} className="animate-spin" />
-                            <span className="animate-pulse-slow">{loadingStatus}</span>
-                        </div>
-                    ) : isCheckingNotes ? (
-                        <div className="flex items-center gap-2 text-terminal/80 text-xs px-4">
-                            <Loader2 size={12} className="animate-spin" />
-                            <span className="animate-pulse-slow">The GM is checking their notes...</span>
-                        </div>
-                    ) : isStreaming ? (
-                        <div className="flex items-center gap-2 text-terminal text-xs px-4">
-                            <Loader2 size={12} className="animate-spin" />
-                            <span className="animate-pulse-slow">Generating...</span>
-                        </div>
-                    ) : null}
-                </div>
+                <GenerationProgress phase={pipelinePhase} stats={streamingStats} />
+
+                {loadingStatus && pipelinePhase === 'idle' && (
+                    <div className="flex items-center gap-2 text-terminal text-xs px-4">
+                        <Loader2 size={12} className="animate-spin" />
+                        <span className="animate-pulse-slow">{loadingStatus}</span>
+                    </div>
+                )}
 
                 <div ref={bottomRef} />
             </div>
