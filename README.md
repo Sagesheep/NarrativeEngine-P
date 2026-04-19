@@ -32,6 +32,36 @@ That's it. Create a campaign, write your world lore, and start playing.
 
 ---
 
+## Setting Up Your First Campaign
+
+The `Example_Setup/` folder contains a complete ready-to-play campaign: **The Awakening** — a gritty survival fantasy where humanity huddles behind massive walls 100 years after a meteor mutated all non-humanoid life into monsters. It's a great way to see how the engine works.
+
+### What's in the example
+
+| File | What it does |
+|---|---|
+| `Spirit_Card_World_Lore.md` | The world bible — continents, factions, locations, characters, rules. Paste this into the **Lore** section when creating your campaign. |
+| `Rulebook v2.6.md` | The GM's instruction set — output formatting, NPC behavior, dice resolution, event handling. Paste this into the **System Prompt** field in campaign settings. |
+| `starter_prompt.md` | The opening scene + walkthrough — tells the GM to guide character creation step-by-step before starting the story. Send this as your **first message** to the GM. |
+
+### How to use it
+
+1. Create a new campaign
+2. Open the **World Info (Lore)** tab and paste the contents of `Spirit_Card_World_Lore.md`
+3. Open **Campaign Settings** and paste the contents of `Rulebook v2.6.md` into the System Prompt field
+4. Start a new chat and paste the contents of `starter_prompt.md` as your first message
+5. The GM will walk you through character creation and then drop you into the world
+
+### Writing your own setup
+
+You can use the example as a template for any setting:
+
+- **Lore** — Write your world in Markdown using `##` and `###` headers. Each section becomes a lore chunk the GM can recall. Use `[CHUNK: TYPE -- NAME]` prefixes to classify entries. Supported types: `world_overview`, `faction`, `location`, `character`, `power_system`, `economy`, `event`, `relationship`, `rules`, `culture`, `misc`
+- **System Prompt** — Define how the GM behaves: tone, output format, NPC behavior rules, dice resolution, event protocols. The engine handles memory and recall — you just define the style and rules
+- **First Message** — Set the scene or give the GM a starting instruction. You can describe an opening scenario, ask for character creation, or just say "begin"
+
+---
+
 ## Features
 
 ### Your Campaign, Your World
