@@ -3,7 +3,7 @@ import { X, RotateCcw, Trash2, Save, Clock, Loader2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { listBackups, createBackup, restoreBackup, deleteBackup } from '../store/campaignStore';
 import { hydrateCampaign } from '../store/campaignHydrator';
-import { cancelPendingSaves } from '../store/slices/campaignSlice';
+import { cancelPendingSaves, flushAllPendingSaves } from '../store/slices/campaignSlice';
 import type { BackupMeta } from '../types';
 import { toast } from './Toast';
 
@@ -39,6 +39,7 @@ export function BackupModal() {
     async function handleCreateManual() {
         if (!activeCampaignId) return;
         setCreating(true);
+        await flushAllPendingSaves();
         const result = await createBackup(activeCampaignId, { trigger: 'manual', label: 'Manual backup' });
         if (result?.skipped) {
             toast.info('No changes since last backup');

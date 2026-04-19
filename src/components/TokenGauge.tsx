@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { countTokens } from '../services/tokenizer';
+import { DEFAULT_RULES } from '../services/defaultRules';
 
 export function TokenGauge() {
     const { context, settings, condenser } = useAppStore(
@@ -12,7 +13,7 @@ export function TokenGauge() {
     const systemText = useMemo(() => {
         const parts: string[] = [];
         if (context.loreRaw) parts.push(context.loreRaw);
-        if (context.rulesRaw) parts.push(context.rulesRaw);
+        if (context.rulesRaw || DEFAULT_RULES) parts.push(context.rulesRaw || DEFAULT_RULES);
         if (context.canonStateActive && context.canonState) parts.push(context.canonState);
         if (context.headerIndexActive && context.headerIndex) parts.push(context.headerIndex);
         if (context.starterActive && context.starter) parts.push(context.starter);

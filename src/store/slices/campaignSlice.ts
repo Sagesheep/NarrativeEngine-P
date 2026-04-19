@@ -26,9 +26,9 @@ function preOpBackup(campaignId: string | null, trigger: string) {
 // Getter registered by the slice creator so we always read fresh state at fire time.
 // This prevents stale-snapshot race conditions where two rapid updates within the 1s
 // debounce window would cause the first update's changes to be overwritten.
-let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState }) | null = null;
+let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[] }) | null = null;
 export function _registerCampaignStateGetter(
-    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState }
+    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[] }
 ) {
     _getStateForSave = getter;
 }
@@ -39,6 +39,54 @@ export function cancelPendingSaves() {
     if (stateTimer) { clearTimeout(stateTimer); stateTimer = null; }
     if (loreTimer)  { clearTimeout(loreTimer);  loreTimer  = null; }
     if (npcTimer)   { clearTimeout(npcTimer);   npcTimer   = null; }
+}
+
+/** Immediately fires any pending debounced saves so the latest in-memory state is on
+ *  disk before a backup is created. Awaiting this guarantees the backup reads current data. */
+export async function flushAllPendingSaves(): Promise<void> {
+    if (!_getStateForSave) return;
+    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger } = _getStateForSave();
+    if (!activeCampaignId) return;
+
+    const saves: Promise<unknown>[] = [];
+
+    if (stateTimer) {
+        clearTimeout(stateTimer);
+        stateTimer = null;
+        saves.push(
+            fetch(`${API}/campaigns/${activeCampaignId}/state`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ context, messages, condenser }),
+            }).catch(e => console.error('[FlushSave] state failed:', e))
+        );
+    }
+
+    if (loreTimer) {
+        clearTimeout(loreTimer);
+        loreTimer = null;
+        saves.push(
+            fetch(`${API}/campaigns/${activeCampaignId}/lore`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(loreChunks),
+            }).catch(e => console.error('[FlushSave] lore failed:', e))
+        );
+    }
+
+    if (npcTimer) {
+        clearTimeout(npcTimer);
+        npcTimer = null;
+        saves.push(
+            fetch(`${API}/campaigns/${activeCampaignId}/npcs`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(npcLedger),
+            }).catch(e => console.error('[FlushSave] npcs failed:', e))
+        );
+    }
+
+    if (saves.length > 0) await Promise.all(saves);
 }
 /** Debounced campaign state save. Always reads fresh state at fire time (no stale closures). */
 export function debouncedSaveCampaignState() {
@@ -264,7 +312,7 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     // not a stale closure snapshot from the time the action was called.
     _registerCampaignStateGetter(() => {
         const s = get();
-        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser };
+        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger };
     });
 
     return {

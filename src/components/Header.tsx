@@ -1,5 +1,6 @@
 import { Settings, PanelLeftOpen, PanelLeftClose, Trash2, LogOut, Users, Archive, Save } from 'lucide-react';
 import { createBackup } from '../store/campaignStore';
+import { flushAllPendingSaves } from '../store/slices/campaignSlice';
 import { toast } from './Toast';
 import { useAppStore } from '../store/useAppStore';
 import { TokenGauge } from './TokenGauge';
@@ -51,6 +52,7 @@ export function Header() {
             <button
                 onClick={async () => {
                     if (!activeCampaignId) return;
+                    await flushAllPendingSaves();
                     const result = await createBackup(activeCampaignId, { trigger: 'manual', label: 'Manual backup' });
                     if (result?.skipped) {
                         toast.info('No changes since last backup');
