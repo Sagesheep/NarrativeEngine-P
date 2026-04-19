@@ -68,5 +68,9 @@ src/assets/react.svg
 # Planning / design docs (not app code)
 auto-condenser.md
 
+# Electron (not maintained in repo)
+electron/
+build-server.mjs
+
 # One-time migration scripts
 server/scripts/migrateEmbeddings.js
