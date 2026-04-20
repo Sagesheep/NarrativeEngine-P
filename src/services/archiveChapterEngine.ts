@@ -1,5 +1,6 @@
-import type { ArchiveChapter, ArchiveIndexEntry, ChatMessage, NPCEntry, ArchiveScene } from '../types';
+import type { ArchiveChapter, ArchiveIndexEntry, ChatMessage, NPCEntry, ArchiveScene, EndpointConfig, ProviderConfig } from '../types';
 import { extractContextActivations, expandActivationsWithFacts, retrieveArchiveMemory, fetchArchiveScenes } from './archiveMemory';
+import { getChatUrl, buildChatHeaders, buildChatBody, extractContent, getApiFormat } from '../utils/llmApiHelper';
 
 const AUTO_SEAL_SCENE_THRESHOLD = 25; // ~25 exchanges is a meaningful arc
 
@@ -124,15 +125,6 @@ export function updateChapterSessionId(
 // Chapter-aware archive retrieval using 3D scoring + iterative LLM validation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Re-export types for Phase 3
-export type EndpointConfig = {
-    endpoint: string;
-    apiKey: string;
-    modelName: string;
-};
-
-export type ProviderConfig = EndpointConfig;
-
 // ─── 3A. Chapter-Level 3D Scoring ───
 
 /**
@@ -241,27 +233,31 @@ async function validateChapterRelevance(
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
-        const url = `${provider.endpoint.replace(/\/+$/, '')}/chat/completions`;
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
+        const url = getChatUrl(provider);
+        const headers = buildChatHeaders(provider);
+        const format = getApiFormat(provider);
 
-        const res = await fetch(url, {
+        // Gemini auth: append ?key= to URL
+        let fetchUrl = url;
+        if (format === 'gemini' && provider.apiKey) {
+            const sep = fetchUrl.includes('?') ? '&' : '?';
+            fetchUrl = `${fetchUrl}${sep}key=${provider.apiKey}`;
+        }
+
+        const fetchBody = buildChatBody(provider, [{ role: 'user', content: prompt }], { stream: false, max_tokens: 10 });
+
+        const res = await fetch(fetchUrl, {
             method: 'POST',
             headers,
             signal: controller.signal,
-            body: JSON.stringify({
-                model: provider.modelName,
-                messages: [{ role: 'user', content: prompt }],
-                stream: false,
-                max_tokens: 10, // we only need YES/NO
-            }),
+            body: JSON.stringify(fetchBody),
         });
 
         clearTimeout(timeoutId);
-        if (!res.ok) return true; // on failure, assume relevant (don't lose data)
+        if (!res.ok) return true;
 
         const data = await res.json();
-        const answer = (data.choices?.[0]?.message?.content ?? '').trim().toUpperCase();
+        const answer = extractContent(data, provider).trim().toUpperCase();
         return answer.startsWith('YES');
     } catch {
         clearTimeout(timeoutId);

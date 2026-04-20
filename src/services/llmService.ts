@@ -1,7 +1,7 @@
 import type { EndpointConfig, ProviderConfig, SamplingConfig } from '../types';
 import { uid } from '../utils/uid';
 import { llmQueue } from './llmRequestQueue';
-import { getChatUrl, getModelsUrl, buildChatHeaders, buildChatBody, getApiFormat } from '../utils/llmApiHelper';
+import { getChatUrl, getModelsUrl, buildChatHeaders, buildChatBody, getApiFormat, extractStreamDelta, extractStreamToolCall } from '../utils/llmApiHelper';
 
 export type OpenAIMessage = {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -21,21 +21,26 @@ export async function sendMessage(
     abortController?: AbortController,
     sampling?: SamplingConfig
 ) {
-    const url = getChatUrl(provider);
+    const format = getApiFormat(provider);
+    const url = getChatUrl(provider, { stream: true });
     const headers = buildChatHeaders(provider);
-    const isOllama = getApiFormat(provider) === 'ollama';
 
     try {
         const payload = buildChatBody(provider, messages, { stream: true, tools: tools ?? [], sampling });
 
         const controller = abortController || new AbortController();
-        let timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds timeout
+        let timeoutId = setTimeout(() => controller.abort(), 120000);
 
-        // Acquire a queue slot (normal priority — after context gathering, before background tasks).
-        // The slot is held for the full duration of the streaming response.
+        // Gemini auth: append ?key= to URL
+        let fetchUrl = url;
+        if (format === 'gemini' && provider.apiKey) {
+            const sep = fetchUrl.includes('?') ? '&' : '?';
+            fetchUrl = `${fetchUrl}${sep}key=${provider.apiKey}`;
+        }
+
         await llmQueue.acquireSlot('normal');
         try {
-            const res = await fetch(url, {
+            const res = await fetch(fetchUrl, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(payload),
@@ -68,7 +73,7 @@ export async function sendMessage(
                 clearTimeout(timeoutId);
                 if (done) break;
 
-                timeoutId = setTimeout(() => controller.abort(), 120000); // reset timeout for next chunk
+                timeoutId = setTimeout(() => controller.abort(), 120000);
 
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
@@ -78,13 +83,34 @@ export async function sendMessage(
                     const trimmed = line.trim();
                     if (!trimmed) continue;
 
-                    if (isOllama) {
-                        // Ollama native: newline-delimited JSON (NDJSON)
+                    if (format === 'ollama') {
                         try {
                             const parsed = JSON.parse(trimmed);
                             if (parsed.message?.content) {
                                 fullText += parsed.message.content;
                                 onChunk(fullText);
+                            }
+                        } catch {
+                            // skip malformed chunks
+                        }
+                    } else if (format === 'claude' || format === 'gemini') {
+                        if (!trimmed.startsWith('data: ')) continue;
+                        const data = trimmed.slice(6);
+                        if (data === '[DONE]') continue;
+
+                        try {
+                            const parsed = JSON.parse(data);
+                            const delta = extractStreamDelta(parsed, provider);
+                            if (delta) {
+                                fullText += delta;
+                                onChunk(fullText);
+                            }
+
+                            const tc = extractStreamToolCall(parsed, provider);
+                            if (tc) {
+                                if (tc.id) tcId = tc.id;
+                                if (tc.name) tcName = tc.name;
+                                if (tc.arguments) tcArgs += tc.arguments;
                             }
                         } catch {
                             // skip malformed chunks
@@ -118,16 +144,13 @@ export async function sendMessage(
             }
 
             // --- DeepSeek / Local Model Fallback Parsing ---
-            // Some models output tool calls as text tags instead of actual JSON `tool_calls` array
-            if (!tcName && fullText.includes('<\uFF5CDSML\uFF5C>function_calls>')) {
+            // Gate: only run for OpenAI-compatible format (Claude and Gemini never emit DSML tags)
+            if (format !== 'claude' && format !== 'gemini' && !tcName && fullText.includes('<\uFF5CDSML\uFF5C>function_calls>')) {
                 const funcMatch = fullText.match(/<\uFF5CDSML\uFF5C>invoke name="([^"]+)">/);
                 if (funcMatch) {
                     tcName = funcMatch[1];
-                    tcId = uid(); // Generate a fake ID since it was just text
+                    tcId = uid();
 
-                    // Try to extract parameters using basic regex (DeepSeek string format)
-                    // <｜DSML｜parameter name="query" string="true">lore</｜DSML｜parameter>
-                    // We'll capture both the parameter name and the text content inside the tags.
                     const paramRegex = /<\uFF5CDSML\uFF5Cparameter name="([^"]+)"[^>]*>([\s\S]*?)<\/\uFF5CDSML\uFF5Cparameter>/g;
                     let match;
                     const argsObj: Record<string, unknown> = {};
@@ -139,7 +162,6 @@ export async function sendMessage(
                     if (Object.keys(argsObj).length > 0) {
                         tcArgs = JSON.stringify(argsObj);
                     } else {
-                        // Fallback to searching the entire DSML tag content just in case
                         const fallbackQueryMatch = fullText.match(/>([^<]+)<\/\uFF5CDSML\uFF5Cparameter>/);
                         if (fallbackQueryMatch) {
                             tcArgs = JSON.stringify({ query: fallbackQueryMatch[1].trim() });
@@ -151,10 +173,8 @@ export async function sendMessage(
                         }
                     }
 
-                    // Clean the fullText so the user doesn't see the raw XML junk in the UI
-                    // if it happens to bypass the ChatArea tool filter
                     fullText = fullText.split('<\uFF5CDSML\uFF5C>function_calls>')[0].trim();
-                    onChunk(fullText); // Push the cleaned text back to UI
+                    onChunk(fullText);
                 }
             }
 
@@ -164,8 +184,6 @@ export async function sendMessage(
                 onDone(fullText);
             }
         } finally {
-            // Always release the queue slot and clear the pending timeout,
-            // regardless of success, error, or early return.
             llmQueue.releaseSlot();
             clearTimeout(timeoutId);
         }
@@ -175,10 +193,15 @@ export async function sendMessage(
 }
 
 export async function testConnection(provider: EndpointConfig | ProviderConfig): Promise<{ ok: boolean; detail: string }> {
-    const url = getModelsUrl(provider);
-    const headers: Record<string, string> = {};
-    if (provider.apiKey) {
-        headers['Authorization'] = `Bearer ${provider.apiKey}`;
+    const format = getApiFormat(provider);
+    const headers = buildChatHeaders(provider);
+    // Remove Content-Type for GET requests
+    delete headers['Content-Type'];
+    let url = getModelsUrl(provider);
+
+    // Gemini auth: append ?key= to URL
+    if (format === 'gemini' && provider.apiKey) {
+        url = `${url}?key=${provider.apiKey}`;
     }
 
     try {

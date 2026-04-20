@@ -1,4 +1,4 @@
-export type ApiFormat = 'openai' | 'ollama';
+export type ApiFormat = 'openai' | 'ollama' | 'claude' | 'gemini';
 
 export type PipelinePhase =
     | 'idle'

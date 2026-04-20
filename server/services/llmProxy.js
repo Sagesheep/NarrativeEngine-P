@@ -3,6 +3,27 @@
  * Uses global fetch — no other external dependencies.
  */
 
+/**
+ * Normalize an LLM endpoint URL.
+ * For bare hosts (no path), append /v1 so /chat/completions resolves correctly
+ * on OpenAI-compatible servers (LM Studio, vLLM, text-generation-webui, etc.).
+ * Services with non-standard paths (api.z.ai/api/coding/paas/v4) are left as-is.
+ */
+function normalizeEndpoint(endpoint) {
+    const base = endpoint.replace(/\/+$/, '');
+    try {
+        const url = new URL(base);
+        if (url.pathname === '/' || url.pathname === '') {
+            return base + '/v1';
+        }
+    } catch {
+        if (base.match(/^https?:\/\/[^/]+$/)) {
+            return base + '/v1';
+        }
+    }
+    return base;
+}
+
 export const TIMELINE_PREDICATES_SERVER = [
     'status', 'located_in', 'holds', 'allied_with', 'enemy_of',
     'killed_by', 'controls', 'relationship_to', 'seeks', 'knows_about',
@@ -28,7 +49,7 @@ async function callLLMWithRetry(prompt, config, { retries = 1, timeoutMs = 6000,
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-            const response = await fetch(`${config.endpoint}/chat/completions`, {
+            const response = await fetch(`${normalizeEndpoint(config.endpoint)}/chat/completions`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

@@ -3,6 +3,7 @@ import { X, Loader2, CheckCircle, XCircle, Plus, Trash2, ChevronDown, ChevronRig
 import { useAppStore } from '../store/useAppStore';
 import { testConnection } from '../services/chatEngine';
 import type { AIPreset, EndpointConfig, ApiFormat, SamplingConfig } from '../types';
+import { detectFormatFromEndpoint } from '../utils/llmApiHelper';
 import { toast } from './Toast';
 import { uid } from '../utils/uid';
 import { SamplingPanel } from './SamplingPanel';
@@ -78,15 +79,32 @@ export function SettingsModal() {
         const config = activePreset[section] ?? { endpoint: '', apiKey: '', modelName: '' };
         let endpoint = (config.endpoint || '').replace(/\/+$/, '');
         if (newFormat === 'ollama') {
-            // Strip /v1 suffix for native Ollama mode
             endpoint = endpoint.replace(/\/v1\/?$/, '').replace(/\/+$/, '');
+        } else if (newFormat === 'claude') {
+            endpoint = 'https://api.anthropic.com/v1';
+        } else if (newFormat === 'gemini') {
+            endpoint = 'https://generativelanguage.googleapis.com/v1beta';
         } else {
-            // Auto-append /v1 for local Ollama switching to OpenAI-compat mode
-            if (endpoint && !endpoint.endsWith('/v1') && /localhost:11434|127\.0\.0\.1:11434/.test(endpoint)) {
+            // OpenAI format — if endpoint looks like a bare Ollama host, add /v1
+            if (/localhost:11434|127\.0\.0\.1:11434/.test(endpoint) && !endpoint.endsWith('/v1')) {
                 endpoint = endpoint + '/v1';
             }
         }
         updatePreset(activePreset.id, { [section]: { ...config, apiFormat: newFormat, endpoint } });
+    };
+
+    const handleEndpointBlur = (section: 'storyAI' | 'imageAI' | 'summarizerAI' | 'utilityAI', endpoint: string) => {
+        if (!activePreset || !endpoint) return;
+        const detected = detectFormatFromEndpoint(endpoint);
+        if (!detected) return;
+        const config = activePreset[section] ?? { endpoint: '', apiKey: '', modelName: '' };
+        const currentFormat = (config as EndpointConfig).apiFormat || 'openai';
+        if (currentFormat === detected) return;
+        let normalizedEndpoint = endpoint.replace(/\/+$/, '');
+        if (detected === 'ollama') {
+            normalizedEndpoint = normalizedEndpoint.replace(/\/v1\/?$/, '').replace(/\/+$/, '');
+        }
+        updatePreset(activePreset.id, { [section]: { ...config, apiFormat: detected, endpoint: normalizedEndpoint } });
     };
 
     const toggleSection = (section: string) => {
@@ -103,6 +121,29 @@ export function SettingsModal() {
         const isExpanded = expanded[section];
         const isTesting = testingSection === section;
         const result = testResults[section];
+        const currentFormat = (config.apiFormat || 'openai') as ApiFormat;
+        const isImageSection = section === 'imageAI';
+        const availableFormats: ApiFormat[] = isImageSection
+            ? ['openai', 'ollama']
+            : ['openai', 'ollama', 'claude', 'gemini'];
+
+        const formatLabel = (fmt: ApiFormat): string => {
+            switch (fmt) {
+                case 'openai': return 'OpenAI';
+                case 'ollama': return 'Ollama';
+                case 'claude': return 'Claude';
+                case 'gemini': return 'Gemini';
+            }
+        };
+
+        const endpointPlaceholder = (): string => {
+            switch (currentFormat) {
+                case 'ollama': return 'http://localhost:11434';
+                case 'claude': return 'https://api.anthropic.com/v1';
+                case 'gemini': return 'https://generativelanguage.googleapis.com/v1beta';
+                default: return 'http://localhost:11434/v1';
+            }
+        };
 
         return (
             <div className="border border-border rounded mb-3 bg-void-lighter overflow-hidden">
@@ -124,25 +165,36 @@ export function SettingsModal() {
                                 type="text"
                                 value={config.endpoint}
                                 onChange={(e) => handleUpdateEndpoint(section, 'endpoint', e.target.value)}
-                                placeholder={(config.apiFormat || 'openai') === 'ollama' ? 'http://localhost:11434' : 'http://localhost:11434/v1'}
+                                onBlur={(e) => handleEndpointBlur(section, e.target.value)}
+                                placeholder={endpointPlaceholder()}
                                 className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
                             />
-                            {(config.apiFormat || 'openai') === 'ollama' && (
+                            {currentFormat === 'ollama' && (
                                 <p className="text-[10px] text-text-dim mt-1">
                                     Local: <span className="font-mono">http://localhost:11434</span> &middot; Cloud: <span className="font-mono">https://api.ollama.com</span> (needs API key)
+                                </p>
+                            )}
+                            {currentFormat === 'claude' && (
+                                <p className="text-[10px] text-text-dim mt-1">
+                                    <span className="font-mono">https://api.anthropic.com/v1</span> &middot; Uses <span className="font-mono">x-api-key</span> header
+                                </p>
+                            )}
+                            {currentFormat === 'gemini' && (
+                                <p className="text-[10px] text-text-dim mt-1">
+                                    <span className="font-mono">https://generativelanguage.googleapis.com/v1beta</span> &middot; Key goes in URL
                                 </p>
                             )}
                         </div>
                         <div>
                             <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">API Format</label>
                             <div className="flex border border-border overflow-hidden rounded">
-                                {(['openai', 'ollama'] as ApiFormat[]).map(fmt => (
+                                {availableFormats.map(fmt => (
                                     <button
                                         key={fmt}
                                         onClick={() => handleApiFormatChange(section, fmt)}
-                                        className={`flex-1 px-4 py-2 text-[10px] uppercase tracking-wider transition-colors focus:outline-none ${(config.apiFormat || 'openai') === fmt ? 'bg-terminal text-surface font-bold' : 'bg-void text-text-dim hover:text-text-primary'}`}
+                                        className={`flex-1 px-3 py-2 text-[10px] uppercase tracking-wider transition-colors focus:outline-none ${currentFormat === fmt ? 'bg-terminal text-surface font-bold' : 'bg-void text-text-dim hover:text-text-primary'}`}
                                     >
-                                        {fmt === 'openai' ? 'OpenAI /v1' : 'Ollama /api'}
+                                        {formatLabel(fmt)}
                                     </button>
                                 ))}
                             </div>
@@ -153,7 +205,7 @@ export function SettingsModal() {
                                 type="text"
                                 value={config.modelName}
                                 onChange={(e) => handleUpdateEndpoint(section, 'modelName', e.target.value)}
-                                placeholder="llama3"
+                                placeholder={currentFormat === 'claude' ? 'claude-sonnet-4-20250514' : currentFormat === 'gemini' ? 'gemini-2.0-flash' : 'llama3'}
                                 className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
                             />
                         </div>
@@ -163,7 +215,7 @@ export function SettingsModal() {
                                 type="password"
                                 value={config.apiKey}
                                 onChange={(e) => handleUpdateEndpoint(section, 'apiKey', e.target.value)}
-                                placeholder="sk-..."
+                                placeholder={currentFormat === 'gemini' ? 'AIza...' : 'sk-...'}
                                 className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
                             />
                         </div>

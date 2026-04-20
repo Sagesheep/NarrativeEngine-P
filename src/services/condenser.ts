@@ -1,4 +1,5 @@
 import type { ChatMessage, GameContext, EndpointConfig, ProviderConfig } from '../types';
+import { getChatUrl, buildChatHeaders, buildChatBody, extractContent, getApiFormat } from '../utils/llmApiHelper';
 
 import { countTokens } from './tokenizer';
 
@@ -93,9 +94,9 @@ export async function condenseHistory(
         return { summary: existingSummary, upToIndex: condensedUpToIndex };
     }
 
-    const url = `${provider.endpoint.replace(/\/+$/, '')}/chat/completions`;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
+    const url = getChatUrl(provider);
+    const headers = buildChatHeaders(provider);
+    const format = getApiFormat(provider);
 
     // --- Step 1: Compress new turns only (no existing summary in prompt) ---
     const budgetLimit = Math.floor(contextLimit * CONDENSE_BUDGET_RATIO);
@@ -135,14 +136,19 @@ export async function condenseHistory(
         budgetLimit
     });
 
-    const res = await fetch(url, {
+    const fetchBody = buildChatBody(provider, [{ role: 'user', content: prompt }], { stream: false });
+
+    // Gemini auth: append ?key= to URL
+    let condenserUrl = url;
+    if (format === 'gemini' && provider.apiKey) {
+        const sep = condenserUrl.includes('?') ? '&' : '?';
+        condenserUrl = `${condenserUrl}${sep}key=${provider.apiKey}`;
+    }
+
+    const res = await fetch(condenserUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-            model: provider.modelName,
-            messages: [{ role: 'user', content: prompt }],
-            stream: false,
-        }),
+        body: JSON.stringify(fetchBody),
         signal,
     });
 
@@ -152,7 +158,7 @@ export async function condenseHistory(
     }
 
     const data = await res.json();
-    const newChunk = data.choices?.[0]?.message?.content ?? '';
+    const newChunk = extractContent(data, provider);
 
     if (!newChunk) {
         console.warn('[Condenser] LLM returned empty summary, keeping existing.');
@@ -183,20 +189,18 @@ export async function condenseHistory(
             promptTokens: countTokens(metaPrompt)
         });
 
-        const metaRes = await fetch(url, {
+        const metaBody = buildChatBody(provider, [{ role: 'user', content: metaPrompt }], { stream: false });
+
+        const metaRes = await fetch(condenserUrl, {
             method: 'POST',
             headers,
-            body: JSON.stringify({
-                model: provider.modelName,
-                messages: [{ role: 'user', content: metaPrompt }],
-                stream: false,
-            }),
+            body: JSON.stringify(metaBody),
             signal,
         });
 
         if (metaRes.ok) {
             const metaData = await metaRes.json();
-            const metaResult = metaData.choices?.[0]?.message?.content;
+            const metaResult = extractContent(metaData, provider);
             if (metaResult && metaResult.length > 0) {
                 finalSummary = metaResult;
                 console.log('[Condenser] Meta-compression complete.', {
