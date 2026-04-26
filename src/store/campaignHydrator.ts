@@ -4,6 +4,7 @@ import {
     loadArchiveIndex, loadTimeline, loadChapters, loadEntities,
 } from './campaignStore';
 import { DEFAULT_CONTEXT, DEFAULT_CONDENSER } from '../services/campaignInit';
+import { migrateLegacyContext } from '../types';
 import type { GameContext } from '../types';
 
 export async function hydrateCampaign(campaignId: string) {
@@ -17,8 +18,11 @@ export async function hydrateCampaign(campaignId: string) {
         loadEntities(campaignId),
     ]);
 
+    const rawContext: GameContext = { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) } as GameContext;
+    const migratedContext = migrateLegacyContext(rawContext);
+
     useAppStore.setState({
-        context: { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) } as GameContext,
+        context: migratedContext,
         messages: state?.messages ?? [],
         condenser: { ...(state?.condenser ?? DEFAULT_CONDENSER), isCondensing: false },
         loreChunks: chunks,
@@ -28,5 +32,7 @@ export async function hydrateCampaign(campaignId: string) {
         chapters: chapters ?? [],
         entities: entities ?? [],
         activeCampaignId: campaignId,
+        inventoryItems: migratedContext.inventoryItems,
+        characterProfileData: migratedContext.characterProfileData,
     });
 }

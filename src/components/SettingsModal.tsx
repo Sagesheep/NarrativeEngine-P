@@ -386,6 +386,24 @@ export function SettingsModal() {
                             </button>
                         </div>
 
+                        {/* Deep Archive Search */}
+                        <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
+                            <div className="flex flex-col gap-0.5">
+                                <label className="text-[11px] text-text-primary uppercase tracking-wider font-bold">
+                                    Deep Archive Search
+                                </label>
+                                <span className="text-[10px] text-text-dim">
+                                    Utility AI scans full sealed-chapter history when armed (~1-2 min per turn)
+                                </span>
+                            </div>
+                            <button
+                                onClick={() => updateSettings({ deepContextSearch: !settings.deepContextSearch })}
+                                className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${settings.deepContextSearch ? 'bg-amber-500' : 'bg-border'}`}
+                            >
+                                <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-surface transition-transform ${settings.deepContextSearch ? 'translate-x-[22px]' : 'translate-x-[2px]'}`} />
+                            </button>
+                        </div>
+
                         {/* Theme */}
                         <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
                             <label className="text-[11px] text-text-primary uppercase tracking-wider font-bold">

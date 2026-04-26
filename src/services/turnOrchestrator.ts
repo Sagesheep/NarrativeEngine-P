@@ -54,6 +54,7 @@ export type TurnState = {
     autoBookkeepingInterval: number;
     getFreshContext: () => GameContext;
     sampling?: SamplingConfig;
+    deepSearchThisTurn?: boolean;
 };
 
 
@@ -92,12 +93,15 @@ export async function runTurn(
     callbacks.setLoadingStatus?.('Gathering Context & Memories concurrently...');
 
     // ─── Context Gathering (parallel: archive, timeline, recommender, lore, pinned chapters) ───
-    const { sceneNumber, archiveRecall, recommendedNPCNames, timelineEvents, relevantLore } =
-        await gatherContext(state, finalInput, {
-            chapters: state.chapters,
-            pinnedChapterIds: state.pinnedChapterIds,
-            clearPinnedChapters: state.clearPinnedChapters,
-        }, abortController.signal);
+    const {
+        sceneNumber, archiveRecall, recommendedNPCNames, timelineEvents, relevantLore, inventoryCategories, profileFields, deepContextSummary,
+    } = await gatherContext(state, finalInput, {
+        chapters: state.chapters,
+        pinnedChapterIds: state.pinnedChapterIds,
+        clearPinnedChapters: state.clearPinnedChapters,
+        deepSearchThisTurn: !!state.deepSearchThisTurn,
+        setLoadingStatus: callbacks.setLoadingStatus,
+    }, abortController.signal);
 
     if (abortController.signal.aborted) return;
 
@@ -117,7 +121,10 @@ export async function runTurn(
         recommendedNPCNames,
         undefined,      // semanticFactText — deprecated, replaced by timelineEvents
         archiveIndex,
-        timelineEvents
+        timelineEvents,
+        inventoryCategories as (import('../types').InventoryItemCategory | 'equipped')[] | undefined,
+        profileFields as string[] | undefined,
+        deepContextSummary,
     );
 
     const payload = payloadResult.messages;
@@ -164,7 +171,7 @@ export async function runTurn(
                     accumulatedContent ? `${accumulatedContent}\n\n${stripLLMSceneHeader(fullText)}` : newText
                 );
             },
-            async (finalText, toolCall) => {
+            async (finalText, toolCall, reasoningContent) => {
                 if (toolCall && toolCall.name === 'query_campaign_lore') {
                     callbacks.setPipelinePhase?.('checking-notes');
                     callbacks.onCheckingNotes(true);
@@ -185,6 +192,7 @@ export async function runTurn(
                     currentPayload.push({
                         role: 'assistant',
                         content: loreEngineText || "",
+                        reasoning_content: reasoningContent || undefined,
                         tool_calls: [{ id: toolCall.id, type: 'function', function: { name: toolCall.name, arguments: toolCall.arguments } }]
                     } as unknown as import('./chatEngine').OpenAIMessage);
 
@@ -234,6 +242,7 @@ export async function runTurn(
                     currentPayload.push({
                         role: 'assistant',
                         content: nbEngineText || "",
+                        reasoning_content: reasoningContent || undefined,
                         tool_calls: [{ id: toolCall.id, type: 'function', function: { name: toolCall.name, arguments: toolCall.arguments } }]
                     } as unknown as import('./chatEngine').OpenAIMessage);
 
@@ -274,6 +283,9 @@ export async function runTurn(
                     ? `${accumulatedContent}\n\n${stripLLMSceneHeader(finalText)}`
                     : baseText;
                 callbacks.updateLastAssistant(engineText);
+                if (reasoningContent) {
+                    callbacks.updateLastMessage({ reasoning_content: reasoningContent });
+                }
                 
                 const allMsgs = state.getMessages();
                 const userIdx = allMsgs.findIndex(m => m.id === userMsgId);

@@ -79,7 +79,13 @@ export function createCampaignsRouter() {
     router.put('/api/campaigns/:id/state', wrapAsync((req, res) => {
         ensureDirs();
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.state.json`);
-        writeJson(filePath, req.body);
+        const { context, messages, condenser } = req.body;
+        const safe = {
+            context,
+            condenser,
+            messages: (messages || []).map(({ debugPayload: _dp, ...msg }) => msg),
+        };
+        writeJson(filePath, safe);
         res.json({ ok: true });
     }));
 

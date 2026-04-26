@@ -64,6 +64,10 @@ export function timelinePath(id) {
     return path.join(CAMPAIGNS_DIR, `${id}.timeline.json`);
 }
 
+export function overworldPath(id) {
+    return path.join(CAMPAIGNS_DIR, `${id}.overworld.json`);
+}
+
 export function getNextSceneNumber(id) {
     const fp = archivePath(id);
     if (!fs.existsSync(fp)) return 1;
@@ -94,7 +98,7 @@ export function createDefaultChapter(chapterId, title, sceneRangeStart, sceneCou
 const CAMPAIGN_FILE_SUFFIXES = [
     '.json', '.state.json', '.lore.json', '.npcs.json',
     '.archive.md', '.archive.index.json', '.archive.chapters.json',
-    '.timeline.json', '.entities.json', '.facts.json',
+    '.timeline.json', '.entities.json', '.facts.json', '.overworld.json',
 ];
 
 export function campaignFileNames(id) {

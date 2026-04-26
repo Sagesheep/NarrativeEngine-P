@@ -11,6 +11,7 @@ import { createTimelineRouter } from './server/routes/timeline.js';
 import { createFactsRouter } from './server/routes/facts.js';
 import { createBackupsRouter } from './server/routes/backups.js';
 import { createAssetsRouter } from './server/routes/assets.js';
+import { createTransferRouter } from './server/routes/transfer.js';
 import { initDb } from './server/lib/vectorStore.js';
 import { warmup as warmupEmbedder } from './server/lib/embedder.js';
 
@@ -60,6 +61,7 @@ app.use(createTimelineRouter());
 app.use(createFactsRouter());
 app.use(createBackupsRouter());
 app.use(createAssetsRouter());
+app.use(createTransferRouter());
 
 // ─── Central Error Handler ───
 app.use((err, _req, res, _next) => {

@@ -33,6 +33,31 @@ export async function deleteCampaign(id: string): Promise<void> {
     await fetch(`${API}/campaigns/${id}`, { method: 'DELETE' });
 }
 
+export async function exportCampaign(id: string): Promise<void> {
+    const res = await fetch(`${API}/campaigns/${id}/export`);
+    if (!res.ok) throw new Error('Export failed');
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') ?? '';
+    const fnMatch = cd.match(/filename="([^"]+)"/);
+    const filename = fnMatch?.[1] ?? `campaign_${id}.campaign`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+export async function importCampaign(bundle: unknown): Promise<{ id: string; name: string }> {
+    const res = await fetch(`${API}/campaigns/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bundle),
+    });
+    if (!res.ok) throw new Error('Import failed');
+    return res.json();
+}
+
 // ─── Campaign State ───
 
 export async function saveCampaignState(campaignId: string, state: CampaignState): Promise<void> {

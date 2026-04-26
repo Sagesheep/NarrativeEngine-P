@@ -1,8 +1,8 @@
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection } from '../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory } from '../types';
 import type { OpenAIMessage } from './llmService';
 import { countTokens } from './tokenizer';
 import { buildBehaviorDirective, buildDriftAlert, buildKnowledgeBoundary } from './npcBehaviorDirective';
-import { minifyLoreChunk, minifyNPC } from './contextMinifier';
+import { minifyLoreChunk, minifyNPC, minifyBookkeepingStub, minifySelectedInventory, minifySelectedProfile } from './contextMinifier';
 import { resolveTimeline, formatResolvedForContext } from './timelineResolver';
 import { DEFAULT_RULES } from './defaultRules';
 
@@ -55,7 +55,10 @@ export function buildPayload(
     recommendedNPCNames?: string[],
     _semanticFactText?: string,
     archiveIndex?: ArchiveIndexEntry[],
-    timelineEvents?: TimelineEvent[]
+    timelineEvents?: TimelineEvent[],
+    inventoryCategories?: (InventoryItemCategory | 'equipped')[],
+    profileFields?: string[],
+    deepContextSummary?: string
 ): { messages: OpenAIMessage[]; trace?: PayloadTrace[]; debugSections?: DebugSection[] } {
     const trace: PayloadTrace[] = [];
     const debugSections: DebugSection[] = [];
@@ -64,13 +67,19 @@ export function buildPayload(
 
     // --- 1. Define Budgets (ST-inspired proportionality) ---
     // Protect core truth, but ensure history isn't completely starved.
-    const budgetMap = {
-        stable: Math.floor(limit * 0.25),   // Rules, Canon, Index, Scene# (Max 25%)
-        summary: Math.floor(limit * 0.10),  // Condensed summary (Max 10%)
-        world: Math.floor(limit * 0.40),    // Lore, NPCs, Archive Recall (Max 40%)
-        volatile: Math.floor(limit * 0.10), // Profile, Inventory (Max 10%)
-        // History + User message take the remainder
-    };
+    const budgetMap = deepContextSummary
+        ? {
+            stable: Math.floor(limit * 0.15),
+            summary: Math.floor(limit * 0.10),
+            world: Math.floor(limit * 0.60),
+            volatile: Math.floor(limit * 0.10),
+        }
+        : {
+            stable: Math.floor(limit * 0.25),
+            summary: Math.floor(limit * 0.10),
+            world: Math.floor(limit * 0.40),
+            volatile: Math.floor(limit * 0.10),
+        };
 
     // Helper to log to trace if debug
     const addTrace = (t: PayloadTrace) => {
@@ -136,6 +145,12 @@ export function buildPayload(
             const text = `[ARCHIVE RECALL — VERBATIM PAST SCENES]\n${filteredRecall.map(s => `[SCENE #${s.sceneId}]\n${s.content}`).join('\n\n')}\n[END ARCHIVE RECALL]`;
             worldBlocks.push({ source: 'Archive Recall', content: text, tokens: countTokens(text), reason: `Verbatim history (${filteredRecall.length} scenes)` });
         }
+    }
+
+    // Deep Archive Context
+    if (deepContextSummary) {
+        const text = `[DEEP ARCHIVE CONTEXT — AI-synthesized from full campaign history]\n${deepContextSummary}\n[END DEEP ARCHIVE CONTEXT]`;
+        worldBlocks.push({ source: 'Deep Archive Context', content: text, tokens: countTokens(text), reason: 'Deep archive scan result' });
     }
 
     // RAG Lore — minified and grouped by category
@@ -240,15 +255,34 @@ export function buildPayload(
         }
     }
 
-    // --- 5. Volatile State (Profile, Inventory) ---
+    // --- 5. Volatile State (Profile, Inventory) — Smart Injection ---
     const volatileParts: string[] = [];
-    if (context.characterProfileActive && context.characterProfile) {
+
+    const hasSmart = context.smartBookkeepingActive;
+    const hasStructured = (context.inventoryItems?.length ?? 0) > 0 || context.characterProfileData?.name;
+
+    if (hasSmart && hasStructured) {
+        const stub = minifyBookkeepingStub(context.characterProfileData!, context.inventoryItems || []);
+        if (stub) volatileParts.push(`[CHARACTER]\n${stub}`);
+
+        const anyInventory = context.inventoryItems && context.inventoryItems.length > 0;
+        const anyProfile = context.characterProfileData && context.characterProfileData.name;
+
+        if (anyInventory && inventoryCategories && inventoryCategories.length > 0) {
+            const invBlock = minifySelectedInventory(context.inventoryItems, inventoryCategories);
+            if (invBlock) volatileParts.push(`[INVENTORY]\n${invBlock}`);
+        }
+        if (anyProfile && profileFields && profileFields.length > 0) {
+            const profBlock = minifySelectedProfile(context.characterProfileData, profileFields);
+            if (profBlock) volatileParts.push(`[PROFILE]\n${profBlock}`);
+        }
+    } else if (context.characterProfileActive && context.characterProfile) {
         const profileSceneTag = context.characterProfileLastScene && context.characterProfileLastScene !== 'Never'
             ? `Last Updated: Scene #${context.characterProfileLastScene}`
             : 'NEVER AUTO-UPDATED — may be stale';
         volatileParts.push(`[CHARACTER PROFILE — ${profileSceneTag}]\n${context.characterProfile}`);
     }
-    if (context.inventoryActive && context.inventory) {
+    if (!hasSmart && context.inventoryActive && context.inventory) {
         const inventorySceneTag = context.inventoryLastScene && context.inventoryLastScene !== 'Never'
             ? `Last Updated: Scene #${context.inventoryLastScene}`
             : 'NEVER AUTO-UPDATED — may be stale';
@@ -264,7 +298,7 @@ export function buildPayload(
 
     const volatileContent = volatileParts.join('\n\n');
     const volatileTokens = countTokens(volatileContent);
-    addTrace({ source: 'Profile/Inventory', classification: 'volatile_state', tokens: volatileTokens, reason: 'Player state', included: true, position: 'system_dynamic' });
+    addTrace({ source: 'Profile/Inventory', classification: 'volatile_state', tokens: volatileTokens, reason: hasSmart ? 'Smart bookkeeping (stub + recommender selected)' : 'Legacy player state', included: true, position: 'system_dynamic' });
     addSection({ label: 'Profile/Inventory', role: 'system', tokens: volatileTokens, content: volatileContent, classification: 'volatile_state' });
 
     // --- 6. Fit History ---
@@ -292,6 +326,7 @@ export function buildPayload(
         if (msg.name) openAIMsg.name = msg.name;
         if (msg.tool_calls) openAIMsg.tool_calls = msg.tool_calls;
         if (msg.tool_call_id) openAIMsg.tool_call_id = msg.tool_call_id;
+        if ((msg as any).reasoning_content) openAIMsg.reasoning_content = (msg as any).reasoning_content;
 
         fitted.unshift(openAIMsg);
         fittedEphemeral.unshift(!!msg.ephemeral);

@@ -3,10 +3,17 @@ import { useAppStore } from '../store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { countTokens } from '../services/tokenizer';
 import { DEFAULT_RULES } from '../services/defaultRules';
+import { minifyBookkeepingStub } from '../services/contextMinifier';
 
 export function TokenGauge() {
-    const { context, settings, condenser } = useAppStore(
-        useShallow(s => ({ context: s.context, settings: s.settings, condenser: s.condenser }))
+    const { context, settings, condenser, inventoryItems, characterProfileData } = useAppStore(
+        useShallow(s => ({
+            context: s.context,
+            settings: s.settings,
+            condenser: s.condenser,
+            inventoryItems: s.inventoryItems ?? s.context.inventoryItems ?? [],
+            characterProfileData: s.characterProfileData ?? s.context.characterProfileData ?? null,
+        }))
     );
     const messages = useAppStore(s => s.messages);
 
@@ -18,11 +25,20 @@ export function TokenGauge() {
         if (context.headerIndexActive && context.headerIndex) parts.push(context.headerIndex);
         if (context.starterActive && context.starter) parts.push(context.starter);
         if (context.continuePromptActive && context.continuePrompt) parts.push(context.continuePrompt);
-        if (context.characterProfileActive && context.characterProfile) parts.push(`[CHARACTER PROFILE]\n${context.characterProfile}`);
-        if (context.inventoryActive && context.inventory) parts.push(`[PLAYER INVENTORY]\n${context.inventory}`);
+
+        if (context.smartBookkeepingActive && characterProfileData) {
+            const stub = minifyBookkeepingStub(characterProfileData, inventoryItems || []);
+            if (stub) parts.push(`[CHARACTER]\n${stub}`);
+        } else if (context.characterProfileActive && context.characterProfile) {
+            parts.push(`[CHARACTER PROFILE]\n${context.characterProfile}`);
+        }
+        if (!context.smartBookkeepingActive && context.inventoryActive && context.inventory) {
+            parts.push(`[PLAYER INVENTORY]\n${context.inventory}`);
+        }
+
         if (condenser.condensedSummary) parts.push(condenser.condensedSummary);
         return parts.join('\n\n');
-    }, [context, condenser.condensedSummary]);
+    }, [context, condenser.condensedSummary, inventoryItems, characterProfileData]);
 
     const systemTokens = useMemo(() => countTokens(systemText), [systemText]);
 

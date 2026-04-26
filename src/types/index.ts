@@ -1,5 +1,34 @@
 export type ApiFormat = 'openai' | 'ollama' | 'claude' | 'gemini';
 
+export type InventoryItemCategory = 'weapon' | 'armor' | 'consumable' | 'currency' | 'key' | 'misc' | 'equipped';
+
+export type InventoryItem = {
+    id: string;
+    name: string;
+    qty: number;
+    category: InventoryItemCategory;
+    keywords: string[];
+    equipped: boolean;
+    lastUsedScene: string;
+    importance: number;
+    notes: string;
+    status?: string;
+};
+
+export type CharacterProfile = {
+    name: string;
+    race: string;
+    class: string;
+    level: number;
+    hp: { current: number; max: number };
+    mp?: { current: number; max: number };
+    stats: Record<string, number>;
+    skills: string[];
+    abilities: string[];
+    traits: string[];
+    notes: string;
+};
+
 export type PipelinePhase =
     | 'idle'
     | 'rolling-dice'
@@ -64,6 +93,7 @@ export type AppSettings = {
     debugMode?: boolean; // Toggles inline payload viewer
     theme?: 'light' | 'dark'; // UI theme
     showReasoning?: boolean; // Toggles visibility of LLM thinking blocks
+    deepContextSearch?: boolean;
 
     // Legacy fields kept for migration only
     providers?: ProviderConfig[];
@@ -120,10 +150,15 @@ export type GameContext = {
     headerIndex: string;
     starter: string;
     continuePrompt: string;
-    inventory: string;
+    inventory: string; // @deprecated — legacy plain-text. Prefer inventoryItems.
     inventoryLastScene: string;
-    characterProfile: string;
+    characterProfile: string; // @deprecated — legacy plain-text. Prefer characterProfileData.
     characterProfileLastScene: string;
+    // --- Structured replacements ---
+    inventoryItems: InventoryItem[];
+    characterProfileData: CharacterProfile;
+    // --- Smart injection toggle ---
+    smartBookkeepingActive: boolean;
     surpriseDC?: number;
     encounterDC?: number;
     worldEventDC?: number;
@@ -182,6 +217,7 @@ export type ChatMessage = {
         function: { name: string; arguments: string };
     }[];
     tool_call_id?: string;
+    reasoning_content?: string;
     ephemeral?: boolean;
 };
 
@@ -246,9 +282,11 @@ export type LoreChunk = {
     scanDepth: number;          // how many recent messages to scan (default: 3)
     category: LoreCategory;
     linkedEntities: string[];   // Names of NPCs, factions, locations referenced
-    parentSection?: string;     // The ## parent header this ### belongs under
-    priority: number;           // 0-10, higher = more important
-    summary?: string;           // One-line auto-summary for recommender index
+    parentSection?: string;
+    priority: number;
+    summary?: string;
+    group?: string;
+    groupWeight?: number;
 };
 
 export type EngineSeed = {
@@ -429,3 +467,166 @@ export type TimelineEvent = {
     importance: number;   // 1-10
     source: 'regex' | 'llm' | 'manual';
 };
+
+// ─── Bookkeeping Defaults & Migration ──────────────────────────────────
+
+export const DEFAULT_CHARACTER_PROFILE: CharacterProfile = {
+    name: '',
+    race: '',
+    class: '',
+    level: 1,
+    hp: { current: 20, max: 20 },
+    stats: {},
+    skills: [],
+    abilities: [],
+    traits: [],
+    notes: '',
+};
+
+export const DEFAULT_INVENTORY: InventoryItem[] = [];
+
+function parsePlainInventory(text: string): InventoryItem[] {
+    const items: InventoryItem[] = [];
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+        const clean = line.replace(/^[-*•]\s*/, '').replace(/^\d+\.\s*/, '');
+        if (!clean) continue;
+        const nameMatch = clean.match(/^(.*?)(?:\s*\((\d+)\s*x\s*(.+)\))?\s*$/i);
+        const name = nameMatch ? nameMatch[1].trim() : clean;
+        const qtyMatch = clean.match(/(?:x\s*(\d+))|(\d+)x/i);
+        const qty = qtyMatch ? parseInt(qtyMatch[1] || qtyMatch[2], 10) : 1;
+        const lower = name.toLowerCase();
+        let category: InventoryItemCategory = 'misc';
+        if (lower.includes('gold') || lower.includes('coin') || lower.includes('silver') || lower.includes('copper')) category = 'currency';
+        else if (lower.includes('potion') || lower.includes('elixir') || lower.includes('antidote')) category = 'consumable';
+        else if (lower.includes('sword') || lower.includes('dagger') || lower.includes('bow') || lower.includes('axe') || lower.includes('mace') || lower.includes('staff') || lower.includes('blade')) category = 'weapon';
+        else if (lower.includes('armor') || lower.includes('shield') || lower.includes('helm') || lower.includes('gauntlet') || lower.includes('boot') || lower.includes('plate')) category = 'armor';
+        else if (lower.includes('key') || lower.includes('seal') || lower.includes('tome')) category = 'key';
+        items.push({
+            id: `inv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name,
+            qty,
+            category,
+            keywords: name.toLowerCase().split(/\s+/).filter(w => w.length > 2),
+            equipped: false,
+            lastUsedScene: '000',
+            importance: 5,
+            notes: '',
+        });
+    }
+    return items;
+}
+
+function extractHp(str: string): { current: number; max: number } | undefined {
+    const m = str.match(/HP[:\s]*?(\d+)\s*[\/]\s*(\d+)/i);
+    if (m) return { current: parseInt(m[1], 10), max: parseInt(m[2], 10) };
+    return undefined;
+}
+
+function extractStat(str: string, label: string): number | undefined {
+    const r = new RegExp(`${label}[:\s]*?(\\d+)`, 'i');
+    const m = str.match(r);
+    if (m) return parseInt(m[1], 10);
+    return undefined;
+}
+
+function extractList(str: string, header: string): string[] {
+    const idx = str.toLowerCase().indexOf(header.toLowerCase());
+    if (idx === -1) return [];
+    const block = str.slice(idx + header.length);
+    const endIdx = block.search(/\n\n|^[A-Z][\w\s]+:/m);
+    const sub = endIdx !== -1 ? block.slice(0, endIdx) : block;
+    return sub
+        .split('\n')
+        .map(l => l.trim().replace(/^[-*•]+\s*/, ''))
+        .filter(Boolean);
+}
+
+export function migrateLegacyContext(ctx: Partial<GameContext>): GameContext {
+    const base: GameContext = {
+        loreRaw: '',
+        rulesRaw: '',
+        canonState: '',
+        headerIndex: '',
+        starter: '',
+        continuePrompt: '',
+        inventory: '',
+        inventoryLastScene: 'Never',
+        characterProfile: '',
+        characterProfileLastScene: 'Never',
+        inventoryItems: DEFAULT_INVENTORY,
+        characterProfileData: DEFAULT_CHARACTER_PROFILE,
+        smartBookkeepingActive: true,
+        canonStateActive: false,
+        headerIndexActive: false,
+        starterActive: false,
+        continuePromptActive: false,
+        inventoryActive: false,
+        characterProfileActive: false,
+        surpriseEngineActive: true,
+        encounterEngineActive: true,
+        worldEngineActive: true,
+        diceFairnessActive: true,
+        sceneNote: '',
+        sceneNoteActive: false,
+        sceneNoteDepth: 3,
+        notebook: [],
+        notebookActive: true,
+        worldVibe: '',
+        enemyPlayerActive: false,
+        neutralPlayerActive: false,
+        allyPlayerActive: false,
+        enemyPlayerPrompt: '',
+        neutralPlayerPrompt: '',
+        allyPlayerPrompt: '',
+        interventionChance: 25,
+        enemyCooldown: 2,
+        neutralCooldown: 2,
+        allyCooldown: 2,
+        interventionQueue: [],
+        worldEventConfig: {
+            initialDC: 498,
+            dcReduction: 2,
+            who: [],
+            where: [],
+            why: [],
+            what: [],
+        },
+    };
+    const merged: GameContext = { ...base, ...ctx };
+    if (!merged.inventoryItems || merged.inventoryItems.length === 0) {
+        if (merged.inventory && merged.inventory.trim()) {
+            merged.inventoryItems = parsePlainInventory(merged.inventory);
+        } else {
+            merged.inventoryItems = DEFAULT_INVENTORY;
+        }
+    }
+    if (!merged.characterProfileData || !merged.characterProfileData.name) {
+        if (merged.characterProfile && merged.characterProfile.trim()) {
+            const prof = merged.characterProfile;
+            merged.characterProfileData = {
+                ...DEFAULT_CHARACTER_PROFILE,
+                name: (prof.match(/Name[:\s]*(.+)/i)?.[1] || '').trim(),
+                race: (prof.match(/Race[:\s]*(.+)/i)?.[1] || '').trim(),
+                class: (prof.match(/Class[:\s]*(.+)/i)?.[1] || '').trim(),
+                level: parseInt(prof.match(/Level[:\s]*(\d+)/i)?.[1] || '1', 10),
+                hp: extractHp(prof) || merged.characterProfileData.hp,
+                stats: {
+                    str: extractStat(prof, 'str') ?? extractStat(prof, 'strength') ?? merged.characterProfileData.stats.str,
+                    dex: extractStat(prof, 'dex') ?? extractStat(prof, 'dexterity') ?? merged.characterProfileData.stats.dex,
+                    con: extractStat(prof, 'con') ?? extractStat(prof, 'constitution') ?? merged.characterProfileData.stats.con,
+                    int: extractStat(prof, 'int') ?? extractStat(prof, 'intelligence') ?? merged.characterProfileData.stats.int,
+                    wis: extractStat(prof, 'wis') ?? extractStat(prof, 'wisdom') ?? merged.characterProfileData.stats.wis,
+                    cha: extractStat(prof, 'cha') ?? extractStat(prof, 'charisma') ?? merged.characterProfileData.stats.cha,
+                },
+                skills: extractList(prof, 'skills'),
+                abilities: extractList(prof, 'abilities'),
+                traits: extractList(prof, 'traits'),
+                notes: prof,
+            };
+        } else {
+            merged.characterProfileData = DEFAULT_CHARACTER_PROFILE;
+        }
+    }
+    return merged;
+}

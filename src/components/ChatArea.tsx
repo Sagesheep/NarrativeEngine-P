@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { Send, Save, Loader2, Zap, Scroll, Edit2, X, Square, FileText, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Send, Save, Loader2, Zap, Scroll, Edit2, X, Square, FileText, ChevronDown, ChevronUp, Trash2, Search } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { runTurn } from '../services/turnOrchestrator';
 import { set } from 'idb-keyval';
@@ -62,6 +62,7 @@ export function ChatArea() {
     const [loadStep, setLoadStep] = useState(10);
     const [showCondensed, setShowCondensed] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [deepSearchArmed, setDeepSearchArmed] = useState(false);
     const bottomRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -127,13 +128,14 @@ export function ChatArea() {
         getActiveStoryEndpoint: () => useAppStore.getState().getActiveStoryEndpoint(),
     });
 
-    const handleSend = async (overrideText?: string) => {
+    const handleSend = async (overrideText?: string, deepSearch = false) => {
         const textToUse = overrideText || input.trim();
         if (!textToUse || isStreaming) return;
 
         if (!overrideText) {
             setInput('');
             resetTextareaHeight();
+            if (!deepSearch) setDeepSearchArmed(false);
         }
 
         abortControllerRef.current = new AbortController();
@@ -165,6 +167,7 @@ export function ChatArea() {
             autoBookkeepingInterval: storeSnapshot.autoBookkeepingInterval,
             getFreshContext: () => useAppStore.getState().context,
             sampling: storeSnapshot.getActivePreset()?.sampling,
+            deepSearchThisTurn: deepSearch,
         }, {
             onCheckingNotes: setIsCheckingNotes,
             addMessage: storeSnapshot.addMessage,
@@ -228,6 +231,7 @@ export function ChatArea() {
 
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setInput(e.target.value);
+        setDeepSearchArmed(false);
         if (inputRef.current) {
             inputRef.current.style.height = '40px';
             const newHeight = Math.min(inputRef.current.scrollHeight, 240);
@@ -364,6 +368,25 @@ export function ChatArea() {
                     {condenser.isCondensing ? <Square size={13} /> : <Zap size={13} />}
                     {condenser.isCondensing ? 'Stop' : 'Condense'}
                 </button>
+                {settings.deepContextSearch && (
+                    <button
+                        onClick={() => {
+                            if (deepSearchArmed) {
+                                setDeepSearchArmed(false);
+                                handleSend(undefined, true);
+                            } else {
+                                setDeepSearchArmed(true);
+                            }
+                        }}
+                        disabled={isStreaming || !input.trim() || !activeCampaignId}
+                        className={`flex items-center gap-1.5 bg-void border text-[10px] sm:text-[11px] uppercase tracking-wider px-2 sm:px-3 py-1.5 transition-all disabled:opacity-30 disabled:cursor-not-allowed ${deepSearchArmed ? 'border-amber-500 text-amber-500 bg-amber-500/10 hover:bg-amber-500/20' : 'border-amber-500/30 hover:border-amber-500 text-amber-500 hover:bg-amber-500/5'}`}
+                        title={deepSearchArmed ? 'Click again to send with Deep Archive Search' : 'Arm Deep Archive Search (click to arm, click again to send)'}
+                    >
+                        <Search size={13} />
+                        <span className="hidden xs:inline">{deepSearchArmed ? 'DEEP SEARCH — CLICK TO FIRE' : 'Deep Search'}</span>
+                        <span className="inline xs:hidden">{deepSearchArmed ? 'FIRE' : 'Deep'}</span>
+                    </button>
+                )}
                 <button
                     onClick={handleOpenArchive}
                     disabled={!activeCampaignId}

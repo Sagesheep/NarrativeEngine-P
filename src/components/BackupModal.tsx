@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, RotateCcw, Trash2, Save, Clock, Loader2 } from 'lucide-react';
+import { X, RotateCcw, Trash2, Save, Clock, Loader2, CheckSquare, Square } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { listBackups, createBackup, restoreBackup, deleteBackup } from '../store/campaignStore';
 import { hydrateCampaign } from '../store/campaignHydrator';
@@ -13,6 +13,8 @@ export function BackupModal() {
     const [loading, setLoading] = useState(false);
     const [creating, setCreating] = useState(false);
     const [restoringTs, setRestoringTs] = useState<number | null>(null);
+    const [selectedBackups, setSelectedBackups] = useState<Set<number>>(new Set());
+    const [deletingBatch, setDeletingBatch] = useState(false);
 
     useEffect(() => {
         if (backupModalOpen && activeCampaignId) loadBackups();
@@ -20,7 +22,10 @@ export function BackupModal() {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && backupModalOpen) toggleBackupModal();
+            if (e.key === 'Escape' && backupModalOpen) {
+                setSelectedBackups(new Set());
+                toggleBackupModal();
+            }
         };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
@@ -91,6 +96,46 @@ export function BackupModal() {
         }
     }
 
+    function toggleSelect(ts: number) {
+        setSelectedBackups(prev => {
+            const next = new Set(prev);
+            if (next.has(ts)) next.delete(ts);
+            else next.add(ts);
+            return next;
+        });
+    }
+
+    function toggleSelectAll() {
+        if (selectedBackups.size === backups.length) {
+            setSelectedBackups(new Set());
+        } else {
+            setSelectedBackups(new Set(backups.map(b => b.timestamp)));
+        }
+    }
+
+    async function handleBatchDelete() {
+        if (!activeCampaignId || selectedBackups.size === 0) return;
+        const count = selectedBackups.size;
+        if (!window.confirm(`Delete ${count} backup${count > 1 ? 's' : ''} permanently?`)) return;
+
+        setDeletingBatch(true);
+        let failed = 0;
+        for (const ts of selectedBackups) {
+            const ok = await deleteBackup(activeCampaignId, ts);
+            if (!ok) failed++;
+        }
+        if (failed === 0) {
+            toast.success(`Deleted ${count} backup${count > 1 ? 's' : ''}`);
+        } else if (failed < count) {
+            toast.error(`Deleted ${count - failed} of ${count} backups`);
+        } else {
+            toast.error('Failed to delete backups');
+        }
+        setSelectedBackups(new Set());
+        await loadBackups();
+        setDeletingBatch(false);
+    }
+
     function triggerBadge(trigger: string) {
         const colors: Record<string, string> = {
             manual: 'bg-green-900/50 text-green-400',
@@ -111,7 +156,7 @@ export function BackupModal() {
     }
 
     return (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center" onClick={toggleBackupModal}>
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center" onClick={() => { setSelectedBackups(new Set()); toggleBackupModal(); }}>
             <div
                 className="bg-surface border border-border rounded-lg w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
@@ -152,8 +197,18 @@ export function BackupModal() {
                             {backups.map((b) => (
                                 <div
                                     key={b.timestamp}
-                                    className="flex items-center gap-3 p-3 rounded hover:bg-white/5 transition-colors"
+                                    className={`flex items-center gap-3 p-3 rounded transition-colors ${selectedBackups.has(b.timestamp) ? 'bg-white/10' : 'hover:bg-white/5'}`}
                                 >
+                                    <button
+                                        onClick={() => toggleSelect(b.timestamp)}
+                                        disabled={deletingBatch}
+                                        className="shrink-0 text-text-dim hover:text-text transition-colors disabled:opacity-50"
+                                    >
+                                        {selectedBackups.has(b.timestamp)
+                                            ? <CheckSquare size={16} className="text-terminal" />
+                                            : <Square size={16} />
+                                        }
+                                    </button>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-0.5">
                                             <span className="text-xs text-text-dim font-mono">
@@ -201,8 +256,36 @@ export function BackupModal() {
 
                 {/* Footer info */}
                 {backups.length > 0 && (
-                    <div className="px-4 py-2 border-t border-border text-xs text-text-dim/60">
-                        {backups.filter(b => b.isAuto).length} auto · {backups.filter(b => !b.isAuto).length} manual
+                    <div className="px-4 py-2 border-t border-border flex items-center justify-between text-xs text-text-dim/60">
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={toggleSelectAll}
+                                disabled={deletingBatch}
+                                className="flex items-center gap-1 hover:text-text transition-colors disabled:opacity-50"
+                            >
+                                {selectedBackups.size === backups.length
+                                    ? <CheckSquare size={13} className="text-terminal" />
+                                    : <Square size={13} />
+                                }
+                                {selectedBackups.size === backups.length ? 'Deselect All' : 'Select All'}
+                            </button>
+                            <span>
+                                {backups.filter(b => b.isAuto).length} auto · {backups.filter(b => !b.isAuto).length} manual
+                            </span>
+                        </div>
+                        {selectedBackups.size > 0 && (
+                            <button
+                                onClick={handleBatchDelete}
+                                disabled={deletingBatch}
+                                className="flex items-center gap-1.5 px-3 py-1 bg-danger/20 text-danger rounded hover:bg-danger/30 transition-colors font-semibold disabled:opacity-50"
+                            >
+                                {deletingBatch
+                                    ? <Loader2 size={12} className="animate-spin" />
+                                    : <Trash2 size={12} />
+                                }
+                                Delete Selected ({selectedBackups.size})
+                            </button>
+                        )}
                     </div>
                 )}
             </div>

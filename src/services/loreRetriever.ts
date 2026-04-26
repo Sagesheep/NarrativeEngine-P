@@ -1,12 +1,69 @@
 import type { LoreChunk, ChatMessage } from '../types';
 
-/**
- * Keyword-based World Info retrieval.
- * Scans the last N messages (per chunk's scanDepth) for exact keyword matches.
- * Only injects chunks whose trigger keywords appear in recent conversation.
- * alwaysInclude chunks bypass keyword matching entirely.
- * Enforces a token budget — ranked by keyword hit count, most relevant first.
- */
+// ─── Regex Cache ──────────────────────────────────────────────────────────
+const regexCache = new Map<string, RegExp>();
+
+function getKeywordRegex(keyword: string): RegExp {
+    let regex = regexCache.get(keyword);
+    if (!regex) {
+        const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        try {
+            regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+        } catch {
+            regex = new RegExp(escaped, 'gi');
+        }
+        regexCache.set(keyword, regex);
+    }
+    return regex;
+}
+
+// ─── Group Competition ────────────────────────────────────────────────────
+function applyGroupCompetition(
+    scored: { chunk: LoreChunk; score: number }[]
+): { chunk: LoreChunk; score: number }[] {
+    const groupMap = new Map<string, { chunk: LoreChunk; score: number }>();
+    const ungrouped: { chunk: LoreChunk; score: number }[] = [];
+
+    for (const entry of scored) {
+        const group = entry.chunk.group;
+        if (!group) {
+            ungrouped.push(entry);
+            continue;
+        }
+        const existing = groupMap.get(group);
+        const entryWeight = entry.chunk.groupWeight ?? 0;
+        if (!existing) {
+            groupMap.set(group, entry);
+            continue;
+        }
+        const existingWeight = existing.chunk.groupWeight ?? 0;
+        if (entryWeight > existingWeight || (entryWeight === existingWeight && entry.score > existing.score)) {
+            groupMap.set(group, entry);
+        }
+    }
+
+    return [...ungrouped, ...groupMap.values()];
+}
+
+// ─── Keyword Scoring Helper ───────────────────────────────────────────────
+function countKeywordHits(keywords: string[], scanText: string): number {
+    let matchCount = 0;
+    for (const kw of keywords) {
+        const regex = getKeywordRegex(kw);
+        regex.lastIndex = 0;
+        if (regex.test(scanText)) matchCount++;
+    }
+    return matchCount;
+}
+
+function categoryBoost(category: string, scanText: string): number {
+    if (category === 'power_system' && (scanText.includes('combat') || scanText.includes('attack') || scanText.includes('damage') || scanText.includes('cast'))) return 15;
+    if (category === 'faction' && (scanText.includes('politics') || scanText.includes('war') || scanText.includes('guild') || scanText.includes('order'))) return 15;
+    if (category === 'economy' && (scanText.includes('buy') || scanText.includes('sell') || scanText.includes('cost') || scanText.includes('gold') || scanText.includes('money'))) return 15;
+    return 0;
+}
+
+// ─── Main Retrieval (Semantic-First) ──────────────────────────────────────
 export function retrieveRelevantLore(
     chunks: LoreChunk[],
     _canonState: string,
@@ -14,7 +71,7 @@ export function retrieveRelevantLore(
     userMessage: string,
     tokenBudget = 1200,
     recentMessages?: ChatMessage[],
-    semanticCandidateIds?: string[]
+    semanticCandidateIds?: string[],
 ): LoreChunk[] {
     if (chunks.length === 0) return [];
 
@@ -22,7 +79,6 @@ export function retrieveRelevantLore(
     const includedSet = new Set<string>();
     let usedTokens = 0;
 
-    // Always-include chunks get priority (deducted from budget)
     for (const chunk of chunks) {
         if (chunk.alwaysInclude) {
             results.push(chunk);
@@ -31,75 +87,51 @@ export function retrieveRelevantLore(
         }
     }
 
+    const semanticSet = new Set(semanticCandidateIds ?? []);
+
     const history = recentMessages || [];
     const defaultDepth = 2;
 
     const textByDepth = new Map<number, string>();
-    for (const chunk of chunks) {
-        if (chunk.alwaysInclude) continue;
-        const depth = chunk.scanDepth || defaultDepth;
+    function getScanText(depth: number): string {
         if (!textByDepth.has(depth)) {
-            const sliceForDepth = history.length > depth ? history.slice(-depth) : history;
-            const text = sliceForDepth.map(m => (m.content || '').toLowerCase()).join(' ')
-                + ' ' + userMessage.toLowerCase();
-            textByDepth.set(depth, text);
+            const slice = history.length > depth ? history.slice(-depth) : history;
+            textByDepth.set(depth, slice.map(m => (m.content || '').toLowerCase()).join(' ') + ' ' + userMessage.toLowerCase());
         }
+        return textByDepth.get(depth)!;
     }
+    getScanText(defaultDepth);
 
-    if (!textByDepth.has(defaultDepth)) {
-        const slice = history.length > defaultDepth ? history.slice(-defaultDepth) : history;
-        textByDepth.set(defaultDepth, slice.map(m => (m.content || '').toLowerCase()).join(' ')
-            + ' ' + userMessage.toLowerCase());
-    }
-
-    // Score chunks
     const scored: { chunk: LoreChunk; score: number }[] = [];
 
     for (const chunk of chunks) {
         if (chunk.alwaysInclude) continue;
 
+        const isSemantic = semanticSet.has(chunk.id);
         const keywords = chunk.triggerKeywords || [];
-        if (keywords.length === 0) continue;
-
         const depth = chunk.scanDepth || defaultDepth;
-        const scanText = textByDepth.get(depth) || userMessage.toLowerCase();
+        const scanText = getScanText(depth);
 
-        let matchCount = 0;
-        for (const kw of keywords) {
-            const lower = kw.toLowerCase();
-            const regex = new RegExp(`\\b${lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-            if (regex.test(scanText)) matchCount++;
-        }
+        const kwHits = countKeywordHits(keywords, scanText);
 
-        if (matchCount > 0) {
-            let score = matchCount * 10;
-            
-            // Boost by priority
+        if (isSemantic) {
+            let score = 15;
+            score += kwHits * 10;
             score += (chunk.priority || 5);
-
-            // Context heuristics
-            if (chunk.category === 'power_system' && (scanText.includes('combat') || scanText.includes('attack') || scanText.includes('damage') || scanText.includes('cast'))) {
-                score += 15;
-            }
-            if (chunk.category === 'faction' && (scanText.includes('politics') || scanText.includes('war') || scanText.includes('guild') || scanText.includes('order'))) {
-                score += 15;
-            }
-            if (chunk.category === 'economy' && (scanText.includes('buy') || scanText.includes('sell') || scanText.includes('cost') || scanText.includes('gold') || scanText.includes('money'))) {
-                score += 15;
-            }
-
-            if (semanticCandidateIds?.length && semanticCandidateIds.includes(chunk.id)) {
-                score += 5;
-            }
-
+            score += categoryBoost(chunk.category, scanText);
+            scored.push({ chunk, score });
+        } else if (kwHits > 0) {
+            let score = kwHits * 10;
+            score += Math.floor((chunk.priority || 5) * 0.5);
+            score += categoryBoost(chunk.category, scanText);
             scored.push({ chunk, score });
         }
     }
 
-    scored.sort((a, b) => b.score - a.score);
+    const grouped = applyGroupCompetition(scored);
+    grouped.sort((a, b) => b.score - a.score);
 
-    // Pass 1: Fill based on direct hits
-    for (const { chunk } of scored) {
+    for (const { chunk } of grouped) {
         if (includedSet.has(chunk.id)) continue;
         if (usedTokens + chunk.tokens > tokenBudget) continue;
         results.push(chunk);
@@ -107,8 +139,6 @@ export function retrieveRelevantLore(
         usedTokens += chunk.tokens;
     }
 
-    // Pass 2: Linked entities cross-pull
-    // If we still have budget, pull in chunks that are referenced by included chunks
     if (usedTokens < tokenBudget) {
         const linkedNames = new Set<string>();
         for (const chunk of results) {
@@ -116,7 +146,6 @@ export function retrieveRelevantLore(
         }
 
         if (linkedNames.size > 0) {
-            // Sort remaining chunks by priority just to be safe
             const remaining = chunks.filter(c => !includedSet.has(c.id)).sort((a, b) => (b.priority || 5) - (a.priority || 5));
             for (const chunk of remaining) {
                 const headerLower = chunk.header.toLowerCase();
@@ -133,10 +162,7 @@ export function retrieveRelevantLore(
     return results;
 }
 
-/**
- * Search lore chunks based on an explicit query string (from LLM tool call).
- * Uses keyword scoring against the query. Enforces max 3 results or 1500 tokens.
- */
+// ─── Query-based search (LLM tool call) ───────────────────────────────────
 export function searchLoreByQuery(
     chunks: LoreChunk[],
     query: string,
@@ -156,7 +182,6 @@ export function searchLoreByQuery(
         }
     }
 
-    // Score chunks by how many query keywords match their content + triggerKeywords
     const scored = chunks
         .map((chunk) => {
             const searchText = (chunk.header + ' ' + chunk.content).toLowerCase();
@@ -164,9 +189,9 @@ export function searchLoreByQuery(
             let score = 0;
 
             for (const kw of queryKeywords) {
-                if (triggerSet.has(kw)) score += 3;        // trigger keyword match = high
-                else if (chunk.header.toLowerCase().includes(kw)) score += 2;  // header match
-                else if (searchText.includes(kw)) score += 1;                  // content match
+                if (triggerSet.has(kw)) score += 3;
+                else if (chunk.header.toLowerCase().includes(kw)) score += 2;
+                else if (searchText.includes(kw)) score += 1;
             }
             return { chunk, score };
         })

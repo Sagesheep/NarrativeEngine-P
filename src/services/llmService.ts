@@ -9,13 +9,14 @@ export type OpenAIMessage = {
     name?: string;
     tool_calls?: unknown[];
     tool_call_id?: string;
+    reasoning_content?: string;
 };
 
 export async function sendMessage(
     provider: EndpointConfig | ProviderConfig,
     messages: OpenAIMessage[],
     onChunk: (text: string) => void,
-    onDone: (text: string, toolCall?: { id: string; name: string; arguments: string }) => void,
+    onDone: (text: string, toolCall?: { id: string; name: string; arguments: string }, reasoningContent?: string) => void,
     onError: (err: string) => void,
     tools?: unknown[],
     abortController?: AbortController,
@@ -64,6 +65,7 @@ export async function sendMessage(
             const decoder = new TextDecoder();
             let buffer = '';
             let fullText = '';
+            let reasoningContent = '';
 
             let tcId = '';
             let tcName = '';
@@ -131,6 +133,10 @@ export async function sendMessage(
                                 onChunk(fullText);
                             }
 
+                            if (delta?.reasoning_content) {
+                                reasoningContent += delta.reasoning_content;
+                            }
+
                             if (delta?.tool_calls && delta.tool_calls.length > 0) {
                                 const tc = delta.tool_calls[0];
                                 if (tc.id) tcId = tc.id;
@@ -180,9 +186,9 @@ export async function sendMessage(
             }
 
             if (tcName) {
-                onDone(fullText, { id: tcId, name: tcName, arguments: tcArgs });
+                onDone(fullText, { id: tcId, name: tcName, arguments: tcArgs }, reasoningContent || undefined);
             } else {
-                onDone(fullText);
+                onDone(fullText, undefined, reasoningContent || undefined);
             }
         } finally {
             queue.releaseSlot();

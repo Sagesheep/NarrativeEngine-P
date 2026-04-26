@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, SemanticFact, EntityEntry, TimelineEvent } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile } from '../../types';
+import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext } from '../../types';
 import { toast } from '../../components/Toast';
 import { debouncedSaveSettings } from './settingsSlice';
 import {
@@ -197,6 +198,9 @@ export const defaultContext: GameContext = {
     inventoryLastScene: 'Never',
     characterProfile: '',
     characterProfileLastScene: 'Never',
+    inventoryItems: DEFAULT_INVENTORY,
+    characterProfileData: DEFAULT_CHARACTER_PROFILE,
+    smartBookkeepingActive: true,
     surpriseDC: 95,
     encounterDC: 198,
     worldEventDC: 498,
@@ -289,6 +293,13 @@ export type CampaignSlice = {
 
     context: GameContext;
     updateContext: (patch: Partial<GameContext>) => void;
+    inventoryItems: InventoryItem[];
+    setInventoryItems: (items: InventoryItem[]) => void;
+    updateInventoryItem: (id: string, patch: Partial<InventoryItem>) => void;
+    removeInventoryItem: (id: string) => void;
+    addInventoryItem: (item: InventoryItem) => void;
+    characterProfileData: CharacterProfile;
+    setCharacterProfileData: (p: CharacterProfile) => void;
 
     bookkeepingTurnCounter: number;
     autoBookkeepingInterval: number;
@@ -424,13 +435,44 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     }),
     clearPinnedChapters: () => set({ pinnedChapterIds: [] } as Partial<CampaignDeps>),
 
-    context: { ...defaultContext },
+    context: migrateLegacyContext({}),
     updateContext: (patch) =>
         set((s) => {
-            const newContext = { ...s.context, ...patch };
+            const newContext = migrateLegacyContext({ ...s.context, ...patch });
             debouncedSaveCampaignState();
             return { context: newContext };
         }),
+
+    inventoryItems: DEFAULT_INVENTORY,
+    setInventoryItems: (items) => set((s) => {
+        const newContext = { ...s.context, inventoryItems: items };
+        debouncedSaveCampaignState();
+        return { context: newContext, inventoryItems: items } as Partial<CampaignDeps>;
+    }),
+    updateInventoryItem: (id, patch) => set((s) => {
+        const newItems = s.inventoryItems.map(it => it.id === id ? { ...it, ...patch } : it);
+        const newContext = { ...s.context, inventoryItems: newItems };
+        debouncedSaveCampaignState();
+        return { context: newContext, inventoryItems: newItems };
+    }),
+    removeInventoryItem: (id) => set((s) => {
+        const newItems = s.inventoryItems.filter(it => it.id !== id);
+        const newContext = { ...s.context, inventoryItems: newItems };
+        debouncedSaveCampaignState();
+        return { context: newContext, inventoryItems: newItems };
+    }),
+    addInventoryItem: (item) => set((s) => {
+        const newItems = [...s.inventoryItems, item];
+        const newContext = { ...s.context, inventoryItems: newItems };
+        debouncedSaveCampaignState();
+        return { context: newContext, inventoryItems: newItems };
+    }),
+    characterProfileData: DEFAULT_CHARACTER_PROFILE,
+    setCharacterProfileData: (p) => set((s) => {
+        const newContext = { ...s.context, characterProfileData: p };
+        debouncedSaveCampaignState();
+        return { context: newContext, characterProfileData: p } as Partial<CampaignDeps>;
+    }),
 
     bookkeepingTurnCounter: 0,
     autoBookkeepingInterval: 5,

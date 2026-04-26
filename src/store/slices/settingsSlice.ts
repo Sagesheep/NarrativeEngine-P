@@ -82,6 +82,7 @@ export const defaultSettings: AppSettings = {
     debugMode: false,
     theme: 'light',
     showReasoning: true,
+    deepContextSearch: false,
 };
 
 export function applyTheme(theme: 'light' | 'dark') {
@@ -101,6 +102,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
             debugMode: (raw.debugMode as boolean) ?? false,
             theme: (raw.theme as 'light' | 'dark') ?? 'light',
             showReasoning: (raw.showReasoning as boolean) ?? true,
+            deepContextSearch: (raw.deepContextSearch as boolean) ?? false,
         };
     }
 
@@ -143,6 +145,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         debugMode: (raw.debugMode as boolean) ?? false,
         theme: (raw.theme as 'light' | 'dark') ?? 'light',
         showReasoning: (raw.showReasoning as boolean) ?? true,
+        deepContextSearch: (raw.deepContextSearch as boolean) ?? false,
     };
 }
 

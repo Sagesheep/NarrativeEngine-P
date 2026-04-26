@@ -12,15 +12,6 @@ import { scanCharacterProfile } from './characterProfileParser';
 import { scanInventory } from './inventoryParser';
 import { toast } from '../components/Toast';
 
-/**
- * Runs everything that happens after a successful LLM response:
- * importance rating, archive append, archive index refresh, auto-seal,
- * NPC detection/generation, and auto-bookkeeping.
- *
- * Caller must guard: activeCampaignId is non-null, lastAssistant has content.
- *
- * @param allMsgs - snapshot from state.getMessages() taken right after updateLastAssistant
- */
 export async function runPostTurnPipeline(
     state: TurnState,
     callbacks: TurnCallbacks,
@@ -30,7 +21,26 @@ export async function runPostTurnPipeline(
     const activeCampaignId = state.activeCampaignId!;
     const { displayInput, npcLedger } = state;
 
-    // ── Importance Rating ────────────────────────────────────────────────
+    const results = await Promise.allSettled([
+        runArchiveTrack(state, callbacks, displayInput, lastAssistantContent, allMsgs, activeCampaignId),
+        runNPCTrack(state, callbacks, lastAssistantContent, allMsgs, npcLedger, activeCampaignId),
+    ]);
+
+    for (const r of results) {
+        if (r.status === 'rejected') {
+            console.warn('[PostTurn] Track failed:', r.reason);
+        }
+    }
+}
+
+async function runArchiveTrack(
+    state: TurnState,
+    callbacks: TurnCallbacks,
+    displayInput: string,
+    lastAssistantContent: string,
+    allMsgs: ChatMessage[],
+    activeCampaignId: string
+): Promise<void> {
     let sceneImportance: number | undefined;
     const importanceProvider = state.getFreshProvider();
     if (importanceProvider) {
@@ -42,20 +52,23 @@ export async function runPostTurnPipeline(
         }
     }
 
-    // ── Archive Append ───────────────────────────────────────────────────
     const appendData = await api.archive.append(activeCampaignId, displayInput, lastAssistantContent, sceneImportance);
     const appendedSceneId = appendData?.sceneId;
-    if (!appendData) return;
+    if (!appendData) {
+        console.warn('[PostTurn] Archive append returned no data — skipping archive refresh');
+        return;
+    }
 
-    const freshIndex = await api.archive.getIndex(activeCampaignId);
+    const [freshIndex, freshTimeline, freshChapters] = await Promise.all([
+        api.archive.getIndex(activeCampaignId),
+        api.timeline.get(activeCampaignId),
+        api.chapters.list(activeCampaignId),
+    ]);
     callbacks.setArchiveIndex(freshIndex);
-    const freshTimeline = await api.timeline.get(activeCampaignId);
     callbacks.setTimeline?.(freshTimeline);
+    state.setChapters(freshChapters);
     console.log(`[Archive] Appended scene #${appendedSceneId}`);
 
-    // ── Auto-Seal Check ──────────────────────────────────────────────────
-    const freshChapters = await api.chapters.list(activeCampaignId);
-    state.setChapters(freshChapters);
     const openChapter = freshChapters.find(c => !c.sealedAt);
     if (openChapter && openChapter.sceneCount >= CHAPTER_SCENE_SOFT_CAP) {
         console.log(`[Auto-Seal] Chapter "${openChapter.title}" hit ${openChapter.sceneCount} scenes — sealing...`);
@@ -66,7 +79,6 @@ export async function runPostTurnPipeline(
             state.setChapters(sealedChapters);
             toast.info(`Chapter "${sealResult.sealedChapter.title}" auto-sealed (${CHAPTER_SCENE_SOFT_CAP} scenes)`);
 
-            // Generate summary in background
             const sealProvider = state.getFreshProvider();
             if (sealProvider) {
                 const ch = sealResult.sealedChapter;
@@ -88,61 +100,6 @@ export async function runPostTurnPipeline(
         }).catch(err => console.warn('[Auto-Seal] Failed:', err));
     }
 
-    // ── NPC Detection ────────────────────────────────────────────────────
-    const extractedNames = extractNPCNames(lastAssistantContent);
-    if (extractedNames.length > 0) {
-        const freshProvider = state.getFreshProvider();
-        const validatedNames = freshProvider
-            ? await validateNPCCandidates(freshProvider, extractedNames, lastAssistantContent)
-            : extractedNames;
-
-        if (validatedNames.length > 0) {
-            const { newNames, existingNpcs: existingNpcsToUpdate } = classifyNPCNames(validatedNames, npcLedger);
-
-            // Guard: capture campaign ID at enqueue time so in-flight tasks that
-            // complete after a campaign switch are silently dropped, not misfiled.
-            const guardedAddNPC = (npc: Parameters<typeof callbacks.addNPC>[0]) => {
-                const currentId = useAppStore.getState().activeCampaignId;
-                if (currentId !== activeCampaignId) {
-                    console.warn(`[NPC Auto-Gen] Dropping NPC "${npc.name}" — campaign switched (${activeCampaignId} → ${currentId})`);
-                    return;
-                }
-                callbacks.addNPC(npc);
-            };
-
-            const guardedUpdateNPC = (id: string, patch: Parameters<typeof callbacks.updateNPC>[1]) => {
-                const currentId = useAppStore.getState().activeCampaignId;
-                if (currentId !== activeCampaignId) {
-                    console.warn(`[NPC Update] Dropping update for NPC ${id} — campaign switched (${activeCampaignId} → ${currentId})`);
-                    return;
-                }
-                callbacks.updateNPC(id, patch);
-            };
-
-            for (const potentialName of newNames) {
-                console.log(`[NPC Auto-Gen] New character detected: "${potentialName}" — queuing background profile generation...`);
-                const genProvider = state.getFreshProvider();
-                if (genProvider) {
-                    backgroundQueue.push(
-                        `NPC-Gen:${potentialName}`,
-                        () => generateNPCProfile(genProvider, allMsgs, potentialName, guardedAddNPC)
-                    ).catch(err => console.warn(`[NPC Auto-Gen] Background generation failed for "${potentialName}":`, err));
-                }
-            }
-
-            if (existingNpcsToUpdate.length > 0) {
-                const updateProvider = state.getFreshProvider();
-                if (updateProvider) {
-                    backgroundQueue.push(
-                        `NPC-Update:${existingNpcsToUpdate.map(n => n.name).join(',')}`,
-                        () => updateExistingNPCs(updateProvider, allMsgs, existingNpcsToUpdate, guardedUpdateNPC)
-                    ).catch(err => console.warn('[NPC Update] Background update failed:', err));
-                }
-            }
-        }
-    }
-
-    // ── Auto Bookkeeping: Profile & Inventory scan every N turns ─────────
     const turnCount = state.incrementBookkeepingTurnCounter();
     const interval = state.autoBookkeepingInterval;
     if (turnCount >= interval && appendedSceneId) {
@@ -153,25 +110,95 @@ export async function runPostTurnPipeline(
         if (bkProvider) {
             const sceneId = appendedSceneId;
 
-            // Closures call state.getMessages() / state.getFreshContext() at execution time
-            // to get the freshest state when the background task drains.
             backgroundQueue.push('Profile-Scan', async () => {
-                const newProfile = await scanCharacterProfile(bkProvider, state.getMessages(), state.getFreshContext().characterProfile);
+                const freshCtx = state.getFreshContext();
+                const profileData = freshCtx.characterProfileData;
+                const newProfile = await scanCharacterProfile(bkProvider, state.getMessages(), profileData);
+                const profileJson = JSON.stringify(newProfile);
                 callbacks.updateContext({
-                    characterProfile: newProfile,
+                    characterProfile: profileJson,
                     characterProfileLastScene: sceneId,
                 });
+                callbacks.updateContext({
+                    characterProfileData: newProfile,
+                } as any);
                 console.log(`[Auto Bookkeeping] Profile updated at scene #${sceneId}`);
             }).catch(err => console.warn('[Auto Bookkeeping] Profile scan failed:', err));
 
             backgroundQueue.push('Inventory-Scan', async () => {
-                const newInventory = await scanInventory(bkProvider, state.getMessages(), state.getFreshContext().inventory);
+                const freshCtx = state.getFreshContext();
+                const inventoryItems = freshCtx.inventoryItems;
+                const newItems = await scanInventory(bkProvider, state.getMessages(), inventoryItems);
+                const inventorySummary = newItems.map(i => i.qty > 1 ? `${i.name} (x${i.qty})` : i.name).join(', ');
                 callbacks.updateContext({
-                    inventory: newInventory,
+                    inventory: inventorySummary,
                     inventoryLastScene: sceneId,
                 });
+                callbacks.updateContext({
+                    inventoryItems: newItems,
+                } as any);
                 console.log(`[Auto Bookkeeping] Inventory updated at scene #${sceneId}`);
             }).catch(err => console.warn('[Auto Bookkeeping] Inventory scan failed:', err));
+        }
+    }
+}
+
+async function runNPCTrack(
+    state: TurnState,
+    callbacks: TurnCallbacks,
+    lastAssistantContent: string,
+    allMsgs: ChatMessage[],
+    npcLedger: import('../types').NPCEntry[],
+    activeCampaignId: string
+): Promise<void> {
+    const extractedNames = extractNPCNames(lastAssistantContent);
+    if (extractedNames.length === 0) return;
+
+    const freshProvider = state.getFreshProvider();
+    const validatedNames = freshProvider
+        ? await validateNPCCandidates(freshProvider, extractedNames, lastAssistantContent)
+        : extractedNames;
+
+    if (validatedNames.length === 0) return;
+
+    const { newNames, existingNpcs: existingNpcsToUpdate } = classifyNPCNames(validatedNames, npcLedger);
+
+    const guardedAddNPC = (npc: Parameters<typeof callbacks.addNPC>[0]) => {
+        const currentId = useAppStore.getState().activeCampaignId;
+        if (currentId !== activeCampaignId) {
+            console.warn(`[NPC Auto-Gen] Dropping NPC "${npc.name}" — campaign switched (${activeCampaignId} → ${currentId})`);
+            return;
+        }
+        callbacks.addNPC(npc);
+    };
+
+    const guardedUpdateNPC = (id: string, patch: Parameters<typeof callbacks.updateNPC>[1]) => {
+        const currentId = useAppStore.getState().activeCampaignId;
+        if (currentId !== activeCampaignId) {
+            console.warn(`[NPC Update] Dropping update for NPC ${id} — campaign switched (${activeCampaignId} → ${currentId})`);
+            return;
+        }
+        callbacks.updateNPC(id, patch);
+    };
+
+    for (const potentialName of newNames) {
+        console.log(`[NPC Auto-Gen] New character detected: "${potentialName}" — queuing background profile generation...`);
+        const genProvider = state.getFreshProvider();
+        if (genProvider) {
+            backgroundQueue.push(
+                `NPC-Gen:${potentialName}`,
+                () => generateNPCProfile(genProvider, allMsgs, potentialName, guardedAddNPC)
+            ).catch(err => console.warn(`[NPC Auto-Gen] Background generation failed for "${potentialName}":`, err));
+        }
+    }
+
+    if (existingNpcsToUpdate.length > 0) {
+        const updateProvider = state.getFreshProvider();
+        if (updateProvider) {
+            backgroundQueue.push(
+                `NPC-Update:${existingNpcsToUpdate.map(n => n.name).join(',')}`,
+                () => updateExistingNPCs(updateProvider, allMsgs, existingNpcsToUpdate, guardedUpdateNPC)
+            ).catch(err => console.warn('[NPC Update] Background update failed:', err));
         }
     }
 }

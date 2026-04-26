@@ -1,4 +1,5 @@
 import type { GameContext } from '../types';
+import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY } from '../types';
 import {
     saveLoreChunks, getNPCLedger, saveNPCLedger,
     loadCampaignState, saveCampaignState,
@@ -16,6 +17,9 @@ import { dedupeNPCLedger } from '../store/slices/campaignSlice';
 export const DEFAULT_CONTEXT = {
     loreRaw: '', rulesRaw: '', canonState: '', headerIndex: '',
     starter: '', continuePrompt: '', inventory: '', characterProfile: '',
+    inventoryItems: DEFAULT_INVENTORY,
+    characterProfileData: DEFAULT_CHARACTER_PROFILE,
+    smartBookkeepingActive: true,
     surpriseDC: 95, encounterDC: 198, worldEventDC: 498,
     canonStateActive: false, headerIndexActive: false, starterActive: false,
     continuePromptActive: false, inventoryActive: false, characterProfileActive: false,

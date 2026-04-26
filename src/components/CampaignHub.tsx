@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Settings } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Settings, Upload, Loader2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import {
-    listCampaigns, deleteCampaign, saveCampaign,
+    listCampaigns, deleteCampaign, saveCampaign, exportCampaign, importCampaign,
 } from '../store/campaignStore';
 import { hydrateCampaign } from '../store/campaignHydrator';
 import { API_BASE as API } from '../lib/apiBase';
@@ -18,6 +18,9 @@ export function CampaignHub() {
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [activeIdx, setActiveIdx] = useState(0);
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+    const [isExporting, setIsExporting] = useState<string | null>(null);
+    const [isImporting, setIsImporting] = useState(false);
+    const importInputRef = useRef<HTMLInputElement>(null);
     const [modalOpen, setModalOpen] = useState(false);
     const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
 
@@ -59,6 +62,31 @@ export function CampaignHub() {
         await hydrateCampaign(campaign.id);
     };
 
+    const handleExport = async (id: string) => {
+        setIsExporting(id);
+        try { await exportCampaign(id); }
+        catch (e) { console.error('[Export]', e); alert('Export failed'); }
+        finally { setIsExporting(null); }
+    };
+
+    const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        e.target.value = '';
+        setIsImporting(true);
+        try {
+            const bundle = JSON.parse(await file.text());
+            const result = await importCampaign(bundle);
+            await refresh();
+            alert(`"${result.name}" imported — search index rebuilding in background`);
+        } catch (err) {
+            console.error('[Import]', err);
+            alert('Import failed — invalid campaign file');
+        } finally {
+            setIsImporting(false);
+        }
+    };
+
     const handleDelete = async (id: string) => {
         fetch(`${API}/campaigns/${id}/backup`, {
             method: 'POST',
@@ -91,6 +119,38 @@ export function CampaignHub() {
                 position: 'absolute', inset: 0, pointerEvents: 'none',
                 background: 'radial-gradient(ellipse 70% 50% at 50% 65%, rgba(106,159,212,0.10) 0%, transparent 70%)',
             }} />
+
+            <input ref={importInputRef} type="file" accept=".campaign,.json" style={{ display: 'none' }} onChange={handleImportFile} />
+
+            {/* Import button */}
+            <button
+                onClick={() => importInputRef.current?.click()}
+                disabled={isImporting}
+                title="Import Campaign"
+                style={{
+                    position: 'absolute', top: 20, left: 20,
+                    width: 36, height: 36, borderRadius: '50%',
+                    border: '1px solid rgba(106,159,212,0.25)',
+                    background: 'rgba(255,255,255,0.04)',
+                    color: 'rgba(107,107,107,0.5)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: isImporting ? 'default' : 'pointer', zIndex: 10,
+                    opacity: isImporting ? 0.5 : 1,
+                    transition: 'all 0.2s',
+                }}
+                onMouseEnter={e => {
+                    if (!isImporting) {
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.65)';
+                        (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-terminal)';
+                    }
+                }}
+                onMouseLeave={e => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.25)';
+                    (e.currentTarget as HTMLButtonElement).style.color = 'rgba(107,107,107,0.5)';
+                }}
+            >
+                {isImporting ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={15} />}
+            </button>
 
             {/* Settings button */}
             <button
@@ -158,6 +218,8 @@ export function CampaignHub() {
                 onSelect={handleSelectCampaign}
                 onEdit={openEdit}
                 onDelete={id => setConfirmDelete(id)}
+                onExport={handleExport}
+                exportingId={isExporting}
                 onNew={openCreate}
             />
 

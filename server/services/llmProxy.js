@@ -42,7 +42,7 @@ export function clampImportance(val) {
  * Shared fetch-retry helper.
  * Returns the raw matched JSON string from the response, or null on failure.
  */
-async function callLLMWithRetry(prompt, config, { retries = 1, timeoutMs = 6000, jsonPattern = /\{[\s\S]*\}/ } = {}) {
+export async function callLLMWithRetry(prompt, config, { retries = 1, timeoutMs = 6000, jsonPattern = /\{[\s\S]*\}/ } = {}) {
     let attempts = 0;
     while (attempts < retries) {
         try {
@@ -65,13 +65,21 @@ async function callLLMWithRetry(prompt, config, { retries = 1, timeoutMs = 6000,
             });
 
             clearTimeout(timer);
-            if (!response.ok) { attempts++; continue; }
+            if (!response.ok) {
+                console.warn(`[LLM] attempt ${attempts + 1} HTTP ${response.status}`);
+                attempts++;
+                continue;
+            }
 
             const data = await response.json();
             const content = data.choices?.[0]?.message?.content || '';
 
             const jsonMatch = content.match(jsonPattern);
-            if (!jsonMatch) { attempts++; continue; }
+            if (!jsonMatch) {
+                console.warn(`[LLM] attempt ${attempts + 1} regex miss. Content (first 400): ${content.slice(0, 400)}`);
+                attempts++;
+                continue;
+            }
 
             return jsonMatch[0];
         } catch (err) {

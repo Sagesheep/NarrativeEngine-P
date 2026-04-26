@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { BookOpen, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BookOpen, Pencil, Trash2, ChevronLeft, ChevronRight, Download, Loader2 } from 'lucide-react';
 import type { Campaign } from '../types';
 
 interface SlotStyle {
@@ -36,11 +36,13 @@ export interface CoverflowCarouselProps {
     onSelect: (campaign: Campaign) => void;
     onEdit: (campaign: Campaign) => void;
     onDelete: (id: string) => void;
+    onExport: (id: string) => void;
+    exportingId: string | null;
     onNew: () => void;
 }
 
 export function CoverflowCarousel({
-    campaigns, activeIdx, onActiveChange, onSelect, onEdit, onDelete, onNew,
+    campaigns, activeIdx, onActiveChange, onSelect, onEdit, onDelete, onExport, exportingId, onNew,
 }: CoverflowCarouselProps) {
     const touchStartX = useRef(0);
 
@@ -82,9 +84,11 @@ export function CoverflowCarousel({
                                 campaign={c}
                                 isActive={isActive}
                                 slotStyle={s}
+                                isExporting={exportingId === c.id}
                                 onClick={() => { if (!isActive) onActiveChange(i); }}
                                 onEdit={e => { e.stopPropagation(); onEdit(c); }}
                                 onDelete={e => { e.stopPropagation(); onDelete(c.id); }}
+                                onExport={e => { e.stopPropagation(); onExport(c.id); }}
                             />
                         );
                     })
@@ -165,13 +169,15 @@ export function CoverflowCarousel({
     );
 }
 
-function CoverCard({ campaign, isActive, slotStyle, onClick, onEdit, onDelete }: {
+function CoverCard({ campaign, isActive, slotStyle, isExporting, onClick, onEdit, onDelete, onExport }: {
     campaign: Campaign;
     isActive: boolean;
     slotStyle: SlotStyle;
+    isExporting: boolean;
     onClick: () => void;
     onEdit: (e: React.MouseEvent) => void;
     onDelete: (e: React.MouseEvent) => void;
+    onExport: (e: React.MouseEvent) => void;
 }) {
     const [hovered, setHovered] = useState(false);
 
@@ -260,6 +266,9 @@ function CoverCard({ campaign, isActive, slotStyle, onClick, onEdit, onDelete }:
                         opacity: hovered ? 1 : 0,
                         transition: 'opacity 0.2s ease',
                     }}>
+                        <ActionBtn onClick={onExport} title="Export" disabled={isExporting}>
+                            {isExporting ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={11} />}
+                        </ActionBtn>
                         <ActionBtn onClick={onEdit} title="Edit"><Pencil size={11} /></ActionBtn>
                         <ActionBtn onClick={onDelete} title="Delete" danger><Trash2 size={11} /></ActionBtn>
                     </div>
@@ -326,22 +335,25 @@ function NavBtn({ onClick, disabled, children }: { onClick: () => void; disabled
     );
 }
 
-function ActionBtn({ onClick, title, danger, children }: {
+function ActionBtn({ onClick, title, danger, disabled, children }: {
     onClick: (e: React.MouseEvent) => void;
     title: string;
     danger?: boolean;
+    disabled?: boolean;
     children: React.ReactNode;
 }) {
     return (
         <button
-            onClick={onClick} title={title}
+            onClick={onClick} title={title} disabled={disabled}
             style={{
                 width: 26, height: 26, borderRadius: 3,
                 background: 'rgba(0,0,0,0.70)',
                 border: `1px solid ${danger ? 'rgba(192,57,43,0.3)' : 'rgba(106,159,212,0.20)'}`,
                 color: danger ? 'var(--color-danger)' : 'rgba(144,144,144,0.7)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', backdropFilter: 'blur(4px)',
+                cursor: disabled ? 'default' : 'pointer',
+                opacity: disabled ? 0.5 : 1,
+                backdropFilter: 'blur(4px)',
             }}
         >
             {children}

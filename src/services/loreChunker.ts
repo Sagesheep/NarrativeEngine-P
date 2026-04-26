@@ -155,6 +155,16 @@ function extractLinkedEntities(chunks: LoreChunk[]) {
     }
 }
 
+function assignGroups(chunks: LoreChunk[]) {
+    for (const chunk of chunks) {
+        if (chunk.alwaysInclude) continue;
+        if (chunk.parentSection) {
+            chunk.group = slugify(chunk.parentSection);
+            chunk.groupWeight = chunk.priority;
+        }
+    }
+}
+
 export function chunkLoreFile(markdown: string): LoreChunk[] {
     const normalizedMarkdown = markdown.replace(/\\(#{2,3})\s*/g, '\n$1 ');
     const lines = normalizedMarkdown.split(/\r?\n/);
@@ -253,6 +263,7 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
     }
 
     extractLinkedEntities(chunks);
+    assignGroups(chunks);
 
     return chunks;
 }
