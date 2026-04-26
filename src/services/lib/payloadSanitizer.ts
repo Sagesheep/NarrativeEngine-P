@@ -6,7 +6,9 @@
  * - Removes assistant messages whose tool_calls are all invalid (no id / no function.name)
  * - Removes orphan tool messages (no matching open call_id in the assistant turn above)
  */
-export const sanitizePayloadForApi = (rawPayload: any[], allowTools: boolean): any[] => {
+const THINKING_MODEL_RE = /deepseek-r|deepseek-v[34]|deepseek.*think|qwq|qwen.*think|r1/i;
+
+export const sanitizePayloadForApi = (rawPayload: any[], allowTools: boolean, modelName?: string): any[] => {
     const cleaned: any[] = [];
     const openToolCalls = new Set<string>();
 
@@ -14,6 +16,16 @@ export const sanitizePayloadForApi = (rawPayload: any[], allowTools: boolean): a
         if (!msg || typeof msg !== 'object') continue;
 
         if (msg.role === 'assistant') {
+            const isThinkingModel = THINKING_MODEL_RE.test(modelName || '');
+            const hasToolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+
+            if (isThinkingModel && hasToolCalls && !msg.reasoning_content) {
+                console.warn('[Sanitizer] Thinking-model: stripping tool_calls from assistant missing reasoning_content — would cause 400. ids:', msg.tool_calls.map((tc: any) => tc.id));
+                const { tool_calls, ...stripped } = msg;
+                cleaned.push(stripped);
+                continue;
+            }
+
             if (!allowTools || !Array.isArray(msg.tool_calls) || msg.tool_calls.length === 0) {
                 if (allowTools && Array.isArray(msg.tool_calls)) {
                     console.warn('[Payload] Stripped empty tool_calls from assistant message');
