@@ -1,6 +1,7 @@
 import type { ArchiveIndexEntry, ArchiveScene, ChatMessage, NPCEntry } from '../types';
 import { countTokens } from './tokenizer';
 import { API_BASE as API } from '../lib/apiBase';
+import { safeSceneNum } from '../utils/helpers';
 
 /**
  * archiveMemory.ts
@@ -21,7 +22,7 @@ function scoreEntry(
     divergenceSceneIds?: Set<string>
 ): number {
     // D1: Recency bonus (always positive, logarithmic — never zero)
-    const sceneNum = parseInt(entry.sceneId, 10) || 0;
+    const sceneNum = safeSceneNum(entry.sceneId);
     const turnsSince = totalScenes - sceneNum;
     const recencyBonus = 1 / (1 + Math.log(1 + Math.max(0, turnsSince)));
 
@@ -223,10 +224,10 @@ export function retrieveArchiveMemory(
     let scopedIndex = index;
     if (sceneRanges && sceneRanges.length > 0) {
         scopedIndex = index.filter(entry => {
-            const sceneNum = parseInt(entry.sceneId, 10);
+            const sceneNum = safeSceneNum(entry.sceneId);
             return sceneRanges.some(([start, end]) => {
-                const s = parseInt(start, 10);
-                const e = parseInt(end, 10);
+                const s = safeSceneNum(start);
+                const e = safeSceneNum(end);
                 return sceneNum >= s && sceneNum <= e;
             });
         });
@@ -286,7 +287,7 @@ export async function fetchArchiveScenes(
 
         const raw: { sceneId: string; content: string }[] = await res.json();
 
-        const sorted = raw.sort((a, b) => parseInt(a.sceneId) - parseInt(b.sceneId));
+        const sorted = raw.sort((a, b) => safeSceneNum(a.sceneId) - safeSceneNum(b.sceneId));
         const selected: ArchiveScene[] = [];
         let usedTokens = 0;
 

@@ -8,6 +8,7 @@ import { ChatArea } from './components/ChatArea';
 import { SettingsModal } from './components/SettingsModal';
 import { NPCLedgerModal } from './components/NPCLedgerModal';
 import { BackupModal } from './components/BackupModal';
+import { LoreCheckModal } from './components/LoreCheckModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import { VaultUnlockModal } from './components/VaultUnlockModal';
@@ -138,6 +139,7 @@ export default function App() {
       <SettingsModal />
       <NPCLedgerModal />
       <BackupModal />
+      <LoreCheckModal />
       <ToastContainer />
     </ErrorBoundary>
   );

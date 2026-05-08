@@ -1,6 +1,7 @@
 import type { ArchiveChapter, ArchiveIndexEntry, ChatMessage, EndpointConfig } from '../types';
 import { callLLM } from './callLLM';
 import { fetchArchiveScenes } from './archiveMemory';
+import { safeSceneNum } from '../utils/helpers';
 
 const TIMEOUT_CHAPTER_SCAN_MS = 120_000;
 const TIMEOUT_SCENE_SCAN_MS = 210_000;
@@ -68,10 +69,10 @@ function buildSceneOverview(
     targetTokens: number
 ): string {
     const filtered = entries.filter(entry => {
-        const sceneNum = parseInt(entry.sceneId, 10);
+        const sceneNum = safeSceneNum(entry.sceneId);
         return chapterRanges.some(([start, end]) => {
-            const s = parseInt(start, 10);
-            const e = parseInt(end, 10);
+            const s = safeSceneNum(start);
+            const e = safeSceneNum(end);
             return sceneNum >= s && sceneNum <= e;
         });
     });
@@ -347,14 +348,14 @@ export async function deepArchiveScan(
     // ─── Round 2 (optional): check for chapters not yet scanned ───
     const scannedSceneRanges = selectedChapters.map(c => c.sceneRange);
     for (const id of notebookIds) {
-        const sceneNum = parseInt(id, 10);
+        const sceneNum = safeSceneNum(id);
         const inScanned = scannedSceneRanges.some(([start, end]) => {
-            return sceneNum >= parseInt(start, 10) && sceneNum <= parseInt(end, 10);
+            return sceneNum >= safeSceneNum(start) && sceneNum <= safeSceneNum(end);
         });
         if (!inScanned) {
             const parentChapter = sealedChapters.find(c => {
-                const s = parseInt(c.sceneRange[0], 10);
-                const e = parseInt(c.sceneRange[1], 10);
+                const s = safeSceneNum(c.sceneRange[0]);
+                const e = safeSceneNum(c.sceneRange[1]);
                 return sceneNum >= s && sceneNum <= e;
             });
             if (parentChapter && !selectedChapterIds.includes(parentChapter.chapterId)) {

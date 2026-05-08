@@ -1,5 +1,6 @@
 import { api } from './apiClient';
 import { API_BASE as API } from '../lib/apiBase';
+import { safeSceneNum } from '../utils/helpers';
 import type { ArchiveChapter, ArchiveIndexEntry, ChatMessage, CondenserState } from '../types';
 
 export interface ArchiveManagerDeps {
@@ -22,7 +23,7 @@ export async function rollbackArchiveFrom(deps: ArchiveManagerDeps, fromTimestam
     const currentChapters = deps.getChapters();
     if (!currentIndex.length) return;
 
-    const sorted = [...currentIndex].sort((a, b) => parseInt(a.sceneId) - parseInt(b.sceneId));
+    const sorted = [...currentIndex].sort((a, b) => safeSceneNum(a.sceneId) - safeSceneNum(b.sceneId));
     const target = sorted.find(e => e.timestamp >= fromTimestamp);
     if (!target) return;
 

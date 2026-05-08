@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
-import { CAMPAIGNS_DIR, campaignFiles, readJson, writeJson, ensureDirs } from '../lib/fileStore.js';
+import { CAMPAIGNS_DIR, campaignFiles, readJson, writeJson, ensureDirs, validateCampaignId } from '../lib/fileStore.js';
 import { embedText, buildLoreText } from '../lib/embedder.js';
 import { storeLoreEmbedding, deleteCampaignEmbeddings } from '../lib/vectorStore.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
@@ -42,6 +42,7 @@ export function createCampaignsRouter() {
     }));
 
     router.get('/api/campaigns/:id', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.json`);
         const campaign = readJson(filePath);
         if (!campaign) return res.status(404).json({ error: 'Not found' });
@@ -49,6 +50,7 @@ export function createCampaignsRouter() {
     }));
 
     router.put('/api/campaigns/:id', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
         ensureDirs();
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.json`);
         writeJson(filePath, req.body);
@@ -56,6 +58,7 @@ export function createCampaignsRouter() {
     }));
 
     router.delete('/api/campaigns/:id', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
         const id = req.params.id;
         const files = campaignFiles(id);
         for (const f of files) {
@@ -70,6 +73,7 @@ export function createCampaignsRouter() {
     // ═══════════════════════════════════════════
 
     router.get('/api/campaigns/:id/state', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.state.json`);
         const state = readJson(filePath);
         if (!state) return res.status(404).json({ error: 'Not found' });
@@ -77,6 +81,7 @@ export function createCampaignsRouter() {
     }));
 
     router.put('/api/campaigns/:id/state', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
         ensureDirs();
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.state.json`);
         const { context, messages, condenser } = req.body;
@@ -94,12 +99,14 @@ export function createCampaignsRouter() {
     // ═══════════════════════════════════════════
 
     router.get('/api/campaigns/:id/lore', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.lore.json`);
         const lore = readJson(filePath, []);
         res.json(lore);
     }));
 
     router.put('/api/campaigns/:id/lore', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
         ensureDirs();
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.lore.json`);
         writeJson(filePath, req.body);
@@ -127,12 +134,14 @@ export function createCampaignsRouter() {
     // ═══════════════════════════════════════════
 
     router.get('/api/campaigns/:id/npcs', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
         const npcs = readJson(filePath, []);
         res.json(npcs);
     }));
 
     router.put('/api/campaigns/:id/npcs', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
         ensureDirs();
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
         writeJson(filePath, req.body);

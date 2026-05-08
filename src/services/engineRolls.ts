@@ -1,4 +1,5 @@
 import type { GameContext } from '../types';
+import { mapTier } from './diceTier';
 import { 
     DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, 
     DEFAULT_ENCOUNTER_TYPES, DEFAULT_ENCOUNTER_TONES, 
@@ -93,28 +94,13 @@ export function rollEngines(context: GameContext): EngineRollResult {
 export function rollDiceFairness(context: GameContext): string {
     if (context.diceFairnessActive === false) return '';
 
-    const getOutcomeWord = (rollResult: number) => {
-        const config = context.diceConfig || {
-            catastrophe: 2,
-            failure: 6,
-            success: 15,
-            triumph: 19,
-            crit: 20
-        };
-        if (rollResult <= config.catastrophe) return "Catastrophe";
-        if (rollResult <= config.failure) return "Failure";
-        if (rollResult <= config.success) return "Success";
-        if (rollResult <= config.triumph) return "Triumph";
-        return "Narrative Boon";
-    };
-
     const generatePool = () => {
         const rolls = [
             Math.floor(Math.random() * 20) + 1,
             Math.floor(Math.random() * 20) + 1,
             Math.floor(Math.random() * 20) + 1
         ].sort((a, b) => a - b);
-        return `Disadvantage: ${getOutcomeWord(rolls[0])}, Normal: ${getOutcomeWord(rolls[1])}, Advantage: ${getOutcomeWord(rolls[2])}`;
+        return `Disadvantage: ${mapTier(rolls[0], context.diceConfig)}, Normal: ${mapTier(rolls[1], context.diceConfig)}, Advantage: ${mapTier(rolls[2], context.diceConfig)}`;
     };
 
     return `\n[DICE OUTCOMES: COMBAT=(${generatePool()}) | PERCEPTION=(${generatePool()}) | STEALTH=(${generatePool()}) | SOCIAL=(${generatePool()}) | MOVEMENT=(${generatePool()}) | KNOWLEDGE=(${generatePool()}) | MUNDANE=(Narrative Boon)]`;

@@ -280,12 +280,12 @@ export function ChatArea() {
                 set(`nn_settings`, { settings: state.settings, activeCampaignId: state.activeCampaignId });
                 set(`nn_campaign_${state.activeCampaignId}_state`, { context: state.context, messages: state.messages, condenser: state.condenser });
                 set(`nn_campaign_${state.activeCampaignId}_npcs`, state.npcLedger);
+                toast.success('Campaign saved');
             } catch (e) {
                 console.error("[Save] Failed to force save to IndexedDB:", e);
                 toast.error('Force save failed');
             }
         }
-        toast.success('Campaign saved');
         setTimeout(() => setIsSaving(false), 2000);
     };
 
@@ -306,6 +306,23 @@ export function ChatArea() {
         }
     };
 
+    const saveDivergenceWithToast = (() => {
+        let lastErrorToast = 0;
+        return async (campaignId: string, register: DivergenceRegister) => {
+            try {
+                const { saveDivergenceRegister } = await import('../store/campaignStore');
+                await saveDivergenceRegister(campaignId, register);
+            } catch (err) {
+                console.warn('[ChatArea] Failed to save divergence register:', err);
+                const now = Date.now();
+                if (now - lastErrorToast > 3000) {
+                    lastErrorToast = now;
+                    toast.error('Failed to save divergence register');
+                }
+            }
+        };
+    })();
+
     const handleAcceptReviewDivergences = (entries: DivergenceEntry[]) => {
         if (entries.length === 0) {
             setDivergenceReviewMessages(null);
@@ -315,9 +332,7 @@ export function ChatArea() {
         const merged = mergeEntries(currentReg, entries, entries[0].sceneRef);
         setDivergenceRegister(merged);
         if (activeCampaignId) {
-            import('../store/campaignStore').then(({ saveDivergenceRegister }) =>
-                saveDivergenceRegister(activeCampaignId, merged)
-            ).catch(() => {});
+            saveDivergenceWithToast(activeCampaignId, merged);
         }
         toast.success(`Merged ${entries.length} new divergence(s)`);
         setDivergenceReviewMessages(null);
@@ -332,9 +347,7 @@ export function ChatArea() {
             updateMessageDivergence(divergenceTargetMsgId, [...existingIds, entry.id]);
         }
         if (activeCampaignId) {
-            import('../store/campaignStore').then(({ saveDivergenceRegister }) =>
-                saveDivergenceRegister(activeCampaignId, merged)
-            ).catch(() => {});
+            saveDivergenceWithToast(activeCampaignId, merged);
         }
         toast.success(`Divergence added: ${entry.subject}`);
     };
@@ -348,9 +361,7 @@ export function ChatArea() {
         };
         setDivergenceRegister(updated);
         if (activeCampaignId) {
-            import('../store/campaignStore').then(({ saveDivergenceRegister }) =>
-                saveDivergenceRegister(activeCampaignId, updated)
-            ).catch(() => {});
+            saveDivergenceWithToast(activeCampaignId, updated);
         }
     };
 
@@ -363,9 +374,7 @@ export function ChatArea() {
         };
         setDivergenceRegister(updated);
         if (activeCampaignId) {
-            import('../store/campaignStore').then(({ saveDivergenceRegister }) =>
-                saveDivergenceRegister(activeCampaignId, updated)
-            ).catch(() => {});
+            saveDivergenceWithToast(activeCampaignId, updated);
         }
     };
 
@@ -374,9 +383,7 @@ export function ChatArea() {
         editDivergenceEntry(id, patch);
         if (activeCampaignId) {
             const updated = useAppStore.getState().divergenceRegister;
-            import('../store/campaignStore').then(({ saveDivergenceRegister }) =>
-                saveDivergenceRegister(activeCampaignId, updated)
-            ).catch(() => {});
+            saveDivergenceWithToast(activeCampaignId, updated);
         }
     };
 

@@ -6,7 +6,10 @@ import { extractJson } from './payloadBuilder';
 import { stripThinkTags } from '../utils/stripThink';
 import { toast } from '../components/Toast';
 
-export const IMPORTANCE_GATE = 7;
+import { safeSceneNum } from '../utils/helpers';
+
+const IMPORTANCE_GATE = 7;
+const MAX_PRUNED_LOG = 100;
 
 export const EMPTY_REGISTER: DivergenceRegister = {
     entries: [],
@@ -64,10 +67,19 @@ export function parseBulletDivergences(raw: string, validSceneIds: string[]): Pa
         const catNorm = catRaw.toLowerCase().replace(/\s+/g, '_') as DivergenceCategory;
         const category: DivergenceCategory = VALID_CATEGORIES.has(catNorm) ? catNorm : 'entity_state';
         const sceneRef = sceneSet.has(sceneRaw) ? sceneRaw : fallbackScene;
+        let divergence = divergenceRaw;
+        const sentences = divergence.split(/(?<=[.!?])\s+/);
+        if (sentences.length > 2) {
+            divergence = sentences.slice(0, 2).join(' ');
+        }
+        const words = divergence.split(/\s+/);
+        if (words.length > 30) {
+            divergence = words.slice(0, 30).join(' ') + '...';
+        }
         out.push({
             category,
             subject: subjectRaw,
-            divergence: divergenceRaw,
+            divergence,
             sceneRef,
             supersedes: supersedesRaw || undefined,
         });
@@ -102,9 +114,18 @@ ${sceneText}
 TASK:
 1. Rate this scene's importance 1-10 on the FIRST line as: importance:N
 2. ${sceneNote}
-3. Extract every story-relevant fact that affects future continuity (NPC states, items, locations, relationships, abilities, debuffs, quest progress, obligations, world state, canon overrides).
+3. Extract only facts that would BREAK A FUTURE SCENE if the AI didn't know them. Skip transient details, emotional narration, momentary states, and anything the archive would already surface. Focus on: permanent NPC state changes, items acquired/lost, location changes, relationship shifts, abilities gained/lost, active obligations, world state changes, canon overrides.
 
 Categories (use exactly one per line): canon_override, world_change, entity_state, player_state, obligation.
+
+STYLE RULES (CRITICAL):
+- Each divergence must be at most 2 SHORT sentences, maximum 30 words total.
+- No compound sentences. No explanations. No "because" or "when" clauses.
+- Subject must be a proper noun or specific entity — never a vague pronoun.
+- WRONG: The player engaged in a lengthy negotiation with the goblin king and eventually convinced him to join forces
+- RIGHT: Goblin King Grak: allied with player
+- WRONG: After the intense battle the party discovered that the eastern gate had been destroyed by siege weapons
+- RIGHT: Eastern gate: DESTROYED by siege
 
 Output format — one divergence per line after the importance line, no JSON, no markdown:
 - [category | subject | scene:NNN] divergence sentence
@@ -186,6 +207,15 @@ Categories (use exactly one per line):
 - entity_state — NPCs, items, factions
 - player_state — abilities, titles, curses
 - obligation — debts, promises, oaths
+
+STYLE RULES (CRITICAL):
+- Each divergence must be at most 2 SHORT sentences, maximum 30 words total.
+- No compound sentences. No explanations. No "because" or "when" clauses.
+- Subject must be a proper noun or specific entity — never a vague pronoun.
+- WRONG: The player engaged in a lengthy negotiation with the goblin king and eventually convinced him to join forces
+- RIGHT: Goblin King Grak: allied with player
+- WRONG: After the intense battle the party discovered that the eastern gate had been destroyed by siege weapons
+- RIGHT: Eastern gate: DESTROYED by siege
 
 Output format — one divergence per line, no JSON, no markdown:
 - [category | subject | scene:NNN] divergence sentence
@@ -363,7 +393,7 @@ export function mergeEntries(
         }
     }
 
-    merged.sort((a, b) => parseInt(a.sceneRef) - parseInt(b.sceneRef));
+    merged.sort((a, b) => safeSceneNum(a.sceneRef) - safeSceneNum(b.sceneRef));
 
     return {
         entries: merged,
@@ -405,7 +435,7 @@ export function renderRegisterForPayload(register: DivergenceRegister): string {
     }
 
     const latestScene = register.entries.reduce((max, e) =>
-        parseInt(e.sceneRef) > parseInt(max) ? e.sceneRef : max, '000'
+        safeSceneNum(e.sceneRef) > safeSceneNum(max) ? e.sceneRef : max, '000'
     );
 
     return `[CAMPAIGN DIVERGENCE REGISTER — AUTHORITATIVE OVERRIDES]\n[Last updated: Scene #${register.lastUpdatedSceneId || latestScene}]\nThese facts are TRUE in this campaign and override your training data.\n\n${sections.join('\n\n')}\n[END DIVERGENCE REGISTER]`;
@@ -511,7 +541,7 @@ OUTPUT: JSON array of entries: [{ "category": "...", "subject": "...", "divergen
         }));
 
         const merged = [...protected_, ...newEntries];
-        merged.sort((a, b) => parseInt(a.sceneRef) - parseInt(b.sceneRef));
+        merged.sort((a, b) => safeSceneNum(a.sceneRef) - safeSceneNum(b.sceneRef));
 
         return {
             entries: merged,
@@ -605,7 +635,7 @@ OUTPUT: JSON array of entries. List ALL entries that should remain in the regist
             source: ce.source || 'auto',
         }));
 
-        newEntries.sort((a, b) => parseInt(a.sceneRef) - parseInt(b.sceneRef));
+        newEntries.sort((a, b) => safeSceneNum(a.sceneRef) - safeSceneNum(b.sceneRef));
 
         const oldCount = register.entries.length;
         const prunedDuringMerge = oldCount - merged.length;
@@ -651,10 +681,10 @@ export function getEntriesForSceneRange(
     register: DivergenceRegister,
     sceneRange: [string, string]
 ): DivergenceEntry[] {
-    const startNum = parseInt(sceneRange[0], 10);
-    const endNum = parseInt(sceneRange[1], 10);
+    const startNum = safeSceneNum(sceneRange[0]);
+    const endNum = safeSceneNum(sceneRange[1]);
     return register.entries.filter(e => {
-        const refNum = parseInt(e.sceneRef, 10);
+        const refNum = safeSceneNum(e.sceneRef);
         return refNum >= startNum && refNum <= endNum;
     });
 }
@@ -756,8 +786,8 @@ export async function pruneChapterEntries(
         const keptEntries: DivergenceEntry[] = [];
         const newPruned: PrunedEntry[] = [];
         const outsideEntries = register.entries.filter(e => {
-            const refNum = parseInt(e.sceneRef, 10);
-            return refNum < parseInt(chapter.sceneRange[0], 10) || refNum > parseInt(chapter.sceneRange[1], 10);
+            const refNum = safeSceneNum(e.sceneRef);
+            return refNum < safeSceneNum(chapter.sceneRange[0]) || refNum > safeSceneNum(chapter.sceneRange[1]);
         });
 
         for (const entry of chapterEntries) {
@@ -778,7 +808,7 @@ export async function pruneChapterEntries(
         }
 
         const merged = [...outsideEntries, ...keptEntries];
-        merged.sort((a, b) => parseInt(a.sceneRef) - parseInt(b.sceneRef));
+        merged.sort((a, b) => safeSceneNum(a.sceneRef) - safeSceneNum(b.sceneRef));
 
         const existingPruned = register.prunedLog ?? [];
 
@@ -790,7 +820,7 @@ export async function pruneChapterEntries(
 
         return {
             entries: merged,
-            prunedLog: [...existingPruned, ...newPruned],
+            prunedLog: [...existingPruned, ...newPruned].slice(-MAX_PRUNED_LOG),
             lastUpdatedSceneId: register.lastUpdatedSceneId,
             lastUpdatedAt: Date.now(),
             version: register.version + 1,
@@ -798,6 +828,115 @@ export async function pruneChapterEntries(
     } catch (err) {
         console.warn('[DivergencePrune] Pruning failed, register unchanged:', err);
         toast.error(`Divergence pruning failed: ${(err as Error).message || 'Unknown error'}`);
+        return register;
+    }
+}
+
+function buildPruneAllPrompt(entries: DivergenceEntry[]): string {
+    const entryLines = entries.map(e =>
+        `${e.id} | ${e.category} | ${e.subject}: ${e.divergence} [Scene #${e.sceneRef}]`
+    ).join('\n');
+
+    return `You are pruning a campaign divergence register. The register holds PERSISTENT CAMPAIGN TRUTH — facts that would break future scenes if the AI didn't know them. It is NOT a story transcript. Prune aggressively.
+
+ENTRIES TO CLASSIFY:
+${entryLines}
+
+CLASSIFY each entry:
+- KEEP: If a scene 100 turns from now referenced this without re-explaining it, the reader would be confused. Only permanent truths, lore rules, unresolved plot threads, and major relationship shifts.
+- PRUNE: Everything else. This should be the default. The archive index and vector search will surface story moments when they become relevant.
+- REVIEW: Only when a keep-or-prune decision hinges on information you don't have. Default to PRUNE if you can't articulate a specific future scene that needs this.
+
+WHAT TO KEEP:
+- Permanent world rules and lore that constrain future storytelling (magic systems, faction politics, historical facts)
+- Unresolved plot threads with named antagonists, mysteries, or ticking clocks
+- Major relationship status changes between recurring characters (alliances formed, betrayals, deaths)
+- New recurring characters being introduced with their core identity (name, role, one defining trait)
+- Active ongoing deceptions, dual identities, or hidden capabilities being maintained
+- Irreversible character transformations (lost limbs, gained powers, broken oaths)
+
+WHAT TO PRUNE (this is the default — apply liberally):
+- Transient ambient details, play-by-play combat actions, single-scene emotional micro-beats
+- Destroyed props, scene-setting descriptions, atmospheric NPC mannerisms
+- Any entry whose subject is a one-off object, weather event, or unnamed bystander
+- Intermediate states fully superseded by a later entry
+
+OUTPUT: JSON array only, no other text. List EVERY entry. Default to "prune" for anything that isn't clearly essential:
+[{ "id": "...", "verdict": "keep"|"prune"|"review", "reason": "short explanation" }]`;
+}
+
+export async function pruneAllEntries(
+    provider: EndpointConfig,
+    register: DivergenceRegister,
+    onProgress?: (kept: number, review: number, pruned: number) => void
+): Promise<DivergenceRegister> {
+    if (register.entries.length === 0) return register;
+
+    const prompt = buildPruneAllPrompt(register.entries);
+
+    try {
+        const outputTokens = Math.min(64000, Math.max(2000, register.entries.length * 60));
+        const raw = await callLLM(provider, prompt, { priority: 'low', maxTokens: outputTokens });
+        const cleaned = stripReasoning(raw);
+        const jsonStr = extractJson(cleaned);
+
+        let classifications: Array<{ id: string; verdict: 'keep' | 'prune' | 'review'; reason: string }> = [];
+        try {
+            classifications = JSON.parse(jsonStr) as typeof classifications;
+            if (!Array.isArray(classifications)) classifications = [];
+        } catch {
+            const lines = cleaned.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            for (const line of lines) {
+                const m = line.match(/\b(div_[a-zA-Z0-9_-]+)\b.*?\b(keep|prune[ds]?|review)\b/i);
+                if (m) {
+                    const rawVerdict = m[2].toLowerCase();
+                    const verdict: 'keep' | 'prune' | 'review' = rawVerdict.startsWith('prune') ? 'prune' : rawVerdict === 'review' ? 'review' : 'keep';
+                    classifications.push({ id: m[1], verdict, reason: 'Parsed from free-text response' });
+                }
+            }
+        }
+
+        const classMap = new Map(classifications.map(c => [c.id, c]));
+
+        const keptEntries: DivergenceEntry[] = [];
+        const newPruned: PrunedEntry[] = [];
+
+        for (const entry of register.entries) {
+            const cls = classMap.get(entry.id);
+            if (!cls || cls.verdict === 'keep') {
+                keptEntries.push(entry);
+            } else if (cls.verdict === 'review') {
+                keptEntries.push({ ...entry, reviewFlag: true });
+            } else {
+                newPruned.push({
+                    originalEntry: entry,
+                    prunedAt: Date.now(),
+                    chapterId: 'manual',
+                    verdict: 'auto_pruned',
+                    reason: cls?.reason ?? 'Pruned during manual review',
+                });
+            }
+        }
+
+        const keptCount = keptEntries.filter(e => !e.reviewFlag).length;
+        const reviewCount = keptEntries.filter(e => e.reviewFlag).length;
+
+        console.log(`[DivergencePruneAll] ${keptCount} kept, ${reviewCount} flagged for review, ${newPruned.length} pruned`);
+
+        onProgress?.(keptCount, reviewCount, newPruned.length);
+
+        toast.info(`Pruned ${newPruned.length} entries · ${keptCount} kept · ${reviewCount} flagged for review`);
+
+        return {
+            entries: keptEntries,
+            prunedLog: [...(register.prunedLog ?? []), ...newPruned].slice(-MAX_PRUNED_LOG),
+            lastUpdatedSceneId: register.lastUpdatedSceneId,
+            lastUpdatedAt: Date.now(),
+            version: register.version + 1,
+        };
+    } catch (err) {
+        console.warn('[DivergencePruneAll] Prune all failed, register unchanged:', err);
+        toast.error(`Divergence prune-all failed: ${(err as Error).message || 'Unknown error'}`);
         return register;
     }
 }
@@ -821,7 +960,7 @@ export function deleteReviewedEntry(register: DivergenceRegister, entryId: strin
         verdict: 'user_deleted_review',
         reason: 'User manually deleted after review',
     };
-    const prunedLog = [...(register.prunedLog ?? []), newPruned];
+    const prunedLog = [...(register.prunedLog ?? []), newPruned].slice(-MAX_PRUNED_LOG);
 
     return { ...register, entries, prunedLog, lastUpdatedAt: Date.now() };
 }
@@ -835,7 +974,7 @@ export function restorePrunedEntry(register: DivergenceRegister, prunedIndex: nu
 
     const newLog = prunedLog.filter((_, i) => i !== prunedIndex);
     const entries = [...register.entries, entry];
-    entries.sort((a, b) => parseInt(a.sceneRef) - parseInt(b.sceneRef));
+    entries.sort((a, b) => safeSceneNum(a.sceneRef) - safeSceneNum(b.sceneRef));
 
     return { ...register, entries, prunedLog: newLog, lastUpdatedAt: Date.now() };
 }

@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { X, Loader2, CheckCircle, XCircle, Plus, Trash2, ChevronDown, ChevronRight, Download, Upload, Lock } from 'lucide-react';
+import { X, Loader2, CheckCircle, XCircle, Plus, Trash2, ChevronDown, ChevronRight, Download, Upload, Lock, RefreshCw } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { testConnection } from '../services/chatEngine';
 import type { AIPreset, EndpointConfig, ApiFormat, SamplingConfig } from '../types';
@@ -7,6 +7,7 @@ import { detectFormatFromEndpoint } from '../utils/llmApiHelper';
 import { toast } from './Toast';
 import { uid } from '../utils/uid';
 import { SamplingPanel } from './SamplingPanel';
+import { getEmbeddingStatus, runBackfill } from '../services/backfillRunner';
 
 export function SettingsModal() {
     const { settings, updateSettings, settingsOpen, toggleSettings, addPreset, updatePreset, removePreset } = useAppStore();
@@ -20,6 +21,38 @@ export function SettingsModal() {
         summarizerAI: false,
         utilityAI: false,
     });
+
+    const [reindexing, setReindexing] = useState(false);
+    const [reindexStatus, setReindexStatus] = useState('');
+    const [embedStatus, setEmbedStatus] = useState<import('../services/backfillRunner').BackfillStatus | null>(null);
+
+    const handleReindex = async () => {
+        const campaignId = useAppStore.getState().activeCampaignId;
+        if (!campaignId) {
+            toast.error('No active campaign');
+            return;
+        }
+        setReindexing(true);
+        setReindexStatus('Loading status...');
+        try {
+            const status = await getEmbeddingStatus(campaignId);
+            setEmbedStatus(status);
+            if (status.scenes.stale === 0 && status.lore.stale === 0) {
+                toast.info('All embeddings are up to date');
+                setReindexing(false);
+                return;
+            }
+            setReindexStatus('Re-indexing...');
+            const result = await runBackfill(campaignId, 'all', (msg) => setReindexStatus(msg));
+            setEmbedStatus(result.status);
+            toast.success(`Re-indexed ${result.reindexedScenes} scenes, ${result.reindexedLore} lore chunks`);
+        } catch (err) {
+            toast.error(`Re-index failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        } finally {
+            setReindexing(false);
+            setReindexStatus('');
+        }
+    };
 
     if (!settingsOpen) return null;
 
@@ -59,7 +92,8 @@ export function SettingsModal() {
     const handleRemovePreset = (id: string) => {
         if (settings.presets.length <= 1) return;
         removePreset(id);
-        setActiveTab(settings.presets[0]?.id || '');
+        const updatedPresets = useAppStore.getState().settings.presets;
+        setActiveTab(updatedPresets[0]?.id || '');
         setTestResults({});
     };
 
@@ -405,6 +439,34 @@ export function SettingsModal() {
                             </button>
                         </div>
 
+                        {/* Re-index Embeddings */}
+                        <div className="bg-void p-3 border border-border rounded space-y-2">
+                            <div>
+                                <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold mb-1">
+                                    Re-index Embeddings
+                                </label>
+                                <p className="text-[9px] text-text-dim max-w-[280px] leading-tight">
+                                    Re-embeds stale or unversioned scene and lore vectors. Use after changing embedding models or if semantic search seems off.
+                                </p>
+                            </div>
+                            <button
+                                id="reindex-embeddings-btn"
+                                disabled={reindexing}
+                                onClick={handleReindex}
+                                className="text-[10px] uppercase tracking-widest bg-terminal/10 border border-terminal/30 text-terminal px-3 py-1.5 rounded hover:bg-terminal/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                            >
+                                {reindexing ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                                {reindexing ? (reindexStatus || 'Re-indexing...') : 'Re-index Now'}
+                            </button>
+                            {embedStatus && !reindexing && (
+                                <div className="text-[9px] text-text-dim">
+                                    Scenes: {embedStatus.scenes.current}/{embedStatus.scenes.total} current · Lore: {embedStatus.lore.current}/{embedStatus.lore.total} current
+                                    {embedStatus.scenes.stale > 0 && ` · ${embedStatus.scenes.stale + embedStatus.lore.stale} stale`}
+                                    {` (v${embedStatus.version})`}
+                                </div>
+                            )}
+                        </div>
+
                         {/* Divergence Register */}
                         <div className="bg-void p-3 border border-border rounded space-y-3">
                             <div className="flex items-center justify-between">
@@ -539,7 +601,13 @@ function VaultSection() {
             const reader = new FileReader();
             reader.onload = async (event) => {
                 try {
-                    const base64 = btoa(String.fromCharCode(...new Uint8Array(event.target?.result as ArrayBuffer)));
+                    const arrayBuffer = event.target?.result as ArrayBuffer;
+                    const bytes = new Uint8Array(arrayBuffer);
+                    let binary = '';
+                    for (let i = 0; i < bytes.length; i++) {
+                        binary += String.fromCharCode(bytes[i]);
+                    }
+                    const base64 = btoa(binary);
                     await importVault(base64, importPassword, mergeImport);
                     setImportPassword('');
                     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -548,6 +616,10 @@ function VaultSection() {
                 } finally {
                     setIsImporting(false);
                 }
+            };
+            reader.onerror = () => {
+                toast.error('Failed to read file');
+                setIsImporting(false);
             };
             reader.readAsArrayBuffer(file);
         } catch (e) {

@@ -14,6 +14,16 @@ export const PUBLIC_ASSETS_DIR = process.env.NODE_ENV === 'production'
     ? path.join(DATA_DIR, 'portraits')
     : path.join(__projectRoot, 'public', 'assets', 'portraits');
 
+const ID_REGEX = /^[a-zA-Z0-9_-]+$/;
+
+export function validateCampaignId(id) {
+    if (typeof id !== 'string' || !ID_REGEX.test(id)) {
+        const err = new Error('Invalid campaign ID');
+        err.statusCode = 400;
+        throw err;
+    }
+}
+
 export function ensureDirs() {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     if (!fs.existsSync(CAMPAIGNS_DIR)) fs.mkdirSync(CAMPAIGNS_DIR, { recursive: true });
@@ -41,34 +51,42 @@ export function writeJson(filePath, data) {
 }
 
 export function archivePath(id) {
+    validateCampaignId(id);
     return path.join(CAMPAIGNS_DIR, `${id}.archive.md`);
 }
 
 export function archiveIndexPath(id) {
+    validateCampaignId(id);
     return path.join(CAMPAIGNS_DIR, `${id}.archive.index.json`);
 }
 
 export function chaptersPath(id) {
+    validateCampaignId(id);
     return path.join(CAMPAIGNS_DIR, `${id}.archive.chapters.json`);
 }
 
 export function factsPath(id) {
+    validateCampaignId(id);
     return path.join(CAMPAIGNS_DIR, `${id}.facts.json`);
 }
 
 export function entitiesPath(id) {
+    validateCampaignId(id);
     return path.join(CAMPAIGNS_DIR, `${id}.entities.json`);
 }
 
 export function timelinePath(id) {
+    validateCampaignId(id);
     return path.join(CAMPAIGNS_DIR, `${id}.timeline.json`);
 }
 
 export function overworldPath(id) {
+    validateCampaignId(id);
     return path.join(CAMPAIGNS_DIR, `${id}.overworld.json`);
 }
 
 export function divergencePath(id) {
+    validateCampaignId(id);
     return path.join(CAMPAIGNS_DIR, `${id}.divergence.json`);
 }
 

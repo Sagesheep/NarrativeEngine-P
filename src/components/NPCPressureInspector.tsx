@@ -1,13 +1,12 @@
-import React from 'react';
-import type { NPCEntry } from '../types';
+import type { NPCEntry, NPCPressureHistory } from '../types';
 import { useAppStore } from '../store/useAppStore';
 
-function miniSparkline(history: NPCEntry['pressure']['history'], type: 'ignored' | 'engaged'): string {
+function miniSparkline(history: NPCPressureHistory[], type: 'ignored' | 'engaged'): string {
     if (!history || history.length === 0) return '—';
-    const filtered = history.filter(h => h.type === type).slice(-10);
+    const filtered = history.filter((h: NPCPressureHistory) => h.type === type).slice(-10);
     if (filtered.length === 0) return '—';
-    const max = Math.max(...filtered.map(h => h.delta), 1);
-    const bars = filtered.map(h => {
+    const max = Math.max(...filtered.map((h: NPCPressureHistory) => h.delta), 1);
+    const bars = filtered.map((h: NPCPressureHistory) => {
         const height = Math.max(1, Math.round((h.delta / max) * 4));
         return '▁▂▃▄▅'[height] || '▅';
     });

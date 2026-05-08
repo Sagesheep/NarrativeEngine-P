@@ -281,7 +281,10 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
     removePreset: (id) => {
         set((s) => {
             const newPresets = s.settings.presets.filter((p) => p.id !== id);
-            if (newPresets.length === 0) return {};
+            if (newPresets.length === 0) {
+                toast.error('Cannot remove the last preset');
+                return {};
+            }
             const newActiveId = s.settings.activePresetId === id
                 ? newPresets[0].id
                 : s.settings.activePresetId;

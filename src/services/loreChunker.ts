@@ -1,6 +1,10 @@
 import type { LoreChunk, LoreCategory } from '../types';
 import { countTokens } from './tokenizer';
 
+const LORE_CHUNK_MAX = 3000;
+const LORE_WINDOW_SIZE = 2000;
+const LORE_WINDOW_STRIDE = 1400;
+
 const ALWAYS_INCLUDE_PREFIXES = [
     'wl-meta', 'wl-econ', 'wl-power'
 ];
@@ -266,6 +270,55 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
     extractLinkedEntities(chunks);
     assignGroups(chunks);
 
-    return chunks;
+    const expanded: LoreChunk[] = [];
+    for (const chunk of chunks) {
+        if (chunk.tokens <= LORE_CHUNK_MAX) {
+            expanded.push(chunk);
+        } else {
+            const words = chunk.content.split(/(\s+)/);
+            const windows: string[] = [];
+            let currentWindow: string[] = [];
+            let currentTokenCount = 0;
+
+            for (const word of words) {
+                const wordTokens = countTokens(word);
+                if (currentTokenCount + wordTokens > LORE_WINDOW_SIZE && currentWindow.length > 0) {
+                    windows.push(currentWindow.join(''));
+                    const overlapTokens = countTokens(currentWindow.join(''));
+                    const strideTokens = Math.min(overlapTokens, LORE_WINDOW_STRIDE);
+                    const strideWords: string[] = [];
+                    let strideCount = 0;
+                    for (let i = currentWindow.length - 1; i >= 0 && strideCount < strideTokens; i--) {
+                        strideWords.unshift(currentWindow[i]);
+                        strideCount += countTokens(currentWindow[i]);
+                    }
+                    currentWindow = [...strideWords];
+                    currentTokenCount = countTokens(currentWindow.join(''));
+                }
+                currentWindow.push(word);
+                currentTokenCount += wordTokens;
+            }
+
+            if (currentWindow.length > 0) {
+                windows.push(currentWindow.join(''));
+            }
+
+            const parentKeywords = extractTriggerKeywords(chunk.header, chunk.content);
+            for (let wi = 0; wi < windows.length; wi++) {
+                const subContent = windows[wi];
+                const subId = `${chunk.id}#w${wi}`;
+                expanded.push({
+                    ...chunk,
+                    id: subId,
+                    content: subContent,
+                    tokens: countTokens(chunk.header + '\n' + subContent),
+                    triggerKeywords: parentKeywords,
+                    summary: chunk.summary,
+                });
+            }
+        }
+    }
+
+    return expanded;
 }
 

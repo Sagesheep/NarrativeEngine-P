@@ -4,7 +4,7 @@ import { buildPayload, sendMessage } from './chatEngine';
 import { rollEngines, rollDiceFairness } from './engineRolls';
 import { toast } from '../components/Toast';
 import { sanitizePayloadForApi } from './lib/payloadSanitizer';
-import { TOOL_DEFINITIONS, handleLoreTool, handleNotebookTool } from './toolHandlers';
+import { getToolDefinitions, handleLoreTool, handleNotebookTool, handleDiceTool } from './toolHandlers';
 import { gatherContext } from './contextGatherer';
 import { runPostTurnPipeline } from './postTurnPipeline';
 
@@ -155,7 +155,8 @@ export async function runTurn(
         const allowTools = toolCallCount < 2 && apiRetryCount < 2;
         const requestPayload = sanitizePayloadForApi(currentPayload, allowTools, provider?.modelName);
 
-        const tools = allowTools ? TOOL_DEFINITIONS : undefined;
+        const allowDiceTool = context.diceFairnessActive === false;
+        const tools = allowTools ? getToolDefinitions({ allowDiceTool }) : undefined;
 
         callbacks.setPipelinePhase?.('generating');
         callbacks.setLoadingStatus?.(null);
@@ -262,6 +263,57 @@ export async function runTurn(
                     currentPayload.push({
                         role: 'tool',
                         content: notebookResult,
+                        name: toolCall.name,
+                        tool_call_id: toolCall.id
+                    } as unknown as import('./chatEngine').OpenAIMessage);
+
+                    setTimeout(() => {
+                        executeTurn(currentPayload, toolCallCount + 1, 0, assistantMsgId);
+                    }, 800);
+                    return;
+                }
+
+                if (toolCall && toolCall.name === 'roll_dice') {
+                    const diceEngineText = sceneNumber
+                        ? `Scene #${sceneNumber} | ${stripLLMSceneHeader(finalText)}`
+                        : finalText;
+                    accumulatedContent = accumulatedContent
+                        ? `${accumulatedContent}\n\n${stripLLMSceneHeader(finalText)}`
+                        : diceEngineText;
+                    callbacks.updateLastAssistant(accumulatedContent);
+
+                    callbacks.updateLastMessage({
+                        tool_calls: [{
+                            id: toolCall.id,
+                            type: 'function' as const,
+                            function: { name: toolCall.name, arguments: toolCall.arguments }
+                        }],
+                        ...(reasoningContent ? { reasoning_content: reasoningContent } : {})
+                    });
+
+                    currentPayload.push({
+                        role: 'assistant',
+                        content: diceEngineText || "",
+                        reasoning_content: reasoningContent || undefined,
+                        tool_calls: [{ id: toolCall.id, type: 'function', function: { name: toolCall.name, arguments: toolCall.arguments } }]
+                    } as unknown as import('./chatEngine').OpenAIMessage);
+
+                    const { toolResult: diceResult } = handleDiceTool(toolCall.arguments, { diceConfig: context.diceConfig });
+
+                    const toolMsgId = uid();
+                    callbacks.addMessage({
+                        id: toolMsgId,
+                        role: 'tool' as const,
+                        content: diceResult,
+                        timestamp: Date.now(),
+                        name: toolCall.name,
+                        tool_call_id: toolCall.id,
+                        ephemeral: true
+                    });
+
+                    currentPayload.push({
+                        role: 'tool',
+                        content: diceResult,
                         name: toolCall.name,
                         tool_call_id: toolCall.id
                     } as unknown as import('./chatEngine').OpenAIMessage);

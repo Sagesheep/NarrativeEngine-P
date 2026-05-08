@@ -3,6 +3,7 @@ import { Zap, Loader2 } from 'lucide-react';
 import type { DivergenceCategory, DivergenceEntry, EndpointConfig } from '../types';
 import { uid } from '../utils/uid';
 import { structureManualEntry } from '../services/divergenceRegister';
+import { toast } from './Toast';
 
 type DivergenceEntryModalProps = {
     onAdd: (entry: DivergenceEntry) => void;
@@ -50,7 +51,10 @@ export function DivergenceEntryModal({ onAdd, onClose, provider }: DivergenceEnt
                 setDivergence(result.divergence);
                 setCategory(result.category);
             }
-        } catch {}
+        } catch (e) {
+            console.warn('[DivergenceEntry] AI structure failed:', e);
+            toast.error('AI structuring failed — please fill in manually');
+        }
         setStructuring(false);
     };
 

@@ -7,6 +7,36 @@ import { resolveTimeline, formatResolvedForContext } from './timelineResolver';
 import { DEFAULT_RULES } from './defaultRules';
 import { renderRegisterForPayload } from './divergenceRegister';
 
+const TOOL_MODE_ACTION_RESOLUTION = `### ACTION RESOLUTION
+
+Trigger: Player attempts an action with an uncertain outcome — combat hits, skill checks, saves, contested actions.
+
+1. Identify core intent of the player's action.
+2. If the outcome depends on chance, CALL the \`roll_dice\` tool BEFORE narrating. Do NOT narrate the outcome first.
+   - \`dice\`: typically \`1d20\` for skill checks/attacks; use \`NdM\` form for damage or special rolls
+   - \`reason\`: short label (e.g. "Stealth check vs guard", "Longsword attack")
+   - \`category\`: one of Combat / Stealth / Social / Perception / Movement / Knowledge / Mundane (for d20 only)
+3. Use the returned \`tier\` (Catastrophe / Failure / Success / Triumph / Narrative Boon) to shape the narrative — same outcome semantics as pool mode.
+4. Do NOT call \`roll_dice\` for descriptive moments, dialogue, or trivial actions. Mundane actions resolve as plain success without a roll.
+
+**Advantage selection (tool mode):** if the player explicitly leverages a known weakness or superior tool, call \`roll_dice\` twice and use the higher result. If explicitly impaired (blinded, wounded, overwhelmed), call twice and use the lower. Otherwise, single roll.
+
+**Outcomes:**
+- Catastrophe: severe unexpected failure, consequences beyond simple loss.
+- Failure: fails. Damage, setback, or resource loss.
+- Success: succeeds exactly as intended.
+- Triumph: succeeds with an unexpected additional benefit.
+- Narrative Boon: flawless. Massive strategic or narrative advantage.`;
+
+function swapActionResolutionForToolMode(rules: string): string {
+    const marker = '### ACTION RESOLUTION';
+    const idx = rules.indexOf(marker);
+    if (idx === -1) return rules;
+    const nextSectionMatch = rules.substring(idx + marker.length).match(/\n### /);
+    const endIdx = nextSectionMatch ? idx + marker.length + nextSectionMatch.index! : rules.length;
+    return rules.substring(0, idx) + TOOL_MODE_ACTION_RESOLUTION + rules.substring(endIdx);
+}
+
 function computeNPCSalience(npc: NPCEntry, scanText: string): number {
     let score = 0;
     const lower = scanText.toLowerCase();
@@ -15,7 +45,8 @@ function computeNPCSalience(npc: NPCEntry, scanText: string): number {
     const patterns = [name, ...aliases];
 
     for (const p of patterns) {
-        const regex = new RegExp(p, 'gi');
+        const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escaped, 'g');
         const matches = lower.match(regex);
         if (matches) score += matches.length * 2;
     }
@@ -174,7 +205,10 @@ export function buildPayload(
     const stableParts: string[] = [];
     if (sceneNumber) stableParts.push(`[CURRENT SCENE: #${sceneNumber}]\n[ENGINE: Scene header is auto-injected. Do NOT write "Scene #${sceneNumber}" yourself. Start your response with the date/location/NPCs line directly.]`);
     const effectiveRules = context.rulesRaw || DEFAULT_RULES;
-    if (effectiveRules) stableParts.push(effectiveRules);
+    const rulesWithMode = context.diceFairnessActive === false
+        ? swapActionResolutionForToolMode(effectiveRules)
+        : effectiveRules;
+    if (rulesWithMode) stableParts.push(rulesWithMode);
     if (context.canonStateActive && context.canonState) {
         stableParts.push(context.canonState);
     }
@@ -279,7 +313,7 @@ export function buildPayload(
 
     // Active NPCs
     if (npcLedger && npcLedger.length > 0) {
-        const loreHeadersSet = new Set((relevantLore ?? []).map(l => l.header.toLowerCase()));
+        const loreHeadersSet = new Set((relevantLore ?? []).filter(l => l.header).map(l => l.header!.toLowerCase()));
 
         let activeNPCs: NPCEntry[];
 
@@ -429,7 +463,7 @@ ${profBlock}`);
     // --- 6. Fit History ---
     const userTokens = countTokens(userMessage);
     const reservedTotal = stableTokens + summaryTokens + currentWorldTokens + volatileTokens + userTokens;
-    const historyBudget = limit - reservedTotal - 200; // Small safety margin of 200 tokens
+    const historyBudget = Math.max(0, limit - reservedTotal - 200); // Small safety margin of 200 tokens
 
     const candidateMessages = (condensedSummary && condensedUpToIndex !== undefined && condensedUpToIndex >= 0)
         ? history.slice(condensedUpToIndex + 1)

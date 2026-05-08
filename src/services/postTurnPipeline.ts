@@ -262,9 +262,10 @@ async function runDivergenceTrack(
         }
 
         try {
-            const { saveDivergenceRegister } = await import('../store/campaignStore');
             await saveDivergenceRegister(activeCampaignId, merged);
-        } catch {}
+        } catch (e) {
+            console.warn('[DivergenceRegister] Failed to save register to server:', e);
+        }
 
         console.log(`[DivergenceRegister] Scene #${sceneId}: ${entries.length} entries extracted`);
     }
@@ -285,6 +286,11 @@ async function runPressureTrack(
         : 0;
 
     const loreHeadersSet = new Set<string>();
+    if (state.loreChunks) {
+        for (const chunk of state.loreChunks) {
+            if (chunk.header) loreHeadersSet.add(chunk.header.toLowerCase());
+        }
+    }
     const activeNPCs = npcLedger.filter(npc => {
         if (!npc.name) return false;
         if (loreHeadersSet.has(npc.name.toLowerCase())) return false;

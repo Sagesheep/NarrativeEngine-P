@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ChatMessage, ArchiveIndexEntry, DivergenceRegister, EndpointConfig, DivergenceEntry, DivergenceCategory } from '../types';
 import { extractFromMessageBatch, buildSceneMap } from '../services/divergenceRegister';
-import { uid } from '../utils/uid';
 import { toast } from './Toast';
 
 type DivergenceReviewModalProps = {
@@ -82,8 +81,7 @@ export function DivergenceReviewModal({
                 abortRef.current.abort();
             }
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [archiveIndex, messages, provider, currentRegister, onClose]);
 
     const handleAccept = () => {
         const accepted = entries.filter(e => e.accepted).map(e => {

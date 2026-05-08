@@ -69,8 +69,9 @@ app.use(createDivergenceRouter());
 
 // ─── Central Error Handler ───
 app.use((err, _req, res, _next) => {
-    console.error('[Server] Unhandled error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    const status = err.statusCode || 500;
+    console.error(`[Server] Error ${status}:`, err.message);
+    res.status(status).json({ error: err.message || 'Internal server error' });
 });
 
 // ─── Start ───

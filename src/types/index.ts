@@ -44,6 +44,25 @@ export type StreamingStats = {
     speed: number;
 };
 
+export type LoreCheckCategory = 'wrong-fact' | 'contradicts-lore' | 'wrong-entity' | 'tone-voice' | 'out-of-character';
+export type LoreCheckVerdict = 'consistent' | 'unsupported' | 'contradicts';
+export type LoreCheckCitation = { ref: string; label: string };
+export type LoreCheckResult = {
+    verdict: LoreCheckVerdict;
+    issues: string[];
+    citations: LoreCheckCitation[];
+    suggestedRewrite: string | null;
+    originalText: string;
+    rawResponse?: string;
+};
+export type LoreCheckSelection = {
+    messageId: string;
+    selectedText: string;
+    start: number;
+    end: number;
+    surroundingContext: string;
+};
+
 export type EndpointConfig = {
     endpoint: string;
     apiKey: string;
@@ -398,6 +417,7 @@ export type NPCEntry = {
     hardBoundaries?: string[];
     softBoundaries?: string[];
     pressure?: NPCPressure;
+    archived?: boolean;
 };
 
 

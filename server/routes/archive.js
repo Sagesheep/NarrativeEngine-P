@@ -1,9 +1,10 @@
 import fs from 'fs';
+import path from 'path';
 import { Router } from 'express';
 import {
     readJson, writeJson, ensureDirs,
     archivePath, archiveIndexPath, chaptersPath, entitiesPath, timelinePath,
-    getNextSceneNumber, createDefaultChapter,
+    getNextSceneNumber, createDefaultChapter, DATA_DIR, CAMPAIGNS_DIR,
 } from '../lib/fileStore.js';
 import {
     extractIndexKeywords, extractNPCNames, estimateImportance,
@@ -12,8 +13,8 @@ import {
 } from '../lib/nlp.js';
 import { extractWitnessesLLM, extractTimelineEventsLLM } from '../services/llmProxy.js';
 import { normalizeEntityName } from '../lib/entityResolution.js';
-import { embedText, buildArchiveText, buildLoreText } from '../lib/embedder.js';
-import { storeArchiveEmbedding, storeLoreEmbedding, searchArchive, searchLore } from '../lib/vectorStore.js';
+import { embedText, buildArchiveText, buildLoreText, warmup, embedBatch } from '../lib/embedder.js';
+import { storeArchiveEmbedding, storeLoreEmbedding, searchArchive, searchLore, getEmbeddingStatus, EMBEDDING_VERSION, getDb } from '../lib/vectorStore.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 
 export function createArchiveRouter() {
@@ -30,6 +31,9 @@ export function createArchiveRouter() {
     router.post('/api/campaigns/:id/archive', wrapAsync(async (req, res) => {
         ensureDirs();
         const { userContent, assistantContent, importance: clientImportance, utilityConfig } = req.body;
+        if (typeof userContent !== 'string' || !userContent.trim() || typeof assistantContent !== 'string' || !assistantContent.trim()) {
+            return res.status(400).json({ error: 'userContent and assistantContent are required non-empty strings' });
+        }
         const fp = archivePath(req.params.id);
         const idxp = archiveIndexPath(req.params.id);
         const sceneNum = getNextSceneNumber(req.params.id);
@@ -312,6 +316,10 @@ export function createArchiveRouter() {
 
     // Open archive in OS default app
     router.get('/api/campaigns/:id/archive/open', wrapAsync((req, res) => {
+        // Validate campaign ID to prevent command injection
+        if (!/^[a-zA-Z0-9_-]+$/.test(req.params.id)) {
+            return res.status(400).json({ error: 'Invalid campaign ID' });
+        }
         const fp = archivePath(req.params.id);
         if (!fs.existsSync(fp)) {
             return res.status(404).json({ error: 'No archive yet' });
@@ -329,21 +337,155 @@ export function createArchiveRouter() {
     }));
 
     router.post('/api/campaigns/:id/archive/semantic-candidates', wrapAsync(async (req, res) => {
-        const { query, limit } = req.body;
-        if (!query?.trim()) return res.json({ sceneIds: [] });
-        const embedding = await embedText(query);
-        const results = searchArchive(req.params.id, embedding, limit || 20);
-        console.log(`[VectorStore] archive candidates for "${query.slice(0, 50)}": [${results.map(r => r.sceneId).join(', ')}]`);
-        res.json({ sceneIds: results.map(r => r.sceneId) });
+        const { query, queries, limit } = req.body;
+        if (queries && Array.isArray(queries) && queries.length > 0) {
+            const allSceneIds = new Set();
+            for (const q of queries) {
+                if (!q?.trim()) continue;
+                const embedding = await embedText(q);
+                const results = searchArchive(req.params.id, embedding, limit || 20);
+                for (const r of results) allSceneIds.add(r.sceneId);
+            }
+            console.log(`[VectorStore] archive candidates for ${queries.length} queries: [${[...allSceneIds].join(', ')}]`);
+            res.json({ sceneIds: [...allSceneIds] });
+        } else {
+            if (!query?.trim()) return res.json({ sceneIds: [] });
+            const embedding = await embedText(query);
+            const results = searchArchive(req.params.id, embedding, limit || 20);
+            console.log(`[VectorStore] archive candidates for "${query.slice(0, 50)}": [${results.map(r => r.sceneId).join(', ')}]`);
+            res.json({ sceneIds: results.map(r => r.sceneId) });
+        }
     }));
 
     router.post('/api/campaigns/:id/lore/semantic-candidates', wrapAsync(async (req, res) => {
-        const { query, limit } = req.body;
-        if (!query?.trim()) return res.json({ loreIds: [] });
-        const embedding = await embedText(query);
-        const results = searchLore(req.params.id, embedding, limit || 15);
-        console.log(`[VectorStore] lore candidates for "${query.slice(0, 50)}": [${results.map(r => r.loreId).join(', ')}]`);
-        res.json({ loreIds: results.map(r => r.loreId) });
+        const { query, queries, limit } = req.body;
+        if (queries && Array.isArray(queries) && queries.length > 0) {
+            const allLoreIds = new Set();
+            for (const q of queries) {
+                if (!q?.trim()) continue;
+                const embedding = await embedText(q);
+                const results = searchLore(req.params.id, embedding, limit || 15);
+                for (const r of results) allLoreIds.add(r.loreId);
+            }
+            console.log(`[VectorStore] lore candidates for ${queries.length} queries: [${[...allLoreIds].join(', ')}]`);
+            res.json({ loreIds: [...allLoreIds] });
+        } else {
+            if (!query?.trim()) return res.json({ loreIds: [] });
+            const embedding = await embedText(query);
+            const results = searchLore(req.params.id, embedding, limit || 15);
+            console.log(`[VectorStore] lore candidates for "${query.slice(0, 50)}": [${results.map(r => r.loreId).join(', ')}]`);
+            res.json({ loreIds: results.map(r => r.loreId) });
+        }
+    }));
+
+    // ─── Embedding Version Status ─────────────────────────────────────
+    router.get('/api/campaigns/:id/embeddings/status', wrapAsync(async (req, res) => {
+        const status = getEmbeddingStatus(req.params.id);
+        res.json(status);
+    }));
+
+    // ─── Re-index Embeddings (Backfill) ───────────────────────────────
+    router.post('/api/campaigns/:id/embeddings/reindex', wrapAsync(async (req, res) => {
+        const campaignId = req.params.id;
+        const { type } = req.body; // 'scene' | 'lore' | 'all'
+
+        console.log(`[Reindex] Starting reindex for campaign ${campaignId}, type=${type || 'all'}`);
+
+        await warmup();
+
+        const status = getEmbeddingStatus(campaignId);
+        const db = getDb();
+        const currentVersion = EMBEDDING_VERSION;
+
+        let reindexedScenes = 0;
+        let reindexedLore = 0;
+
+        // ── Re-index stale scene embeddings ──
+        if ((!type || type === 'all' || type === 'scene') && status.scenes.stale > 0) {
+            const staleScenes = db.prepare(
+                `SELECT item_id FROM embedding_meta WHERE campaign_id = ? AND item_type = 'scene' AND version < ?`
+            ).all(campaignId, currentVersion);
+
+            if (staleScenes.length > 0) {
+                // Load archive index to get scene data
+                const indexPath = archiveIndexPath(campaignId);
+                const indexEntries = readJson(indexPath, []);
+                const indexMap = new Map(indexEntries.map(e => [e.sceneId, e]));
+
+                const sceneIds = staleScenes.map(r => r.item_id).filter(id => indexMap.has(id));
+                const texts = sceneIds.map(id => buildArchiveText(indexMap.get(id)));
+                const embeddings = await embedBatch(texts, 10, 100);
+
+                for (let i = 0; i < sceneIds.length; i++) {
+                    storeArchiveEmbedding(campaignId, sceneIds[i], embeddings[i]);
+                    reindexedScenes++;
+                }
+                console.log(`[Reindex] Re-indexed ${reindexedScenes} scene embeddings`);
+            }
+        }
+
+        // ── Re-index stale lore embeddings ──
+        if ((!type || type === 'all' || type === 'lore') && status.lore.stale > 0) {
+            const staleLore = db.prepare(
+                `SELECT item_id FROM embedding_meta WHERE campaign_id = ? AND item_type = 'lore' AND version < ?`
+            ).all(campaignId, currentVersion);
+
+            if (staleLore.length > 0) {
+                // Load lore chunks
+                const lorePath = path.join(CAMPAIGNS_DIR, `${campaignId}.lore.json`);
+                const loreChunks = readJson(lorePath, []);
+                const loreMap = new Map(loreChunks.map(c => [c.id, c]));
+
+                const loreIds = staleLore.map(r => r.item_id).filter(id => loreMap.has(id));
+                const texts = loreIds.map(id => buildLoreText(loreMap.get(id)));
+                const embeddings = await embedBatch(texts, 10, 100);
+
+                for (let i = 0; i < loreIds.length; i++) {
+                    storeLoreEmbedding(campaignId, loreIds[i], embeddings[i]);
+                    reindexedLore++;
+                }
+                console.log(`[Reindex] Re-indexed ${reindexedLore} lore embeddings`);
+            }
+        }
+
+        // ── Also find embeddings without meta (unversioned) ──
+        const scenesNoMeta = (!type || type === 'all' || type === 'scene')
+            ? db.prepare(`SELECT scene_id FROM archive_vss WHERE campaign_id = ? AND scene_id NOT IN (SELECT item_id FROM embedding_meta WHERE campaign_id = ? AND item_type = 'scene')`).all(campaignId, campaignId)
+            : [];
+        if (scenesNoMeta.length > 0) {
+            const idxPath = archiveIndexPath(campaignId);
+            const indexEntries = readJson(idxPath, []);
+            const indexMap = new Map(indexEntries.map(e => [e.sceneId, e]));
+            const ids = scenesNoMeta.map(r => r.scene_id).filter(id => indexMap.has(id));
+            const texts = ids.map(id => buildArchiveText(indexMap.get(id)));
+            const embeddings = await embedBatch(texts, 10, 100);
+            for (let i = 0; i < ids.length; i++) {
+                storeArchiveEmbedding(campaignId, ids[i], embeddings[i]);
+                reindexedScenes++;
+            }
+            console.log(`[Reindex] Backfilled ${ids.length} unversioned scene embeddings`);
+        }
+
+        const loreNoMeta = (!type || type === 'all' || type === 'lore')
+            ? db.prepare(`SELECT lore_id FROM lore_vss WHERE campaign_id = ? AND lore_id NOT IN (SELECT item_id FROM embedding_meta WHERE campaign_id = ? AND item_type = 'lore')`).all(campaignId, campaignId)
+            : [];
+        if (loreNoMeta.length > 0) {
+            const lorePath = path.join(CAMPAIGNS_DIR, `${campaignId}.lore.json`);
+            const loreChunks = readJson(lorePath, []);
+            const loreMap = new Map(loreChunks.map(c => [c.id, c]));
+            const ids = loreNoMeta.map(r => r.lore_id).filter(id => loreMap.has(id));
+            const texts = ids.map(id => buildLoreText(loreMap.get(id)));
+            const embeddings = await embedBatch(texts, 10, 100);
+            for (let i = 0; i < ids.length; i++) {
+                storeLoreEmbedding(campaignId, ids[i], embeddings[i]);
+                reindexedLore++;
+            }
+            console.log(`[Reindex] Backfilled ${ids.length} unversioned lore embeddings`);
+        }
+
+        const newStatus = getEmbeddingStatus(campaignId);
+        console.log(`[Reindex] Complete: ${reindexedScenes} scenes, ${reindexedLore} lore re-indexed`);
+        res.json({ reindexedScenes, reindexedLore, status: newStatus });
     }));
 
     return router;
