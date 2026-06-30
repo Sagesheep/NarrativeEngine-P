@@ -213,23 +213,21 @@ export async function sendMessage(
 }
 
 export async function testConnection(provider: EndpointConfig | ProviderConfig): Promise<{ ok: boolean; detail: string }> {
-    const format = getApiFormat(provider);
-    const headers = buildChatHeaders(provider);
-    // Remove Content-Type for GET requests
-    delete headers['Content-Type'];
-    let url = getModelsUrl(provider);
-
-    // Gemini auth: append ?key= to URL
-    if (format === 'gemini' && provider.apiKey) {
-        url = `${url}?key=${provider.apiKey}`;
-    }
-
+    // Proxy through backend to avoid CORS issues when browser fetches the
+    // provider's model list endpoint directly (e.g. NVIDIA, OpenAI, etc.).
     try {
-        const res = await fetch(url, { headers });
-        if (res.ok) {
-            return { ok: true, detail: 'Connection successful' };
-        }
-        return { ok: false, detail: `HTTP ${res.status}: ${await res.text()}` };
+        const res = await fetch('/api/proxy/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                endpoint: provider.endpoint,
+                apiKey: provider.apiKey,
+                apiFormat: getApiFormat(provider),
+                modelName: provider.modelName,
+            }),
+        });
+        const data = await res.json();
+        return { ok: data.ok, detail: data.detail };
     } catch (err) {
         return { ok: false, detail: err instanceof Error ? err.message : 'Network error' };
     }

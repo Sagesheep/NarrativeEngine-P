@@ -15,6 +15,7 @@ import { createOverworldRouter } from './server/routes/overworld.js';
 import { createTransferRouter } from './server/routes/transfer.js';
 import { createDivergenceRouter } from './server/routes/divergence.js';
 import { createRulesRouter } from './server/routes/rules.js';
+import { createProxyRouter } from './server/routes/proxy.js';
 import { initDb } from './server/lib/vectorStore.js';
 import { warmup as warmupEmbedder } from './server/lib/embedder.js';
 import { serverError } from './server/lib/serverError.js';
@@ -69,6 +70,7 @@ app.use(createOverworldRouter());
 app.use(createTransferRouter());
 app.use(createDivergenceRouter());
 app.use(createRulesRouter());
+app.use(createProxyRouter());
 
 // ─── Central Error Handler ───
 app.use((err, _req, res, _next) => {
