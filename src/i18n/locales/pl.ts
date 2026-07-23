@@ -73,7 +73,7 @@ export const pl: LocalePack = {
     'settings.title': '⚙ USTAWIENIA',
     'settings.version.tooltip': 'Zainstalowana wersja Narrative Engine',
     'settings.close.aria': 'Zamknij ustawienia',
-    'settings.tab.providers': 'Dostawcy',
+    'settings.tab.providers': 'Dostawcy LLM',
     'settings.tab.presets': 'Presety',
     'settings.tab.global': 'Globalne',
     'settings.tab.advanced': 'Zaawansowane',
