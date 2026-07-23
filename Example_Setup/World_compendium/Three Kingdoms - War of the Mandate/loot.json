@@ -1,0 +1,530 @@
+{
+  "root": "categoryPick",
+  "sources": {
+    "battlefield": { "rolls": [2, 4] },
+    "war-chest": { "rolls": [2, 3] },
+    "han-tomb": { "rolls": [1, 2] },
+    "daoist-shrine": { "rolls": [1, 2] },
+    "burned-granary": { "rolls": [1, 3] },
+    "river-salvage": { "rolls": [1, 2] },
+    "court-seizure": { "rolls": [2, 4] },
+    "mythical-site": { "rolls": [1, 1] }
+  },
+  "nodes": {
+    "categoryPick": {
+      "kind": "pick",
+      "axis": "category",
+      "weights": {
+        "currency": 35,
+        "mundane": 35,
+        "named": 22,
+        "uncanny": 7,
+        "crossworld": 1
+      },
+      "branches": {
+        "currency": "currencyRarityPick",
+        "mundane": "mundaneSubtypePick",
+        "named": "namedSubtypePick",
+        "uncanny": "uncannySubtypePick",
+        "crossworld": "crossworldDraw"
+      }
+    },
+
+    "currencyRarityPick": {
+      "kind": "pick",
+      "axis": "currencyRarity",
+      "weights": {
+        "small": 60,
+        "mid": 30,
+        "large": 10
+      },
+      "branches": {
+        "small": "currencyTypeSmallPick",
+        "mid": "currencyTypeMidPick",
+        "large": "currencyTypeLargePick"
+      }
+    },
+    "currencyTypeSmallPick": {
+      "kind": "pick",
+      "axis": "currencyType",
+      "weights": {
+        "grain": 70,
+        "copper": 25,
+        "silk": 5
+      },
+      "branches": {
+        "grain": "grainSmallAmount",
+        "copper": "copperSmallAmount",
+        "silk": "silkSmallAmount"
+      }
+    },
+    "currencyTypeMidPick": {
+      "kind": "pick",
+      "axis": "currencyType",
+      "weights": {
+        "grain": 50,
+        "copper": 40,
+        "silk": 10
+      },
+      "branches": {
+        "grain": "grainMidAmount",
+        "copper": "copperMidAmount",
+        "silk": "silkMidAmount"
+      }
+    },
+    "currencyTypeLargePick": {
+      "kind": "pick",
+      "axis": "currencyType",
+      "weights": {
+        "grain": 30,
+        "copper": 40,
+        "silk": 30
+      },
+      "branches": {
+        "grain": "grainLargeAmount",
+        "copper": "copperLargeAmount",
+        "silk": "silkLargeAmount"
+      }
+    },
+    "grainSmallAmount": {
+      "kind": "amount",
+      "unit": "shi of grain",
+      "min": 1,
+      "max": 5,
+      "next": "grainCompose"
+    },
+    "grainMidAmount": {
+      "kind": "amount",
+      "unit": "shi of grain",
+      "min": 5,
+      "max": 20,
+      "next": "grainCompose"
+    },
+    "grainLargeAmount": {
+      "kind": "amount",
+      "unit": "shi of grain",
+      "min": 20,
+      "max": 80,
+      "next": "grainCompose"
+    },
+    "grainCompose": {
+      "kind": "compose",
+      "template": "{shi of grain}"
+    },
+    "copperSmallAmount": {
+      "kind": "amount",
+      "unit": "wuzhu qian",
+      "min": 20,
+      "max": 200,
+      "next": "copperCompose"
+    },
+    "copperMidAmount": {
+      "kind": "amount",
+      "unit": "wuzhu qian",
+      "min": 200,
+      "max": 1000,
+      "next": "copperCompose"
+    },
+    "copperLargeAmount": {
+      "kind": "amount",
+      "unit": "wuzhu qian",
+      "min": 1000,
+      "max": 5000,
+      "next": "copperCompose"
+    },
+    "copperCompose": {
+      "kind": "compose",
+      "template": "{wuzhu qian}"
+    },
+    "silkSmallAmount": {
+      "kind": "amount",
+      "unit": "bolts of silk",
+      "min": 1,
+      "max": 2,
+      "next": "silkCompose"
+    },
+    "silkMidAmount": {
+      "kind": "amount",
+      "unit": "bolts of silk",
+      "min": 2,
+      "max": 5,
+      "next": "silkCompose"
+    },
+    "silkLargeAmount": {
+      "kind": "amount",
+      "unit": "bolts of silk",
+      "min": 5,
+      "max": 15,
+      "next": "silkCompose"
+    },
+    "silkCompose": {
+      "kind": "compose",
+      "template": "{bolts of silk}"
+    },
+
+    "mundaneSubtypePick": {
+      "kind": "pick",
+      "axis": "mundaneSubtype",
+      "weights": {
+        "salvage": 40,
+        "provisions": 35,
+        "military": 25
+      },
+      "branches": {
+        "salvage": "salvageDraw",
+        "provisions": "provisionsDraw",
+        "military": "militaryDraw"
+      }
+    },
+    "salvageDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "salvagePool", "as": "item" }
+      ],
+      "next": "salvageCompose"
+    },
+    "salvageCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+    "provisionsDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "provisionsPool", "as": "item" }
+      ],
+      "next": "provisionsCompose"
+    },
+    "provisionsCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+    "militaryDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "militaryPool", "as": "item" }
+      ],
+      "next": "militaryCompose"
+    },
+    "militaryCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+
+    "namedSubtypePick": {
+      "kind": "pick",
+      "axis": "namedSubtype",
+      "weights": {
+        "weapon": 35,
+        "armor": 20,
+        "tool": 20,
+        "accessory": 25
+      },
+      "branches": {
+        "weapon": "namedWeaponDraw",
+        "armor": "namedArmorDraw",
+        "tool": "namedToolDraw",
+        "accessory": "namedAccessoryDraw"
+      }
+    },
+    "namedWeaponDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "namedWeaponPool", "as": "item" }
+      ],
+      "next": "namedWeaponCompose"
+    },
+    "namedWeaponCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+    "namedArmorDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "namedArmorPool", "as": "item" }
+      ],
+      "next": "namedArmorCompose"
+    },
+    "namedArmorCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+    "namedToolDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "namedToolPool", "as": "item" }
+      ],
+      "next": "namedToolCompose"
+    },
+    "namedToolCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+    "namedAccessoryDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "namedAccessoryPool", "as": "item" }
+      ],
+      "next": "namedAccessoryCompose"
+    },
+    "namedAccessoryCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+
+    "uncannySubtypePick": {
+      "kind": "pick",
+      "axis": "uncannySubtype",
+      "weights": {
+        "turban-ash": 30,
+        "daoist-omen": 30,
+        "han-relic": 25,
+        "rite-fragment": 15
+      },
+      "branches": {
+        "turban-ash": "turbanAshDraw",
+        "daoist-omen": "daoistOmenDraw",
+        "han-relic": "hanRelicDraw",
+        "rite-fragment": "riteFragmentDraw"
+      }
+    },
+    "turbanAshDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "turbanAshPool", "as": "item" }
+      ],
+      "next": "turbanAshCompose"
+    },
+    "turbanAshCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+    "daoistOmenDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "daoistOmenPool", "as": "item" }
+      ],
+      "next": "daoistOmenCompose"
+    },
+    "daoistOmenCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+    "hanRelicDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "hanRelicPool", "as": "item" }
+      ],
+      "next": "hanRelicCompose"
+    },
+    "hanRelicCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+    "riteFragmentDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "riteFragmentPool", "as": "item" }
+      ],
+      "next": "riteFragmentCompose"
+    },
+    "riteFragmentCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    },
+    "crossworldDraw": {
+      "kind": "draw",
+      "draws": [
+        { "pool": "crossworldArtifactPool", "as": "item" }
+      ],
+      "next": "crossworldCompose"
+    },
+    "crossworldCompose": {
+      "kind": "compose",
+      "template": "{item}"
+    }
+  },
+
+  "pools": {
+    "salvagePool": [
+      { "text": "a bundle of arrow-shafts (broken but reusable)" },
+      { "text": "a rusted iron pot, dented but sound" },
+      { "text": "a coil of hempen rope, half-rotted" },
+      { "text": "a leather water-skin, cracked" },
+      { "text": "a stack of charred planks from a burned cart" },
+      { "text": "a sack of iron nails, salvageable" },
+      { "text": "a broken spear-shaft, the head still good" },
+      { "text": "a tattered hemp sandal, the pair's other half gone" },
+      { "text": "a clay lamp, oil-dry but unbroken" },
+      { "text": "a rusted hand-saw, teeth still sharp" },
+      { "text": "a bundle of rags, sewn into a rough blanket" },
+      { "text": "a chipped whetstone, half-worn" },
+      { "text": "a small iron pan, blackened with use" },
+      { "text": "a wooden bowl, cracked but holding" },
+      { "text": "a bone-handled eating-knife, dull but whole" },
+      { "text": "a folded square of oiled cloth, weatherproofing" },
+      { "text": "a handful of iron scraps, worth a few qian" },
+      { "text": "a bent bronze buckle, military-issue" }
+    ],
+    "provisionsPool": [
+      { "text": "a small sack of millet, enough for two days" },
+      { "text": "a strip of dried pork, salted and tough" },
+      { "text": "a pouch of salt, worth more than grain in winter" },
+      { "text": "a bundle of dried turnips, the winter staple" },
+      { "text": "a small clay jar of pickled vegetables" },
+      { "text": "a handful of dried jujubes, sweet and keeping" },
+      { "text": "a slab of hard rice-cake, soldier's march-food" },
+      { "text": "a skin of thin rice-wine, sour but warming" },
+      { "text": "a pouch of roasted barley, chew and walk" },
+      { "text": "a small bundle of hempseed, press for oil" },
+      { "text": "a clay pot of fermented bean-paste, strong" },
+      { "text": "a handful of dried fish, river-caught" },
+      { "text": "a bundle of wild garlic, keeps the camp-fever at bay" },
+      { "text": "a small bag of chestnuts, roast and eat" },
+      { "text": "a twist of ginger root, worth its weight in silver" },
+      { "text": "a clay flask of lamp-oil, not for drinking" },
+      { "text": "a pouch of wheat flour, weeviled but edible" },
+      { "text": "a small block of pressed tea, bitter" }
+    ],
+    "militaryPool": [
+      { "text": "a village-issue iron spear, billed to the lord" },
+      { "text": "a conical iron helm, dented, standard Han line" },
+      { "text": "a pair of iron lamellar plates, Wei-made" },
+      { "text": "a short iron sword, unmounted, needs a hilt" },
+      { "text": "a hemp-padded soldier's coat, louse-ridden" },
+      { "text": "a worn leather belt with a bronze buckle" },
+      { "text": "a wooden shield, rawhide-wrapped, cracked" },
+      { "text": "a short hunting bow, not a war bow but it will do" },
+      { "text": "a quiver of ten arrows, three of them warped" },
+      { "text": "a coil of bowstring, spare" },
+      { "text": "a small iron hand-axe, utility, not battle" },
+      { "text": "a bronze officer's whistle, for signals" },
+      { "text": "a set of leather greaves, cracked, infantry-issue" },
+      { "text": "a rolled hemp tent-section, sleeps one" },
+      { "text": "a small bronze field-mirror, for signals" },
+      { "text": "a chipped iron knife, the soldier's third hand" },
+      { "text": "a set of iron caltrops, a handful, for a retreat" },
+      { "text": "a wooden training sword, worn smooth with use" }
+    ],
+
+    "namedWeaponPool": [
+      { "text": "an old iron knife that has never dulled, no matter how it is used (the village says it was a healer's)" },
+      { "text": "a short sword of pre-Han bronze, green-patinaed, that hums faintly when drawn near a battlefield" },
+      { "text": "a spearhead from a forgotten battle, fitted to a new shaft, that its bearer swears finds the gap in any armor" },
+      { "text": "a worn Guan-dao polearm, not the Green Dragon but an honest copy that has killed honestly" },
+      { "text": "a recurve bow of dark horn and sinew, never-strung, that an old hermit traded for a week's food" },
+      { "text": "a pair of iron shuanggu swords, the husband-and-wife pair, plain but perfectly balanced" },
+      { "text": "a short dao with a chrysanthemum etched on the blade, Wu-armory, that a dead officer's family sold" },
+      { "text": "a heavy iron mace, unmarked, that a frontier sergeant carried for twenty years and never lost" },
+      { "text": "a horseman's curved saber, steppe-make, that some say was taken from a Xiongnu chief" },
+      { "text": "a long spear of white ash, not the Changshan Spear but carved in its image, that a pupil of a pupil of Zhao Yun made" }
+    ],
+    "namedArmorPool": [
+      { "text": "a lamellar cuirass of dark iron scales, Wei-officer issue, that a quartermaster swears no arrow has ever punched through" },
+      { "text": "a leather buff-coat, boiled in wax, that a Wu river-soldier wore through three campaigns" },
+      { "text": "a conical helm of old Han bronze, marked with a faded tiger, that the wearer says turns blades at the last inch" },
+      { "text": "a silk-and-iron scale vest, light, Shu-made, that a rich merchant's bodyguard sold to eat" },
+      { "text": "a padded gambeson of layered hemp, undyed, that a frontier family has passed down since before the Rite" },
+      { "text": "a round wooden shield, lacquered black, with a bronze boss that some say stopped a Guan-dao (it did not, but the shield-bearer lived)" },
+      { "text": "a set of iron greaves, mismatched, that a deserter swears let him walk out of Guandu alive" },
+      { "text": "a leather-and-iron shoulder guard, steppe-make, that a northern scout wore for thirty years" }
+    ],
+    "namedToolPool": [
+      { "text": "a bowstring of braided silk that has never broken, even in the rain" },
+      { "text": "a whetstone of dark river-rock that a blacksmith swears puts an edge on iron in three strokes" },
+      { "text": "a clay teapot, cracked and glued, that a hermit's hermit used, and that some say keeps the water sweet in any weather" },
+      { "text": "a brass travel-compass that always points to the nearest shrine, not north (the hermit who sold it did not explain)" },
+      { "text": "a set of surgeon's needles, fine and old, in a silk roll, that a camp-doctor says pull a wound shut cleaner than any new set" },
+      { "text": "a scribe's brush of wolf-hair that a clerk swears never splays, even in a hurry" },
+      { "text": "a small iron furnace, portable, that a charcoal-burner says draws a fire with one breath" },
+      { "text": "a coil of rope, mountain-hemp, that a Yi-province guide says has held in every storm he has ever climbed through" }
+    ],
+    "namedAccessoryPool": [
+      { "text": "a jade toggle, old, carved as a cicada, that a grandmother swore warded off the camp-fever (it has not been tested)" },
+      { "text": "a bronze Tiger Tally fragment, broken, Han-issue, that legally mobilizes a garrison of forty (the other half is missing)" },
+      { "text": "a silk travel-pass, stamped with a dead magistrate's seal, that should get the bearer through any Wei checkpoint (until someone checks the date)" },
+      { "text": "a small wooden pendant, carved as a mountain, that a Daoist hermit gave a traveler with the instruction 'wear it in a storm'" },
+      { "text": "a copper amulet of the Way of Great Peace, yellow-turban-marked, that a Turban cell-sister pressed into a stranger's hand before disappearing" },
+      { "text": "an officer's bronze seal, unengraved, that a corrupt quartermaster used to stamp receipts for grain that did not exist" },
+      { "text": "a small bronze mirror, polished, that a court woman swears shows the face of the last person who lied in front of it (it does not)" },
+      { "text": "a folded paper talisman, inked by a Celestial Master, that a Hanzhong pilgrim carries and that is said to keep a wound clean for three days" },
+      { "text": "a jade ring, simple, that a wealthy widow sold for food and that she said her grandmother received from a man who did not age" },
+      { "text": "a small leather pouch of dried ash, not Yellow Turban ash, but the ash of a letter a hermit burned, that he said was 'the end of a promise'" }
+    ],
+
+    "turbanAshPool": [
+      { "text": "a gourd of Yellow Turban ash, sealed with yellow wax, from a burned granary — the material basis of the Yellow Rot curse" },
+      { "text": "a folded yellow cloth, stained with soot, bearing fragments of a Way of Great Peace liturgy in a hand that is not Zhang Jiao's" },
+      { "text": "a small clay jar of ash from the square where Zhang Jiao was arrested, that a survivor scraped from the ground" },
+      { "text": "a wooden tablet, charred, inscribed with the opening words of the Rite of Great Peace, in a dialect no living Turban can read" },
+      { "text": "a leather cord strung with nine yellow beads, each made from ash-paste, that a Turban cell-sister wears when she reads the omens" },
+      { "text": "a small bronze knife, yellow-lacquered, that a Turban cell uses to cut the ash-gourd — it is not for killing" }
+    ],
+    "daoistOmenPool": [
+      { "text": "a wind-compass of bronze and silk, Celestial Master-made, that turns toward the strongest omen-source within a li" },
+      { "text": "a set of yarrow-stalks, old and supple, that a hermit used for the Changes — and that, it is said, have never given the same hexagram twice to the same asker" },
+      { "text": "a small clay omen-tablet, fired with the pattern of a comet's tail, that a hermit buried and dug up again before he died" },
+      { "text": "a folded paper wind-map, inked by a hermit on Mount Taiqing, that some say shows the wind as it will be, not as it is" },
+      { "text": "a bronze bowl, dished, that a Daoist uses to read the ash-pattern of a burned question — the answer is in the shape the ash keeps" },
+      { "text": "a small wooden flute, six holes, that a hermit on the Yangtze plays at dawn, and that some say the wind answers" },
+      { "text": "a silk scroll, brittle, inscribed with a weather-rite that may or may not call the fog — the hermit who wrote it is dead of plague" },
+      { "text": "a cluster of bone dice, marked with the Five Phases, that a hermit casts to read the Mandate's current holder (it has not been right since 184)" }
+    ],
+    "hanRelicPool": [
+      { "text": "a complete Han Bronze Tiger Tally, in two halves, that legally mobilizes a garrison of two hundred — the most powerful non-magical object in the setting" },
+      { "text": "a Han imperial seal, broken, that a fleeing court official dropped in a river and a fisherman found" },
+      { "text": "a set of Han bronze chime-bells, small, buried in a magistrate's garden, that still ring true" },
+      { "text": "a Han iron halberd-head, pre-Rite, buried with a soldier whose name is still on the haft" },
+      { "text": "a folded Han court robe, moth-eaten, that an executed eunuch's family sold for grain" },
+      { "text": "a small Han bronze mirror, polished, inscribed with the Four Spirits, that a tomb-robber swears showed him the way out (the other way out)" },
+      { "text": "a set of Han bamboo annals, half-rotted, that a Celestial Master archivist traded three years of rice to preserve" },
+      { "text": "a Han officer's bronze waist-plate, stamped with a legion mark, that a veteran still wears though the legion is gone" }
+    ],
+    "riteFragmentPool": [
+      { "text": "a single bamboo slip, cracked, inscribed with seven characters of the Rite of Great Peace in a hand that may or may not be Zhang Jiao's — the most dangerous object the party can carry" },
+      { "text": "a folded paper, brittle, bearing a diagram of the Mount Taiqing altar as it was on the night of the Rite, drawn by a witness who died of plague a week later" },
+      { "text": "a small clay figure, broken at the neck, that a surviving brother of Zhang Jiao carried as a focus — it is not clear which brother" },
+      { "text": "a silk scroll, fragmentary, inscribed with the inverse of the Rite — the rite that, if it existed, would end the agelessness — in a hand no living scholar can fully read" },
+      { "text": "a small bronze bowl, cracked and mended, that a Turban cell-sister swears was used in the Rite's final libation, and that still smells faintly of ash" },
+      { "text": "a wooden tablet, lacquered yellow, bearing Zhang Jiao's seal, that a Celestial Master archivist will pay any price to study — and that every warlord will kill to possess" }
+    ],
+    "crossworldArtifactPool": [
+      { "text": "Gungnir — a long spear of pale foreign metal, etched with Norse runes no Han scholar can read. It hums in the hand and never fails to strike true when thrown; it always finds its target, and always returns. A one-eyed stranger in a grey cloak said it was the spear of Odin, and that it had been thrown at the end of a world once. It is, in the Han world, exactly what it was in its own." },
+      { "text": "the Lance of Longinus — a spear of Roman pattern, iron-headed, the shaft carved with Latin. Wounds made by it never close, and it is said to be able to pierce any defense, mortal or divine. A centurion's lost trophy, or a relic of a god's death. In the Han world it works exactly as in Rome: it pierces what it strikes, and what it strikes does not heal." },
+      { "text": "Excalibur — a sword of impossible metal, drawn from a stone no one in the Han world recognizes, etched with a script that is not Chinese. It hums in the presence of traitors and can cut through any lesser blade. A pale-haired ghost in a river once said it was the sword of King Arthur, and that the lake would take it back one day. It is, as a sword, exactly as good as its legend." },
+      { "text": "Muramasa — a katana of folded steel, forged in a style no Han smith has ever seen, the edge so fine it cuts silk dropped upon it. The blade is bloodthirsty: once drawn it cannot be sheathed without drawing blood, and some say it drives its bearer to violence. Signed, in a hand no one can read, 'Muramasa' — the demon-sword of Japan. It works as in its legend. The bearer has been warned." },
+      { "text": "Masamune — a katana of serene temper, the edge so clean it seems to repent of its own cuts. It is said to cut only what its bearer truly wishes to cut, and no more — a blade of perfect restraint, the saint-sword to Muramasa's demon. Signed 'Masamune', in a script that is not Chinese. It works as in its legend: it will not cut what you do not mean to cut, even if you try." },
+      { "text": "Mpu Gandring — a wavy-bladed kris of venom-green iron. It is said to never draw blood without taking a life, and to choose its wielder: those it does not choose find their hands cut by the hilt itself. The cursed kris of Java, named for the smith its first owner killed with it. It works as in its legend. Choose carefully." },
+      { "text": "Mjolnir — a hammer of grey foreign metal, short-handled. It always returns when thrown, and only the worthy can lift it. A hermit who found it on Mount Taiqing the morning after the Rite died of plague, but the hammer, which no one else could lift, stayed. The hammer of Thor, and it works exactly as in the Norse tales." },
+      { "text": "Járngreipr — a pair of iron gauntlets, Norse-make, heavy and cold. A frontier scout pulled them from a Gobi dune. When worn they grant the wearer the strength to wield any weapon, even one that should be impossible to lift. The iron gauntlets of Thor, the ones he needed to hold Mjolnir. They work as in the Norse tales." },
+      { "text": "Stormbreaker — a small wooden hammer, almost toy-sized, with a short strap handle. It looks absurd, like a child's toy, but when hurled it crackles with lightning and returns to the hand, and it can summon a thunderstorm at will. A stranger in red armor who fell from the sky called it Stormbreaker, and he was very upset to have lost it. It works as in its world: the lightning is real, the storm is real, the hammer is real." },
+      { "text": "Ea — a strange device of dark red metal, a hollow cylindrical tube, split and grooved, that looks like no weapon anyone has ever seen. It cannot be swung, cannot be thrust, cannot apparently be used as a weapon at all. And yet, when held and the name spoken, it unwinds the world in front of it — space, time, the fabric of what is. A golden-armored king who called himself Gilgamesh said it was Ea, the sword that cut the world into shape, and that without its 'Noble Phantasm' activation it is, indeed, just a tube. WITH the activation, it is the most destructive object in the pool. The party will need to work out the activation word. The king did not share it." },
+
+      { "text": "the Laurel of Athena — a crown of laurel leaves, Greek, woven of bronze that has never tarnished. Those who wear it find their counsel suddenly wise, their soldiers suddenly brave, and their stratagems suddenly sound. A grey-eyed woman in an owl's mask once said it was the crown of counsel, worn by Athena herself. It works as in its legend: the wearer becomes, for the duration of wearing, a genuinely better commander." },
+      { "text": "the Apple of Eris — a golden apple, perfect and unrotting, inscribed 'to the fairest'. Everyone who sees it wants it, and the bearer will be called upon to judge who is fairest, a judgment that will start a war no matter who is chosen. The merchant who did not age called it the Apple of Discord, from the wedding that started the Trojan War. It works as in its legend: it is a war-starter, a friendship-ender, and a guaranteed catastrophe." },
+      { "text": "the Apple of Idun — a golden apple, smaller than Eris's, with a faint scent of spring. Anyone who eats a slice is restored to the fullness of youth and vigor, and does not age again for a year. A one-eyed stranger in a grey cloak said it was the apple of the Norse gods, the one that kept them young. In a world where the Rite has already stopped aging, this apple's true power is the restoration of the wounded and the exhausted: eat a slice and you are, for a day, as you were at your absolute peak. A single apple has perhaps six slices. Use them well." },
+      { "text": "the Peach of Immortality — a single peach, impossibly ripe, that does not rot and does not bruise. Anyone who eats it does not age, ever, and cannot be killed by anything short of divine violence. A monkey in a golden staff who said he was from 'the Heavenly Palace' stole a bag of them once and gave one to a Han hermit, who ate it and is still alive, still young, and still very, very bored. In the Han world, where the Rite has already stopped aging, the peach's true power is that it makes the eater unkillable by any mortal means for the rest of their life. The monkey warned the hermit not to eat it. The hermit did not listen. The peach works as in the Journey to the West. The Heaven that lost it is still looking." },
+      { "text": "a Djinn's Lamp — a lamp of dull brass, dented, found in a Yangtze fishing-net. When rubbed it grows warm, and a voice in a tongue no Han scholar knows promises three wishes — with the usual clauses: no raising the dead, no forcing love, no wishing for more wishes. A trader from the far west said it was from the Arabian Nights. It works as in its legend: three wishes, binding, with the genies' fine print. The party will need a translator. The genie is patient." },
+      { "text": "the Golden Fleece — a single golden fleece, impossibly intact, that a Wu river-pirate pulled from a wreck that should not have been on the Yangtze. Wrapped around a wound it closes it in an hour; wrapped around a fevered body it breaks the fever by morning. It is the fleece of Jason, from the tale of the Argonauts, and it works as in its legend." },
+      { "text": "a Branch of Yggdrasil — a short sword carved from a single living branch of dark ash-wood, the grain still running, the sap still wet at the hilt. It cuts as well as any iron and is, somehow, a piece of the World Tree itself, folded into a blade. A one-eyed stranger laughed when he saw it and said 'a branch of the World Tree as a sword — that is a new one.' It works: it cuts, it does not break, and in a pinch, if planted in soil, it will root and grow. The World Tree is patient." },
+      { "text": "the One Ring — a small golden ring, plain, that a fisherman pulled from the Yangtze inside a fish. When worn, the wearer fades from sight. The Ring also, slowly, corrupts: the wearer becomes possessive, paranoid, and unwilling to part with it. A stranger in grey who walked past the fisherman muttered, in a tongue no one understood, 'one ring to rule them all'. The Ring works as in its legend: invisibility, corruption, and a slow, sure domination of the wearer's will. The fisherman did not sell it. The fisherman has not been seen in a week." },
+      { "text": "the Feather Cloak of Garuda — a cloak of shimmering feathers, green and gold, that a Daoist hermit found in a cave on Mount Taiqing. The wearer can fly, and the cloak heals any wound over the course of a night's flight. A wandering monk called it the Feather Cloak of Garuda, from the Hindu epics. It works as in its legend: the wearer flies, and the wearer heals. The wind at altitude is very cold." },
+      { "text": "the Aegis — a round shield of hide and bronze, Greek, that a Silk Road merchant could not sell and left in a Daoist shrine. Arrows that strike it do not bounce, they vanish. The face of the Gorgon is set in its center: any who meet the shield-bearer's gaze in battle are turned to stone. A one-eyed stranger said it was the shield of Athena. It works as in its legend: the bearer is invulnerable to missiles, and the Gorgon's gaze is real. Do not look at your own shield." },
+      { "text": "the Khopesh of Ra — a spear of Egyptian bronze, forked as a hunting weapon, found in a Han noble's garden. It is said to cut not the body but the spirit, and to strike even those who cannot be struck by mortal weapons — ghosts, the ageless, the divine. An old hermit who read the hieroglyphs called it the blade of Ra's vengeance. It works as in its legend: it wounds the spirit, which means it can wound the ageless, which means it can kill a warlord who has not aged in forty years. This makes it, quietly, the most politically dangerous object in the pool." },
+      { "text": "the Knife of Huitzilopochtli — a dagger of green obsidian, Aztec-make, the edge so fine it cuts on contact. The blood it draws feeds the sun on the other side of the world it came from, and the more blood it draws, the brighter that sun burns. A Spanish trader (impossibly) traded it for rice and said, in a tongue no Han scholar speaks, that it was the Aztec sun-god's blade. It works as in its legend: it cuts, it feeds the sun, and the sun, in turn, grants the bearer a measure of its strength in daylight. It is, in the Han world, a powerful blade that is stronger in sunlight and useless at night." },
+      { "text": "the Last Arrow of Yi — a single arrow of black wood, the fletching of raven feather, that a hermit found on Mount Taiqing after the Rite. It is one of the ten arrows that shot down the nine suns, and the only one that remains in any world. When loosed, it strikes any sun, any star, any brightness that its bearer names — and it strikes unerringly. Once loosed, it is gone. A stranger called it the last arrow of Hou Yi, the archer who saved the world from ten suns. It works as in its legend: one shot, one sun, one kill. The party will know when it is right to use it. They will have one chance." },
+
+      { "text": "Sir John Phallustiff — a large, smooth, polished object of firm pink silicone, blunt at both ends, with a flared base. It is unmistakably not a weapon, unmistakably not a tool, and unmistakably not something any Han court official wants to be asked about. A silver-armed stranger who said he was from 'Night City' called it Sir John Phallustiff, and insisted, with a perfectly straight face, that it was a melee weapon. The fisherman who bought it did not get the joke. The fisherman's wife did. It is, by any measure, the most embarrassing thing a warlord can confiscate. As a weapon, it is unbreakable, hits with the force of a warhorse, and returns to the thrower's hand when thrown. The flared base makes a perfectly serviceable grip. The warlord who confiscates it will not want to use it. The warlord who uses it will not want anyone to know." },
+      { "text": "the Death Note Watch — a silver wristwatch of impossible make, the face showing numbers no Han sundial uses, with a small hidden compartment in the clasp. Inside the compartment is a strip of paper, torn, with the words 'Death Note' written on it in a hand that is not Chinese. Any name written on the paper kills the named, and the manner of death can be specified. The paper is almost full. There is one blank line left. A brown-haired student who did not age said, very quietly, that he had used it to kill a god of death. The student is dead of plague. The watch is still ticking. It works as in its legend: one name, one death. The line is the last. The party will have to decide who, if anyone, deserves it. If they write 'Zhuge Liang', Zhuge Liang dies. If they write 'Cao Cao', Cao Cao dies. The Rite does not protect against the Note. Nothing protects against the Note." },
+      { "text": "the Pokeball — a small round ball, red on top, white on bottom, with a button in the center and a seam around the middle. It is warm to the touch and, when thrown at any non-human animal, it opens, draws the animal in as light, and seals it. The animal can be released by pressing the button. It works on horses, dogs, chickens, tigers, and (the party will test this) on Red Hare. It does not work on people. A boy in a red cap who said he was from 'Pallet Town' explained, at great length, that it was for capturing small creatures and storing them, and that the Han world has no Pokemon but it does have horses. The boy was upset about the Red Hare thing. The ball works as in its world: it captures, stores, and releases any non-human animal. Captured animals are unharmed and perfectly obedient on release. Red Hare, if captured, is still Red Hare — the ball does not tame it, only stores it. The party will have to decide whether to tell Guan Yu." },
+      { "text": "the Sonic Screwdriver — a small metal wand with a blue tip and a small green light. When pointed at a lock, the lock opens. When pointed at a machine, the machine works (or stops working). When pointed at a person, nothing happens at all. A man in a long scarf who said he was called 'the Doctor' called it a sonic screwdriver, and said it was the most useful tool in any universe. It works as in its world: it opens any lock, repairs or breaks any mechanism, and is useless against people. In the Han world, this means it opens any door, unseals any letter, and fixes (or breaks) any wooden-ox cart. It does not fix the Rite. The Doctor did not say it would." },
+      { "text": "the Super Mushroom — a red-and-white mushroom, small, with a stem and cap, that a hermit found growing on Mount Taiqing the morning after the Rite. It is perfectly preserved, somehow. Anyone who eats it grows to twice their size for an hour, gaining the strength and reach of a giant, after which they shrink back to normal with a profound hunger. A man in green overalls who said he was a plumber from 'the Mushroom Kingdom' swore by them. It works as in its world: eat, grow, fight, shrink, eat everything in the kitchen. A single mushroom is a single dose. The hermit's cave had three. The hermit ate one. The hermit is now a very large, very hungry hermit." },
+      { "text": "the Saiyan Scouter — a small orange lens that clips over the ear, of a make no Han craftsman can replicate. When worn, it displays a number in a foreign script over anyone the wearer looks at, and the number is that person's 'power level' — a real, measurable sum of their combat ability. It works as in its world: it reads power levels accurately, it can be used to compare any two combatants, and it can be used to find the strongest person in a room. A bald man in orange armor who said he was a 'Saiyan' called it a scouter. He then pointed it at a Han infant and the number was, indeed, very low, which is what a number should be. The scouter also, as in its world, explodes if the power level it reads is too high for its range. The party will find this out the first time they point it at Lu Bu." },
+      { "text": "the Portal Gun — a small device, pistol-gripped, with two prongs at the barrel. When fired at a wall it emits a flat oval of blue light; when fired again at another wall it emits a second oval; stepping through one oval deposits you at the other. The portals last until dismissed or until the gun is fired again. A silent woman in orange said it was a Portal Gun, and that it was from a place called 'Aperture Science' where the cake was a lie. It works as in its world: two portals, instant travel between them, line of sight required, momentum preserved. In the Han world, this means a sieging army can put one portal on the outside of a city wall and one on the inside, and the city falls in a night. The Han official who found it pointed it at his office wall and then at his house wall and has not been seen at the office since." },
+      { "text": "Sting — a short sword, Elvish-make, that glows with a faint blue light in the presence of orcs. It was found in a Yangtze wreck. It is, as a sword, perfectly serviceable — light, sharp, unbreakable. It glows blue in the presence of orcs. The Han world has no orcs, so the glow is, in practice, an orc-detector for a species that does not exist here. A grey-cloaked stranger called it Sting, and said it was from a world with hobbits. He also said, quietly, that the sword had begun to glow, very faintly, the night of the Rite, and had not stopped since. The glow is not from orcs. The glow is from something else. The party will work out what." },
+      { "text": "Captain America's Shield — a round shield of impossible metal, painted in concentric red, white, and blue rings with a white star at the center. It bounces off anything it strikes and returns to the thrower's arm, and it cannot be dented by any blow. A tall blonde man in a blue suit who said he was 'Captain America' called it his shield, and said it was from a place called 'Brooklyn'. He then threw it at a Han warlord, it bounced off the warlord's helmet, off three walls, and returned to his arm. The warlord, who was not impressed, ordered him executed. The shield is still here. The Captain is not. It works as in its world: indestructible, perfect rebound, returns to the thrower. As a weapon, it is a thrown shield that hits like a cart and comes back. As a defense, it is a shield that cannot be broken. The party will need to work out the throwing technique." },
+      { "text": "a Hogwarts Wand — a small stick of polished dark wood, about the length of a forearm, with a single phoenix-feather core. When waved and a word is spoken in a tongue no Han scholar knows, small impossible things happen: cups float, feathers ignite, water rises, locks open. A black-haired boy with a scar on his forehead who said he was from 'Hogwarts' called it a wand, and said it chose the wizard. The wand, unfortunately, chose the Han soldier who picked it up — it works for him, just not well, and he has been turning teacups into beetles all week. With practice, the wand can do more. The boy left a small book of words. The soldier is learning. The local magistrate is concerned." },
+      { "text": "the Smartphone — a small, handheld device, glass-fronted and smooth, that a Silk Road merchant carried east and died of plague carrying. When a finger is pressed to the glass it lights up, shows a small map of a place that is not the Han world, and then, after a moment, goes dark. A man in a grey hoodie who said he was from '2024' called it a smartphone, and said it was useless without something called 'wifi'. The merchant could not make it work. However — the phone, when held up in the Han world, occasionally shows a faint signal from a network that should not exist, and the camera, when pointed at a person the Rite has touched, shows a faint golden thread connecting them to Mount Taiqing. The phone works, but not in the way its maker intended. It is, in this world, an agelessness-detector. The party will work this out." },
+      { "text": "the Death Note — a small brown notebook, unmarked, that a brown-haired student who did not age said was a Death Note: a notebook in which any name written causes the named to die. The notebook is empty. The student is dead of plague. The notebook is, the student said, quite real, and the fisherman who found it has been very careful not to write any names in it, which is wise, because he is not sure it is a joke. It is not a joke. It works as in its legend: write a name, the named dies, the manner can be specified, the notebook does not run out of pages. It is, in a world of ageless warlords, the single most dangerous object the party can carry. The watch had one blank line. The notebook has hundreds." }
+    ]
+  }
+}

@@ -33,7 +33,8 @@ export function buildSceneImageContextInput(
     const presentCharacters: string[] = [];
     if (state.npcLedger) {
         for (const npc of state.npcLedger) {
-            if (npc.lastSeenScene || npc.notes?.toLowerCase().includes('present')) {
+            const npcAny = npc as { lastSeenScene?: string; notes?: string };
+            if (npcAny.lastSeenScene || npcAny.notes?.toLowerCase().includes('present') || !npc.archived) {
                 if (npc.name && !presentCharacters.includes(npc.name)) {
                     presentCharacters.push(npc.name);
                 }
