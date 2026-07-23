@@ -79,6 +79,14 @@ export type UISlice = {
     pinnedMemoriesOpen: boolean;
     togglePinnedMemories: () => void;
     closePinnedMemories: () => void;
+    // Inline Scene Image V1
+    sceneImageModalOpen: boolean;
+    sceneImageDraft: import('../../types').SceneImageDraft | null;
+    openSceneImageModal: (draft: import('../../types').SceneImageDraft) => void;
+    closeSceneImageModal: () => void;
+    updateSceneImageDraft: (patch: Partial<import('../../types').SceneImageDraft>) => void;
+    setComposingSceneImage: (v: boolean) => void;
+    setGeneratingSceneImage: (v: boolean) => void;
 };
 
 // ── Slice creator ──────────────────────────────────────────────────────
@@ -144,4 +152,17 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     pinnedMemoriesOpen: false,
     togglePinnedMemories: () => set((s) => ({ pinnedMemoriesOpen: !s.pinnedMemoriesOpen })),
     closePinnedMemories: () => set({ pinnedMemoriesOpen: false }),
+    sceneImageModalOpen: false,
+    sceneImageDraft: null,
+    openSceneImageModal: (draft) => set({ sceneImageModalOpen: true, sceneImageDraft: draft }),
+    closeSceneImageModal: () => set({ sceneImageModalOpen: false, sceneImageDraft: null }),
+    updateSceneImageDraft: (patch) => set((s) => ({
+        sceneImageDraft: s.sceneImageDraft ? { ...s.sceneImageDraft, ...patch } : null,
+    })),
+    setComposingSceneImage: (v) => set((s) => ({
+        sceneImageDraft: s.sceneImageDraft ? { ...s.sceneImageDraft, isComposing: v } : null,
+    })),
+    setGeneratingSceneImage: (v) => set((s) => ({
+        sceneImageDraft: s.sceneImageDraft ? { ...s.sceneImageDraft, isGenerating: v } : null,
+    })),
 });

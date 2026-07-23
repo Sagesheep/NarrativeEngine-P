@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { KeyVault } from './server/vault.js';
-import { DATA_DIR, PUBLIC_ASSETS_DIR, ensureDirs } from './server/lib/fileStore.js';
+import { DATA_DIR, CAMPAIGNS_DIR, PUBLIC_ASSETS_DIR, ensureDirs } from './server/lib/fileStore.js';
 import { createVaultRouter } from './server/routes/vault.js';
 import { createSettingsRouter } from './server/routes/settings.js';
 import { createCampaignsRouter } from './server/routes/campaigns.js';
@@ -18,6 +18,7 @@ import { createRulesRouter } from './server/routes/rules.js';
 import { createLLMProxyRouter } from './server/routes/llmProxy.js';
 import { createEmbeddingRouter } from './server/routes/embedding.js';
 import { createTtsRouter } from './server/routes/tts.js';
+import { createSceneImagesRouter } from './server/routes/sceneImages.js';
 import { initDb } from './server/lib/vectorStore.js';
 import { warmup as warmupEmbedder } from './server/lib/embedder.js';
 import { warmupTts } from './server/lib/tts.js';
@@ -63,6 +64,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '500mb' }));
 app.use('/assets/portraits', express.static(PUBLIC_ASSETS_DIR));
+app.use('/assets/campaigns', express.static(CAMPAIGNS_DIR));
 
 // ─── Vector Search Init ───
 try {
@@ -90,6 +92,7 @@ app.use(createRulesRouter());
 app.use(createLLMProxyRouter());
 app.use(createEmbeddingRouter());
 app.use(createTtsRouter());
+app.use(createSceneImagesRouter(vault));
 
 // ─── Central Error Handler ───
 app.use((err, _req, res, _next) => {

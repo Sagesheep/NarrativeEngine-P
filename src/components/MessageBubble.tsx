@@ -12,6 +12,7 @@ import { SwipeIndicator, ContinueButton } from './message/SwipeIndicator';
 import { ReasoningViewer } from './message/ReasoningViewer';
 import { InlineMessageEditor } from './message/InlineMessageEditor';
 import { MessageActionRail } from './message/MessageActionRail';
+import { SceneImageAttachmentView } from './message/SceneImageAttachmentView';
 
 interface MessageBubbleProps {
     message: ChatMessage;
@@ -234,6 +235,14 @@ export function MessageBubble({
                         </div>
                     )}
                 </div>
+
+                {msg.attachments && msg.attachments.length > 0 && (
+                    <div className="mt-2 space-y-2">
+                        {msg.attachments.map((att) => (
+                            <SceneImageAttachmentView key={att.id} attachment={att} messageId={msg.id} />
+                        ))}
+                    </div>
+                )}
 
                 {msg.retryable && !isStreaming && onRetry && (
                     <div className="mt-2 mb-1 flex items-center gap-2 py-2 px-3 bg-void-darker border border-amber-500/30 rounded">

@@ -143,6 +143,10 @@ export type ChatSlice = {
      * `from` (no surname) returns 0 — full-name tier already handles that case.
      */
     renameFirstNameInLatestAssistant: (from: string, to: string) => number;
+    // Inline Scene Image V1 attachment actions
+    addMessageAttachment: (messageId: string, attachment: import('../../types').SceneImageAttachment) => void;
+    updateMessageAttachment: (messageId: string, attachmentId: string, patch: Partial<import('../../types').SceneImageAttachment>) => void;
+    deleteMessageAttachment: (messageId: string, attachmentId: string) => void;
 };
 
 // ── Cross-slice dependencies ───────────────────────────────────────────
@@ -523,4 +527,38 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
         });
         return changed;
     },
+    addMessageAttachment: (messageId, attachment) =>
+        set((s) => {
+            const messages = s.messages.map(m => {
+                if (m.id !== messageId) return m;
+                const existing = m.attachments ?? [];
+                // Deduplicate by attachment id
+                const filtered = existing.filter(a => a.id !== attachment.id);
+                return { ...m, attachments: [...filtered, attachment] };
+            });
+            debouncedSaveCampaignState();
+            return { messages };
+        }),
+    updateMessageAttachment: (messageId, attachmentId, patch) =>
+        set((s) => {
+            const messages = s.messages.map(m => {
+                if (m.id !== messageId || !m.attachments) return m;
+                const attachments = m.attachments.map(a =>
+                    a.id === attachmentId ? { ...a, ...patch } : a
+                );
+                return { ...m, attachments };
+            });
+            debouncedSaveCampaignState();
+            return { messages };
+        }),
+    deleteMessageAttachment: (messageId, attachmentId) =>
+        set((s) => {
+            const messages = s.messages.map(m => {
+                if (m.id !== messageId || !m.attachments) return m;
+                const attachments = m.attachments.filter(a => a.id !== attachmentId);
+                return { ...m, attachments };
+            });
+            debouncedSaveCampaignState();
+            return { messages };
+        }),
 });

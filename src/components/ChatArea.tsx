@@ -5,6 +5,7 @@ import { useAppStore } from '../store/useAppStore';
 import { findPendingCommitMessage } from '../services/turn/pendingCommit';
 import { LootRollModal } from './chat/LootRollModal';
 import { DiceRollModal } from './chat/DiceRollModal';
+import { SceneImageModal } from './chat/SceneImageModal';
 import { RegenerateSheet } from './chat/RegenerateSheet';
 import { SelectionActionsMenu } from './chat/SelectionActionsMenu';
 import { ChatActionStrip } from './chat/ChatActionStrip';
@@ -287,6 +288,7 @@ export function ChatArea() {
 
             <LootRollModal />
             <DiceRollModal />
+            <SceneImageModal />
 
             {pendingPcPrompt && (
                 <PcPromptModal

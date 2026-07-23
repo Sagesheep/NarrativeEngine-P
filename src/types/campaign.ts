@@ -1,6 +1,7 @@
 // ─── Campaign / Chat Types ────────────────────────────────────────────────
 
 import type { SceneStakes } from './character';
+import type { SceneImageAttachment } from './sceneImage';
 
 /** Swipe Generation v1 — a single generated variant of the latest GM reply.
  *  Lives on the latest assistant ChatMessage.swipeSet while the turn is
@@ -52,6 +53,8 @@ export type ChatMessage = {
     retryable?: boolean;
     /** Smart Retry v1 — ephemeral. Collapsed summary of the gathered precontext. */
     precontext?: { summary: string; capturedPayloadRef?: string };
+    /** Inline Scene Image V1 — attachments rendered beneath the source narrative message. */
+    attachments?: SceneImageAttachment[];
 };
 
 export type Campaign = {

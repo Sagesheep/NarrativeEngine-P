@@ -5,6 +5,9 @@ import { addNpcFromSelection } from '../../services/npc/manualAdd';
 import { isLikelyFeatureLabel, parseLocationHeader, resolveLocationHeader } from '../../services/locationHeader';
 import { queueLocationEnrichment } from '../../services/locationEnrich';
 
+import { buildSceneImageContextInput } from '../../services/scene-images/sceneImageContextGatherer';
+import { composeSceneImageAPI } from '../../services/sceneImagesClient';
+
 export type SelectionSnapshot = {
     messageId: string;
     text: string;
@@ -19,6 +22,14 @@ const captureFromBubble = (selector: string): SelectionSnapshot | null => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
     const range = sel.getRangeAt(0);
+
+    // Reject selections spanning multiple nodes across different bubbles
+    const startBubble = (range.startContainer.nodeType === 1 ? range.startContainer as Element : range.startContainer.parentElement)?.closest('[data-message-id]');
+    const endBubble = (range.endContainer.nodeType === 1 ? range.endContainer as Element : range.endContainer.parentElement)?.closest('[data-message-id]');
+    if (startBubble && endBubble && startBubble !== endBubble) {
+        return null;
+    }
+
     const node = range.commonAncestorContainer;
     const el = (node.nodeType === 1 ? node as Element : node.parentElement);
     const bubble = el?.closest(selector) as HTMLElement | null;
@@ -37,14 +48,15 @@ const captureFromBubble = (selector: string): SelectionSnapshot | null => {
 };
 
 /**
- * Selection-menu state machine + the five selected-text actions (Lore Check,
- * Pin Memory, Rename, Add NPC, Add Place). Owns the document selectionchange
- * listeners and menu positioning; SelectionActionsMenu renders the toolbar.
+ * Selection-menu state machine + selected-text actions (Lore Check, Pin Memory,
+ * Rename, Add NPC, Add Place, Generate Scene Image).
  */
 export function useSelectionActions() {
     const openLoreCheck = useAppStore(s => s.openLoreCheck);
     const addPinnedExcerpt = useAppStore(s => s.addPinnedExcerpt);
     const openRenameModal = useAppStore(s => s.openRenameModal);
+    const openSceneImageModal = useAppStore(s => s.openSceneImageModal);
+    const updateSceneImageDraft = useAppStore(s => s.updateSceneImageDraft);
 
     const [loreSel, setLoreSel] = useState<SelectionSnapshot | null>(null);
     const [pinSel, setPinSel] = useState<SelectionSnapshot | null>(null);
@@ -56,6 +68,13 @@ export function useSelectionActions() {
 
     useEffect(() => {
         const handle = () => {
+            const state = useAppStore.getState();
+            // In-flight turn guard: do not show toolbar while a turn is generating
+            if (state.pipelinePhase !== 'idle' || state.isStreaming) {
+                setSelectionMenuPosition(null);
+                return;
+            }
+
             const lore = captureFromBubble('[data-lore-checkable="true"]');
             setLoreSel(lore);
             setPinSel(captureFromBubble('[data-message-id]'));
@@ -191,10 +210,6 @@ export function useSelectionActions() {
         }
     };
 
-    // Add Place — the manual fallback for rulesets that don't emit the 📍 [Location]
-    // scene header. Selection-based like Add NPC, but zero LLM: known place → just set
-    // the pointer; unknown → create a manual entry and set it current. The engine stays
-    // the sole writer of the ledger; this button is the player's high-trust proposal path.
     const handleAddPlace = (e: React.MouseEvent | React.TouchEvent) => {
         e.preventDefault();
         const snap = captureFromBubble('[data-lore-checkable="true"]') ?? npcSel;
@@ -217,8 +232,6 @@ export function useSelectionActions() {
         const ledger = state.locationLedger ?? [];
         let anchorId = state.context.currentPlaceId ?? null;
 
-        // Recover from older manual-add mistakes that stored an entire location
-        // header (for example "📍 Town — Tower Top") as a duplicate place name.
         const currentEntry = anchorId ? ledger.find(l => l.id === anchorId) : undefined;
         if (currentEntry) {
             const canonical = resolveLocationHeader(
@@ -287,9 +300,66 @@ export function useSelectionActions() {
         toast.success(initialFeature
             ? `Added "${newName}" with feature "${initialFeature}" and set it current.`
             : `Added "${newName}" and set as current place.`);
-        // PRO/MAX: background AI fill (description/region/features/connections).
-        // No-ops on lite tier or without a provider; the shell entry stands alone.
         queueLocationEnrichment(loc.id);
+    };
+
+    const handleGenerateSceneImage = async (e: React.MouseEvent | React.TouchEvent) => {
+        e.preventDefault();
+        const snap = captureFromBubble('[data-lore-checkable="true"]') ?? loreSel;
+        if (!snap) {
+            toast.info('Highlight text in a GM message first to generate a scene image.');
+            return;
+        }
+        const state = useAppStore.getState();
+        const campaignId = state.activeCampaignId;
+        if (!campaignId) {
+            toast.warning('No active campaign.');
+            return;
+        }
+
+        window.getSelection()?.removeAllRanges();
+        setLoreSel(null);
+        setNpcSel(null);
+        setPinSel(null);
+
+        const contextInput = buildSceneImageContextInput(
+            snap.messageId,
+            stripMarkdown(snap.text),
+            snap.start,
+            snap.end
+        );
+
+        openSceneImageModal({
+            campaignId,
+            sourceMessageId: snap.messageId,
+            selectedText: stripMarkdown(snap.text),
+            selectedTextOffsets: { start: snap.start, end: snap.end },
+            contextInput,
+            isComposing: true,
+            isGenerating: false,
+        });
+
+        try {
+            const composedPackage = await composeSceneImageAPI(campaignId, contextInput);
+            updateSceneImageDraft({
+                promptPackage: {
+                    focus: composedPackage.focus,
+                    positivePrompt: composedPackage.positivePrompt,
+                    negativePrompt: composedPackage.negativePrompt,
+                    style: composedPackage.style || 'Cinematic illustration',
+                    framing: composedPackage.framing || 'Wide scene',
+                    aspectRatio: composedPackage.aspectRatio || '16:9',
+                },
+                sceneContextSummary: composedPackage.sceneContextSummary,
+                isComposing: false,
+            });
+        } catch (err) {
+            console.error('[SceneImage] Composition failed:', err);
+            updateSceneImageDraft({
+                isComposing: false,
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
     };
 
     return {
@@ -302,5 +372,7 @@ export function useSelectionActions() {
         handleRenameSelection,
         handleAddNpc,
         handleAddPlace,
+        handleGenerateSceneImage,
     };
 }
+

@@ -1,10 +1,9 @@
-import { Loader2, BookCheck, Pin, Replace, UserPlus, MapPin } from 'lucide-react';
+import { Loader2, BookCheck, Pin, Replace, UserPlus, MapPin, Image } from 'lucide-react';
 import { useSelectionActions, stripMarkdown } from './useSelectionActions';
 
 /**
  * Floating toolbar over text selected in a message bubble: Lore Check,
- * Pin Memory, Rename, Add NPC, Add Place. Fully self-contained — all
- * selection state and action logic lives in useSelectionActions.
+ * Pin Memory, Rename, Add NPC, Add Place, Generate Scene Image.
  */
 export function SelectionActionsMenu() {
     const {
@@ -17,6 +16,7 @@ export function SelectionActionsMenu() {
         handleRenameSelection,
         handleAddNpc,
         handleAddPlace,
+        handleGenerateSceneImage,
     } = useSelectionActions();
 
     if (!selectionMenuPosition || !loreSel) return null;
@@ -33,6 +33,13 @@ export function SelectionActionsMenu() {
                 Selected: {stripMarkdown(loreSel.text)}
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                    onMouseDown={handleGenerateSceneImage}
+                    onTouchStart={handleGenerateSceneImage}
+                    className="flex items-center gap-1.5 rounded-sm border border-cyan-500/80 bg-cyan-950/40 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-cyan-300 transition-colors hover:border-cyan-400 hover:bg-cyan-500/20 hover:text-white"
+                >
+                    <Image size={13} /> Scene Image
+                </button>
                 <button
                     onMouseDown={handleLoreCheck}
                     onTouchStart={handleLoreCheck}
