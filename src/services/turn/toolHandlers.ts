@@ -110,24 +110,28 @@ const ROLL_DICE_TOOL = {
     }
 } as const;
 
+import { normalizeLocationTag } from '../../types';
+
 const PROPOSE_INVENTORY_TOOL = {
     type: 'function' as const,
     function: {
         name: 'propose_inventory_change',
         description:
-            "Propose adding, removing, or equipping an item in the player's inventory when the fiction materially changes their gear (loot found, a weapon gifted/bought/broken, armor donned). This only *proposes* — the player must confirm before anything changes. Supply bounded labels ONLY; the engine sets all numbers (damage dice, bonus, AC). NEVER output damageDice, bonus, hp, or AC. Do NOT call for flavor mentions the player won't use mechanically. Default quality to 'common'; reserve 'rare'+ for clearly special, story-significant items.",
+            "Propose adding, removing, equipping, or relocating an item in the player's inventory when the fiction materially changes their gear (loot found, a weapon gifted/bought/broken, gear stashed at base or retrieved). This only *proposes* — the player must confirm before anything changes. Supply bounded labels ONLY; the engine sets all numbers (damage dice, bonus, AC). NEVER output damageDice, bonus, hp, or AC. Default quality to 'common'. Default location tag to 'inventory'.",
         parameters: {
             type: 'object' as const,
             properties: {
-                name:        { type: 'string' as const, description: 'Item name.' },
-                op:          { type: 'string' as const, enum: ['grant', 'remove', 'equip'], description: "Operation. Default 'grant'." },
-                kind:        { type: 'string' as const, enum: ['weapon', 'armor', 'consumable', 'misc'], description: "Item kind. Default 'misc'." },
-                quality:     { type: 'string' as const, enum: ['common', 'uncommon', 'rare', 'epic', 'legendary'], description: "Rarity/quality tier. Default 'common'." },
-                scalingStat: { type: 'string' as const, enum: ['PWR', 'SPD', 'WIL'], description: "Scaling stat for weapons. Default 'PWR'." },
-                range:       { type: 'string' as const, enum: ['Close', 'Reach', 'Ranged'], description: "Weapon range. Default 'Close'." },
-                properties:  { type: 'array' as const, items: { type: 'string' as const }, description: 'Flavor tags, e.g. ["fire","heavy"].' },
-                equip:       { type: 'boolean' as const, description: 'Equip on confirm (weapons/armor). Default false.' },
-                description: { type: 'string' as const, description: 'Short flavor text.' },
+                name:            { type: 'string' as const, description: 'Item name.' },
+                op:              { type: 'string' as const, enum: ['grant', 'remove', 'equip', 'relocate'], description: "Operation. Default 'grant'." },
+                kind:            { type: 'string' as const, enum: ['weapon', 'armor', 'consumable', 'misc'], description: "Item kind. Default 'misc'." },
+                quality:         { type: 'string' as const, enum: ['common', 'uncommon', 'rare', 'epic', 'legendary'], description: "Rarity/quality tier. Default 'common'." },
+                scalingStat:     { type: 'string' as const, enum: ['PWR', 'SPD', 'WIL'], description: "Scaling stat for weapons. Default 'PWR'." },
+                range:           { type: 'string' as const, enum: ['Close', 'Reach', 'Ranged'], description: "Weapon range. Default 'Close'." },
+                properties:      { type: 'array' as const, items: { type: 'string' as const }, description: 'Flavor tags, e.g. ["fire","heavy"].' },
+                equip:           { type: 'boolean' as const, description: 'Equip on confirm (weapons/armor). Default false.' },
+                description:     { type: 'string' as const, description: 'Short flavor text.' },
+                fromLocationTag: { type: 'string' as const, description: 'Source location tag for relocate op (e.g. "player base").' },
+                locationTag:     { type: 'string' as const, description: 'Destination/target location tag (e.g. "inventory", "player base"). Default "inventory".' },
             },
             required: ['name'],
         },
@@ -202,7 +206,7 @@ export function handleNotebookTool(
     return { toolResult, updatedNotebook: currentNotebook };
 }
 
-const VALID_OPS = new Set<string>(['grant', 'remove', 'equip']);
+const VALID_OPS = new Set<string>(['grant', 'remove', 'equip', 'relocate']);
 const VALID_KINDS = new Set<string>(['weapon', 'armor', 'consumable', 'misc']);
 const VALID_QUALITIES = new Set<string>(['common', 'uncommon', 'rare', 'epic', 'legendary']);
 const VALID_SCALING_STATS = new Set<string>(['PWR', 'SPD', 'WIL']);
@@ -246,10 +250,21 @@ export function handleProposeInventoryTool(
     const equip = typeof args.equip === 'boolean' ? args.equip : false;
     const description = typeof args.description === 'string' ? args.description : '';
 
-    const proposal: InventoryProposal = { name, op, kind, quality, scalingStat, range, properties, equip, description };
+    const fromLocationTag = typeof args.fromLocationTag === 'string' && args.fromLocationTag.trim()
+        ? normalizeLocationTag(args.fromLocationTag)
+        : undefined;
+
+    const locationTag = typeof args.locationTag === 'string' && args.locationTag.trim()
+        ? normalizeLocationTag(args.locationTag)
+        : 'inventory';
+
+    const proposal: InventoryProposal = {
+        name, op, kind, quality, scalingStat, range, properties, equip, description,
+        fromLocationTag, locationTag
+    };
 
     return {
-        toolResult: JSON.stringify({ status: 'staged', name, op, kind, quality }),
+        toolResult: JSON.stringify({ status: 'staged', name, op, kind, quality, fromLocationTag, locationTag }),
         proposal,
     };
 }

@@ -53,7 +53,9 @@ export function buildOocContext(snapshot: OocCampaignSnapshot, question: string)
     if (inventory.length > 0) {
         parts.push('Inventory:');
         for (const item of inventory) {
-            const line = `${item.name} x${item.qty} [${item.category}${item.equipped ? ', equipped' : ''}${item.status ? `, ${item.status}` : ''}]`;
+            const loc = (item.locationTag || 'inventory').trim() || 'inventory';
+            const locStr = loc !== 'inventory' ? `, at: ${loc}` : '';
+            const line = `${item.name} x${item.qty} [${item.category}${item.equipped ? ', equipped' : ''}${locStr}${item.status ? `, ${item.status}` : ''}]`;
             parts.push(`- ${line}`);
             sources.push({ kind: 'fact', id: `inventory-${item.id}`, label: `Inventory: ${item.name}`, excerpt: line });
         }

@@ -103,6 +103,7 @@ export function parseStartingInventory(raw: string): InventoryItem[] {
         lastUsedScene: '000',
         importance: 5,
         notes: '',
+        locationTag: 'inventory',
     }));
 }
 

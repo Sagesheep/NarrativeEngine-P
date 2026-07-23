@@ -8,7 +8,7 @@
  * Original lore files stay human-readable; this is transport-only.
  */
 
-import type { LoreChunk, NPCEntry } from '../../types';
+import type { LoreChunk, NPCEntry, InventoryItem, InventoryItemCategory, CharacterProfile } from '../../types';
 
 /**
  * Strip markdown formatting from a block of text.
@@ -169,8 +169,6 @@ export function minifyNPCBlock(npcs: NPCEntry[]): string {
     return `[NPC_CTX]\n${lines}\n[/NPC_CTX]`;
 }
 
-import type { InventoryItem, InventoryItemCategory, CharacterProfile } from '../../types';
-
 const CATEGORY_ORDER: InventoryItemCategory[] = ['equipped', 'weapon', 'armor', 'consumable', 'key', 'currency', 'misc'];
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -196,6 +194,7 @@ export function buildInventoryIndex(items: InventoryItem[]): string {
         if (!group || group.length === 0) continue;
         const entries = group.map(i => {
             let s = i.qty > 1 ? `${i.name} (x${i.qty})` : i.name;
+            if (i.locationTag && i.locationTag !== 'inventory') s += ` [at: ${i.locationTag}]`;
             if (i.keywords.length > 0) s += ` (${i.keywords.slice(0, 4).join(',')})`;
             return s;
         }).join(', ');
@@ -236,8 +235,9 @@ export function minifySelectedInventory(
         if (!group || group.length === 0) continue;
         const tag = CATEGORY_LABELS[cat] || cat.toUpperCase().slice(0, 3);
         const entries = group.map(i => {
-            if (i.qty > 1) return `${i.name}(x${i.qty})`;
-            return i.name;
+            let s = i.qty > 1 ? `${i.name}(x${i.qty})` : i.name;
+            if (i.locationTag && i.locationTag !== 'inventory') s += `[at:${i.locationTag}]`;
+            return s;
         }).join(', ');
         blocks.push(`[${tag}] ${entries}`);
     }

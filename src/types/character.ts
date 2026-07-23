@@ -13,6 +13,7 @@ export type InventoryItem = {
     importance: number;
     notes: string;
     status?: string;
+    locationTag?: string;
 };
 
 // Staged inventory change proposed by the GM via the `propose_inventory_change`
@@ -21,7 +22,7 @@ export type InventoryItem = {
 // `ItemDef['rarity']` so this type stays self-contained until combat lands.
 export type InventoryProposal = {
     name: string;
-    op: 'grant' | 'remove' | 'equip';
+    op: 'grant' | 'remove' | 'equip' | 'relocate';
     kind: 'weapon' | 'armor' | 'consumable' | 'misc';
     quality: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
     scalingStat: 'PWR' | 'SPD' | 'WIL';
@@ -29,6 +30,8 @@ export type InventoryProposal = {
     properties: string[];
     equip: boolean;
     description: string;
+    fromLocationTag?: string;
+    locationTag?: string;
 };
 
 export type CharacterProfile = {

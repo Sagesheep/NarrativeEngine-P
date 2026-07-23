@@ -7,20 +7,22 @@
  */
 
 import type { ChatMessage, ProviderConfig, EndpointConfig, InventoryItem, InventoryItemCategory } from '../types';
+import { normalizeLocationTag, normalizeInventoryItem } from '../types';
 import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
 
 export type InventoryOp =
-    | { action: 'add'; name: string; qty: number; category?: string; keywords?: string[]; notes?: string }
-    | { action: 'remove'; id: string }
-    | { action: 'update'; id: string; changes: Partial<Pick<InventoryItem, 'name' | 'qty' | 'category' | 'keywords' | 'notes'>> }
-    | { action: 'consume'; id: string; qty: number } // decrement qty, remove if hits 0
+    | { action: 'add'; name: string; qty: number; category?: string; keywords?: string[]; notes?: string; locationTag?: string }
+    | { action: 'remove'; id: string; locationTag?: string }
+    | { action: 'update'; id: string; changes: Partial<Pick<InventoryItem, 'name' | 'qty' | 'category' | 'keywords' | 'notes' | 'locationTag' | 'equipped'>> }
+    | { action: 'relocate'; id: string; locationTag: string }
+    | { action: 'consume'; id: string; qty: number; locationTag?: string } // decrement qty, remove if hits 0
     | { action: 'equip'; id: string }
     | { action: 'unequip'; id: string };
 
 function buildInventoryJson(items: InventoryItem[]): string {
     if (items.length === 0) return '(empty)';
-    return items.map(i => `{"id":"${i.id}","name":"${i.name}","qty":${i.qty},"cat":"${i.category}","eq":${i.equipped}}`).join('\n');
+    return items.map(i => `{"id":"${i.id}","name":"${i.name}","qty":${i.qty},"cat":"${i.category}","eq":${i.equipped},"loc":"${normalizeLocationTag(i.locationTag)}"}`).join('\n');
 }
 
 export async function scanInventory(
@@ -35,7 +37,7 @@ export async function scanInventory(
         .map((m) => `[${m.role.toUpperCase()}]: ${m.content}`)
         .join('\n\n');
 
-    const prompt = `You are an AI inventory manager for an RPG. Review the recent chat and inventory below.\nIdentify items gained, lost, consumed, equipped, or unequipped.\n\n=== CURRENT INVENTORY ===\n${buildInventoryJson(currentItems)}\n\n=== RECENT CHAT HISTORY ===\n${turns}\n\n=== INSTRUCTIONS ===\nReturn ONLY a valid JSON array of operations. No other text.\nEach operation is an object with an "action" field.\n\nActions:\n- add: {action:"add", name:"Torch", qty:3, category:"misc", keywords:["fire","light"]}\n- remove: {action:"remove", id:"ITEM_ID_HERE"}\n- update: {action:"update", id:"ITEM_ID_HERE", changes:{qty:2, name:"New Name"}}\n- consume: {action:"consume", id:"ITEM_ID_HERE", qty:1}\n- equip: {action:"equip", id:"ITEM_ID_HERE"}\n- unequip: {action:"unequip", id:"ITEM_ID_HERE"}\n\nIf nothing changed, return: []`;
+    const prompt = `You are an AI inventory manager for an RPG. Review the recent chat and inventory below.\nIdentify items gained, lost, consumed, relocated/moved, equipped, or unequipped.\nItems carry a "loc" (locationTag, e.g. "inventory", "player base", "mom's house"). Default location is "inventory".\n\n=== CURRENT INVENTORY ===\n${buildInventoryJson(currentItems)}\n\n=== RECENT CHAT HISTORY ===\n${turns}\n\n=== INSTRUCTIONS ===\nReturn ONLY a valid JSON array of operations. No other text.\nEach operation is an object with an "action" field.\n\nActions:\n- add: {action:"add", name:"Torch", qty:3, category:"misc", keywords:["fire","light"], locationTag:"inventory"}\n- relocate: {action:"relocate", id:"ITEM_ID_HERE", locationTag:"player base"}\n- remove: {action:"remove", id:"ITEM_ID_HERE"}\n- update: {action:"update", id:"ITEM_ID_HERE", changes:{qty:2, locationTag:"player base"}}\n- consume: {action:"consume", id:"ITEM_ID_HERE", qty:1}\n- equip: {action:"equip", id:"ITEM_ID_HERE"}\n- unequip: {action:"unequip", id:"ITEM_ID_HERE"}\n\nIf nothing changed, return: []`;
 
     try {
         const result = await llmCall(provider, prompt, { priority: 'low', trackingLabel: 'inventory-scan', timeoutMs: AI_CALL_TIMEOUT_MS });
@@ -53,7 +55,7 @@ export async function scanInventory(
 }
 
 export function applyOps(items: InventoryItem[], ops: InventoryOp[]): InventoryItem[] {
-    const next = items.map(it => ({ ...it }));
+    const next = items.map(it => normalizeInventoryItem(it));
     const sceneId = String(Date.now());
 
     function findById(id: string) {
@@ -63,12 +65,15 @@ export function applyOps(items: InventoryItem[], ops: InventoryOp[]): InventoryI
 
     for (const op of ops) {
         if (op.action === 'add') {
-            // Check if item with same name already exists — merge instead of duplicate
-            const existing = next.find(it => it.name.toLowerCase() === op.name.toLowerCase());
+            const targetLoc = normalizeLocationTag(op.locationTag);
+            // Check if item with same name AND same locationTag already exists — merge instead of duplicate
+            const existing = next.find(
+                it => it.name.toLowerCase() === op.name.toLowerCase() && normalizeLocationTag(it.locationTag) === targetLoc
+            );
             if (existing) {
                 existing.qty += op.qty || 1;
             } else {
-                next.push({
+                next.push(normalizeInventoryItem({
                     id: `inv_${sceneId}_${Math.random().toString(36).slice(2, 7)}`,
                     name: op.name,
                     qty: op.qty || 1,
@@ -78,7 +83,14 @@ export function applyOps(items: InventoryItem[], ops: InventoryOp[]): InventoryI
                     lastUsedScene: sceneId,
                     importance: 5,
                     notes: op.notes || '',
-                });
+                    locationTag: targetLoc,
+                }));
+            }
+        } else if (op.action === 'relocate') {
+            const f = findById(op.id);
+            if (f) {
+                f.item.locationTag = normalizeLocationTag(op.locationTag);
+                f.item.lastUsedScene = sceneId;
             }
         } else if (op.action === 'remove') {
             const idx = next.findIndex(it => it.id === op.id);
@@ -91,6 +103,8 @@ export function applyOps(items: InventoryItem[], ops: InventoryOp[]): InventoryI
             if (op.changes.category !== undefined) f.item.category = op.changes.category as InventoryItemCategory;
             if (op.changes.keywords !== undefined) f.item.keywords = op.changes.keywords;
             if (op.changes.notes !== undefined) f.item.notes = op.changes.notes;
+            if (op.changes.locationTag !== undefined) f.item.locationTag = normalizeLocationTag(op.changes.locationTag);
+            if (op.changes.equipped !== undefined) f.item.equipped = Boolean(op.changes.equipped);
         } else if (op.action === 'consume') {
             const f = findById(op.id);
             if (!f) continue;
@@ -102,8 +116,8 @@ export function applyOps(items: InventoryItem[], ops: InventoryOp[]): InventoryI
         } else if (op.action === 'equip') {
             const f = findById(op.id);
             if (f) {
-                // Optional: only one piece of armor/weapon at a time could be implemented here
                 f.item.equipped = true;
+                f.item.locationTag = 'inventory';
                 f.item.lastUsedScene = sceneId;
             }
         } else if (op.action === 'unequip') {
@@ -112,5 +126,5 @@ export function applyOps(items: InventoryItem[], ops: InventoryOp[]): InventoryI
         }
     }
 
-    return next;
+    return next.map(normalizeInventoryItem);
 }

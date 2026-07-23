@@ -109,15 +109,21 @@ export async function hydrateCampaign(campaignId: string) {
         }
     }
 
+    // One-time save back if legacy inventory items were normalized during migration
+    const inventoryMigrated = JSON.stringify(rawContext.inventoryItems ?? []) !== JSON.stringify(finalContext.inventoryItems ?? []);
+    if (inventoryMigrated) {
+        console.log('[Hydrator] Persisting normalized inventory item location tags');
+    }
+
     // Swipe Generation v1 bug recovery — strip orphaned swipeSet / pendingCommit
     // / swipeActiveIndex from non-assistant messages left by a pre-fix bug. See
     // `stripOrphanedSwipeState` doc for the full mechanism.
     const rawMessages = state?.messages ?? [];
     const { messages: cleanedMessages, changed: swipeOrphansChanged } = stripOrphanedSwipeState(rawMessages);
-    if (swipeOrphansChanged) {
-        console.log('[Hydrator] Stripped orphaned swipeSet/pendingCommit from non-assistant messages (pre-fix recovery)');
+    if (swipeOrphansChanged || inventoryMigrated) {
+        console.log('[Hydrator] Persisting updated context/messages after hydration migration');
         try { await saveCampaignState(campaignId, { context: finalContext, messages: cleanedMessages, condenser: state?.condenser ?? DEFAULT_CONDENSER, pinnedExcerpts: state?.pinnedExcerpts ?? [] }); } catch (e) {
-            console.warn('[Hydrator] Failed to persist cleaned messages after orphan strip:', e);
+            console.warn('[Hydrator] Failed to persist state after hydration migration:', e);
         }
     }
 

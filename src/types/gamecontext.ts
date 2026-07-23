@@ -433,6 +433,23 @@ function migrateDiceConfig(ctx: Partial<GameContext>): DiceSystemConfig {
     return sys;
 }
 
+export function normalizeLocationTag(raw?: unknown): string {
+    if (typeof raw !== 'string') return 'inventory';
+    const cleaned = raw.replace(/[\r\n\t]/g, ' ').replace(/[\[\]]/g, '').trim();
+    if (!cleaned) return 'inventory';
+    return cleaned.slice(0, 60);
+}
+
+export function normalizeInventoryItem(item: InventoryItem): InventoryItem {
+    const locationTag = normalizeLocationTag(item.locationTag);
+    const equipped = locationTag === 'inventory' ? Boolean(item.equipped) : false;
+    return {
+        ...item,
+        locationTag,
+        equipped,
+    };
+}
+
 function parsePlainInventory(text: string): InventoryItem[] {
     const items: InventoryItem[] = [];
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
@@ -450,7 +467,7 @@ function parsePlainInventory(text: string): InventoryItem[] {
         else if (lower.includes('sword') || lower.includes('dagger') || lower.includes('bow') || lower.includes('axe') || lower.includes('mace') || lower.includes('staff') || lower.includes('blade')) category = 'weapon';
         else if (lower.includes('armor') || lower.includes('shield') || lower.includes('helm') || lower.includes('gauntlet') || lower.includes('boot') || lower.includes('plate')) category = 'armor';
         else if (lower.includes('key') || lower.includes('seal') || lower.includes('tome')) category = 'key';
-        items.push({
+        items.push(normalizeInventoryItem({
             id: `inv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             name,
             qty,
@@ -460,7 +477,8 @@ function parsePlainInventory(text: string): InventoryItem[] {
             lastUsedScene: '000',
             importance: 5,
             notes: '',
-        });
+            locationTag: 'inventory',
+        }));
     }
     return items;
 }
@@ -541,6 +559,8 @@ export function migrateLegacyContext(ctx: Partial<GameContext>): GameContext {
         } else {
             merged.inventoryItems = DEFAULT_INVENTORY;
         }
+    } else {
+        merged.inventoryItems = merged.inventoryItems.map(normalizeInventoryItem);
     }
     // WO-G: migrate legacy flat-string `characterProfile` → CharacterProfileState.
     // Old saves have characterProfile as a string; we freeze it into legacyNotes

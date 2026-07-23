@@ -3,6 +3,7 @@ import { useAppStore } from '../../../store/useAppStore';
 import { scanInventory } from '../../../services/inventoryParser';
 import { toast } from '../../Toast';
 import type { EndpointConfig, ProviderConfig, InventoryItemCategory, InventoryItem } from '../../../types';
+import { normalizeLocationTag, normalizeInventoryItem } from '../../../types';
 
 const ALL_CATS: (InventoryItemCategory | 'all' | 'equipped')[] = ['all', 'equipped', 'weapon', 'armor', 'consumable', 'currency', 'key', 'misc'];
 const DISPLAY_LABEL: Record<string, string> = {
@@ -39,7 +40,7 @@ function InventoryRow({
                 <input
                     type="checkbox"
                     checked={it.equipped}
-                    onChange={(e) => onUpdate(it.id, { equipped: e.target.checked })}
+                    onChange={(e) => onUpdate(it.id, { equipped: e.target.checked, locationTag: e.target.checked ? 'inventory' : it.locationTag })}
                     title="Equipped"
                 />
                 <button
@@ -53,6 +54,9 @@ function InventoryRow({
                     value={it.name}
                     onChange={(e) => onUpdate(it.id, { name: e.target.value })}
                 />
+                <span className="text-[8px] px-1 rounded bg-void border border-border/40 text-text-dim/70 shrink-0 max-w-[80px] truncate" title={`Location: ${it.locationTag || 'inventory'}`}>
+                    {it.locationTag || 'inventory'}
+                </span>
                 <input
                     className="w-8 bg-transparent outline-none text-text-primary text-center"
                     type="number"
@@ -73,6 +77,15 @@ function InventoryRow({
             </div>
             {expanded && (
                 <div className="px-2 pb-2 space-y-1 border-t border-border/20 pt-1">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[9px] text-text-dim/50 w-14">Location Tag</span>
+                        <input
+                            className="flex-1 bg-void border border-border/30 rounded text-[10px] px-1 outline-none focus:border-terminal"
+                            placeholder="Tag location (e.g. inventory, player base, mom's house)"
+                            value={it.locationTag || 'inventory'}
+                            onChange={(e) => onUpdate(it.id, { locationTag: e.target.value })}
+                        />
+                    </div>
                     <div className="flex items-center gap-2">
                         <span className="text-[9px] text-text-dim/50 w-14">Keywords</span>
                         <input
@@ -151,10 +164,13 @@ export function InventoryTab() {
     };
 
     const updateItem = (id: string, patch: Partial<InventoryItem>) => {
-        setInventoryItems(inventoryItems.map((it) => it.id === id ? { ...it, ...patch } : it));
+        const target = inventoryItems.find((it) => it.id === id);
+        if (!target) return;
+        const merged = normalizeInventoryItem({ ...target, ...patch });
+        setInventoryItems(inventoryItems.map((it) => it.id === id ? merged : it));
     };
     const addItem = (cat?: InventoryItemCategory) => {
-        const newItem: InventoryItem = {
+        const newItem: InventoryItem = normalizeInventoryItem({
             id: `inv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             name: 'New Item',
             qty: 1,
@@ -164,7 +180,8 @@ export function InventoryTab() {
             lastUsedScene: '000',
             importance: 5,
             notes: '',
-        };
+            locationTag: 'inventory',
+        });
         setInventoryItems([...inventoryItems, newItem]);
     };
     const removeItem = (id: string) => {
@@ -191,9 +208,13 @@ export function InventoryTab() {
         }
         if (search.trim()) {
             const q = search.toLowerCase();
-            list = list.filter((it) => it.name.toLowerCase().includes(q) || it.keywords.some((k) => k.toLowerCase().includes(q)));
+            list = list.filter((it) =>
+                it.name.toLowerCase().includes(q) ||
+                (it.locationTag && it.locationTag.toLowerCase().includes(q)) ||
+                it.keywords.some((k) => k.toLowerCase().includes(q))
+            );
         }
-        return list.sort((a, b) => a.name.localeCompare(b.name));
+        return list.slice().sort((a, b) => a.name.localeCompare(b.name));
     }, [inventoryItems, activeTab, search]);
 
     return (
@@ -228,7 +249,7 @@ export function InventoryTab() {
                         onChange={(e) => {
                             try {
                                 const parsed = JSON.parse(e.target.value);
-                                if (Array.isArray(parsed)) setInventoryItems(parsed);
+                                if (Array.isArray(parsed)) setInventoryItems(parsed.map(normalizeInventoryItem));
                             } catch { /* ignore */ }
                         }}
                     />

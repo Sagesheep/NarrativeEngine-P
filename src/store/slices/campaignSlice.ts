@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
-import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem } from '../../types';
+import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { toast } from '../../components/Toast';
 import { debouncedSaveSettings } from './settingsSlice';
 import {
@@ -650,12 +650,13 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
 
     inventoryItems: DEFAULT_INVENTORY,
     setInventoryItems: (items) => set((s) => {
-        const newContext = { ...s.context, inventoryItems: items };
+        const normalized = (items || []).map(normalizeInventoryItem);
+        const newContext = { ...s.context, inventoryItems: normalized };
         debouncedSaveCampaignState();
-        return { context: newContext, inventoryItems: items } as Partial<CampaignDeps>;
+        return { context: newContext, inventoryItems: normalized } as Partial<CampaignDeps>;
     }),
     updateInventoryItem: (id, patch) => set((s) => {
-        const newItems = s.inventoryItems.map(it => it.id === id ? { ...it, ...patch } : it);
+        const newItems = s.inventoryItems.map(it => it.id === id ? normalizeInventoryItem({ ...it, ...patch }) : it);
         const newContext = { ...s.context, inventoryItems: newItems };
         debouncedSaveCampaignState();
         return { context: newContext, inventoryItems: newItems };
@@ -667,7 +668,8 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         return { context: newContext, inventoryItems: newItems };
     }),
     addInventoryItem: (item) => set((s) => {
-        const newItems = [...s.inventoryItems, item];
+        const normalizedItem = normalizeInventoryItem(item);
+        const newItems = [...s.inventoryItems, normalizedItem];
         const newContext = { ...s.context, inventoryItems: newItems };
         debouncedSaveCampaignState();
         return { context: newContext, inventoryItems: newItems };
