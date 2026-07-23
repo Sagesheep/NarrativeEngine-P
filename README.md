@@ -101,7 +101,7 @@ The `Example_Setup/` folder contains ready-to-play campaigns across multiple gen
 
 1. Create a new campaign
 2. Open **World Info (Lore)** and paste the contents of one of the lore files (e.g. `Spirit_Card_World_Lore.md`)
-3. Open **Campaign Settings** and paste the latest ruleset (`AI_GM_OS_v3_4_App_Optimized.md`) into the **System Prompt** field
+3. Open **Campaign Settings** and paste the latest ruleset (`AI_GM_OS_v4.5 - Immersive Mode (Hybrid).md`) into the **System Prompt** field
 4. Start a new chat and paste the genre's start prompt as your first message
 5. The GM will walk you through character creation and then drop you into the world
 
