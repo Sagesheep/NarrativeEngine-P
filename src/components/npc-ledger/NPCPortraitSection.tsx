@@ -1,6 +1,7 @@
 import { Loader2, Image as ImageIcon, Trash2, Upload } from 'lucide-react';
 import type { NPCVisualProfile } from '../../types';
 import { useRef } from 'react';
+import { DEFAULT_PORTRAIT_ART_STYLE, PORTRAIT_ART_STYLE_OPTIONS } from '../../data/portraitStyles';
 
 type Props = {
     portrait?: string;
@@ -90,7 +91,7 @@ export function NPCPortraitSection({
                         className="flex items-center gap-1 px-2 py-1 border border-border hover:border-terminal text-terminal text-[9px] uppercase tracking-wider rounded transition-colors disabled:opacity-50"
                     >
                         {isGeneratingImage ? <Loader2 size={10} className="animate-spin" /> : <ImageIcon size={10} />}
-                        {isGeneratingImage ? 'Generating\u2026' : portrait ? 'Regen' : 'Generate'}
+                        {isGeneratingImage ? 'Generating\u2026' : portrait ? 'Regenerate Portrait' : 'Generate Portrait'}
                     </button>
                 </div>
             </div>
@@ -125,21 +126,19 @@ export function NPCPortraitSection({
             <div className="mt-3">
                 <label className="block text-text-dim text-[9px] uppercase tracking-wider mb-1">Art Style</label>
                 <select
-                    value={visualProfile?.artStyle || 'Realistic'}
+                    value={visualProfile?.artStyle || DEFAULT_PORTRAIT_ART_STYLE}
                     onChange={e => onVisualProfileChange('artStyle', e.target.value)}
                     disabled={!isEditing}
                     className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal outline-none"
                 >
-                    <option value="Realistic">Realistic</option>
-                    <option value="Anime Realistic">Anime Realistic (Makoto Shinkai)</option>
-                    <option value="Anime">Anime (Kyoto Animation)</option>
-                    <option value="Western RPG">Western RPG (Baldur's Gate 3)</option>
-                    <option value="Chibi">Chibi</option>
+                    {PORTRAIT_ART_STYLE_OPTIONS.map(style => (
+                        <option key={style.value} value={style.value}>{style.label}</option>
+                    ))}
                 </select>
             </div>
 
             <div className="mt-4 pt-4 border-t border-border/50">
-                <label className="block text-text-dim text-[9px] uppercase tracking-wider mb-1">Legacy Appearance Notes (Fallback)</label>
+                <label className="block text-text-dim text-[9px] uppercase tracking-wider mb-1">Legacy Appearance Notes (used only if visual fields are empty)</label>
                 <textarea
                     value={appearance || ''}
                     onChange={e => onAppearanceChange(e.target.value)}

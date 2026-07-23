@@ -121,7 +121,7 @@ export async function generateNPCProfile(
             storyRelevance: coerceStringField(parsed.storyRelevance, 'Unknown'),
             appearance: coerceStringField(parsed.appearance),
             visualProfile: parsed.visualProfile || {
-                race: 'Unknown', gender: 'Unknown', ageRange: 'Unknown', build: 'Unknown', symmetry: 'Unknown', hairStyle: 'Unknown', eyeColor: 'Unknown', skinTone: 'Unknown', gait: 'Unknown', distinctMarks: 'None', clothing: 'Unknown', artStyle: 'Anime',
+                race: 'Unknown', gender: 'Unknown', ageRange: 'Unknown', build: 'Unknown', symmetry: 'Unknown', hairStyle: 'Unknown', eyeColor: 'Unknown', skinTone: 'Unknown', gait: 'Unknown', distinctMarks: 'None', clothing: 'Unknown', artStyle: 'Stylized Game Realism',
             },
             disposition: coerceStringField(parsed.disposition, 'Neutral'),
             goals: coerceStringField(parsed.goals, 'Unknown'),

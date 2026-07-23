@@ -126,7 +126,7 @@ export type NPCVisualProfile = {
 
 export const DEFAULT_VISUAL_PROFILE: NPCVisualProfile = {
     race: '', gender: '', ageRange: '', build: '', symmetry: '',
-    hairStyle: '', eyeColor: '', skinTone: '', gait: '', distinctMarks: '', clothing: '', artStyle: 'Anime',
+    hairStyle: '', eyeColor: '', skinTone: '', gait: '', distinctMarks: '', clothing: '', artStyle: 'Stylized Game Realism',
 };
 
 export type NPCBehavioralTrigger = {

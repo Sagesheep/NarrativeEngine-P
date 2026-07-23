@@ -221,7 +221,7 @@ export function parseNPCsFromLore(chunks: LoreChunk[]): NPCEntry[] {
             gait: getAny(['VisualGait', 'Gait / Posture', 'Gait']),
             distinctMarks: getAny(['VisualDistinctMarks', 'Distinct Marks']),
             clothing: getAny(['VisualClothing', 'Clothing Style', 'Clothing']),
-            artStyle: getAny(['VisualArtStyle', 'Art Style']) || 'Anime',
+            artStyle: getAny(['VisualArtStyle', 'Art Style']) || 'Stylized Game Realism',
         };
         
         const hasVisualProfile = !!(

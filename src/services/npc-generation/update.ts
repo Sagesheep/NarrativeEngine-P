@@ -290,7 +290,7 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
                         changes.visualProfile = {
                             ...targetNpc.visualProfile,
                             ...changes.visualProfile,
-                            artStyle: targetNpc.visualProfile?.artStyle || 'Anime'
+                            artStyle: targetNpc.visualProfile?.artStyle || 'Stylized Game Realism'
                         };
                     }
 

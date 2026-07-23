@@ -178,9 +178,9 @@ export function NPCLedgerModal() {
                 symmetry: currentVP.symmetry || incomingVP?.symmetry || '', hairStyle: currentVP.hairStyle || incomingVP?.hairStyle || '',
                 eyeColor: currentVP.eyeColor || incomingVP?.eyeColor || '', skinTone: currentVP.skinTone || incomingVP?.skinTone || '',
                 gait: currentVP.gait || incomingVP?.gait || '', distinctMarks: currentVP.distinctMarks || incomingVP?.distinctMarks || '',
-                clothing: currentVP.clothing || incomingVP?.clothing || '', artStyle: currentVP.artStyle || incomingVP?.artStyle || 'Anime',
+                clothing: currentVP.clothing || incomingVP?.clothing || '', artStyle: currentVP.artStyle || incomingVP?.artStyle || 'Stylized Game Realism',
             };
-            const vpChanged = Object.keys(mergedVP).some(k => mergedVP[k as keyof NPCVisualProfile] !== (currentVP[k as keyof NPCVisualProfile] || (k === 'artStyle' ? 'Anime' : '')));
+            const vpChanged = Object.keys(mergedVP).some(k => mergedVP[k as keyof NPCVisualProfile] !== (currentVP[k as keyof NPCVisualProfile] || (k === 'artStyle' ? 'Stylized Game Realism' : '')));
             const appearanceChanged = !existing.appearance && !!incoming.appearance;
             if (vpChanged || appearanceChanged) {
                 updateNPC(existing.id, { appearance: existing.appearance || incoming.appearance, visualProfile: mergedVP });
