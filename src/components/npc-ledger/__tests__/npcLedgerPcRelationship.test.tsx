@@ -22,6 +22,7 @@ function TestWrapper({ npc }: { npc: NPCEntry }) {
             onAIUpdate={() => {}}
             onGeneratePortrait={() => {}}
             onUploadPortrait={() => {}}
+            onRemovePortrait={() => {}}
         />
     );
 }

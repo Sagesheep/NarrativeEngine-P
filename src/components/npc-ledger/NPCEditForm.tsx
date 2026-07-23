@@ -22,11 +22,12 @@ type Props = {
     onAIUpdate: () => void;
     onGeneratePortrait: () => void;
     onUploadPortrait: (file: File) => void;
+    onRemovePortrait: () => void;
 };
 
 export function NPCEditForm({
     form, setForm, selectedId, isEditing, isAIUpdating, isGeneratingImage,
-    onEdit, onSave, onCancel, onDelete, onAIUpdate, onGeneratePortrait, onUploadPortrait,
+    onEdit, onSave, onCancel, onDelete, onAIUpdate, onGeneratePortrait, onUploadPortrait, onRemovePortrait,
 }: Props) {
     const handleVisualProfileChange = (field: keyof NPCVisualProfile, value: string) => {
         setForm(prev => ({
@@ -846,6 +847,7 @@ export function NPCEditForm({
                         isGeneratingImage={isGeneratingImage}
                         onGeneratePortrait={onGeneratePortrait}
                         onUploadPortrait={onUploadPortrait}
+                        onRemovePortrait={onRemovePortrait}
                         onVisualProfileChange={handleVisualProfileChange}
                         appearance={form.appearance || ''}
                         onAppearanceChange={(v) => setForm(prev => ({ ...prev, appearance: v }))}

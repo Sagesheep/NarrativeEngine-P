@@ -145,6 +145,12 @@ export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: ()
         );
     };
 
+    const handleRemovePortrait = () => {
+        const patch = { portrait: '' };
+        setForm(prev => ({ ...prev, ...patch }));
+        if (playerCharacter) updatePlayerCharacter(patch);
+    };
+
     if (playerCharacter) {
         return (
             <PCEditForm
@@ -158,6 +164,7 @@ export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: ()
                 onCancel={handleCancel}
                 onGeneratePortrait={handleGeneratePortrait}
                 onUploadPortrait={handleUploadPortrait}
+                onRemovePortrait={handleRemovePortrait}
             />
         );
     }
@@ -175,6 +182,7 @@ export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: ()
                 onCancel={handleCancel}
                 onGeneratePortrait={handleGeneratePortrait}
                 onUploadPortrait={handleUploadPortrait}
+                onRemovePortrait={handleRemovePortrait}
             />
         );
     }

@@ -1,4 +1,4 @@
-import { Loader2, Image as ImageIcon, Upload } from 'lucide-react';
+import { Loader2, Image as ImageIcon, Trash2, Upload } from 'lucide-react';
 import type { NPCVisualProfile } from '../../types';
 import { useRef } from 'react';
 
@@ -10,6 +10,7 @@ type Props = {
     isGeneratingImage: boolean;
     onGeneratePortrait: () => void;
     onUploadPortrait: (file: File) => void;
+    onRemovePortrait: () => void;
     onVisualProfileChange: (field: keyof NPCVisualProfile, value: string) => void;
     appearance: string;
     onAppearanceChange: (value: string) => void;
@@ -17,7 +18,7 @@ type Props = {
 
 export function NPCPortraitSection({
     portrait, name, visualProfile, isEditing, isGeneratingImage,
-    onGeneratePortrait, onUploadPortrait, onVisualProfileChange, appearance, onAppearanceChange,
+    onGeneratePortrait, onUploadPortrait, onRemovePortrait, onVisualProfileChange, appearance, onAppearanceChange,
 }: Props) {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -44,6 +45,16 @@ export function NPCPortraitSection({
                     >
                         {isGeneratingImage ? <Loader2 size={11} className="animate-spin" /> : <ImageIcon size={11} />}
                         Regenerate
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onRemovePortrait}
+                        disabled={isGeneratingImage}
+                        title="Remove this portrait from the record"
+                        className="absolute bottom-2 left-2 flex items-center gap-1.5 px-2.5 py-1 bg-void/80 border border-danger/50 hover:border-danger text-danger text-[10px] uppercase tracking-wider rounded transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100"
+                    >
+                        <Trash2 size={11} />
+                        Remove
                     </button>
                 </div>
             ) : null}

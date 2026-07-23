@@ -46,11 +46,12 @@ type Props = {
     onCancel: () => void;
     onGeneratePortrait: () => void;
     onUploadPortrait: (file: File) => void;
+    onRemovePortrait: () => void;
 };
 
 export function PCEditForm({
     form, setForm, selectedId, isEditing, isGeneratingImage,
-    onEdit, onSave, onCancel, onGeneratePortrait, onUploadPortrait,
+    onEdit, onSave, onCancel, onGeneratePortrait, onUploadPortrait, onRemovePortrait,
 }: Props) {
     const isPC = !!form.isPC;
     void isPC; // always true for the PC form — kept for parity with NPCEditForm branches
@@ -744,6 +745,7 @@ export function PCEditForm({
                         isGeneratingImage={isGeneratingImage}
                         onGeneratePortrait={onGeneratePortrait}
                         onUploadPortrait={onUploadPortrait}
+                        onRemovePortrait={onRemovePortrait}
                         onVisualProfileChange={handleVisualProfileChange}
                         appearance={form.appearance || ''}
                         onAppearanceChange={(v) => setForm(prev => ({ ...prev, appearance: v }))}

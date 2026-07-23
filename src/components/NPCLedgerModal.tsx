@@ -196,6 +196,11 @@ export function NPCLedgerModal() {
     // ── Portrait / AI ────────────────────────────────────────────────────
     const handleGeneratePortrait = () => portraits.generateForForm(form, form.id, isEditing, (patch) => setForm(prev => ({ ...prev, ...patch })));
     const handleUploadPortrait = (file: File) => portraits.uploadForForm(file, form.name || 'Unknown', form.id, isEditing, (patch) => setForm(prev => ({ ...prev, ...patch })));
+    const handleRemovePortrait = () => {
+        const patch = { portrait: '' };
+        setForm(prev => ({ ...prev, ...patch }));
+        if (!isEditing && form.id) useAppStore.getState().updateNPC(form.id, patch);
+    };
     const handlePopulateImages = () => portraits.populateAll(npcLedger, selectedId, (patch) => setForm(prev => ({ ...prev, ...patch })));
 
     const handleAIUpdate = async () => {
@@ -365,6 +370,7 @@ export function NPCLedgerModal() {
                         onAIUpdate={handleAIUpdate}
                         onGeneratePortrait={handleGeneratePortrait}
                         onUploadPortrait={handleUploadPortrait}
+                        onRemovePortrait={handleRemovePortrait}
                     />
                 </div>
             </div>
