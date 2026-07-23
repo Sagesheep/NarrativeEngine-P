@@ -38,6 +38,7 @@ export function NPCEditForm({
     const [traitSearch, setTraitSearch] = useState('');
     const [relationTargetId, setRelationTargetId] = useState('');
     const npcLedger = useAppStore(s => s.npcLedger);
+    const playerCharacter = useAppStore(s => s.playerCharacter);
 
     const traitTierMap = useMemo(() => Object.fromEntries(TRAIT_VOCAB.map(t => [t.text, t.tier])), []);
     const HEX_AXES: HexAxis[] = ['drive', 'diligence', 'boldness', 'warmth', 'empathy', 'composure'];
@@ -49,8 +50,20 @@ export function NPCEditForm({
 
     const otherNpcs = useMemo(() => {
         const currentId = form.id;
-        return npcLedger.filter(n => n.id !== currentId);
-    }, [npcLedger, form.id]);
+        const list: Array<{ id: string; name: string }> = [];
+        if (playerCharacter?.id && playerCharacter.id !== currentId) {
+            list.push({
+                id: playerCharacter.id,
+                name: `${playerCharacter.name || 'Player Character'} (Player)`,
+            });
+        }
+        for (const n of npcLedger) {
+            if (n.id !== currentId) {
+                list.push(n);
+            }
+        }
+        return list;
+    }, [npcLedger, playerCharacter, form.id]);
 
     const updateTrigger = (index: number, field: keyof NPCBehavioralTrigger, value: string) => {
         const triggers = [...(form.behavioralTriggers || [])];
@@ -610,12 +623,19 @@ export function NPCEditForm({
                             const val = form.pcRelation ?? 0;
                             const clamped = Math.max(-3, Math.min(3, Math.round(val)));
                             const label = relationBand(clamped);
+                            const setClampedPcRelation = (nextVal: number) => {
+                                const patch: Partial<NPCEntry> = { pcRelation: nextVal };
+                                if (playerCharacter?.id && form.relations && form.relations[playerCharacter.id] !== undefined) {
+                                    patch.relations = { ...form.relations, [playerCharacter.id]: nextVal };
+                                }
+                                setForm(prev => ({ ...prev, ...patch }));
+                            };
                             return (
                                 <div className="flex items-center gap-3">
                                     <button
                                         type="button"
                                         disabled={!isEditing || clamped <= -3}
-                                        onClick={() => setForm({ ...form, pcRelation: clamped - 1 })}
+                                        onClick={() => setClampedPcRelation(clamped - 1)}
                                         className="p-1.5 text-text-dim hover:text-terminal disabled:opacity-30 disabled:cursor-not-allowed"
                                     >
                                         <ChevronDown size={16} />
@@ -624,7 +644,7 @@ export function NPCEditForm({
                                     <button
                                         type="button"
                                         disabled={!isEditing || clamped >= 3}
-                                        onClick={() => setForm({ ...form, pcRelation: clamped + 1 })}
+                                        onClick={() => setClampedPcRelation(clamped + 1)}
                                         className="p-1.5 text-text-dim hover:text-terminal disabled:opacity-30 disabled:cursor-not-allowed"
                                     >
                                         <ChevronUp size={16} />
@@ -644,16 +664,30 @@ export function NPCEditForm({
                             <p className="text-[10px] text-text-dim/40 italic">No NPC relations defined. Add one below.</p>
                         )}
                         {Object.entries(form.relations || {}).map(([targetId, value]) => {
-                            const targetNpc = npcLedger.find(n => n.id === targetId);
+                            const isPlayer = playerCharacter?.id === targetId;
+                            const targetNpc = npcLedger.find(n => n.id === targetId) || (isPlayer ? playerCharacter : undefined);
+                            const displayName = isPlayer
+                                ? `${playerCharacter?.name || 'Player Character'} (Player)`
+                                : (targetNpc?.name || targetId);
                             const clamped = Math.max(-3, Math.min(3, Math.round(value)));
                             const label = relationBand(clamped);
+
+                            const updateVal = (newVal: number) => {
+                                const nextRelations = { ...(form.relations || {}), [targetId]: newVal };
+                                const patch: Partial<NPCEntry> = { relations: nextRelations };
+                                if (isPlayer) {
+                                    patch.pcRelation = newVal;
+                                }
+                                setForm(prev => ({ ...prev, ...patch }));
+                            };
+
                             return (
                                 <div key={targetId} className="flex items-center gap-2">
-                                    <span className="flex-1 text-[12px] text-text-primary truncate">{targetNpc?.name || targetId}</span>
+                                    <span className="flex-1 text-[12px] text-text-primary truncate">{displayName}</span>
                                     <button
                                         type="button"
                                         disabled={!isEditing || clamped <= -3}
-                                        onClick={() => setForm({ ...form, relations: { ...(form.relations || {}), [targetId]: clamped - 1 } })}
+                                        onClick={() => updateVal(clamped - 1)}
                                         className="p-1 text-text-dim hover:text-terminal disabled:opacity-30 disabled:cursor-not-allowed"
                                     >
                                         <ChevronDown size={14} />
@@ -662,7 +696,7 @@ export function NPCEditForm({
                                     <button
                                         type="button"
                                         disabled={!isEditing || clamped >= 3}
-                                        onClick={() => setForm({ ...form, relations: { ...(form.relations || {}), [targetId]: clamped + 1 } })}
+                                        onClick={() => updateVal(clamped + 1)}
                                         className="p-1 text-text-dim hover:text-terminal disabled:opacity-30 disabled:cursor-not-allowed"
                                     >
                                         <ChevronUp size={14} />
@@ -673,7 +707,7 @@ export function NPCEditForm({
                                             type="button"
                                             onClick={() => {
                                                 const { [targetId]: _, ...rest } = form.relations || {};
-                                                setForm({ ...form, relations: rest });
+                                                setForm(prev => ({ ...prev, relations: rest }));
                                             }}
                                             className="text-danger/60 hover:text-danger p-1 shrink-0"
                                         >
@@ -690,7 +724,7 @@ export function NPCEditForm({
                                     onChange={e => setRelationTargetId(e.target.value)}
                                     className="flex-1 bg-void border border-border rounded px-2 py-1.5 text-[12px] text-text-primary outline-none focus:border-terminal"
                                 >
-                                    <option value="">-- Select NPC --</option>
+                                    <option value="">-- Select Character / NPC --</option>
                                     {otherNpcs.map(n => (
                                         <option key={n.id} value={n.id}>{n.name}</option>
                                     ))}
@@ -701,7 +735,13 @@ export function NPCEditForm({
                                     onClick={() => {
                                         if (!relationTargetId) return;
                                         if ((form.relations || {})[relationTargetId] !== undefined) return;
-                                        setForm({ ...form, relations: { ...(form.relations || {}), [relationTargetId]: 0 } });
+                                        const isPlayer = playerCharacter?.id === relationTargetId;
+                                        const nextRelations = { ...(form.relations || {}), [relationTargetId]: 0 };
+                                        const patch: Partial<NPCEntry> = { relations: nextRelations };
+                                        if (isPlayer) {
+                                            patch.pcRelation = 0;
+                                        }
+                                        setForm(prev => ({ ...prev, ...patch }));
                                         setRelationTargetId('');
                                     }}
                                     className="px-3 py-1.5 bg-terminal text-void font-bold text-[10px] uppercase tracking-wider hover:brightness-110 disabled:opacity-40 transition-all"

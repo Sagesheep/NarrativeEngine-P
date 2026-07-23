@@ -139,7 +139,7 @@ PERSONALITY HEX DRIFT (the headline of "updates"):
   - NEVER re-emit the full 6-axis hexagon. NEVER send absolute axis values as if setting them.
 
 RELATIONS:
-  - "relations" is a sparse NPC→NPC edge map (target NPC id → -3..+3). Shallow-merge only;
+  - "relations" is a sparse NPC→character edge map (target NPC or Player Character id → -3..+3). Shallow-merge only;
     never wholesale replace. Add or adjust specific edges that shifted this scene.
 
 WANTS UPDATE RULES:

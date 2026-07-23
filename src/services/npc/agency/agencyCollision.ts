@@ -73,8 +73,8 @@ export type RelationTone = 'ally' | 'rival' | 'neutral';
 
 /** Max-magnitude directed edge: a one-sided grudge still counts. Returns the tone + the magnitude. */
 export function relationTone(a: NPCEntry, b: NPCEntry): { tone: RelationTone; magnitude: number } {
-    const aToB = a.relations?.[b.id] ?? 0;
-    const bToA = b.relations?.[a.id] ?? 0;
+    const aToB = a.relations?.[b.id] ?? (b.isPC && a.pcRelation !== undefined ? a.pcRelation : 0);
+    const bToA = b.relations?.[a.id] ?? (a.isPC && b.pcRelation !== undefined ? b.pcRelation : 0);
     // Pick the direction with the larger absolute value (max-magnitude, Opus §D ruling)
     const useAToB = Math.abs(aToB) >= Math.abs(bToA);
     const v = useAToB ? aToB : bToA;
