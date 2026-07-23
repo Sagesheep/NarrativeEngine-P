@@ -126,6 +126,81 @@ describe('Scene Images Router & Services', () => {
         expect(fs.existsSync(diskPath)).toBe(true);
     });
 
+    it('POST /api/scene-images/generate routes ComfyUI providers, writes a campaign image, and keeps the attachment contract', async () => {
+        // Resolve config from settings (not an override) so the route's apiFormat + comfyUi pass-through is exercised.
+        const settingsPath = path.join(tmpDir, 'settings.json');
+        fs.writeFileSync(settingsPath, JSON.stringify({
+            activePresetId: 'preset_comfy',
+            presets: [{ id: 'preset_comfy', imageAIProviderId: 'prov_comfy' }],
+            providers: [{
+                id: 'prov_comfy',
+                endpoint: 'http://127.0.0.1:8188',
+                modelName: 'sd_xl_base_1.0.safetensors',
+                apiFormat: 'comfyui',
+                comfyUi: { steps: 12, cfgScale: 6, sampler: 'euler', scheduler: 'normal', denoisingStrength: 1 },
+            }],
+        }));
+
+        const promptId = 'route_comfy_1';
+        const pngBuffer = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        const fetchMock = vi.fn((url) => {
+            if (url.endsWith('/prompt')) {
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ prompt_id: promptId }), text: () => Promise.resolve('') });
+            }
+            if (url.includes(`/history/${promptId}`)) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        [promptId]: {
+                            outputs: { '9': { images: [{ filename: 'NarrativeEngine_00001_.png', subfolder: '', type: 'output' }] } },
+                            status: { status_str: 'success', completed: true },
+                        },
+                    }),
+                    text: () => Promise.resolve(''),
+                });
+            }
+            if (url.includes('/view?')) {
+                return Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(pngBuffer.buffer.slice(0)) });
+            }
+            return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const res = await request(app)
+            .post('/api/scene-images/generate')
+            .send({
+                campaignId: 'test_camp_comfy',
+                sourceMessageId: 'msg_001',
+                selectedText: 'The knight raised a glowing blade.',
+                promptPackage: {
+                    focus: 'Knight raising a glowing blade',
+                    positivePrompt: 'A knight raising a glowing blade in a dark hall.',
+                    negativePrompt: 'text, watermark',
+                    style: 'Cinematic illustration',
+                    framing: 'Wide scene',
+                    aspectRatio: '16:9',
+                },
+            });
+
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+        expect(res.body.attachment).toBeDefined();
+        expect(res.body.attachment.kind).toBe('scene-image');
+        expect(res.body.attachment.status).toBe('complete');
+        expect(res.body.attachment.imageUrl).toMatch(/^\/assets\/campaigns\/test_camp_comfy\/scene-images\/img_/);
+        expect(res.body.attachment.promptPackage).toBeDefined();
+        expect(res.body.attachment.generator).toBeDefined();
+
+        // ComfyUI was actually driven: queued a prompt and pulled the image via /view.
+        expect(fetchMock.mock.calls.some(([u]) => u.endsWith('/prompt'))).toBe(true);
+        expect(fetchMock.mock.calls.some(([u]) => u.includes('/view?'))).toBe(true);
+
+        const filename = path.basename(res.body.attachment.imageUrl);
+        const diskPath = path.join(tmpDir, 'campaigns', 'test_camp_comfy', 'scene-images', filename);
+        expect(fs.existsSync(diskPath)).toBe(true);
+    });
+
     it('DELETE /api/scene-images/attachment safely deletes target file within campaign dir', async () => {
         const campDir = path.join(tmpDir, 'campaigns', 'test_camp_123', 'scene-images');
         fs.mkdirSync(campDir, { recursive: true });

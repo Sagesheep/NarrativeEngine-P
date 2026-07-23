@@ -106,6 +106,10 @@ export function createSceneImagesRouter(vault) {
             endpoint: targetProvider.endpoint,
             apiKey: targetProvider.apiKey || '',
             modelName: targetProvider.modelName,
+            // Carry the format + native ComfyUI config so the image provider can route
+            // to the ComfyUI branch instead of the default OpenAI-compatible one.
+            apiFormat: targetProvider.apiFormat,
+            comfyUi: targetProvider.comfyUi,
         };
     };
 

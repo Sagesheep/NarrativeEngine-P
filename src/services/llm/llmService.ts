@@ -253,6 +253,22 @@ export async function sendMessage(
 
 export async function testConnection(provider: EndpointConfig | ProviderConfig): Promise<{ ok: boolean; detail: string }> {
     const format = getApiFormat(provider);
+
+    // ComfyUI is an image server, not an LLM — it has no /models endpoint. Probe
+    // /system_stats instead, which every ComfyUI build exposes and which returns 200
+    // with a JSON payload when the server is up.
+    if (format === 'comfyui') {
+        const base = (provider.endpoint || '').replace(/\/+$/, '');
+        if (!base) return { ok: false, detail: 'No endpoint configured' };
+        try {
+            const res = await llmFetch(`${base}/system_stats`, {});
+            if (res.ok) return { ok: true, detail: 'Connection successful' };
+            return { ok: false, detail: `HTTP ${res.status}: ${await res.text()}` };
+        } catch (err) {
+            return { ok: false, detail: err instanceof Error ? err.message : 'Network error' };
+        }
+    }
+
     const headers = buildChatHeaders(provider);
     // Remove Content-Type for GET requests
     delete headers['Content-Type'];

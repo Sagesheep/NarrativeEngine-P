@@ -174,11 +174,17 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
             streamingEnabled: config.streamingEnabled ?? true,
             apiFormat: config.apiFormat || 'openai',
             thinkingEffort: config.thinkingEffort,
+            // Preserve native ComfyUI config; the reconstruction above would otherwise
+            // silently drop it and every ComfyUI provider would fall back to the built-in graph.
+            ...(config.comfyUi && typeof config.comfyUi === 'object' ? { comfyUi: config.comfyUi } : {}),
         };
     }
 
     function providerKey(p: LLMProvider): string {
-        return `${p.endpoint}|${p.modelName}|${p.apiKey}|${p.apiFormat || 'openai'}`;
+        // Include the Comfy config so two workflows aimed at the same endpoint/model
+        // (e.g. built-in vs a pasted API workflow) are not collapsed into one provider.
+        const comfy = p.comfyUi ? JSON.stringify(p.comfyUi) : '';
+        return `${p.endpoint}|${p.modelName}|${p.apiKey}|${p.apiFormat || 'openai'}|${comfy}`;
     }
 
     function getOrAddProvider(config: any): string {

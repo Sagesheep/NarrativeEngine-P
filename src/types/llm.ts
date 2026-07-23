@@ -2,7 +2,22 @@
 
 import type { LocaleCode } from '../i18n/types';
 
-export type ApiFormat = 'openai' | 'ollama' | 'claude' | 'gemini';
+export type ApiFormat = 'openai' | 'ollama' | 'claude' | 'gemini' | 'comfyui';
+
+/**
+ * Native ComfyUI image-generation settings (scene images only). Attached to an
+ * image-role LLMProvider whose apiFormat is 'comfyui'. When customWorkflowJson is
+ * blank the server falls back to a built-in basic txt2img graph. The provider's
+ * modelName is the checkpoint name substituted into that built-in graph (%model%).
+ */
+export type ComfyUiSettings = {
+    customWorkflowJson?: string;
+    steps?: number;
+    cfgScale?: number;
+    sampler?: string;
+    scheduler?: string;
+    denoisingStrength?: number;
+};
 
 export type AiTier = 'lite' | 'pro' | 'max';
 
@@ -42,10 +57,13 @@ export type LLMProvider = {
     label: string;
     endpoint: string;
     apiKey: string;
+    /** For apiFormat 'comfyui' this is the checkpoint name fed into the built-in txt2img graph. */
     modelName: string;
     streamingEnabled?: boolean;
     apiFormat?: ApiFormat;
     thinkingEffort?: ThinkingEffort;
+    /** Present only when apiFormat === 'comfyui'. Native ComfyUI image-generation config. */
+    comfyUi?: ComfyUiSettings;
 };
 
 export type AIPreset = {

@@ -2,16 +2,19 @@ import { useState } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { testConnection } from '../../services/chatEngine';
-import type { LLMProvider, ApiFormat, ThinkingEffort } from '../../types';
+import type { LLMProvider, ApiFormat, ThinkingEffort, ComfyUiSettings } from '../../types';
 import { detectFormatFromEndpoint } from '../../utils/llmApiHelper';
 import { toast } from '../Toast';
 import { uid } from '../../utils/uid';
+
+const COMFY_DEFAULT_ENDPOINT = 'http://127.0.0.1:8188';
 
 function getEndpointPlaceholder(apiFormat?: ApiFormat) {
     const fmt = apiFormat || 'openai';
     if (fmt === 'ollama') return 'http://localhost:11434  or  https://ollama.com';
     if (fmt === 'claude') return 'https://api.anthropic.com/v1';
     if (fmt === 'gemini') return 'https://generativelanguage.googleapis.com/v1beta';
+    if (fmt === 'comfyui') return COMFY_DEFAULT_ENDPOINT;
     return 'http://localhost:11434/v1';
 }
 
@@ -73,8 +76,30 @@ export function ProvidersTab() {
             if (endpoint && !endpoint.endsWith('/v1') && /localhost:11434|127\.0\.0\.1:11434/.test(endpoint)) {
                 endpoint = endpoint + '/v1';
             }
+        } else if (newFormat === 'comfyui') {
+            // Only auto-fill when the user hasn't set a real endpoint yet — i.e. it's
+            // still the Ollama/default value. A custom endpoint is left untouched.
+            if (!endpoint || /^https?:\/\/(localhost|127\.0\.0\.1):11434(\/v1)?$/.test(endpoint)) {
+                endpoint = COMFY_DEFAULT_ENDPOINT;
+            }
         }
         updateProvider(activeProvider.id, { apiFormat: newFormat, endpoint });
+    };
+
+    const handleComfyChange = (field: keyof ComfyUiSettings, value: string | number | undefined) => {
+        if (!activeProvider) return;
+        const nextComfy: ComfyUiSettings = { ...(activeProvider.comfyUi || {}), [field]: value };
+        updateProvider(activeProvider.id, { comfyUi: nextComfy });
+    };
+
+    const handleComfyNumberChange = (field: keyof ComfyUiSettings, raw: string) => {
+        const trimmed = raw.trim();
+        if (trimmed === '') {
+            handleComfyChange(field, undefined);
+            return;
+        }
+        const n = Number(trimmed);
+        handleComfyChange(field, Number.isFinite(n) ? n : undefined);
     };
 
     const handleEndpointBlur = (endpoint: string) => {
@@ -106,6 +131,7 @@ export function ProvidersTab() {
 
     const canDelete = settings.providers.length > 1;
     const config = activeProvider;
+    const isComfy = (config?.apiFormat || 'openai') === 'comfyui';
 
     return (
         <div className="flex flex-col">
@@ -178,7 +204,7 @@ export function ProvidersTab() {
                                 <div>
                                     <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">API Format</label>
                                     <div className="flex border border-border overflow-hidden rounded">
-                                        {(['openai', 'ollama', 'claude', 'gemini'] as ApiFormat[]).map(fmt => (
+                                        {(['openai', 'ollama', 'claude', 'gemini', 'comfyui'] as ApiFormat[]).map(fmt => (
                                             <button
                                                 key={fmt}
                                                 onClick={() => handleApiFormatChange(fmt)}
@@ -187,61 +213,77 @@ export function ProvidersTab() {
                                                     : 'bg-void text-text-dim hover:text-text-primary'
                                                 }`}
                                             >
-                                                {fmt === 'openai' ? 'OpenAI' : fmt === 'ollama' ? 'Ollama' : fmt === 'claude' ? 'Claude' : 'Gemini'}
+                                                {fmt === 'openai' ? 'OpenAI' : fmt === 'ollama' ? 'Ollama' : fmt === 'claude' ? 'Claude' : fmt === 'gemini' ? 'Gemini' : 'ComfyUI'}
                                             </button>
                                         ))}
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Model Name</label>
+                                    <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">{isComfy ? 'Checkpoint Model Name' : 'Model Name'}</label>
                                     <input
                                         type="text"
                                         value={config.modelName}
                                         onChange={(e) => handleFieldChange('modelName', e.target.value)}
-                                        placeholder="llama3"
+                                        placeholder={isComfy ? 'sd_xl_base_1.0.safetensors' : 'llama3'}
                                         className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
                                     />
+                                    {isComfy && (
+                                        <p className="text-[10px] text-text-dim mt-1">Checkpoint filename as it appears in ComfyUI's <span className="font-mono">CheckpointLoaderSimple</span>. Used by the built-in graph; ignored if your custom workflow sets its own checkpoint.</p>
+                                    )}
                                 </div>
-                                <div>
-                                    <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">API Key</label>
-                                    <input
-                                        type="password"
-                                        value={config.apiKey}
-                                        onChange={(e) => handleFieldChange('apiKey', e.target.value)}
-                                        placeholder={getApiKeyPlaceholder(config.apiFormat)}
-                                        className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
+                                {isComfy && (
+                                    <ComfyUiFields
+                                        comfy={config.comfyUi || {}}
+                                        onTextChange={handleComfyChange}
+                                        onNumberChange={handleComfyNumberChange}
                                     />
-                                </div>
-                                <div className="flex items-center justify-between gap-3 py-2">
-                                    <label className="text-[11px] text-text-dim uppercase tracking-wider truncate">Enable Streaming</label>
-                                    <button
-                                        onClick={() => handleFieldChange('streamingEnabled', config.streamingEnabled === false)}
-                                        className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${config.streamingEnabled !== false ? 'bg-terminal/60' : 'bg-border'}`}
-                                        title={config.streamingEnabled !== false ? 'Streaming on — click to disable' : 'Streaming off — click to enable'}
-                                    >
-                                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${config.streamingEnabled !== false ? 'translate-x-5' : 'translate-x-0'}`} />
-                                    </button>
-                                </div>
-                                <div>
-                                    <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1" title="Requests reasoning from the model when supported. 'Max' maps to xhigh on OpenAI, max on DeepSeek V4, HIGH on Gemini.">
-                                        Thinking effort
-                                    </label>
-                                    <div className="flex border border-border overflow-hidden rounded">
-                                        {(['off', 'low', 'medium', 'high', 'max'] as ThinkingEffort[]).map(level => (
-                                            <button
-                                                key={level}
-                                                onClick={() => handleFieldChange('thinkingEffort', level === 'off' ? undefined : level)}
-                                                className={`flex-1 px-2 py-1.5 text-[9px] uppercase tracking-wider transition-colors focus:outline-none ${(config.thinkingEffort === level) || (!config.thinkingEffort && level === 'off')
-                                                    ? 'bg-terminal text-void font-bold'
-                                                    : 'bg-void text-text-dim hover:text-text-primary'
-                                                }`}
-                                                title={level === 'max' ? 'OpenAI & DeepSeek cap at High — Max sends High.' : undefined}
-                                            >
-                                                {level.charAt(0).toUpperCase() + level.slice(1)}
-                                            </button>
-                                        ))}
+                                )}
+                                {!isComfy && (
+                                    <div>
+                                        <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">API Key</label>
+                                        <input
+                                            type="password"
+                                            value={config.apiKey}
+                                            onChange={(e) => handleFieldChange('apiKey', e.target.value)}
+                                            placeholder={getApiKeyPlaceholder(config.apiFormat)}
+                                            className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
+                                        />
                                     </div>
-                                </div>
+                                )}
+                                {!isComfy && (
+                                    <div className="flex items-center justify-between gap-3 py-2">
+                                        <label className="text-[11px] text-text-dim uppercase tracking-wider truncate">Enable Streaming</label>
+                                        <button
+                                            onClick={() => handleFieldChange('streamingEnabled', config.streamingEnabled === false)}
+                                            className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${config.streamingEnabled !== false ? 'bg-terminal/60' : 'bg-border'}`}
+                                            title={config.streamingEnabled !== false ? 'Streaming on — click to disable' : 'Streaming off — click to enable'}
+                                        >
+                                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${config.streamingEnabled !== false ? 'translate-x-5' : 'translate-x-0'}`} />
+                                        </button>
+                                    </div>
+                                )}
+                                {!isComfy && (
+                                    <div>
+                                        <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1" title="Requests reasoning from the model when supported. 'Max' maps to xhigh on OpenAI, max on DeepSeek V4, HIGH on Gemini.">
+                                            Thinking effort
+                                        </label>
+                                        <div className="flex border border-border overflow-hidden rounded">
+                                            {(['off', 'low', 'medium', 'high', 'max'] as ThinkingEffort[]).map(level => (
+                                                <button
+                                                    key={level}
+                                                    onClick={() => handleFieldChange('thinkingEffort', level === 'off' ? undefined : level)}
+                                                    className={`flex-1 px-2 py-1.5 text-[9px] uppercase tracking-wider transition-colors focus:outline-none ${(config.thinkingEffort === level) || (!config.thinkingEffort && level === 'off')
+                                                        ? 'bg-terminal text-void font-bold'
+                                                        : 'bg-void text-text-dim hover:text-text-primary'
+                                                    }`}
+                                                    title={level === 'max' ? 'OpenAI & DeepSeek cap at High — Max sends High.' : undefined}
+                                                >
+                                                    {level.charAt(0).toUpperCase() + level.slice(1)}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="pt-2">
                                     <button
                                         onClick={handleTest}
@@ -275,5 +317,100 @@ export function ProvidersTab() {
                 </div>
             )}
         </div>
+    );
+}
+
+const COMFY_PLACEHOLDERS = '%prompt%, %negative_prompt%, %seed%, %width%, %height%, %steps%, %cfg%, %sampler%, %scheduler%, %denoise%, %model%';
+
+function ComfyUiFields({
+    comfy,
+    onTextChange,
+    onNumberChange,
+}: {
+    comfy: ComfyUiSettings;
+    onTextChange: (field: keyof ComfyUiSettings, value: string | undefined) => void;
+    onNumberChange: (field: keyof ComfyUiSettings, raw: string) => void;
+}) {
+    return (
+        <>
+            <div className="border border-terminal/20 bg-terminal/5 rounded px-3 py-2">
+                <p className="text-[10px] text-text-dim leading-relaxed">
+                    <span className="text-terminal font-bold uppercase tracking-wider">Image Generation AI only.</span>{' '}
+                    Point this at a local ComfyUI server. Leave the workflow blank to use the built-in basic txt2img graph, or paste a workflow exported from ComfyUI via <span className="font-mono">Save (API Format)</span>.
+                </p>
+            </div>
+
+            <div>
+                <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Custom API Workflow JSON</label>
+                <textarea
+                    value={comfy.customWorkflowJson || ''}
+                    onChange={(e) => onTextChange('customWorkflowJson', e.target.value || undefined)}
+                    rows={6}
+                    placeholder='Blank = built-in basic txt2img. Paste a "Save (API Format)" export here to use your own graph.'
+                    className="w-full bg-surface border border-border px-3 py-2 text-xs text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none resize-y"
+                />
+                <p className="text-[10px] text-text-dim mt-1 leading-relaxed">
+                    Supported placeholders (substituted before the graph runs):<br />
+                    <span className="font-mono text-text-primary/80">{COMFY_PLACEHOLDERS}</span>
+                </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+                <div>
+                    <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Steps</label>
+                    <input
+                        type="number"
+                        value={comfy.steps ?? ''}
+                        onChange={(e) => onNumberChange('steps', e.target.value)}
+                        placeholder="20"
+                        className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
+                    />
+                </div>
+                <div>
+                    <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">CFG Scale</label>
+                    <input
+                        type="number"
+                        step="0.1"
+                        value={comfy.cfgScale ?? ''}
+                        onChange={(e) => onNumberChange('cfgScale', e.target.value)}
+                        placeholder="7"
+                        className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
+                    />
+                </div>
+                <div>
+                    <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Sampler</label>
+                    <input
+                        type="text"
+                        value={comfy.sampler ?? ''}
+                        onChange={(e) => onTextChange('sampler', e.target.value || undefined)}
+                        placeholder="euler"
+                        className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
+                    />
+                </div>
+                <div>
+                    <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Scheduler</label>
+                    <input
+                        type="text"
+                        value={comfy.scheduler ?? ''}
+                        onChange={(e) => onTextChange('scheduler', e.target.value || undefined)}
+                        placeholder="normal"
+                        className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
+                    />
+                </div>
+                <div>
+                    <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Denoise</label>
+                    <input
+                        type="number"
+                        step="0.05"
+                        min="0"
+                        max="1"
+                        value={comfy.denoisingStrength ?? ''}
+                        onChange={(e) => onNumberChange('denoisingStrength', e.target.value)}
+                        placeholder="1"
+                        className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
+                    />
+                </div>
+            </div>
+        </>
     );
 }

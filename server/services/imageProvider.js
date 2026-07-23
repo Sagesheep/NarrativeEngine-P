@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { CAMPAIGNS_DIR, validateCampaignId } from '../lib/fileStore.js';
+import { generateComfyUIImage } from './comfyUiProvider.js';
 
 export function getCampaignSceneImagesDir(campaignId) {
     validateCampaignId(campaignId);
@@ -22,6 +23,14 @@ export function aspectToSize(aspectRatio) {
         default:
             return '1024x1024';
     }
+}
+
+function sizeToWH(size) {
+    const [w, h] = String(size).split('x').map((n) => parseInt(n, 10));
+    return {
+        width: Number.isFinite(w) ? w : 1024,
+        height: Number.isFinite(h) ? h : 1024,
+    };
 }
 
 function isValidImageBuffer(buf) {
@@ -57,6 +66,41 @@ export async function generateSceneImage({ campaignId, promptPackage, config }) 
     const negative_prompt = promptPackage.negativePrompt
         ? `${promptPackage.negativePrompt}, ${defaultNegative}`
         : defaultNegative;
+
+    // ── Native ComfyUI branch ────────────────────────────────────────────────
+    // Routes to a local ComfyUI server (built-in or custom API workflow). The
+    // OpenAI-compatible branch below is retained unchanged for every other format.
+    if (config.apiFormat === 'comfyui') {
+        const { width, height } = sizeToWH(size);
+        console.log(`[SceneImage Provider] Generating ComfyUI image for campaign ${campaignId} via ${config.endpoint}`);
+
+        const imageBuffer = await generateComfyUIImage({
+            config,
+            prompt,
+            negativePrompt: negative_prompt,
+            width,
+            height,
+        });
+
+        if (!isValidImageBuffer(imageBuffer)) {
+            throw new Error('ComfyUI response was not a valid binary image (received invalid format or empty output)');
+        }
+
+        const id = `img_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+        const filename = `${id}.png`;
+        const targetDir = getCampaignSceneImagesDir(campaignId);
+        const targetPath = path.join(targetDir, filename);
+
+        fs.writeFileSync(targetPath, imageBuffer);
+
+        const relativeUrl = `/assets/campaigns/${campaignId}/scene-images/${filename}`;
+        return {
+            id,
+            imageUrl: relativeUrl,
+            filename,
+            provider: config.modelName || 'ComfyUI',
+        };
+    }
 
     const payload = {
         model: config.modelName || 'standard-image-v1',
