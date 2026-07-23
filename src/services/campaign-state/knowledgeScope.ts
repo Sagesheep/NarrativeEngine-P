@@ -18,6 +18,24 @@ export function normalizeFaction(s: string): string {
 }
 
 /**
+ * Parse a raw faction string into a normalized list of individual factions.
+ * Splits on commas, semicolons, and forward slashes (e.g. "Ironspire Knights, Mages Guild / Thieves Guild").
+ * Trims, lowercases, collapses whitespace, and dedupes entries.
+ */
+export function parseFactions(s: string | undefined): string[] {
+    if (!s || typeof s !== 'string') return [];
+    const parts = s.split(/[,;/]/);
+    const result: string[] = [];
+    for (const part of parts) {
+        const norm = normalizeFaction(part);
+        if (norm && !result.includes(norm)) {
+            result.push(norm);
+        }
+    }
+    return result;
+}
+
+/**
  * Normalize a raw subject slug from the LLM into a stable token.
  * lowercase → spaces/dashes to underscore → strip everything but [a-z0-9._] →
  * collapse separator runs → trim separators → cap at 40 chars.
@@ -62,7 +80,7 @@ export function parseKnownByToken(tok: string): KnownByToken | null {
  * Expand a list of knownBy tokens into the full set of NPC IDs who know the fact.
  *   - "player" is recorded as the synthetic id 'player' (callers may special-case it).
  *   - "npc:<id>" contributes <id> directly.
- *   - "faction:<name>" contributes every NPC in the ledger whose faction normalizes to <name>.
+ *   - "faction:<name>" contributes every NPC in the ledger who belongs to <name>.
  *   - Bare IDs (no prefix) are treated as "npc:<id>".
  * Undefined knownBy returns an empty set (callers should treat undefined as "public"
  * separately — see isKnownToAnyOnStage).
@@ -82,8 +100,11 @@ export function expandKnownBy(
             out.add(parsed.id);
         } else if (parsed.kind === 'faction') {
             for (const npc of npcLedger) {
-                if (npc.faction && normalizeFaction(npc.faction) === parsed.name) {
-                    out.add(npc.id);
+                if (npc.faction) {
+                    const facs = parseFactions(npc.faction);
+                    if (facs.includes(parsed.name)) {
+                        out.add(npc.id);
+                    }
                 }
             }
         }
@@ -95,7 +116,7 @@ export function expandKnownBy(
  * Does any currently on-stage character know this fact?
  *   undefined knownBy => true (public).  [] => false (secret, no NPC knows).
  *   "npc:<id>" matches iff id is on stage. Bare IDs are treated as "npc:<id>".
- *   "faction:<name>" matches iff some on-stage NPC's faction normalizes to <name>.
+ *   "faction:<name>" matches iff some on-stage NPC belongs to <name>.
  *   "player" never makes a fact "known" to an NPC (the player is not an NPC);
  *   facts known only by "player" are surfaced via the player-perspective payload path.
  */
@@ -110,8 +131,10 @@ export function isKnownToAnyOnStage(
     const presentFactions = new Set<string>();
     for (const npc of npcLedger) {
         if (onStage.has(npc.id) && npc.faction) {
-            const f = normalizeFaction(npc.faction);
-            if (f) presentFactions.add(f);
+            const facs = parseFactions(npc.faction);
+            for (const f of facs) {
+                if (f) presentFactions.add(f);
+            }
         }
     }
     for (const tok of knownBy) {

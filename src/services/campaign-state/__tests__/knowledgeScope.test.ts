@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     normalizeFaction,
+    parseFactions,
     normalizeSubjectToken,
     parseKnownByToken,
     isKnownToAnyOnStage,
@@ -31,6 +32,21 @@ describe('knowledgeScope', () => {
             expect(normalizeFaction('  Crimson   Hand ')).toBe('crimson hand');
             expect(normalizeFaction('')).toBe('');
             expect(normalizeFaction(undefined as unknown as string)).toBe('');
+        });
+    });
+
+    describe('parseFactions', () => {
+        it('parses single and multi-faction strings delimited by commas, slashes, and semicolons', () => {
+            expect(parseFactions('Crimson Hand')).toEqual(['crimson hand']);
+            expect(parseFactions('  Ironspire Knights , Mages Guild ; Thieves Guild / Shadow Hand ')).toEqual([
+                'ironspire knights',
+                'mages guild',
+                'thieves guild',
+                'shadow hand',
+            ]);
+            expect(parseFactions('Ironspire Knights, ironspire knights')).toEqual(['ironspire knights']);
+            expect(parseFactions('')).toEqual([]);
+            expect(parseFactions(undefined)).toEqual([]);
         });
     });
 
@@ -86,6 +102,12 @@ describe('knowledgeScope', () => {
             expect(isKnownToAnyOnStage(['faction:crimson hand'], ['npc_a'], ledger)).toBe(true);
             expect(isKnownToAnyOnStage(['faction:crimson hand'], ['npc_b'], ledger)).toBe(false);
         });
+        it('supports NPCs with multiple comma-delimited factions', () => {
+            const multiLedger = [{ id: 'npc_m', faction: 'Crimson Hand, Thieves Guild' }];
+            expect(isKnownToAnyOnStage(['faction:thieves guild'], ['npc_m'], multiLedger)).toBe(true);
+            expect(isKnownToAnyOnStage(['faction:crimson hand'], ['npc_m'], multiLedger)).toBe(true);
+            expect(isKnownToAnyOnStage(['faction:iron guard'], ['npc_m'], multiLedger)).toBe(false);
+        });
         it('player token alone does not make a fact known to an NPC', () => {
             expect(isKnownToAnyOnStage(['player'], ['npc_a'], ledger)).toBe(false);
         });
@@ -108,12 +130,14 @@ describe('knowledgeScope', () => {
             { id: 'npc_a', faction: 'Crimson Hand' },
             { id: 'npc_b', faction: 'Crimson Hand' },
             { id: 'npc_c', faction: 'Iron Guard' },
+            { id: 'npc_d', faction: 'Mages Guild, Crimson Hand' },
         ];
         it('expands faction tokens to all NPCs in that faction', () => {
             const ids = expandKnownBy(['faction:crimson hand'], ledger);
             expect(ids.has('npc_a')).toBe(true);
             expect(ids.has('npc_b')).toBe(true);
             expect(ids.has('npc_c')).toBe(false);
+            expect(ids.has('npc_d')).toBe(true);
         });
         it('includes player and npc:<id> tokens', () => {
             const ids = expandKnownBy(['player', 'npc:npc_c'], ledger);

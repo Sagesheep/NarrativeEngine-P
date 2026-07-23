@@ -1,6 +1,7 @@
 import type { NPCEntry } from '../../../types';
 import { HEARTBEAT_DC } from './agencyConstants';
 import { isAgencyEligible } from './agencyLifecycle';
+import { parseFactions } from '../../campaign-state/knowledgeScope';
 
 export function rollHeartbeat(
     state: { dc: number },
@@ -31,7 +32,7 @@ export function buildProximityRoster(
     });
 
     const pcRegion = pc?.region;
-    const pcFaction = pc?.faction;
+    const pcFactions = parseFactions(pc?.faction);
 
     const presentIds = new Set<string>();
     if (pc) presentIds.add(pc.id);
@@ -50,7 +51,10 @@ export function buildProximityRoster(
 
         if (pcRegion && npc.region === pcRegion) return true;
 
-        if (pcFaction && npc.faction && npc.faction === pcFaction) return true;
+        if (pcFactions.length > 0 && npc.faction) {
+            const npcFactions = parseFactions(npc.faction);
+            if (npcFactions.some(f => pcFactions.includes(f))) return true;
+        }
 
         if (npc.relations) {
             for (const targetId of Object.keys(npc.relations)) {

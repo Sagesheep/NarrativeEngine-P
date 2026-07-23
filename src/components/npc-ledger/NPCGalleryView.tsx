@@ -40,7 +40,15 @@ export function NPCGalleryView({ npcLedger, selectedId, selectMode, checkedIds, 
                         )}
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-void via-void/80 to-transparent p-3 pt-8">
                             <p className={`text-xs font-bold truncate ${isActive ? 'text-terminal glow-green-sm' : 'text-text-primary'}`}>{npc.name}</p>
-                            {npc.faction && <p className="text-[9px] text-text-dim truncate uppercase mt-0.5">{npc.faction}</p>}
+                            {npc.faction && (
+                                <div className="flex flex-wrap gap-1 mt-0.5">
+                                    {npc.faction.split(/[,;/]/).map(f => f.trim()).filter(Boolean).map((fac, idx) => (
+                                        <span key={idx} className="bg-terminal/10 text-terminal text-[9px] px-1 rounded uppercase truncate max-w-full">
+                                            {fac}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                         {selectMode ? (
                             <div className="absolute top-2 left-2 p-1 bg-void/80 rounded" onClick={(e) => { e.stopPropagation(); onToggleCheck(npc.id); }}>

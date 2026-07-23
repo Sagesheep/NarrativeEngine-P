@@ -241,6 +241,15 @@ describe('heartbeat', () => {
         const ids = roster.map(n => n.id).sort();
         expect(ids).toEqual(['a', 'b', 'c']);
     });
+
+    it('buildProximityRoster matches multi-faction strings on shared factions', () => {
+        const pc = npc({ id: 'pc', isPC: true, faction: 'Ironspire Knights, Mages Guild' });
+        const sharedFactionNpc = npc({ id: 'a', region: 'far', faction: 'Mages Guild / Thieves Guild', populated: true });
+        const nonMatchingNpc = npc({ id: 'b', region: 'far', faction: 'Shadow Hand', populated: true });
+
+        const roster = buildProximityRoster([pc, sharedFactionNpc, nonMatchingNpc], pc);
+        expect(roster.map(n => n.id)).toEqual(['a']);
+    });
 });
 
 // ── Migration idempotency (§9.6 seam) ────────────────────────────────────────

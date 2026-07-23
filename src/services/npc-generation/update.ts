@@ -111,7 +111,7 @@ CHANNEL 1 — "updates" (only when something fundamentally changed; usually empt
 Each update MUST include "name" and only the fields that fundamentally changed. Allowed changes keys:
   status, disposition, goals, storyRelevance, personality (flavor text), voice, appearance,
   wants (medium/long text only — NEVER include "short"; short is engine-managed),
-  personalityHex, traits, region, faction, relations, behavioralTriggers, hardBoundaries, softBoundaries, visualProfile, signatureKit.
+  personalityHex, traits, region, faction (can list multiple comma-separated factions), relations, behavioralTriggers, hardBoundaries, softBoundaries, visualProfile, signatureKit.
 DO NOT include attributes that stayed the same. If nothing fundamental changed, "updates" is [].
 
 CHANNEL 2 — "tones" (MANDATORY: one entry for EVERY NPC listed below, every time):

@@ -45,7 +45,11 @@ export function NPCListView({ npcLedger, selectedId, selectMode, checkedIds, onS
                                     {npc.name}
                                 </p>
                                 <div className="flex items-center gap-1 text-[10px] mt-0.5 text-text-dim truncate">
-                                    {npc.faction && <span className="bg-terminal/10 text-terminal px-1 rounded uppercase">{npc.faction}</span>}
+                                    {npc.faction && npc.faction.split(/[,;/]/).map(f => f.trim()).filter(Boolean).map((fac, idx) => (
+                                        <span key={idx} className="bg-terminal/10 text-terminal px-1 rounded uppercase shrink-0">
+                                            {fac}
+                                        </span>
+                                    ))}
                                     {npc.aliases && <span className="truncate">{npc.aliases}</span>}
                                 </div>
                             </div>

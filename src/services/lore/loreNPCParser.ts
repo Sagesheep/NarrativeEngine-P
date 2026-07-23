@@ -15,7 +15,7 @@ function uid(): string {
  * extracts structured NPC entries for the ledger.
  *
  * Each character block must use `### Name` headers with `**Field:** Value` bullets.
- * Fields: Aliases, Appearance, Disposition, Goals, Faction, StoryRelevance,
+ * Fields: Aliases, Appearance, Disposition, Goals, Faction (single or CSV/delimited list of factions), StoryRelevance,
  *         Status, Affinity, Voice, Personality, Example Output.
  *         Optional agency fields (authoritative for canon NPCs — skip LLM inference):
  *           - **PersonalityHex:** drive:+3, diligence:-1, boldness:+2, warmth:+1,

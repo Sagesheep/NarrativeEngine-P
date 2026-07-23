@@ -167,7 +167,7 @@ OUTPUT FORMAT — a single JSON object:
 {"changes": { ...only the fields that changed... }}
 
 Allowed "changes" keys (send ONLY fields that fundamentally changed):
-  status, appearance, faction, wants (medium/long text only — NEVER include "short"),
+  status, appearance, faction (can list multiple comma-separated factions), wants (medium/long text only — NEVER include "short"),
   signatureKit.
 DO NOT include attributes that stayed the same. If nothing fundamental changed, "changes" is {}.
 

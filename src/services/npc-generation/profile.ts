@@ -281,7 +281,7 @@ ${voiceSection}OUTPUT FORMAT — respond with a JSON object matching this struct
   "name": "String (The primary name)",
   "aliases": "String (Comma separated aliases or titles)",
   "status": "String (Alive, Deceased, Missing, or Unknown)",
-  "faction": "String (The faction, group, or origin this NPC belongs to)",
+  "faction": "String (The faction(s), group(s), or origin this NPC belongs to — can list multiple comma-separated factions if they belong to multiple organizations)",
   "storyRelevance": "String (Why this NPC matters to the current story)",
   "disposition": "String (current mood/attitude: Helpful, Hostile, Suspicious, etc — MUST be consistent with the rolled personality band-words)",
   "goals": "String (Core motive)",

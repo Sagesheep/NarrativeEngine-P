@@ -2,7 +2,7 @@ import type { NPCEntry, HexAxis, ArchiveIndexEntry, DivergenceEntry } from '../.
 import { relationBand, describeHex, formatHexShift, formatRungShift } from './agency/agencyBands';
 import { buildReactionMenu, type ReactionContext } from './reactionMenu';
 import { applyRepressionToMenu } from './reactionRepression';
-import { parseKnownByToken, normalizeFaction } from '../campaign-state/knowledgeScope';
+import { parseKnownByToken, parseFactions } from '../campaign-state/knowledgeScope';
 
 function affinityDescriptor(v: number): string {
     if (v <= 15) return 'Nemesis — actively hostile';
@@ -205,7 +205,7 @@ export function buildKnowledgeBoundary(
 
     // ── Layer 2: divergence-fact knownBy tokens (additive) ──
     if (divergenceFacts && divergenceFacts.length > 0) {
-        const npcFaction = npc.faction ? normalizeFaction(npc.faction) : '';
+        const npcFactions = parseFactions(npc.faction);
         const unknownFacts: string[] = [];
         for (const fact of divergenceFacts) {
             if (fact.enabled === false) continue;
@@ -220,7 +220,7 @@ export function buildKnowledgeBoundary(
                 const parsed = parseKnownByToken(tok);
                 if (!parsed) continue;
                 if (parsed.kind === 'npc' && parsed.id === npc.id) { npcKnows = true; break; }
-                if (parsed.kind === 'faction' && npcFaction && parsed.name === npcFaction) { npcKnows = true; break; }
+                if (parsed.kind === 'faction' && npcFactions.includes(parsed.name)) { npcKnows = true; break; }
             }
             if (!npcKnows) unknownFacts.push(fact.text);
         }

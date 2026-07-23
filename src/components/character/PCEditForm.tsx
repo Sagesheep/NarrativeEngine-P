@@ -210,7 +210,7 @@ export function PCEditForm({
                                 value={form.faction || ''}
                                 onChange={e => setForm({ ...form, faction: e.target.value })}
                                 disabled={!isEditing}
-                                placeholder="e.g. Ironspire Knights"
+                                placeholder="e.g. Ironspire Knights, Mages Guild"
                                 className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
                             />
                         </div>
