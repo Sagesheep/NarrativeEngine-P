@@ -57,6 +57,17 @@ export function createBackup(id, opts = {}) {
     return { timestamp: now, hash, fileCount: files.length };
 }
 
+export function updateBackupLabel(id, ts, label) {
+    const backupPath = path.join(BACKUPS_DIR, id, String(ts));
+    const metaPath = path.join(backupPath, 'meta.json');
+    if (!fs.existsSync(metaPath)) return null;
+
+    const meta = readJson(metaPath, {});
+    meta.label = label ? String(label).trim() : '';
+    writeJson(metaPath, meta);
+    return meta;
+}
+
 export function pruneAutoBackups(id, keep) {
     const backupDir = path.join(BACKUPS_DIR, id);
     if (!fs.existsSync(backupDir)) return;
@@ -65,9 +76,9 @@ export function pruneAutoBackups(id, keep) {
         .filter(f => fs.statSync(path.join(backupDir, f)).isDirectory())
         .map(f => {
             const meta = readJson(path.join(backupDir, f, 'meta.json'), {});
-            return { folder: f, isAuto: meta.isAuto || false };
+            return { folder: f, isAuto: meta.isAuto || false, label: meta.label || '' };
         })
-        .filter(f => f.isAuto)
+        .filter(f => f.isAuto && !f.label.trim())
         .sort((a, b) => Number(b.folder) - Number(a.folder));
 
     for (let i = keep; i < folders.length; i++) {
@@ -75,3 +86,4 @@ export function pruneAutoBackups(id, keep) {
         fs.rmSync(dirToRemove, { recursive: true, force: true });
     }
 }
+

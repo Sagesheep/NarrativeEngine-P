@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
 import { CAMPAIGNS_DIR, BACKUPS_DIR, readJson, validateCampaignId, campaignFileNames } from '../lib/fileStore.js';
-import { createBackup } from '../services/backup.js';
+import { createBackup, updateBackupLabel } from '../services/backup.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 import { serverError } from '../lib/serverError.js';
 
@@ -27,6 +27,29 @@ export function createBackupsRouter() {
             serverError(res, err, 'Backup');
         }
     }));
+
+    router.patch('/api/campaigns/:id/backups/:ts', wrapAsync((req, res) => {
+        const id = req.params.id;
+        validateCampaignId(id);
+        const ts = req.params.ts;
+        if (!/^\d+$/.test(ts)) {
+            return res.status(400).json({ error: 'Invalid timestamp parameter' });
+        }
+        const { label } = req.body;
+        if (typeof label !== 'string') {
+            return res.status(400).json({ error: 'Label must be a string' });
+        }
+        try {
+            const updated = updateBackupLabel(id, ts, label);
+            if (!updated) {
+                return res.status(404).json({ error: 'Backup not found' });
+            }
+            res.json({ ok: true, meta: updated });
+        } catch (err) {
+            serverError(res, err, 'Backup');
+        }
+    }));
+
 
     router.get('/api/campaigns/:id/backups', wrapAsync((req, res) => {
         const id = req.params.id;

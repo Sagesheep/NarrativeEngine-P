@@ -8,6 +8,7 @@ import path from 'path';
 
 let tmpDir;
 let createBackup;
+let updateBackupLabel;
 let pruneAutoBackups;
 let CAMPAIGNS_DIR;
 let BACKUPS_DIR;
@@ -22,6 +23,7 @@ beforeEach(async () => {
     const store = await import('../lib/fileStore.js?t=' + Date.now());
 
     createBackup = backup.createBackup;
+    updateBackupLabel = backup.updateBackupLabel;
     pruneAutoBackups = backup.pruneAutoBackups;
     CAMPAIGNS_DIR = store.CAMPAIGNS_DIR;
     BACKUPS_DIR = store.BACKUPS_DIR;
@@ -88,6 +90,21 @@ describe('createBackup', () => {
     });
 });
 
+describe('updateBackupLabel', () => {
+    it('updates backup label in meta.json', () => {
+        const id = 'label1';
+        seedCampaign(id);
+        const res = createBackup(id, { isAuto: true });
+        const updatedMeta = updateBackupLabel(id, res.timestamp, 'Custom Name');
+
+        expect(updatedMeta.label).toBe('Custom Name');
+
+        const backupDir = path.join(BACKUPS_DIR, id, String(res.timestamp));
+        const metaOnDisk = JSON.parse(fs.readFileSync(path.join(backupDir, 'meta.json'), 'utf-8'));
+        expect(metaOnDisk.label).toBe('Custom Name');
+    });
+});
+
 describe('pruneAutoBackups', () => {
     it('removes old auto-backups beyond the keep limit', () => {
         const id = 'prune1';
@@ -109,4 +126,33 @@ describe('pruneAutoBackups', () => {
             .filter(f => fs.statSync(path.join(backupDir, f)).isDirectory());
         expect(remaining.length).toBeLessThanOrEqual(3);
     });
+
+    it('spares named auto-backups from auto-pruning', () => {
+        const id = 'prune_named';
+        seedCampaign(id);
+
+        const createdTimestamps = [];
+        for (let i = 0; i < 5; i++) {
+            fs.writeFileSync(
+                path.join(CAMPAIGNS_DIR, `${id}.json`),
+                JSON.stringify({ id, name: `Campaign v${i}`, lastPlayedAt: i })
+            );
+            const res = createBackup(id, { isAuto: true });
+            createdTimestamps.push(res.timestamp);
+        }
+
+        // Give a name to the oldest auto-backup
+        updateBackupLabel(id, createdTimestamps[0], 'Protected Save');
+
+        // Prune keeping 2
+        pruneAutoBackups(id, 2);
+
+        const backupDir = path.join(BACKUPS_DIR, id);
+        const remainingFolders = fs.readdirSync(backupDir)
+            .filter(f => fs.statSync(path.join(backupDir, f)).isDirectory());
+
+        // Oldest backup was named so it must still exist!
+        expect(remainingFolders).toContain(String(createdTimestamps[0]));
+    });
 });
+

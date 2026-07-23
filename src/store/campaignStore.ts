@@ -264,6 +264,20 @@ export async function deleteBackup(campaignId: string, timestamp: number): Promi
     return false;
 }
 
+export async function updateBackup(campaignId: string, timestamp: number, label: string): Promise<boolean> {
+    try {
+        const res = await fetch(`${API}/campaigns/${campaignId}/backups/${timestamp}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label }),
+        });
+        return res.ok;
+    } catch (err) {
+        console.warn('[Backup] Update failed:', err);
+    }
+    return false;
+}
+
 // ─── Timeline ───────────────────────────────────────────────────────────
 
 export async function loadTimeline(campaignId: string): Promise<TimelineEvent[]> {

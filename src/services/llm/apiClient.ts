@@ -306,6 +306,15 @@ export const api = {
             });
             return res.ok;
         },
+        async update(campaignId: string, timestamp: number, data: { label: string }): Promise<unknown> {
+            const res = await fetch(`${API}/campaigns/${campaignId}/backups/${timestamp}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            });
+            if (res.ok) return await res.json();
+            return undefined;
+        },
     },
     vault: {
         async status(): Promise<{ exists: boolean; unlocked: boolean; hasRemember: boolean }> {
