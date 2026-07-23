@@ -22,10 +22,10 @@ beforeEach(() => {
 
 describe('fallback (MASTERPLAN acceptance gate 5)', () => {
     it('falls back to English for a key the locale has not translated', () => {
-        // ko deliberately ships almost empty — this is the normal state of a
+        // id deliberately ships almost empty — this is the normal state of a
         // translation in progress, and it must render the English string.
-        expect(LOCALES.ko.strings['header.exit.label']).toBeUndefined();
-        expect(translateIn('ko', 'header.exit.label')).toBe(en['header.exit.label']);
+        expect(LOCALES.id.strings['header.exit.label']).toBeUndefined();
+        expect(translateIn('id', 'header.exit.label')).toBe(en['header.exit.label']);
     });
 
     it('renders a fully working English app for a locale with zero keys', () => {

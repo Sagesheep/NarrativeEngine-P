@@ -1,6 +1,6 @@
 // ─── Game Context / Pipeline / Session Types ─────────────────────────────
 
-import type { InventoryItem, CharacterProfile, CharacterProfileState, InventoryItemCategory, SceneStakes, NPCEntry } from './character';
+import type { InventoryItem, CharacterProfile, CharacterProfileState, InventoryItemCategory, SceneStakes, NPCEntry, NPCVisualProfile } from './character';
 export type { SceneStakes };
 import type { LoreChunk, RuleChunkMeta } from './lore';
 import type { ArcRecord } from './arc';
@@ -231,7 +231,48 @@ export type GameContext = {
     // as part of the campaign state JSON. Migration (services/character/migratePC.ts)
     // moves any legacy `isPC: true` row from npcLedger into this field on hydrate.
     playerCharacter?: PlayerCharacter | null;
+    // ── WO-A2 §2.1 — first-send intercept flag. Once the user picks
+    // "Proceed anyway" on the no-PC warning modal, this is set true and the
+    // intercept never fires again for the rest of this campaign.
+    pcPromptDismissed?: boolean;
+    // ── WO-A2 §2.5 — AI-Guided creation draft. The wizard persists every
+    // step into this field so a dropped-out creation resumes where it left
+    // off. Text-only; storage cost is nil. Cleared on commit (§2.8) or
+    // explicit discard.
+    creationDraft?: CharacterCreationDraft | null;
 };
+
+/**
+ * AI-Guided creation draft (WO-A2 §2.5). The wizard writes user answers +
+ * AI-generated question wording into this record on every step so the flow is
+ * resumable. Only prose fields + the slot-9 visual profile are stored here —
+ * `personalityHex` and `traits` are NEVER inferred from prose (§0) and are
+ * written only by the quiz or the user's own hand on the Sheet tab.
+ */
+export type CharacterCreationDraft = {
+    /** Slot 1 — engine-owned, free text. */
+    name?: string;
+    /** Slots 2–8 — AI-reskinned question wording (one per slot). */
+    questions?: Partial<Record<CreationSlot, string>>;
+    /** Slots 1–8 — user answers (free text for 2–8; name for 1). */
+    answers?: Partial<Record<CreationSlot, string>>;
+    /** Slot 9 — visual profile (hand-filled form, NOT prose). */
+    visualProfile?: NPCVisualProfile;
+    /** Slot 9 — appearance prose. */
+    appearance?: string;
+    /** §2.6 — 'manual' | 'questionnaire' | 'skip'. Set during the hex step. */
+    hexMode?: 'manual' | 'questionnaire' | 'skip';
+    /** §2.6 — quiz answers (scenario index → option index), for deriveHexFromAnswers. */
+    quizAnswers?: Record<number, number>;
+    /** §2.7 — at most 3 clarifying questions from the converter, skippable. */
+    clarifyingQuestions?: string[];
+    /** §2.7 — user answers to the clarifying questions. */
+    clarifyingAnswers?: string[];
+    /** Wizard step index for resume. */
+    step?: number;
+};
+
+export type CreationSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 export type OpenAITool = {
     type: 'function';

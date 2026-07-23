@@ -94,24 +94,6 @@ export function GlobalSettingsTab() {
         </button>
       </div>
 
-      {/* Show Character Profile Tab */}
-      <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
-        <div>
-          <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold mb-1">
-            Show Character Profile Tab
-          </label>
-          <p className="text-[9px] text-text-dim max-w-[280px] leading-tight">
-            Enable or disable the Character Profile tab in the Context Drawer.
-          </p>
-        </div>
-        <button
-          onClick={() => updateSettings({ showPcTab: !(settings.showPcTab ?? true) })}
-          className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${settings.showPcTab ?? true ? 'bg-terminal' : 'bg-border'}`}
-        >
-          <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-surface transition-transform ${settings.showPcTab ?? true ? 'translate-x-[22px]' : 'translate-x-[2px]'}`} />
-        </button>
-      </div>
-
       {/* Debug Mode */}
       <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
         <label className="text-[11px] text-text-primary uppercase tracking-wider font-bold">

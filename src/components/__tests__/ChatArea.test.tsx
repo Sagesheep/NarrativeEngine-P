@@ -22,6 +22,7 @@ vi.mock('../../store/useAppStore', () => {
             sceneNote: '', sceneNoteActive: false, sceneNoteDepth: 0,
             worldVibe: '',
             notebook: [], notebookActive: false,
+            pcPromptDismissed: true,
         } as unknown as GameContext,
         activeCampaignId: 'test-campaign',
         settings: {

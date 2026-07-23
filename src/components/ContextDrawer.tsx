@@ -1,14 +1,12 @@
 import { useState } from 'react';
-import { ScrollText, Database, Sparkles, Save, BookOpen, Brain, Sliders, User } from 'lucide-react';
+import { ScrollText, Database, Sparkles, BookOpen, Brain, Sliders } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { RulesTab } from './context-drawer/RulesTab';
 import { RulesManagerTab } from './context-drawer/RulesManagerTab';
 import { LoreTab } from './context-drawer/LoreTab';
 import { EnginesTab } from './context-drawer/EnginesTab';
-import { BookkeepingTab } from './context-drawer/BookkeepingTab';
 import { ChapterTab } from './context-drawer/ChapterTab';
 import { MemoryTab } from './context-drawer/MemoryTab';
-import { CharacterProfileEditor } from './context-drawer/CharacterProfileEditor';
 
 const TABS = [
     { key: 'sys'   as const, Icon: ScrollText, label: 'System Context' },
@@ -17,8 +15,6 @@ const TABS = [
     { key: 'eng'   as const, Icon: Sparkles,   label: 'Engine Tuning' },
     { key: 'chpt'  as const, Icon: BookOpen,   label: 'Chapters' },
     { key: 'mem'   as const, Icon: Brain,      label: 'Memory' },
-    { key: 'pc'    as const, Icon: User,        label: 'Character Profile' },
-    { key: 'book'  as const, Icon: Save,       label: 'Bookkeeping' },
 ];
 
 type TabKey = typeof TABS[number]['key'];
@@ -27,12 +23,10 @@ export function ContextDrawer() {
     const drawerOpen = useAppStore((s) => s.drawerOpen);
     const toggleDrawer = useAppStore((s) => s.toggleDrawer);
     const [activeTab, setActiveTab] = useState<TabKey>('sys');
-    const showPcTab = useAppStore((s) => s.settings.showPcTab ?? true);
 
     if (!drawerOpen) return null;
 
-    const filteredTabs = TABS.filter(tab => tab.key !== 'pc' || showPcTab);
-    const currentActiveTab = filteredTabs.some(t => t.key === activeTab) ? activeTab : 'sys';
+    const currentActiveTab = TABS.some(t => t.key === activeTab) ? activeTab : 'sys';
 
     return (
         <>
@@ -60,7 +54,7 @@ export function ContextDrawer() {
 
                 {/* Tab Bar */}
                 <div className="flex border-b border-border shrink-0 overflow-x-auto no-scrollbar">
-                    {filteredTabs.map(({ key, Icon: TabIcon, label }) => (
+                    {TABS.map(({ key, Icon: TabIcon, label }) => (
                         <button
                             key={key}
                             onClick={() => setActiveTab(key)}
@@ -85,8 +79,6 @@ export function ContextDrawer() {
                     {currentActiveTab === 'eng' && <EnginesTab />}
                     {currentActiveTab === 'chpt' && <ChapterTab />}
                     {currentActiveTab === 'mem' && <MemoryTab />}
-                    {currentActiveTab === 'pc' && showPcTab && <CharacterProfileEditor />}
-                    {currentActiveTab === 'book' && <BookkeepingTab />}
                 </div>
             </aside>
         </>

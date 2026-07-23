@@ -52,7 +52,7 @@ vi.mock('../../store/useAppStore', () => {
     // Minimal store state — only the fields the hook reads. `getActiveStoryEndpoint`
     // must return a truthy provider so handleSend proceeds to runTurn.
     const state: Record<string, any> = {
-        context: { notebook: [] } as unknown as GameContext,
+        context: { notebook: [], pcPromptDismissed: true } as unknown as GameContext,
         activeCampaignId: 'camp_test',
         deepArmed: false,
         setDeepArmed: vi.fn(),

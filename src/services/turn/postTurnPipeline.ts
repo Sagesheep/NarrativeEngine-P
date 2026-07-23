@@ -496,6 +496,33 @@ async function runArchiveTrack(
                     console.log(`[Auto Bookkeeping] Location scan at scene #${sceneId}: current=${scan.currentPlaceId ?? '(unclear)'}, suggestions=${scan.suggestions.length}`);
                 }).catch(err => console.warn('[Auto Bookkeeping] Location scan failed:', err));
             }
+
+            // ── PC Drift Check (WO-A2 §3) — sibling of the bookkeeping scan, on the
+            // same `autoBookkeepingInterval` cadence. Kit changes are rare and a
+            // per-turn call is wasted most turns, so this gates on the same interval
+            // used by the profile/inventory scans. Forked from npc-generation/update.ts
+            // with a narrower whitelist (personalityHex/traits/relations/pcRelation
+            // are blocked — see §0). Cheap-first endpoint per §2.2 chain.
+            const pc = state.getFreshContext().playerCharacter;
+            if (pc && tierAllows(state.settings.aiTier, 'npcUpdate')) {
+                const pcProvider = state.getFreshProvider();
+                if (pcProvider) {
+                    const guardedUpdatePlayerCharacter = (patch: Partial<typeof pc>) => {
+                        const s = useAppStore.getState();
+                        if (s.activeCampaignId !== activeCampaignId) {
+                            console.warn(`[PC Updater] Dropping patch — campaign switched (${activeCampaignId} → ${s.activeCampaignId})`);
+                            return;
+                        }
+                        s.updatePlayerCharacter(patch);
+                    };
+                    backgroundQueue.push(`PC-Drift:${pc.name}`, async () => {
+                        if (!assertStillActive(activeCampaignId, 'PC-Drift')) return;
+                        const { checkCharacterDrift } = await import('../character/pcUpdater');
+                        await checkCharacterDrift(pcProvider, state.getMessages(), pc, guardedUpdatePlayerCharacter);
+                        console.log(`[Auto Bookkeeping] PC drift check completed at scene #${sceneId}`);
+                    }).catch(err => console.warn('[PC Updater] Background drift check failed:', err));
+                }
+            }
         }
     }
 }

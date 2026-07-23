@@ -69,6 +69,22 @@ export function useChatOperations({
     const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
     // Phase 6: GM-proposed inventory change awaiting user confirmation.
     const [pendingProposal, setPendingProposal] = useState<InventoryProposal | null>(null);
+    // WO-A2 §2.1 — first-send intercept modal. `pendingPcPrompt` is set when
+    // handleSend blocks on a missing PC; the UI renders a modal and calls
+    // `resolvePcPrompt` with 'create' | 'proceed' | 'cancel'.
+    const [pendingPcPrompt, setPendingPcPrompt] = useState(false);
+    const pcPromptResolverRef = useRef<((decision: 'create' | 'proceed' | 'cancel') => void) | null>(null);
+    const promptPcCreation = (): Promise<'create' | 'proceed' | 'cancel'> => {
+        return new Promise(resolve => {
+            pcPromptResolverRef.current = resolve;
+            setPendingPcPrompt(true);
+        });
+    };
+    const resolvePcPrompt = (decision: 'create' | 'proceed' | 'cancel') => {
+        setPendingPcPrompt(false);
+        pcPromptResolverRef.current?.(decision);
+        pcPromptResolverRef.current = null;
+    };
     // WO-05: Director Brief UI state. `directorBriefRunning` toggles the
     // "Director drafting brief…" status + Skip affordance in GenerationProgress.
     // `directorAbortRef` is the abort handle for the Director call ONLY — aborting
@@ -105,6 +121,22 @@ export function useChatOperations({
     const handleSend = async (overrideText?: string, deepSearch = false) => {
         const textToUse = overrideText || input.trim();
         if (!textToUse || isStreaming || oocBusy) return;
+
+        // WO-A2 §2.1 Trigger B — first-send intercept. If no PC exists and the
+        // user hasn't dismissed the prompt for this campaign, block the send
+        // and ask whether they want to create a character or proceed anyway.
+        // Ask once per campaign: "Proceed anyway" sets `context.pcPromptDismissed`
+        // and the intercept never fires again in that campaign.
+        const st = useAppStore.getState();
+        if (!st.context.playerCharacter && !st.context.pcPromptDismissed) {
+            const decision = await promptPcCreation();
+            if (decision === 'create') {
+                st.togglePCPanel();
+                return;
+            }
+            // 'proceed' → set the dismissed flag and continue.
+            st.updateContext({ pcPromptDismissed: true } as never);
+        }
 
         const useDeepSearch = deepSearch || deepArmed;
         if (deepArmed) setDeepArmed(false);
@@ -296,6 +328,8 @@ export function useChatOperations({
         loadingStatus,
         pendingProposal,
         setPendingProposal,
+        pendingPcPrompt,
+        resolvePcPrompt,
         handleSend,
         handleStop,
         directorBriefRunning,

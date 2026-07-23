@@ -131,6 +131,7 @@ export function ChatArea() {
 
     const {
         isStreaming, loadingStatus, pendingProposal, setPendingProposal,
+        pendingPcPrompt, resolvePcPrompt,
         handleSend, handleStop,
         directorBriefRunning, handleSkipDirectorBrief,
     } = useChatOperations({
@@ -286,6 +287,15 @@ export function ChatArea() {
 
             <LootRollModal />
             <DiceRollModal />
+
+            {pendingPcPrompt && (
+                <PcPromptModal
+                    onCreate={() => resolvePcPrompt('create')}
+                    onProceed={() => resolvePcPrompt('proceed')}
+                    onCancel={() => resolvePcPrompt('cancel')}
+                />
+            )}
+
             <RegenerateSheet
                 messageId={swipeSheetMessageId}
                 onClose={() => setSwipeSheetMessageId(null)}
@@ -298,6 +308,47 @@ export function ChatArea() {
                 getSwipeTemperature={swipe.getSwipeTemperature}
                 continueLoading={sceneContinue.continueLoading}
             />
+        </div>
+    );
+}
+
+// WO-A2 §2.1 — first-send intercept modal. Shown when handleSend blocks on a
+// missing PC. "Create Character" opens the Character Ledger; "Proceed anyway"
+// sets `context.pcPromptDismissed` and never shows again for this campaign;
+// "Cancel" aborts the send.
+function PcPromptModal({ onCreate, onProceed, onCancel }: {
+    onCreate: () => void;
+    onProceed: () => void;
+    onCancel: () => void;
+}) {
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-void/80 backdrop-blur-sm p-4" role="dialog" aria-modal="true" onClick={onCancel}>
+            <div className="bg-surface border border-border shadow-2xl rounded-lg w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                <h3 className="text-sm font-bold text-text-primary uppercase tracking-widest mb-2">No Character Yet</h3>
+                <p className="text-[12px] text-text-dim mb-4">
+                    You haven't created your character. Sure you want to proceed?
+                </p>
+                <div className="flex flex-col gap-2">
+                    <button
+                        onClick={onCreate}
+                        className="px-4 py-2 bg-terminal/20 text-terminal border border-terminal/30 rounded hover:bg-terminal/30 text-[11px] uppercase tracking-widest"
+                    >
+                        Create Character
+                    </button>
+                    <button
+                        onClick={onProceed}
+                        className="px-4 py-2 bg-void text-text-dim border border-border rounded hover:text-text-primary text-[11px] uppercase tracking-widest"
+                    >
+                        Proceed anyway
+                    </button>
+                    <button
+                        onClick={onCancel}
+                        className="px-4 py-2 text-text-dim/60 hover:text-text-dim text-[10px] uppercase tracking-widest"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }

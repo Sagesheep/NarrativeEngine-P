@@ -83,4 +83,18 @@ describe('WO-A rewrite 2 §1 — module boundary isolation gate', () => {
         });
         expect(offenders).toEqual([]);
     });
+
+    // WO-A2 §4.9 — Isolation gate. No file in src/services/character/ or
+    // src/components/character/ may import from npc-generation/; the only
+    // permitted cross-module import is services/npc/signatureKit.ts.
+    it('no character/ service or component file imports from npc-generation/', () => {
+        const serviceFiles = walkTsWithoutTests(CHARACTER_SERVICES_DIR);
+        const componentFiles = walkTsWithoutTests(CHARACTER_DIR);
+        const all = [...serviceFiles, ...componentFiles];
+        const offenders = all.filter(f => {
+            const text = readFileSafe(f);
+            return text != null && /from\s+['"][^'"]*services\/npc-generation['"]/.test(text);
+        });
+        expect(offenders).toEqual([]);
+    });
 });

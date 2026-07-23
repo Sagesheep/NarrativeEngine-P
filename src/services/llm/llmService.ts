@@ -30,6 +30,9 @@ export async function sendMessage(
     sampling?: SamplingConfig,
     thinkingEffort?: ThinkingEffort,
     trackingLabel?: string,
+    /** Optional: fires with the CUMULATIVE reasoning/thinking text as it streams.
+     *  Additive — existing chat callers omit it and behave exactly as before. */
+    onReasoning?: (reasoning: string) => void,
 ) {
     const format = getApiFormat(provider);
     const url = getChatUrl(provider, { stream: true });
@@ -165,6 +168,7 @@ export async function sendMessage(
                             const reasoningDelta: string = delta?.reasoning_content ?? delta?.reasoning ?? '';
                             if (reasoningDelta) {
                                 reasoningContent += reasoningDelta;
+                                onReasoning?.(reasoningContent);
                             }
 
                             if (delta?.tool_calls && delta.tool_calls.length > 0) {

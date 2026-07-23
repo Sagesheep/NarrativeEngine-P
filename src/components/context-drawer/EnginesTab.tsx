@@ -6,7 +6,13 @@ import { Toggle } from './Toggle';
 import { NPCPressureInspector } from '../NPCPressureInspector';
 import { buildDefaultDiceSystem } from '../../types';
 import { validateBands } from '../../services/engine/diceTier';
-import type { DieType, OutcomeBand, DiceCategory } from '../../types';
+import { countTokens } from '../../services/infrastructure/tokenizer';
+import {
+    minifyBookkeepingStub,
+    minifySelectedInventory,
+    minifySelectedProfile,
+} from '../../services/turn/contextMinifier';
+import type { DieType, OutcomeBand, DiceCategory, CharacterProfile } from '../../types';
 
 function uid(prefix: string) { return `${prefix}_${Math.random().toString(36).slice(2, 9)}`; }
 
@@ -311,6 +317,8 @@ export function EnginesTab() {
 
             <NPCPressureInspector />
 
+            <BookkeepingBudgetSection />
+
             <button
                 onClick={() => openDivergenceEntry()}
                 className="w-full flex items-center justify-center gap-1.5 text-[10px] uppercase tracking-widest text-amber-400 border border-amber-500/30 rounded py-2 hover:bg-amber-500/10 transition-colors"
@@ -576,6 +584,90 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
                             </button>
                         </div>
                     ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─── Bookkeeping Budget (prompt-budget controls moved out of the old Bookkeeping tab) ─────
+//
+// `TokenGauge` (stub/full token readout), the global Smart Injection ON/OFF
+// (`context.smartBookkeepingActive`), and the Auto-Update interval
+// (`autoBookkeepingInterval` — "scan every N turns") are prompt-budget knobs,
+// not character data, so they live in Engine Tuning. The per-dataset injection
+// toggle that gates a *specific* dataset (`characterProfileActive`) stays
+// glued to its dataset in the Record tab.
+
+const ALL_PROFILE_FIELDS = ['name', 'race', 'class', 'level', 'hp', 'mp', 'stats', 'skills', 'abilities', 'traits', 'notes'];
+
+function BookkeepingBudgetSection() {
+    const context = useAppStore((s) => s.context);
+    const updateContext = useAppStore((s) => s.updateContext);
+    const autoBookkeepingInterval = useAppStore((s) => s.autoBookkeepingInterval);
+    const setAutoBookkeepingInterval = useAppStore((s) => s.setAutoBookkeepingInterval);
+
+    const inventoryItems = useAppStore((s) => s.inventoryItems ?? s.context.inventoryItems ?? []);
+    const characterProfileData = useAppStore((s) => s.characterProfileData ?? s.context.characterProfileData ?? s.context.characterProfile);
+    const [showSettings, setShowSettings] = useState(false);
+
+    const profile = characterProfileData as CharacterProfile;
+    const stub = countTokens(minifyBookkeepingStub(profile, inventoryItems));
+    const full = countTokens(minifySelectedInventory(inventoryItems, ['weapon', 'armor', 'consumable', 'currency', 'key', 'misc', 'equipped']) + '\n' + minifySelectedProfile(profile, ALL_PROFILE_FIELDS));
+
+    return (
+        <div className="space-y-2">
+            <div className="text-[10px] text-amber-400 uppercase tracking-wider font-bold border-b border-amber-500/20 pb-1 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    Bookkeeping Budget
+                </div>
+            </div>
+
+            <div className="bg-void border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                    <button
+                        onClick={() => updateContext({ smartBookkeepingActive: !context.smartBookkeepingActive })}
+                        className={`px-3 py-1.5 text-[10px] uppercase tracking-wider rounded transition-colors border ${
+                            context.smartBookkeepingActive
+                                ? 'bg-terminal/10 border-terminal text-terminal'
+                                : 'bg-void border-border text-text-dim'
+                        }`}
+                    >
+                        {context.smartBookkeepingActive ? 'Smart Injection: ON' : 'Smart Injection: OFF'}
+                    </button>
+                </div>
+
+                <div className="flex items-center justify-between text-[9px] text-text-dim/50">
+                    <span>Stub: {stub}t</span>
+                    <span>Full: ~{full}t</span>
+                </div>
+
+                <div>
+                    <button
+                        onClick={() => setShowSettings(!showSettings)}
+                        className="flex items-center gap-1.5 text-text-dim/60 hover:text-text-primary text-[9px] uppercase tracking-wider transition-colors"
+                    >
+                        {showSettings ? 'Hide' : 'Auto-Update Settings'}
+                    </button>
+                    {showSettings && (
+                        <div className="mt-2 space-y-2">
+                            <div className="flex items-center gap-2">
+                                <label className="text-[9px] text-text-dim/60 uppercase tracking-wider whitespace-nowrap">Scan every N turns:</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={50}
+                                    value={autoBookkeepingInterval}
+                                    onChange={(e) => setAutoBookkeepingInterval(Number(e.target.value))}
+                                    className="w-16 px-2 py-1 bg-void border border-border rounded text-text-primary text-[11px] text-center focus:outline-none focus:border-terminal"
+                                />
+                            </div>
+                            <p className="text-[8px] text-text-dim/40">
+                                Auto-scanned every N turns via background queue.
+                            </p>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
