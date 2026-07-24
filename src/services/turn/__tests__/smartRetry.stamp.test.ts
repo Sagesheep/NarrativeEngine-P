@@ -37,7 +37,6 @@ vi.mock('../../chatEngine', () => ({
 
 vi.mock('../contextGatherer', () => ({
     gatherContext: vi.fn(async () => ({
-        sceneNumber: '042',
         archiveRecall: [{ id: 's1' }],
         recommendedNPCNames: ['Aldric'],
         timelineEvents: [],

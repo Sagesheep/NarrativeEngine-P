@@ -90,15 +90,46 @@ export function divergencePath(id) {
     return path.join(CAMPAIGNS_DIR, `${id}.divergence.json`);
 }
 
+/**
+ * The next free scene number.
+ *
+ * Takes the MAX across BOTH `.archive.md` and `.archive.index.json`, for two
+ * separate reasons.
+ *
+ * Max rather than last: the prose is ascending under normal append-only use, but
+ * an out-of-order merge, restore, or import would make "last" smaller than an
+ * existing scene.
+ *
+ * Both files rather than the prose alone: `appendScene` writes the prose
+ * synchronously and the index entry behind an awaited lock, so an interrupted
+ * append can leave one without the other. Reading only the prose means an
+ * index-only remnant gets its number handed out AGAIN — and a reused id is the
+ * one failure this system cannot absorb, because scene ids are the primary key
+ * for the index, chapters, embeddings, facts, the timeline and the divergence
+ * register, so two scenes sharing an id silently merges their history. Skipping
+ * a number costs a gap in the sequence, which everything already tolerates.
+ */
 export function getNextSceneNumber(id) {
+    let highest = 0;
+
     const fp = archivePath(id);
-    if (!fs.existsSync(fp)) return 1;
-    const content = fs.readFileSync(fp, 'utf-8');
-    const matches = content.match(/^## SCENE (\d+)/gm);
-    if (!matches || matches.length === 0) return 1;
-    const last = matches[matches.length - 1];
-    const num = parseInt(last.replace('## SCENE ', ''), 10);
-    return num + 1;
+    if (fs.existsSync(fp)) {
+        const matches = fs.readFileSync(fp, 'utf-8').match(/^## SCENE (\d+)/gm) || [];
+        for (const m of matches) {
+            const num = parseInt(m.replace('## SCENE ', ''), 10);
+            if (Number.isFinite(num) && num > highest) highest = num;
+        }
+    }
+
+    const idxEntries = readJson(archiveIndexPath(id), []);
+    if (Array.isArray(idxEntries)) {
+        for (const e of idxEntries) {
+            const num = parseInt(e?.sceneId, 10);
+            if (Number.isFinite(num) && num > highest) highest = num;
+        }
+    }
+
+    return highest + 1;
 }
 
 export function createDefaultChapter(chapterId, title, sceneRangeStart, sceneCount = 0) {

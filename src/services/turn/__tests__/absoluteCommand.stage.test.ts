@@ -37,7 +37,6 @@ vi.mock('../pendingCommit', () => ({
 
 vi.mock('../contextGatherer', () => ({
     gatherContext: vi.fn(async () => ({
-        sceneNumber: undefined,
         archiveRecall: undefined,
         recommendedNPCNames: undefined,
         timelineEvents: [],

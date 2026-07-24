@@ -19,6 +19,7 @@ import {
     searchLore,
     getEmbeddingStatus,
     deleteArchiveEmbedding,
+    deleteAllArchiveEmbeddings,
     EMBEDDING_VERSION,
     getDb,
 } from '../lib/vectorStore.js';
@@ -42,6 +43,7 @@ export {
     searchLore,
     getEmbeddingStatus,
     deleteArchiveEmbedding,
+    deleteAllArchiveEmbeddings,
     EMBEDDING_VERSION,
     getDb,
     embedText,

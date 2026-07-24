@@ -38,7 +38,7 @@ import {
     getNextSceneNumber, archivePath, archiveIndexPath, chaptersPath, timelinePath, factsPath, entitiesPath,
 } from './archiveRepository.js';
 import {
-    storeArchiveEmbedding, storeLoreEmbedding, deleteArchiveEmbedding, getEmbeddingStatus,
+    storeArchiveEmbedding, storeLoreEmbedding, deleteArchiveEmbedding, deleteAllArchiveEmbeddings, getEmbeddingStatus,
     EMBEDDING_VERSION, getDb,
     embedText, buildArchiveText, buildLoreText, warmup, embedBatch,
     getActiveDims, getActiveModelId, isModelReady, isJobRunning,
@@ -219,6 +219,12 @@ export function clearArchive(campaignId) {
         timelinePath(campaignId),
     ];
     deleteFiles(files);
+    // Scene vectors are part of the archive. Leaving them behind after a clear
+    // means semantic search keeps returning ids whose prose no longer exists —
+    // `fetchScenesByIds` finds no block for them, so the hit is silently dropped
+    // and the recall budget is spent on nothing. Lore + rules are NOT archive
+    // data and are deliberately untouched.
+    try { deleteAllArchiveEmbeddings(campaignId); } catch (e) { /* non-fatal */ }
     return { ok: true, chaptersCleared: true };
 }
 
@@ -353,6 +359,12 @@ export function rollbackScenesFrom(campaignId, sceneIdParam) {
     const fromId = sceneIdParam.padStart(3, '0');
     const fromNum = parseInt(fromId, 10);
 
+    // Every scene id this rollback removes. Collected from BOTH the prose and
+    // the index (not just one) so a scene present in only one of them — e.g. a
+    // prose-only ghost left by an interrupted append — still gets its vector
+    // dropped below.
+    const removedIds = new Set();
+
     // Trim .archive.md
     if (archiveMdExists(campaignId)) {
         const raw = readArchiveMd(campaignId);
@@ -360,7 +372,9 @@ export function rollbackScenesFrom(campaignId, sceneIdParam) {
         const kept = sceneBlocks.filter(block => {
             const match = block.match(/^## SCENE (\d+)/);
             if (!match) return true;
-            return parseInt(match[1], 10) < fromNum;
+            const n = parseInt(match[1], 10);
+            if (n >= fromNum) { removedIds.add(match[1].padStart(3, '0')); return false; }
+            return true;
         });
         writeArchiveMd(campaignId, kept.join(''));
     }
@@ -369,8 +383,19 @@ export function rollbackScenesFrom(campaignId, sceneIdParam) {
     const idxp = archiveIndexPath(campaignId);
     if (fs.existsSync(idxp)) {
         const entries = readIndexAt(idxp, []);
-        const kept = entries.filter(e => parseInt(e.sceneId, 10) < fromNum);
+        const kept = entries.filter(e => {
+            if (parseInt(e.sceneId, 10) >= fromNum) { removedIds.add(String(e.sceneId).padStart(3, '0')); return false; }
+            return true;
+        });
         writeIndexAt(idxp, kept);
+    }
+
+    // Drop the vectors for every removed scene. `deleteScene` already did this;
+    // rollback never did, so each regenerate/edit left a live vector pointing at
+    // prose that no longer exists. Non-fatal — a stale vector degrades recall,
+    // it does not corrupt anything.
+    for (const id of removedIds) {
+        try { deleteArchiveEmbedding(campaignId, id); } catch (e) { /* non-fatal */ }
     }
 
     // Trim timeline

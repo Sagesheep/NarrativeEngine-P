@@ -1,6 +1,5 @@
 import type { ArchiveChapter, TimelineEvent } from '../../types';
 import type { TurnState } from './turnOrchestrator';
-import { API_BASE as API } from '../../lib/apiBase';
 import { gatherSemanticCandidates } from '../context-gatherer/semanticCandidates';
 import { gatherPlannerSceneIds, gatherArchiveRecall, buildExcludeSceneIds } from '../context-gatherer/archiveRecall';
 import { gatherRecommender } from '../context-gatherer/recommenderGather';
@@ -17,7 +16,6 @@ import type { LoreChunk } from '../../types';
 const STAGE_LABELS: Record<string, string> = {
     'planner': 'Planning search',
     'semantic-candidates': 'Searching memory',
-    'next-scene': 'Assigning scene',
     'archive-recall': 'Recalling scenes',
     'recommender': 'Selecting context',
     'lore-rules': 'Loading lore & rules',
@@ -26,7 +24,6 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 export type GatheredContext = {
-    sceneNumber: string | undefined;
     archiveRecall: import('../../types').ArchiveScene[] | undefined;
     recommendedNPCNames: string[] | undefined;
     timelineEvents: TimelineEvent[];
@@ -93,18 +90,14 @@ export async function gatherContext(
         ? gatherSemanticCandidates(state, signal)
         : Promise.resolve({ semanticArchiveIds: undefined, semanticLoreIds: undefined, semanticRuleIds: undefined }));
 
-    // Scene number (next-scene endpoint) — fire-and-forget, result captured via mutation
-    let sceneNumber: string | undefined;
-    const timelinePromise = timed('next-scene', activeCampaignId
-        ? fetch(`${API}/campaigns/${activeCampaignId}/archive/next-scene`, { signal })
-            .then(async res => {
-                if (res.ok) {
-                    const snData = await res.json();
-                    sceneNumber = snData.sceneId;
-                    console.log(`[Scene Engine] Pre-assigned scene #${sceneNumber}`);
-                }
-            }).catch(() => { /* ignored */ })
-        : Promise.resolve());
+    // The `next-scene` pre-assignment used to run here: a guess at the number the
+    // turn WOULD get, fetched before the turn was written and glued onto the reply
+    // text. The real id is assigned independently by `appendScene` at commit, and
+    // nothing reconciled the two — so anything that changed the archive in between
+    // (an unawaited rollback, a swallowed fetch failure, a restore) left the
+    // displayed number permanently disagreeing with the archived one. The number
+    // now comes from `msg.sceneId` after commit, which is the id the server
+    // actually assigned. Removing this also drops one HTTP round-trip per turn.
 
     // Pinned chapters for recommender (computed before awaiting)
     const pinnedChaptersForRecommender = deps.pinnedChapterIds.length > 0
@@ -145,7 +138,7 @@ export async function gatherContext(
     // Individual calls have their own (tighter) timeouts, so this is just a backstop.
     const CONTEXT_GATHER_TIMEOUT_MS = AI_CALL_TIMEOUT_MS;
     await Promise.race([
-        Promise.all([timelinePromise, archiveRecallPromise, recommenderPromise, loreRulesPromise, plannerPromise, elevationPromise]),
+        Promise.all([archiveRecallPromise, recommenderPromise, loreRulesPromise, plannerPromise, elevationPromise]),
         new Promise<void>((resolve) => setTimeout(() => {
             console.warn('[ContextGatherer] Context gather timeout — proceeding with partial results');
             resolve();
@@ -203,7 +196,6 @@ export async function gatherContext(
     }
 
     return {
-        sceneNumber,
         archiveRecall,
         recommendedNPCNames: recommender.recommendedNPCNames,
         timelineEvents,

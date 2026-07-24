@@ -167,7 +167,26 @@ function buildCommitCallbacks(activeCampaignId: string): TurnCallbacks {
 // Fires runPostTurnPipeline with the visible variant's CURRENT (possibly edited)
 // text. Guards against late swipe results. Reworded failure toast for the
 // commit path. Auto-condense runs here (moved out of the orchestrator onDone).
-export async function commitPendingTurn(): Promise<void> {
+//
+// SINGLE-FLIGHT. Four independent callers reach this — `handleSend`,
+// `setActiveCampaign`, `reconcilePendingCommitOnLaunch` and the Arc Injector —
+// and none of them coordinate. The `pendingCommit` / `swipeSet` markers that
+// gate the early return below are only cleared AFTER `await
+// runPostTurnPipeline`, so two calls overlapping that await both observe a live
+// pending message and both append the SAME turn. That produced a byte-identical
+// duplicate scene pair in a live campaign (024 == 025): one turn, archived
+// twice, retrievable twice by recall, and the scene counter permanently one
+// ahead. Concurrent callers now await the in-flight commit instead of starting
+// a second one.
+let inFlightCommit: Promise<void> | null = null;
+
+export function commitPendingTurn(): Promise<void> {
+    if (inFlightCommit) return inFlightCommit;
+    inFlightCommit = runCommitPendingTurn().finally(() => { inFlightCommit = null; });
+    return inFlightCommit;
+}
+
+async function runCommitPendingTurn(): Promise<void> {
     const snapshot = pendingSnapshot;
     const store = useAppStore.getState();
     const messages = store.messages;

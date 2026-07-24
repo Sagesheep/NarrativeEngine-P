@@ -326,6 +326,17 @@ export function deleteArchiveEmbedding(campaignId, sceneId) {
     db.prepare("DELETE FROM embedding_meta WHERE campaign_id = ? AND item_type = 'scene' AND item_id = ?").run(campaignId, sceneId);
 }
 
+/**
+ * Drop EVERY scene vector for a campaign, leaving lore + rules untouched.
+ * Used by clear-archive, which wipes the prose/index/chapters/timeline but has
+ * no business touching the lore or rules indexes.
+ */
+export function deleteAllArchiveEmbeddings(campaignId) {
+    if (!db) return;
+    db.prepare("DELETE FROM archive_vss WHERE campaign_id = ?").run(campaignId);
+    db.prepare("DELETE FROM embedding_meta WHERE campaign_id = ? AND item_type = 'scene'").run(campaignId);
+}
+
 export function deleteRulesEmbedding(campaignId, ruleId) {
     if (!db) return;
     db.prepare("DELETE FROM rules_vss WHERE campaign_id = ? AND rule_id = ?").run(campaignId, ruleId);
