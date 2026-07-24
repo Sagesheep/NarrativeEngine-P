@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
+import { normalizeRelations } from '../../services/npc/relationDedupe';
 import { toast } from '../../components/Toast';
 import { debouncedSaveSettings } from './settingsSlice';
 import {
@@ -162,7 +163,7 @@ export function debouncedSaveLocationLedger(campaignId: string | null, locations
  *   Rule 2: First-name-only entry matches a full-name entry -> keep the fuller/newer entry
  *   Rule 3: Same first name but different last names -> do NOT touch
  */
-export function dedupeNPCLedger(ledger: NPCEntry[]): NPCEntry[] {
+export function dedupeNPCLedger(ledger: NPCEntry[], pcId?: string): NPCEntry[] {
     const removeIndices = new Set<number>();
 
     for (let i = 0; i < ledger.length; i++) {
@@ -208,7 +209,14 @@ export function dedupeNPCLedger(ledger: NPCEntry[]): NPCEntry[] {
         console.log(`[NPC Dedup] Removed ${removeIndices.size} duplicate(s) from ledger`);
     }
 
-    return ledger.filter((_, idx) => !removeIndices.has(idx));
+    const filtered = ledger.filter((_, idx) => !removeIndices.has(idx));
+    return filtered.map(npc => {
+        if (npc.relations && Object.keys(npc.relations).length > 0) {
+            const normalized = normalizeRelations(npc.relations, filtered, pcId);
+            return { ...npc, relations: normalized };
+        }
+        return npc;
+    });
 }
 
 // ── Default context ────────────────────────────────────────────────────
@@ -473,19 +481,26 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         return { npcLedger: npcs };
     }),
     addNPC: (npc) => set((s) => {
+        const pcId = s.playerCharacter?.id;
         const withNew = [...s.npcLedger, npc];
-        const deduped = dedupeNPCLedger(withNew);
+        const deduped = dedupeNPCLedger(withNew, pcId);
         debouncedSaveNPCLedger(s.activeCampaignId, deduped);
         return { npcLedger: deduped };
     }),
     addNPCs: (newNpcs) => set((s) => {
+        const pcId = s.playerCharacter?.id;
         const withNew = [...s.npcLedger, ...newNpcs];
-        const deduped = dedupeNPCLedger(withNew);
+        const deduped = dedupeNPCLedger(withNew, pcId);
         debouncedSaveNPCLedger(s.activeCampaignId, deduped);
         return { npcLedger: deduped };
     }),
     updateNPC: (id, patch) => set((s) => {
-        const newLedger = s.npcLedger.map(n => n.id === id ? { ...n, ...patch } : n);
+        const pcId = s.playerCharacter?.id;
+        let nextPatch = patch;
+        if (patch.relations && Object.keys(patch.relations).length > 0) {
+            nextPatch = { ...patch, relations: normalizeRelations(patch.relations, s.npcLedger, pcId) };
+        }
+        const newLedger = s.npcLedger.map(n => n.id === id ? { ...n, ...nextPatch } : n);
         debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
         return { npcLedger: newLedger };
     }),

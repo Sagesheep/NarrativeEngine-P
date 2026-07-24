@@ -4,6 +4,7 @@ import { sendMessageAndParseJson, sanitizeSignatureKit } from './shared';
 import { relationBand, describeHex } from '../npc/agency/agencyBands';
 import { hexDelta } from '../npc/agency/agencyDrift';
 import { applyRelationTone, isRelationTone } from '../npc/relationMeter';
+import { normalizeRelations } from '../npc/relationDedupe';
 
 // Mirrors the private descriptor in mobile npcGeneration.ts. Used only for read-only legacy
 // display in the LLM context block (so the model understands pre-migration NPCs without us
@@ -48,7 +49,7 @@ export async function updateExistingNPCs(
             ? `${relationBand(npc.pcRelation)} (${npc.pcRelation >= 0 ? '+' : ''}${npc.pcRelation})`
             : (npc.affinity !== undefined ? `${legacyAffinityDescriptor(npc.affinity)} (${npc.affinity}/100 legacy)` : 'Neutral (0)');
 
-        let data = `[NPC: ${npc.name}]\n` +
+        let data = `[NPC: ${npc.name}] (ID: ${npc.id})\n` +
             `Status: ${npc.status || 'Alive'}\n` +
             `Appearance: ${npc.appearance || 'Unknown'}\n` +
             `Disposition: ${npc.disposition || 'Unknown'}\n` +
@@ -139,7 +140,7 @@ PERSONALITY HEX DRIFT (the headline of "updates"):
   - NEVER re-emit the full 6-axis hexagon. NEVER send absolute axis values as if setting them.
 
 RELATIONS:
-  - "relations" is a sparse NPC→character edge map (target NPC or Player Character id → -3..+3). Shallow-merge only;
+  - "relations" is a sparse NPC→character edge map (target character ID or name → -3..+3). Shallow-merge only;
     never wholesale replace. Add or adjust specific edges that shifted this scene.
 
 WANTS UPDATE RULES:
@@ -316,12 +317,14 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
                         delete (changes as Partial<NPCEntry>).personalityHex;
                     }
 
-                    // WO-05 §B — relations: sparse edge add/update, shallow-merge into existing.
+                    // WO-05 §B — relations: sparse edge add/update, normalized to canonical IDs and shallow-merged into existing.
                     if (changes.relations !== undefined && changes.relations !== null
                         && typeof changes.relations === 'object') {
                         const existing = targetNpc.relations ?? {};
                         const incoming = changes.relations as RelationGraph;
-                        changes.relations = { ...existing, ...incoming };
+                        const normalizedIncoming = normalizeRelations(incoming, npcsToCheck);
+                        const merged = { ...existing, ...normalizedIncoming };
+                        changes.relations = normalizeRelations(merged, npcsToCheck);
                     }
 
                     // Wants — the model may revise medium/long ambition text only. `short` is

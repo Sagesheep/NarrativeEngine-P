@@ -481,7 +481,7 @@ export function buildWorld(opts: {
                 for (let j = 0; j < present.length; j++) {
                     if (i === j) continue;
                     const a = present[i], b = present[j];
-                    const r = a.relations?.[b.name];
+                    const r = a.relations?.[b.id];
                     if (typeof r === 'number' && r !== 0) {
                         relationLines.push(`${a.name}\u2192${b.name}: ${r > 0 ? '+' : ''}${r}`);
                     }
