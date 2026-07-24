@@ -15,6 +15,7 @@ import { NPCGalleryView } from './npc-ledger/NPCGalleryView';
 import { NPCEditForm } from './npc-ledger/NPCEditForm';
 import { NPCSuggestionsPanel } from './npc-ledger/NPCSuggestionsPanel';
 import { NPCReviewModal } from './NPCReviewModal';
+import { ImportChoiceDialog } from './npc-ledger/ImportChoiceDialog';
 import { useNpcReview } from './hooks/useNpcReview';
 import { useNpcPortraits } from './hooks/useNpcPortraits';
 
@@ -244,34 +245,12 @@ export function NPCLedgerModal() {
                 <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
 
                 {pendingImport && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-void/80 backdrop-blur-sm p-4" onClick={() => setPendingImport(null)}>
-                        <div className="w-full max-w-md bg-surface border border-border rounded-lg shadow-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
-                            <div className="flex items-center gap-2 text-terminal font-bold uppercase tracking-widest text-sm">
-                                <Upload size={16} /> Import {pendingImport.length} NPC{pendingImport.length > 1 ? 's' : ''}
-                            </div>
-                            <p className="text-xs text-text-dim leading-relaxed">
-                                These NPCs carry story details from their origin campaign (plot hooks, immediate goals,
-                                factions, relationships). Choose how to bring them across:
-                            </p>
-                            <div className="space-y-2">
-                                <button onClick={() => commitImport('full')} className="w-full text-left p-3 border border-border rounded hover:border-terminal hover:bg-terminal/5 transition-colors">
-                                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-text-primary"><Users size={13} /> Full import</div>
-                                    <div className="text-[11px] text-text-dim mt-1">Keep everything verbatim. Origin-campaign details may surface in the story.</div>
-                                </button>
-                                <button onClick={() => commitImport('strip')} className="w-full text-left p-3 border border-border rounded hover:border-terminal hover:bg-terminal/5 transition-colors">
-                                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-text-primary"><Trash2 size={13} /> Strip plot</div>
-                                    <div className="text-[11px] text-text-dim mt-1">Clean local NPC: keeps appearance, voice, personality, skills &amp; ambitions; drops plot hooks, immediate goals, factions, region &amp; relationships.</div>
-                                </button>
-                                <button onClick={() => commitImport('isekai')} className="w-full text-left p-3 border border-amber-500/40 rounded hover:border-amber-400 hover:bg-amber-500/10 transition-colors">
-                                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber-400"><Sparkles size={13} /> Isekai</div>
-                                    <div className="text-[11px] text-text-dim mt-1">Full import + transmigration framing: the GM treats their old memories as past-life recollections from another world.</div>
-                                </button>
-                            </div>
-                            <button onClick={() => setPendingImport(null)} className="w-full py-1.5 text-[11px] uppercase tracking-wider text-text-dim hover:text-text-primary transition-colors">
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
+                    <ImportChoiceDialog
+                        count={pendingImport.length}
+                        label="NPC"
+                        onChoose={commitImport}
+                        onCancel={() => setPendingImport(null)}
+                    />
                 )}
 
                 {/* Left Sidebar */}

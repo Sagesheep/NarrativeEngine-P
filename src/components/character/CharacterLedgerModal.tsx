@@ -1,11 +1,17 @@
-import { useEffect, useState } from 'react';
-import { X, UserCircle, FileText, ScrollText, Package, BarChart3 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { X, UserCircle, FileText, ScrollText, Package, BarChart3, Upload, Download } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { SheetTab } from './tabs/SheetTab';
 import { RecordTab } from './tabs/RecordTab';
 import { InventoryTab } from './tabs/InventoryTab';
 import { StatsTab } from './tabs/StatsTab';
 import { AIGuidedCreationWizard } from './AIGuidedCreationWizard';
+import { ImportChoiceDialog } from '../npc-ledger/ImportChoiceDialog';
+import { prepareImportedNpcs, type NpcImportMode } from '../../services/npc/importTransform';
+import { buildCharacterExportData, buildCharacterExportFilename } from '../../services/npc/characterExport';
+import { toast } from '../Toast';
+import { uid } from '../../utils/uid';
+import type { NPCEntry, PlayerCharacter } from '../../types';
 
 type LedgerTab = 'sheet' | 'record' | 'inventory' | 'stats';
 
@@ -35,9 +41,14 @@ const TABS: { key: LedgerTab; Icon: typeof FileText; label: string }[] = [
 export function CharacterLedgerModal() {
     const pcPanelOpen = useAppStore((s) => s.pcPanelOpen);
     const togglePCPanel = useAppStore((s) => s.togglePCPanel);
+    const playerCharacter = useAppStore((s) => s.playerCharacter);
+    const setPlayerCharacter = useAppStore((s) => s.setPlayerCharacter);
 
     const [activeTab, setActiveTab] = useState<LedgerTab>('sheet');
     const [guidedMode, setGuidedMode] = useState(false);
+    const importRef = useRef<HTMLInputElement>(null);
+    // Parsed-but-not-yet-committed import, awaiting the user's mode choice.
+    const [pendingImport, setPendingImport] = useState<Partial<PlayerCharacter>[] | null>(null);
     // Reset to the Sheet tab whenever the modal opens. Render-phase set
     // pattern (mirrors the prior PCPanelModal's form-sync-on-open) avoids
     // the set-state-in-effect lint error and the stale-tab carryover.
@@ -60,20 +71,92 @@ export function CharacterLedgerModal() {
 
     if (!pcPanelOpen) return null;
 
+    // ── Import / Export ──────────────────────────────────────────────────
+    // Reuses the NPC Ledger's cross-campaign import transform verbatim: a
+    // PlayerCharacter IS an NPCEntry (src/types/gamecontext.ts), so the same
+    // Full/Strip/Isekai handling applies without a parallel implementation.
+    const handleExport = () => {
+        if (!playerCharacter) return;
+        const exportData = buildCharacterExportData(playerCharacter);
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = buildCharacterExportFilename(playerCharacter.name);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const parsed = JSON.parse(ev.target?.result as string);
+                if (!Array.isArray(parsed)) { alert('Invalid format: expected a JSON array.'); return; }
+                if (parsed.length === 0) { alert('That file contains no characters.'); return; }
+                // Defer insertion until the user picks an import mode (Full / Strip / Isekai).
+                setPendingImport(parsed as Partial<PlayerCharacter>[]);
+            } catch { alert('Failed to parse JSON file. Please check the file format.'); }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    };
+
+    const commitImport = (mode: NpcImportMode) => {
+        if (!pendingImport) return;
+        // PC is singular — only the first entry of the imported array is used.
+        const [pc] = prepareImportedNpcs(pendingImport as Partial<NPCEntry>[], mode, uid);
+        if (!pc) { setPendingImport(null); return; }
+        if (playerCharacter && !window.confirm(`Replace your current character "${playerCharacter.name}"?`)) {
+            return;
+        }
+        setPlayerCharacter(pc);
+        setPendingImport(null);
+        toast.success(`Imported character "${pc.name}".`);
+    };
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-void/80 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="Character Ledger" onClick={togglePCPanel}>
             <div
-                className="bg-surface border border-border shadow-2xl rounded-lg w-full max-w-4xl max-h-[88vh] flex flex-col overflow-hidden transition-[max-width] duration-200"
+                className="bg-surface border border-border shadow-2xl rounded-lg w-full max-w-4xl max-h-[88vh] flex flex-col overflow-hidden transition-[max-width] duration-200 relative"
                 style={guidedMode ? { maxWidth: 1200 } : undefined}
                 onClick={e => e.stopPropagation()}
             >
+                {/* Hidden import input lives INSIDE the stopPropagation container. If it sat
+                    on the backdrop, importRef.current.click() would bubble a click to the
+                    overlay's onClick={togglePCPanel}, closing the modal and unmounting the
+                    input before the OS file dialog resolved — so onChange never fired.
+                    (Same bug class just fixed in NPCLedgerModal — do not reintroduce it.) */}
+                <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
+
+                {pendingImport && (
+                    <ImportChoiceDialog
+                        count={pendingImport.length}
+                        label="character"
+                        onChoose={commitImport}
+                        onCancel={() => setPendingImport(null)}
+                    />
+                )}
+
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-2 text-terminal font-bold uppercase tracking-widest text-sm">
                         <UserCircle size={16} /> CHARACTER LEDGER
                     </div>
-                    <button onClick={togglePCPanel} className="text-text-dim hover:text-text-bright transition-colors text-lg leading-none" aria-label="Close">
-                        <X size={18} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => importRef.current?.click()} title="Import character from JSON" className="flex items-center gap-1 py-1 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors">
+                            <Upload size={12} /> Import
+                        </button>
+                        <button onClick={handleExport} disabled={!playerCharacter} title="Export character to JSON" className="flex items-center gap-1 py-1 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                            <Download size={12} /> Export
+                        </button>
+                        <button onClick={togglePCPanel} className="text-text-dim hover:text-text-bright transition-colors text-lg leading-none" aria-label="Close">
+                            <X size={18} />
+                        </button>
+                    </div>
                 </div>
 
                 {guidedMode ? (
