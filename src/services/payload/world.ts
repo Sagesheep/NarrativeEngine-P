@@ -4,7 +4,7 @@ import { buildDriftAlert, buildKnowledgeBoundary, buildReactionMenuLine } from '
 import { relationBand, describeHex } from '../npc/agency/agencyBands';
 import { minifyLoreChunk, minifyNPC } from '../turn/contextMinifier';
 import { resolveTimeline, formatResolvedForContext } from '../campaign-state/timelineResolver';
-import { renderRegisterForPayload } from '../campaign-state/divergenceRegister';
+import { isFactActive, renderRegisterForPayload } from '../campaign-state/divergenceRegister';
 import { isKnownToAnyOnStage, parseKnownByToken } from '../campaign-state/knowledgeScope';
 import { dedupElevatedScenes, type ElevatedScene } from '../archive-memory/dynamicElevation';
 import { renderSlottedRagBlock, type SlottedRagSnippet } from '../archive-memory/slottedRag';
@@ -511,6 +511,7 @@ export function buildWorld(opts: {
         const ledger = npcLedger ?? [];
         const isActive = (e: DivergenceEntry): boolean => {
             if (e.enabled === false) return false;
+            if (!isFactActive(e)) return false;
             if (e.pinned) return true;
             const chapterOn = divergenceRegister.chapterToggles[e.chapterId] !== false;
             if (!chapterOn) return false;

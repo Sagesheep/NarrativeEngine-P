@@ -15,6 +15,7 @@ import {
     stripReasoning,
     mergeSealEntries,
     renderRegisterForPayload,
+    mergeLifecycleEntries,
     getDivergenceSceneIds,
     toggleChapter,
     toggleCategory,
@@ -137,6 +138,55 @@ describe('divergenceRegister v2', () => {
     });
 
     describe('renderRegisterForPayload', () => {
+    describe('mergeLifecycleEntries', () => {
+        it('supersedes only an active, unpinned fact in the exact same state slot', () => {
+            const previous = makeEntry({
+                id: 'div_mira_key',
+                text: 'Mira holds the Moon Key',
+                stateKey: 'item:moon-key:holder',
+            });
+            const replacement = makeEntry({
+                id: 'div_kaelen_key',
+                text: 'Kaelen holds the Moon Key',
+                stateKey: 'item:moon-key:holder',
+                supersedesFactId: 'div_mira_key',
+            });
+
+            const merged = mergeLifecycleEntries(makeRegister({ entries: [previous] }), [replacement], '025');
+
+            expect(merged.entries).toHaveLength(2);
+            expect(merged.entries[0]).toMatchObject({ status: 'superseded', supersededBy: 'div_kaelen_key' });
+            expect(merged.entries[1]).toMatchObject({ status: 'active', stateKey: 'item:moon-key:holder' });
+            expect(merged.entries[1].supersedesFactId).toBeUndefined();
+        });
+
+        it('keeps an uncertain replacement additive', () => {
+            const previous = makeEntry({
+                id: 'div_mira_key',
+                stateKey: 'item:moon-key:holder',
+            });
+            const replacement = makeEntry({
+                id: 'div_other',
+                stateKey: 'item:other-key:holder',
+                supersedesFactId: 'div_mira_key',
+            });
+
+            const merged = mergeLifecycleEntries(makeRegister({ entries: [previous] }), [replacement], '025');
+
+            expect(merged.entries[0].status).toBeUndefined();
+            expect(merged.entries[1].status).toBe('active');
+        });
+
+        it('never automatically supersedes a pinned fact', () => {
+            const previous = makeEntry({ id: 'div_pinned', pinned: true, stateKey: 'npc:npc_1:status' });
+            const replacement = makeEntry({ id: 'div_new', stateKey: 'npc:npc_1:status', supersedesFactId: 'div_pinned' });
+
+            const merged = mergeLifecycleEntries(makeRegister({ entries: [previous] }), [replacement], '025');
+
+            expect(merged.entries[0].status).toBeUndefined();
+            expect(merged.entries[1].status).toBe('active');
+        });
+    });
         it('returns empty string for empty register', () => {
             expect(renderRegisterForPayload(EMPTY_REGISTER)).toBe('');
         });

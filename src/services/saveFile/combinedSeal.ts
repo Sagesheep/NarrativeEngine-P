@@ -3,7 +3,7 @@ import { countTokens } from '../infrastructure/tokenizer';
 import { extractJson } from '../infrastructure/jsonExtract';
 import { llmCall } from '../../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
-import { DIVERGENCE_CATEGORIES, CATEGORY_DEFINITIONS, coerceCategory } from '../campaign-state/divergenceRegister';
+import { DIVERGENCE_CATEGORIES, CATEGORY_DEFINITIONS, coerceCategory, isFactActive, isValidStateKey } from '../campaign-state/divergenceRegister';
 import { uid } from '../../utils/uid';
 import { truncateScenesToBudget } from './shared';
 import { parseChapterSummaryOutput } from './chapterSummary';
@@ -27,7 +27,8 @@ function buildCombinedSealPrompt(
     chapterTitle: string,
     sceneIds: string[],
     npcLedger: { id: string; name: string; aliases: string }[],
-    indexEntries?: { sceneId: string; witnesses?: string[] }[]
+    indexEntries?: { sceneId: string; witnesses?: string[] }[],
+    activeStateFacts: DivergenceEntry[] = [],
 ): string {
     const truncated = truncateScenesToBudget(scenes, COMBINED_SEAL_TOKEN_BUDGET);
     const sceneContent = truncated.map(s => `--- SCENE ${s.sceneId} ---\n${s.content}`).join('\n\n');
@@ -35,8 +36,18 @@ function buildCombinedSealPrompt(
     const npcList = npcLedger.map(n =>
         `- ${n.name} (id: ${n.id}${n.aliases ? ', also known as: ' + n.aliases : ''})`
     ).join('\n');
+    const activeStateFactsText = activeStateFacts
+        .filter(f => isFactActive(f) && isValidStateKey(f.stateKey))
+        .slice(-40)
+        .map(f => `[ID: ${f.id}] [STATE: ${f.stateKey}] ${f.text}`)
+        .join('\n');
+    const stateCandidatesSection = activeStateFactsText
+        ? `\nCURRENT STATE FACTS (only these IDs may be superseded):\n${activeStateFactsText}\n`
+        : '';
+
 
     const divergenceSlots = DIVERGENCE_CATEGORIES.filter(c => c !== 'misc').map(c =>
+
         `### ${c.toUpperCase()}\nDefinition: ${CATEGORY_DEFINITIONS[c]}\nOutput: JSON array for this slot, or [] if empty.`
     ).join('\n\n');
 
@@ -74,6 +85,7 @@ SCENE IDs IN THIS CHAPTER: ${sceneIds.join(', ')}
 NPC LEDGER (resolve names to IDs):
 ${npcList || '(no NPCs in ledger)'}
 
+${stateCandidatesSection}
 SCENE CONTENT:
 ${sceneContent}
 ${witnessAuditSection}
@@ -158,6 +170,13 @@ DIVERGENCE EXTRACTION RULES:
 - knownBy: list the NPC ledger IDs of witnesses who SAW or PARTICIPATED in this event. Only include NPCs who were present when the fact happened. Omit this field for rules_lore and locations (those are broadcast knowledge). If unsure, omit knownBy.
 - Focus on: permanent changes, new information, relationship shifts, acquisitions, losses, oaths, regime changes.
 - Skip transient details, emotional narration, momentary states, and anything the archive would already surface.
+- For a fact with exactly one current value, you MAY add 'stateKey' using only:
+  'item:<slug>:holder', 'npc:<id>:location', 'npc:<id>:status',
+  'npc:<id>:allegiance', 'place:<slug>:controller', or 'debt:<slug>:status'.
+- Events and observations MUST omit stateKey.
+- To replace a listed CURRENT STATE FACT, set 'supersedesFactId' to its ID and use
+  the exact same stateKey. Never supersede a fact not listed above.
+- If uncertain, omit both fields and emit an additive fact.
 - If a slot is empty, output [] for that slot.
 
 SUMMARY RULES:
@@ -291,6 +310,11 @@ export function parseCombinedSealOutput(
                     knownBy = undefined;
                 }
 
+                const rawStateKey = rawItem.stateKey;
+                const stateKey = isValidStateKey(rawStateKey) ? rawStateKey : undefined;
+                const supersedesFactId = stateKey && typeof rawItem.supersedesFactId === 'string'
+                    ? rawItem.supersedesFactId
+                    : undefined;
                 entries.push({
                     id: `div_${uid()}`,
                     chapterId,
@@ -300,6 +324,8 @@ export function parseCombinedSealOutput(
                     npcIds: resolvedNpcIds,
                     knownBy,
                     pinned: false,
+                    stateKey,
+                    supersedesFactId,
                     source: 'auto',
                     reviewFlag: hasReviewFlag || undefined,
                     unrecognizedNpcNames: stillUnrecognized.length > 0 ? stillUnrecognized : undefined,
@@ -367,10 +393,11 @@ export async function sealChapterCombined(
     npcLedger: { id: string; name: string; aliases: string }[],
     maxRetries = 2,
     scanBudget = 0,
-    indexEntries?: { sceneId: string; witnesses?: string[] }[]
+    indexEntries?: { sceneId: string; witnesses?: string[] }[],
+    activeStateFacts: DivergenceEntry[] = [],
 ): Promise<CombinedSealResult> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        const prompt = buildCombinedSealPrompt(scenes, chapterTitle, sceneIds, npcLedger, indexEntries);
+        const prompt = buildCombinedSealPrompt(scenes, chapterTitle, sceneIds, npcLedger, indexEntries, activeStateFacts);
         const label = attempt === 0 ? '' : ' (retry)';
 
         console.log(`[CombinedSeal] Generating summary + divergences${label}...`, {

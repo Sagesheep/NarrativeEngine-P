@@ -23,6 +23,15 @@ export type DivergenceEntry = {
     // Stable snake_case subject slug shared by ALL facts about the same subject
     // (e.g. "alex_chen.identity"). The scene number is the version axis. undefined = ungrouped.
     subjectToken?: string;
+    /** Old campaigns omit this field and therefore remain active. */
+    status?: 'active' | 'superseded' | 'retracted';
+    supersededBy?: string;
+    /** Narrow deterministic state slot, e.g. `item:moon-key:holder`. */
+    stateKey?: string;
+    /** Source message when a fact was extracted or entered from one message. */
+    sourceMessageId?: string;
+    /** Extraction-only instruction; mergeSealEntries consumes and does not persist it. */
+    supersedesFactId?: string;
     pinned: boolean;
     enabled?: boolean;
     source: 'auto' | 'manual';

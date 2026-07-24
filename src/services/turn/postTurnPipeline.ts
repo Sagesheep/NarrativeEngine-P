@@ -16,7 +16,7 @@ import { scanInventory } from '../inventoryParser';
 import { mergeLocationScanLedger, scanLocation } from '../locationParser';
 import { resolveLocationHeader } from '../locationHeader';
 import { toast } from '../../components/Toast';
-import { mergeSealEntries, EMPTY_REGISTER } from '../campaign-state/divergenceRegister';
+import { mergeLifecycleEntries, EMPTY_REGISTER } from '../campaign-state/divergenceRegister';
 import { saveDivergenceRegister } from '../../store/campaignStore';
 import { tierAllows, NPC_UPDATE_COOLDOWN } from './aiTier';
 
@@ -588,7 +588,8 @@ export async function runCombinedSeal(
         npcData,
         2,
         effectiveScanBudget,
-        indexEntries.length > 0 ? indexEntries : undefined
+        indexEntries.length > 0 ? indexEntries : undefined,
+        sealInputs.divergenceRegister.entries,
     );
 
     if (result.divergenceParseError && !result.summary && !result.divergences.length) {
@@ -619,7 +620,7 @@ export async function runCombinedSeal(
         const currentSceneId = sceneIds[sceneIds.length - 1] ?? '';
         // WO-P1-03: was `useAppStore.getState().divergenceRegister ?? EMPTY_REGISTER` (the :546 read).
         const liveRegister = sealInputs.divergenceRegister;
-        const merged = mergeSealEntries(liveRegister, result.divergences, currentSceneId);
+        const merged = mergeLifecycleEntries(liveRegister, result.divergences, currentSceneId);
         callbacks.setDivergenceRegister?.(merged);
 
         try {
