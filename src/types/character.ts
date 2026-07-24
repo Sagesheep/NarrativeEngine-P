@@ -252,6 +252,9 @@ export type NPCEntry = {
     fieldTags?: Partial<Record<string, import('./archive').SceneEventType[]>>;
     // ---- AI Tier gating: last scene this NPC received an LLM profile update ----
     lastUpdateScene?: number;
+    // ---- Cross-campaign import: NPC brought from another campaign under "isekai" mode.
+    // Origin-campaign memories are framed (in storyRelevance) as past-life recollections. ----
+    transmigrated?: boolean;
 };
 
 // ---- NPC Agency (Phase 1: schema only — no dice/heat/karma/tick logic) ----

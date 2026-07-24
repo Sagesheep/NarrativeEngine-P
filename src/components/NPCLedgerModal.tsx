@@ -7,6 +7,7 @@ import type { NPCEntry, NPCVisualProfile } from '../types';
 import { DEFAULT_VISUAL_PROFILE } from '../types';
 import { toast } from './Toast';
 import { uid } from '../utils/uid';
+import { prepareImportedNpcs, type NpcImportMode } from '../services/npc/importTransform';
 import { filterNPCs, type SortOrder } from '../utils/ledgerFilters';
 
 import { NPCListView } from './npc-ledger/NPCListView';
@@ -30,6 +31,8 @@ export function NPCLedgerModal() {
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<SortOrder>('none');
     const importRef = useRef<HTMLInputElement>(null);
+    // Parsed-but-not-yet-committed import, awaiting the user's mode choice.
+    const [pendingImport, setPendingImport] = useState<Partial<NPCEntry>[] | null>(null);
 
     const displayedNPCs = useMemo(() => filterNPCs(npcLedger, searchQuery, sortOrder), [npcLedger, searchQuery, sortOrder]);
 
@@ -136,23 +139,21 @@ export function NPCLedgerModal() {
             try {
                 const parsed = JSON.parse(ev.target?.result as string);
                 if (!Array.isArray(parsed)) { alert('Invalid format: expected a JSON array of NPCs.'); return; }
-                const imported: NPCEntry[] = parsed.map((entry: Partial<NPCEntry>) => ({
-                    ...entry, id: uid(), name: entry.name || 'Unknown',
-                    aliases: entry.aliases || '', appearance: entry.appearance || '',
-                    faction: entry.faction || '', storyRelevance: entry.storyRelevance || '',
-                    disposition: entry.disposition || '', status: entry.status || 'Alive',
-                    goals: entry.goals || '',
-                    voice: entry.voice ?? '',
-                    personality: entry.personality ?? entry.disposition ?? '',
-                    exampleOutput: entry.exampleOutput ?? '',
-                    affinity: entry.affinity ?? 50,
-                }));
-                addNPCs(imported);
-                alert(`Imported ${imported.length} NPC(s) successfully.`);
+                if (parsed.length === 0) { alert('That file contains no NPCs.'); return; }
+                // Defer insertion until the user picks an import mode (Full / Strip / Isekai).
+                setPendingImport(parsed as Partial<NPCEntry>[]);
             } catch { alert('Failed to parse JSON file. Please check the file format.'); }
         };
         reader.readAsText(file);
         e.target.value = '';
+    };
+
+    const commitImport = (mode: NpcImportMode) => {
+        if (!pendingImport) return;
+        const imported = prepareImportedNpcs(pendingImport, mode, uid);
+        addNPCs(imported);
+        setPendingImport(null);
+        toast.success(`Imported ${imported.length} NPC(s).`);
     };
 
     const handleSeedFromLore = () => {
@@ -235,9 +236,43 @@ export function NPCLedgerModal() {
     // ── Render ────────────────────────────────────────────────────────────
     return (
         <div className="fixed inset-0 z-50 flex flex-col bg-void/95 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="NPC Ledger" onClick={toggleNPCLedger}>
-            <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
+            <div className="relative bg-surface border border-border flex flex-col sm:flex-row w-full h-full overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                {/* Hidden import input lives INSIDE the stopPropagation container. If it sat
+                    on the backdrop, importRef.current.click() would bubble a click to the
+                    overlay's onClick={toggleNPCLedger}, closing the modal and unmounting the
+                    input before the OS file dialog resolved — so onChange never fired. */}
+                <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
 
-            <div className="bg-surface border border-border flex flex-col sm:flex-row w-full h-full overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                {pendingImport && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-void/80 backdrop-blur-sm p-4" onClick={() => setPendingImport(null)}>
+                        <div className="w-full max-w-md bg-surface border border-border rounded-lg shadow-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-2 text-terminal font-bold uppercase tracking-widest text-sm">
+                                <Upload size={16} /> Import {pendingImport.length} NPC{pendingImport.length > 1 ? 's' : ''}
+                            </div>
+                            <p className="text-xs text-text-dim leading-relaxed">
+                                These NPCs carry story details from their origin campaign (plot hooks, immediate goals,
+                                factions, relationships). Choose how to bring them across:
+                            </p>
+                            <div className="space-y-2">
+                                <button onClick={() => commitImport('full')} className="w-full text-left p-3 border border-border rounded hover:border-terminal hover:bg-terminal/5 transition-colors">
+                                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-text-primary"><Users size={13} /> Full import</div>
+                                    <div className="text-[11px] text-text-dim mt-1">Keep everything verbatim. Origin-campaign details may surface in the story.</div>
+                                </button>
+                                <button onClick={() => commitImport('strip')} className="w-full text-left p-3 border border-border rounded hover:border-terminal hover:bg-terminal/5 transition-colors">
+                                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-text-primary"><Trash2 size={13} /> Strip plot</div>
+                                    <div className="text-[11px] text-text-dim mt-1">Clean local NPC: keeps appearance, voice, personality, skills &amp; ambitions; drops plot hooks, immediate goals, factions, region &amp; relationships.</div>
+                                </button>
+                                <button onClick={() => commitImport('isekai')} className="w-full text-left p-3 border border-amber-500/40 rounded hover:border-amber-400 hover:bg-amber-500/10 transition-colors">
+                                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber-400"><Sparkles size={13} /> Isekai</div>
+                                    <div className="text-[11px] text-text-dim mt-1">Full import + transmigration framing: the GM treats their old memories as past-life recollections from another world.</div>
+                                </button>
+                            </div>
+                            <button onClick={() => setPendingImport(null)} className="w-full py-1.5 text-[11px] uppercase tracking-wider text-text-dim hover:text-text-primary transition-colors">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 {/* Left Sidebar */}
                 <div className="w-full sm:w-1/3 md:w-96 lg:w-[420px] border-b sm:border-b-0 sm:border-r border-border flex flex-col bg-void-lighter max-h-[40vh] sm:max-h-none shrink-0">
