@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../../store/useAppStore';
@@ -8,6 +8,18 @@ import { toast } from '../../Toast';
 import { PCEditForm } from '../PCEditForm';
 import { useNpcPortraits } from '../../hooks/useNpcPortraits';
 import { uid } from '../../../utils/uid';
+
+/**
+ * Imperative handle exposed to the Character Ledger host so it can guard the
+ * modal's close paths (backdrop click, Escape, X button) against un-saved
+ * Sheet-tab edits. The Sheet tab still owns the form state; the host just
+ * asks "is it dirty?" and "please save / discard" before closing.
+ */
+export interface SheetTabHandle {
+    isDirty: () => boolean;
+    save: () => boolean;
+    discard: () => void;
+}
 
 /**
  * Character Ledger — Sheet tab.
@@ -26,7 +38,7 @@ import { uid } from '../../../utils/uid';
  * identity (the persona block sources from `characterProfile`; the kit line
  * sources from `playerCharacter.signatureKit`).
  */
-export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: () => void }) {
+export const SheetTab = forwardRef<SheetTabHandle, { onStartGuidedCreation?: () => void }>(function SheetTab({ onStartGuidedCreation }, ref) {
     const {
         playerCharacter,
         setPlayerCharacter,
@@ -74,7 +86,7 @@ export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: ()
         }
     }
 
-    const mirrorName = (name: string) => {
+    const mirrorName = useCallback((name: string) => {
         const profile: CharacterProfileState = context.characterProfile ?? { identity: {}, activeTraits: [] };
         updateContext({
             characterProfileActive: true,
@@ -86,12 +98,12 @@ export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: ()
         if (characterProfileData) {
             setCharacterProfileData({ ...characterProfileData, name });
         }
-    };
+    }, [context, characterProfileData, updateContext, setCharacterProfileData]);
 
-    const handleSave = () => {
+    const handleSave = useCallback((): boolean => {
         if (!form.name?.trim()) {
             toast.error('Your character needs a name.');
-            return;
+            return false;
         }
         if (playerCharacter) {
             updatePlayerCharacter(form as PlayerCharacter);
@@ -107,9 +119,10 @@ export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: ()
         mirrorName(form.name.trim());
         setIsEditing(false);
         toast.success(playerCharacter ? 'Character updated.' : `Character "${form.name.trim()}" created!`);
-    };
+        return true;
+    }, [form, playerCharacter, mirrorName, updatePlayerCharacter, setPlayerCharacter]);
 
-    const handleCancel = () => {
+    const handleDiscard = useCallback(() => {
         if (playerCharacter) {
             setForm({ ...playerCharacter });
             setIsEditing(false);
@@ -121,8 +134,27 @@ export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: ()
                 tier: 'recurring',
                 visualProfile: { ...DEFAULT_VISUAL_PROFILE },
             });
+            setIsEditing(false);
         }
-    };
+    }, [playerCharacter]);
+
+    // isDirty: the Sheet tab is in edit mode AND the form diverges from the
+    // last-saved PC (edit mode) or from the empty new-character draft (create
+    // mode). Comparing the JSON snapshot catches every field the form owns
+    // (identity, kit, hex, wants, boundaries, triggers, portrait, relations).
+    const isDirty = useCallback((): boolean => {
+        if (!isEditing) return false;
+        const baseline = playerCharacter
+            ? { ...playerCharacter }
+            : { isPC: true, name: '', status: 'Alive', tier: 'recurring', visualProfile: { ...DEFAULT_VISUAL_PROFILE } };
+        return JSON.stringify(form) !== JSON.stringify(baseline);
+    }, [isEditing, form, playerCharacter]);
+
+    useImperativeHandle(ref, () => ({
+        isDirty,
+        save: handleSave,
+        discard: handleDiscard,
+    }), [isDirty, handleSave, handleDiscard]);
 
     const handleUploadPortrait = (file: File) => {
         const targetId = playerCharacter?.id || 'new-pc';
@@ -161,7 +193,7 @@ export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: ()
                 isGeneratingImage={portraits.isGeneratingImage}
                 onEdit={() => setIsEditing(true)}
                 onSave={handleSave}
-                onCancel={handleCancel}
+                onCancel={handleDiscard}
                 onGeneratePortrait={handleGeneratePortrait}
                 onUploadPortrait={handleUploadPortrait}
                 onRemovePortrait={handleRemovePortrait}
@@ -179,7 +211,7 @@ export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: ()
                 isGeneratingImage={portraits.isGeneratingImage}
                 onEdit={() => setIsEditing(true)}
                 onSave={handleSave}
-                onCancel={handleCancel}
+                onCancel={handleDiscard}
                 onGeneratePortrait={handleGeneratePortrait}
                 onUploadPortrait={handleUploadPortrait}
                 onRemovePortrait={handleRemovePortrait}
@@ -188,7 +220,7 @@ export function SheetTab({ onStartGuidedCreation }: { onStartGuidedCreation?: ()
     }
 
     return <NoPCState onStartManual={() => setIsEditing(true)} onStartGuidedCreation={onStartGuidedCreation} />;
-}
+});
 
 function NoPCState({ onStartManual, onStartGuidedCreation }: { onStartManual: () => void; onStartGuidedCreation?: () => void }) {
     return (
