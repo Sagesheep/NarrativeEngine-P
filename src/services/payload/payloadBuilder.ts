@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyCombatConfig, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import { createTraceCollector } from './traceCollector';
 import { computeBudgets } from './budgets';
@@ -26,6 +26,7 @@ export type BuildPayloadOptions = {
     enemyCompendium?: EnemyEntry[];
     enemyInstances?: EnemyInstance[];
     enemyEncounters?: EnemyEncounter[];
+    enemyCombatConfig?: EnemyCombatConfig;
     archiveRecall?: ArchiveScene[];
     recommendedNPCNames?: string[];
     semanticFactText?: string;
@@ -80,6 +81,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         enemyCompendium,
         enemyInstances,
         enemyEncounters,
+        enemyCombatConfig,
         archiveRecall,
         recommendedNPCNames,
         semanticFactText,
@@ -170,7 +172,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
     // so they ride in the volatile block below the cache boundary — not in stable. Mirrors
     // mobileApp. Only verbatim full-rules fallback stays in stable (byte-identical across turns).
     const GM_REMINDER = '[GM REMINDER: NPCs push back when their wants/boundaries are crossed. Do not default to facilitation.]';
-    const activeEncounterBlock = buildActiveEncounterBlock(enemyEncounters, enemyInstances);
+    const activeEncounterBlock = buildActiveEncounterBlock(enemyEncounters, enemyInstances, enemyCombatConfig);
     const enemyBlock = activeEncounterBlock || buildRelevantEnemyBlock(enemyCompendium, history, userMessage);
     const volatileBlock = [retrievedRulesContent, worldContent, enemyBlock, volatileContent].filter(Boolean).join('\n\n');
     const askGmBrief = formatAskGmBrief(nextTurnOocBrief);

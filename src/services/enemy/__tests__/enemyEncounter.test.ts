@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EnemyEntry, EnemyInstance } from '../../../types';
 import { buildActiveEncounterBlock, createEnemyEncounter } from '../enemyEncounter';
+import { DEFAULT_ENEMY_COMBAT_CONFIG } from '../enemyCombat';
 
 const template = (name: string): EnemyEntry => ({
     id: `${name}-template`, name, aliases: '', classification: 'Rapture',
@@ -24,6 +25,11 @@ const instance = (id: string, name: string): EnemyInstance => ({
     conditions: ['Jammed'],
     temporaryModifiers: [{ id: 'mod-1', name: 'Accuracy', value: '-5' }],
     defeated: false,
+    initiative: null,
+    actionsRemaining: 1,
+    actionsPerTurn: 1,
+    cooldowns: [],
+    resources: [],
     createdAt: 1,
     updatedAt: 1,
 });
@@ -62,6 +68,36 @@ describe('enemy encounters', () => {
         encounter.status = 'paused';
 
         expect(buildActiveEncounterBlock([encounter], [])).toBe('');
+    });
+
+    it('injects tracked combat state only when the optional integration is enabled', () => {
+        const scout = {
+            ...instance('scout-1', 'Scout Gunner #1'),
+            initiative: 14,
+            actionsRemaining: 0,
+            actionsPerTurn: 2,
+            cooldowns: [{ id: 'cooldown-1', name: 'Burst', remainingRounds: 2 }],
+            resources: [{ id: 'resource-1', name: 'Ammo', current: 3, max: 5 }],
+        };
+        const encounter = createEnemyEncounter('Tutorial', 10, 'encounter-1', 'wave-1');
+        encounter.waves[0].instanceIds = [scout.id];
+        encounter.waves[0].activeInstanceIds = [scout.id];
+        const enabled = {
+            ...DEFAULT_ENEMY_COMBAT_CONFIG,
+            enabled: true,
+            actionsEnabled: true,
+            cooldownsEnabled: true,
+            resourcesEnabled: true,
+        };
+
+        const disabledBlock = buildActiveEncounterBlock([encounter], [scout], DEFAULT_ENEMY_COMBAT_CONFIG);
+        const enabledBlock = buildActiveEncounterBlock([encounter], [scout], enabled);
+
+        expect(disabledBlock).not.toContain('COMBAT:');
+        expect(enabledBlock).toContain('COMBAT: INITIATIVE 14; ACTIONS 0/2');
+        expect(enabledBlock).toContain('COOLDOWNS: Burst 2 round(s)');
+        expect(enabledBlock).toContain('RESOURCES: Ammo 3/5');
+        expect(enabledBlock).toContain('never silently mutate them');
     });
 
     it('ignores active IDs that no longer resolve to saved instances', () => {

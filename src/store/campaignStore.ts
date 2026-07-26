@@ -1,4 +1,4 @@
-import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
+import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyCombatConfig, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
 import { affinityToPcRelation } from '../services/npc/agency/agencyBands';
 
 import { API_BASE as API } from '../lib/apiBase';
@@ -182,6 +182,14 @@ export async function getEnemyInstances(campaignId: string): Promise<EnemyInstan
 export async function getEnemyEncounters(campaignId: string): Promise<EnemyEncounter[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/enemy-encounters`);
     return res.ok ? res.json() : [];
+}
+
+// ─── Optional Enemy Combat Configuration ─────────────────────────────────────
+
+/** Loads the campaign's optional combat rules; missing files are normalized by the hydrator. */
+export async function getEnemyCombatConfig(campaignId: string): Promise<Partial<EnemyCombatConfig> | null> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-combat`);
+    return res.ok ? res.json() : null;
 }
 
 // ─── Location Ledger ───

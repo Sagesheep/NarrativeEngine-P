@@ -332,6 +332,7 @@ async function buildFallbackPayload(opts: {
             enemyCompendium: store.enemyCompendium,
             enemyInstances: store.enemyInstances,
             enemyEncounters: store.enemyEncounters,
+            enemyCombatConfig: store.enemyCombatConfig,
             archiveRecall: gathered.archiveRecall,
             // _sceneNumber dropped (WO-P1-01) — was unread.
             recommendedNPCNames: gathered.recommendedNPCNames,

@@ -1,4 +1,4 @@
-import type { EnemyEncounter, EnemyEncounterWave, EnemyInstance } from '../../types';
+import type { EnemyCombatConfig, EnemyEncounter, EnemyEncounterWave, EnemyInstance } from '../../types';
 
 /** Creates an empty numbered wave for a new or existing encounter. */
 export function createEnemyEncounterWave(
@@ -39,6 +39,7 @@ export function createEnemyEncounter(
 export function buildActiveEncounterBlock(
     encounters: EnemyEncounter[] | undefined,
     instances: EnemyInstance[] | undefined,
+    combatConfig?: EnemyCombatConfig,
 ): string {
     const encounter = encounters?.find(candidate => candidate.status === 'active');
     if (!encounter) return '';
@@ -56,6 +57,13 @@ export function buildActiveEncounterBlock(
             return [
                 `INSTANCE: ${instance.displayName}`,
                 `STATE: HP ${instance.currentHp}/${instance.maxHp}; BARRIER ${instance.currentBarrier}/${instance.maxBarrier}; ${instance.defeated ? 'DEFEATED/RESOLVED' : 'ACTIVE'}`,
+                combatConfig?.enabled && `COMBAT: INITIATIVE ${instance.initiative ?? 'UNSET'}${combatConfig.actionsEnabled ? `; ACTIONS ${instance.actionsRemaining}/${instance.actionsPerTurn}` : ''}`,
+                combatConfig?.enabled && combatConfig.cooldownsEnabled && instance.cooldowns.length
+                    ? `COOLDOWNS: ${instance.cooldowns.map(cooldown => `${cooldown.name} ${cooldown.remainingRounds} round(s)`).join('; ')}`
+                    : '',
+                combatConfig?.enabled && combatConfig.resourcesEnabled && instance.resources.length
+                    ? `RESOURCES: ${instance.resources.map(resource => `${resource.name} ${resource.current}/${resource.max}`).join('; ')}`
+                    : '',
                 instance.conditions.length && `CONDITIONS: ${instance.conditions.join('; ')}`,
                 instance.temporaryModifiers.length && `TEMPORARY MODIFIERS: ${instance.temporaryModifiers.map(modifier => `${modifier.name} ${modifier.value}`).join('; ')}`,
                 template.classification && `TYPE: ${template.classification}`,
@@ -79,6 +87,9 @@ export function buildActiveEncounterBlock(
         `ENCOUNTER: ${encounter.name}`,
         `CURRENT WAVE: ${wave.name}`,
         'Use only this active roster for present enemies. Preserve the exact HP, barrier, condition, modifier, and defeated state shown here; do not silently reset or replace it.',
+        combatConfig?.enabled
+            ? 'The COMBAT, COOLDOWNS, and RESOURCES lines are authoritative tracked state. Narrate their consequences, but never silently mutate them; only player actions in the combat console update these values.'
+            : '',
         roster,
         '[END ACTIVE ENCOUNTER]',
     ].join('\n');

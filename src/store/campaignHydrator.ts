@@ -1,6 +1,6 @@
 import { useAppStore } from './useAppStore';
 import {
-    loadCampaignState, getLoreChunks, getNPCLedger, getEnemyCompendium, getEnemyInstances, getEnemyEncounters, getLocationLedger,
+    loadCampaignState, getLoreChunks, getNPCLedger, getEnemyCompendium, getEnemyInstances, getEnemyEncounters, getEnemyCombatConfig, getLocationLedger,
     loadArchiveIndex, loadTimeline, loadChapters, loadEntities,
     loadDivergenceRegister, saveDivergenceRegister, saveChapters,
     saveNPCLedger, saveCampaignState,
@@ -10,6 +10,7 @@ import { migrateLegacyContext } from '../types';
 import type { GameContext, ArchiveChapter, DivergenceRegister, DivergenceEntry, ChatMessage } from '../types';
 import { migrateV1ToV2 } from '../services/campaign-state/divergenceRegister';
 import { migratePCIntoContext } from '../services/character/migratePC';
+import { normalizeEnemyCombatConfig, normalizeEnemyInstance } from '../services/enemy/enemyCombat';
 
 function backfillSceneIds(chapters: ArchiveChapter[]): { chapters: ArchiveChapter[]; changed: boolean } {
     let changed = false;
@@ -60,13 +61,14 @@ export function stripOrphanedSwipeState(messages: ChatMessage[]): { messages: Ch
 }
 
 export async function hydrateCampaign(campaignId: string) {
-    const [state, chunks, npcs, enemies, enemyInstances, enemyEncounters, locations, archiveIndex, timeline, chapters, entities, divReg] = await Promise.all([
+    const [state, chunks, npcs, enemies, enemyInstances, enemyEncounters, enemyCombatConfig, locations, archiveIndex, timeline, chapters, entities, divReg] = await Promise.all([
         loadCampaignState(campaignId),
         getLoreChunks(campaignId),
         getNPCLedger(campaignId),
         getEnemyCompendium(campaignId),
         getEnemyInstances(campaignId),
         getEnemyEncounters(campaignId),
+        getEnemyCombatConfig(campaignId),
         getLocationLedger(campaignId),
         loadArchiveIndex(campaignId),
         loadTimeline(campaignId),
@@ -137,8 +139,9 @@ export async function hydrateCampaign(campaignId: string) {
         loreChunks: chunks,
         npcLedger: finalNpcLedger,
         enemyCompendium: enemies ?? [],
-        enemyInstances: enemyInstances ?? [],
+        enemyInstances: (enemyInstances ?? []).map(normalizeEnemyInstance),
         enemyEncounters: enemyEncounters ?? [],
+        enemyCombatConfig: normalizeEnemyCombatConfig(enemyCombatConfig),
         locationLedger: locations ?? [],
         archiveIndex: archiveIndex ?? [],
         timeline: timeline ?? [],

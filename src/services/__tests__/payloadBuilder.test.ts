@@ -1463,6 +1463,11 @@ describe('buildPayload — active encounter roster', () => {
             conditions: [],
             temporaryModifiers: [],
             defeated: false,
+            initiative: null,
+            actionsRemaining: 1,
+            actionsPerTurn: 1,
+            cooldowns: [],
+            resources: [],
             createdAt: 1,
             updatedAt: 1,
         };

@@ -43,6 +43,11 @@ export function createEnemyInstance(
         conditions: [],
         temporaryModifiers: [],
         defeated: false,
+        initiative: null,
+        actionsRemaining: 1,
+        actionsPerTurn: 1,
+        cooldowns: [],
+        resources: [],
         createdAt: now,
         updatedAt: now,
     };

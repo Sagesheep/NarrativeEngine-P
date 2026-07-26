@@ -339,6 +339,7 @@ export function buildTurnPayload(
         enemyCompendium: state.enemyCompendium,
         enemyInstances: state.enemyInstances,
         enemyEncounters: state.enemyEncounters,
+        enemyCombatConfig: state.enemyCombatConfig,
         archiveRecall: ctx.gathered.archiveRecall,
         recommendedNPCNames: ctx.gathered.recommendedNPCNames,
         semanticFactText: ctx.gathered.semanticFactText,

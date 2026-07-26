@@ -1,6 +1,24 @@
 export type EnemyStat = { name: string; value: string };
 export type EnemyAction = { name: string; description: string };
 export type EnemyModifier = { id: string; name: string; value: string };
+export type EnemyCooldown = { id: string; name: string; remainingRounds: number };
+export type EnemyResource = { id: string; name: string; current: number; max: number };
+export type EnemyInitiativeMode = 'manual' | 'd20' | 'd100';
+export type EnemyBarrierMode = 'manual' | 'absorb-first';
+
+export type EnemyCombatConfig = {
+    enabled: boolean;
+    initiativeMode: EnemyInitiativeMode;
+    initiativeModifierStat: string;
+    barrierMode: EnemyBarrierMode;
+    autoDefeatAtZeroHp: boolean;
+    weaknessMultiplier: number;
+    resistanceMultiplier: number;
+    actionsEnabled: boolean;
+    defaultActionsPerTurn: number;
+    cooldownsEnabled: boolean;
+    resourcesEnabled: boolean;
+};
 
 /**
  * Reusable, campaign-scoped enemy reference template.
@@ -46,6 +64,11 @@ export type EnemyInstance = {
     conditions: string[];
     temporaryModifiers: EnemyModifier[];
     defeated: boolean;
+    initiative: number | null;
+    actionsRemaining: number;
+    actionsPerTurn: number;
+    cooldowns: EnemyCooldown[];
+    resources: EnemyResource[];
     createdAt: number;
     updatedAt: number;
 };

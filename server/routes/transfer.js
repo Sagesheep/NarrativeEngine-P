@@ -71,6 +71,7 @@ export function createTransferRouter() {
         const enemies = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemies.json`), []);
         const enemyInstances = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemy-instances.json`), []);
         const enemyEncounters = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemy-encounters.json`), []);
+        const enemyCombatConfig = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemy-combat.json`), null);
         const archiveIndex = readJson(archiveIndexPath(id), []);
         const chapters = readJson(chaptersPath(id), []);
         const facts = readJson(factsPath(id), []);
@@ -93,6 +94,7 @@ export function createTransferRouter() {
             enemies,
             enemyInstances,
             enemyEncounters,
+            enemyCombatConfig,
             scenes,
             archiveIndex,
             chapters,
@@ -117,7 +119,7 @@ export function createTransferRouter() {
         // ID collision check — only match bare {id}.json metadata files
         const existingIds = new Set(
             fs.readdirSync(CAMPAIGNS_DIR)
-                .filter(f => f.endsWith('.json') && !f.includes('.state') && !f.includes('.lore') && !f.includes('.npcs') && !f.includes('.enemies') && !f.includes('.enemy-instances') && !f.includes('.enemy-encounters') && !f.includes('.archive') && !f.includes('.index') && !f.includes('.timeline') && !f.includes('.entities') && !f.includes('.facts') && !f.includes('.overworld') && !f.includes('.chapters'))
+                .filter(f => f.endsWith('.json') && !f.includes('.state') && !f.includes('.lore') && !f.includes('.npcs') && !f.includes('.enemies') && !f.includes('.enemy-instances') && !f.includes('.enemy-encounters') && !f.includes('.enemy-combat') && !f.includes('.archive') && !f.includes('.index') && !f.includes('.timeline') && !f.includes('.entities') && !f.includes('.facts') && !f.includes('.overworld') && !f.includes('.chapters'))
                 .map(f => f.slice(0, -5))
         );
         const originalId = bundle.campaign?.id;
@@ -155,6 +157,10 @@ export function createTransferRouter() {
 
         if (bundle.enemyEncounters?.length) {
             writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-encounters.json`), bundle.enemyEncounters);
+        }
+
+        if (bundle.enemyCombatConfig) {
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-combat.json`), bundle.enemyCombatConfig);
         }
 
         // Write archive index

@@ -44,6 +44,15 @@ describe('enemy compendium campaign files', () => {
         expect(store.campaignFiles('test')).toContain('test.enemy-encounters.json');
     });
 
+    it('includes .enemy-combat.json in campaign backup file discovery', async () => {
+        vi.stubEnv('DATA_DIR', tmpDir);
+        const store = await import('../lib/fileStore.js?' + Date.now());
+        fs.mkdirSync(store.CAMPAIGNS_DIR, { recursive: true });
+        fs.writeFileSync(path.join(store.CAMPAIGNS_DIR, 'test.json'), '{}');
+        fs.writeFileSync(path.join(store.CAMPAIGNS_DIR, 'test.enemy-combat.json'), '{}');
+        expect(store.campaignFiles('test')).toContain('test.enemy-combat.json');
+    });
+
     it('persists enemy instances through the campaign API', async () => {
         vi.stubEnv('DATA_DIR', tmpDir);
         vi.doMock('../lib/embedder.js', () => ({
@@ -100,5 +109,34 @@ describe('enemy compendium campaign files', () => {
         const response = await request(app).get('/api/campaigns/test/enemy-encounters').expect(200);
 
         expect(response.body).toEqual(encounters);
+    });
+
+    it('persists enemy combat configuration through the campaign API', async () => {
+        vi.stubEnv('DATA_DIR', tmpDir);
+        vi.doMock('../lib/embedder.js', () => ({
+            embedText: vi.fn(),
+            buildLoreText: vi.fn(),
+            resolveIndexingSpeed: vi.fn(() => ({ batchSize: 1, delayMs: 0 })),
+        }));
+        vi.doMock('../lib/vectorStore.js', () => ({
+            storeLoreEmbedding: vi.fn(),
+            deleteCampaignEmbeddings: vi.fn(),
+        }));
+        vi.doMock('../lib/embedJobs.js', () => ({
+            startJob: vi.fn(),
+            tickJob: vi.fn(),
+            endJob: vi.fn(),
+        }));
+
+        const { createCampaignsRouter } = await import('../routes/campaigns.js?' + Date.now());
+        const app = express();
+        app.use(express.json());
+        app.use(createCampaignsRouter());
+        const config = { enabled: true, initiativeMode: 'd20', actionsEnabled: true };
+
+        await request(app).put('/api/campaigns/test/enemy-combat').send(config).expect(200);
+        const response = await request(app).get('/api/campaigns/test/enemy-combat').expect(200);
+
+        expect(response.body).toEqual(config);
     });
 });

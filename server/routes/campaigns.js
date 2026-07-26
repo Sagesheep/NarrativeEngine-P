@@ -24,6 +24,7 @@ export function createCampaignsRouter() {
             !f.includes('.enemies') &&
             !f.includes('.enemy-instances') &&
             !f.includes('.enemy-encounters') &&
+            !f.includes('.enemy-combat') &&
             !f.includes('.locations') &&
             !f.includes('.archive') &&
             !f.includes('.index')
@@ -247,6 +248,23 @@ export function createCampaignsRouter() {
         if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Enemy encounters must be an array' });
         ensureDirs();
         writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-encounters.json`), req.body);
+        res.json({ ok: true });
+    }));
+
+    // ─── Optional Enemy Combat Configuration ─────────────────────────────────
+
+    router.get('/api/campaigns/:id/enemy-combat', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-combat.json`), null));
+    }));
+
+    router.put('/api/campaigns/:id/enemy-combat', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        if (!req.body || Array.isArray(req.body) || typeof req.body !== 'object') {
+            return res.status(400).json({ error: 'Enemy combat configuration must be an object' });
+        }
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-combat.json`), req.body);
         res.json({ ok: true });
     }));
 
