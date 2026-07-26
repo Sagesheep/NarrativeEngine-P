@@ -172,7 +172,7 @@ describe('runDirectorBrief', () => {
             }));
             const prompt = mockLlmCall.mock.calls[0][1] as string;
             // FABLE-AUTHORED template markers (verbatim)
-            expect(prompt).toContain('You are the Director of an ongoing role-played campaign.');
+            expect(prompt).toContain('You are the Continuity Director of an ongoing role-played campaign.');
             expect(prompt).toContain('<watchdog_dossier>');
             expect(prompt).toContain('</watchdog_dossier>');
             expect(prompt).toContain('<previous_gm_turn>');
@@ -675,17 +675,16 @@ describe('renderDirectorPrompt', () => {
         expect(prompt).toContain('<recent_events>\nEVENTS\n</recent_events>');
     });
 
-    it('preserves the FABLE-AUTHORED consideration steps verbatim', () => {
+    it('contains the continuity-first consideration steps and output contract', () => {
         const prompt = renderDirectorPrompt({
             dossierText: '', lastAssistant: '', userMessage: '', npcSummary: '', recentEvents: '',
         });
-        // All six consideration steps must appear verbatim.
-        expect(prompt).toContain('1. Dossier triage');
-        expect(prompt).toContain('2. Energy match');
-        expect(prompt).toContain('3. Decentering');
-        expect(prompt).toContain('4. Friction and callbacks');
-        expect(prompt).toContain('5. Staleness');
-        expect(prompt).toContain('6. Twist check');
+        expect(prompt).toContain('1. World-law and continuity');
+        expect(prompt).toContain('2. Fair adjudication');
+        expect(prompt).toContain('3. Watchdog triage');
+        expect(prompt).toContain('4. Restraint');
+        expect(prompt).toContain('Do not turn a clever, lawful, or tactically sound player action into a moral failing');
+        expect(prompt).toContain('do not schedule disagreement, decentering, callbacks, staleness changes, twists, or emotional escalation');
         // Output contract.
         expect(prompt).toContain('Each directive is one imperative line naming specific characters.');
         expect(prompt).toContain('If nothing is needed, output "WRITER BRIEF" followed by "- [SUGGESTION] Proceed naturally."');
