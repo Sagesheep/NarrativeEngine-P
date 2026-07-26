@@ -1,18 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, RefreshCw, Volume2, Download } from 'lucide-react';
+import { Loader2, RefreshCw, Volume2, Download, Square } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { getEmbeddingStatus, runBackfill } from '../../services/archive-memory/backfillRunner';
 import { api } from '../../services/llm/apiClient';
 import { API_BASE } from '../../lib/apiBase';
 import { toast } from '../Toast';
 import type { BackfillStatus } from '../../services/archive-memory/backfillRunner';
-import { getTtsStatus, initTtsModel, type TtsStatus } from '../../services/tts/ttsClient';
+import { generateTts, getTtsStatus, initTtsModel, type TtsStatus } from '../../services/tts/ttsClient';
 
 type EmbedderInfo = {
     modelId: string;
     dims: number;
     embeddingVersion: number;
 };
+
+const DEFAULT_TTS_PREVIEW_TEXT = 'The rain settles over the road as a distant bell marks the turning of the hour.';
 
 export function AdvancedTab() {
     const activeCampaignId = useAppStore(s => s.activeCampaignId);
@@ -29,7 +31,10 @@ export function AdvancedTab() {
     const [ttsStatus, setTtsStatus] = useState<TtsStatus | null>(null);
     const [ttsIniting, setTtsIniting] = useState(false);
     const [ttsPolling, setTtsPolling] = useState(false);
+    const [ttsPreviewText, setTtsPreviewText] = useState(DEFAULT_TTS_PREVIEW_TEXT);
+    const [ttsPreviewing, setTtsPreviewing] = useState(false);
     const ttsPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+    const ttsPreviewAudio = useRef<HTMLAudioElement | null>(null);
     const TTS_VOICES = [
         { id: 'af_heart', label: 'Heart (F, warm)' },
         { id: 'af_bella', label: 'Bella (F, expressive)' },
@@ -104,16 +109,15 @@ export function AdvancedTab() {
     };
 
     // ── TTS (Kokoro) ──
-    const refreshTtsStatus = () => {
-        getTtsStatus().then(setTtsStatus).catch(() => { /* best-effort */ });
+    const refreshTtsStatus = async () => {
+        try {
+            const status = await getTtsStatus();
+            setTtsStatus(status);
+            return status;
+        } catch {
+            return null;
+        }
     };
-
-    useEffect(() => {
-        refreshTtsStatus();
-        return () => {
-            if (ttsPollTimer.current) clearInterval(ttsPollTimer.current);
-        };
-    }, []);
 
     const startTtsPolling = () => {
         if (ttsPollTimer.current) return;
@@ -132,6 +136,30 @@ export function AdvancedTab() {
         }, 2000);
     };
 
+    const stopTtsPreview = () => {
+        const audio = ttsPreviewAudio.current;
+        if (!audio) return;
+        const url = audio.src;
+        audio.pause();
+        audio.src = '';
+        ttsPreviewAudio.current = null;
+        if (url) URL.revokeObjectURL(url);
+        setTtsPreviewing(false);
+    };
+
+    useEffect(() => {
+        const startup = window.setTimeout(() => {
+            void refreshTtsStatus().then(status => {
+                if (status?.modelCached && !status.modelReady) startTtsPolling();
+            });
+        }, 0);
+        return () => {
+            window.clearTimeout(startup);
+            if (ttsPollTimer.current) clearInterval(ttsPollTimer.current);
+            stopTtsPreview();
+        };
+    }, []);
+
     const handleTtsDownload = async () => {
         setTtsIniting(true);
         startTtsPolling();
@@ -147,7 +175,40 @@ export function AdvancedTab() {
         }
     };
 
+    const handleTtsPreview = async () => {
+        if (ttsPreviewing) {
+            stopTtsPreview();
+            return;
+        }
+        const text = ttsPreviewText.trim();
+        if (!text) {
+            toast.error('Enter a sentence to preview this voice');
+            return;
+        }
+        setTtsPreviewing(true);
+        try {
+            const blob = await generateTts(text, settings.ttsVoice ?? 'af_heart');
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            ttsPreviewAudio.current = audio;
+            const finish = () => {
+                if (ttsPreviewAudio.current === audio) {
+                    ttsPreviewAudio.current = null;
+                    setTtsPreviewing(false);
+                }
+                URL.revokeObjectURL(url);
+            };
+            audio.onended = finish;
+            audio.onerror = finish;
+            await audio.play();
+        } catch (err) {
+            setTtsPreviewing(false);
+            toast.error('Voice preview failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        }
+    };
+
     const ttsReady = !!ttsStatus?.modelReady;
+    const ttsCached = !!ttsStatus?.modelCached;
 
     return (
         <div className="space-y-6">
@@ -176,11 +237,13 @@ export function AdvancedTab() {
                                 ? `Ready · voice: ${ttsStatus?.voice}`
                                 : ttsIniting || ttsPolling
                                     ? 'Downloading / warming up...'
-                                    : 'Not downloaded'}
+                                    : ttsCached
+                                        ? 'Installed / warming up...'
+                                        : 'Not downloaded'}
                         </div>
                     </div>
                     <span className={`text-[9px] font-bold uppercase ${ttsReady ? 'text-terminal' : 'text-text-dim'}`}>
-                        {ttsReady ? 'Ready' : 'Idle'}
+                        {ttsReady ? 'Ready' : ttsCached ? 'Installed' : 'Idle'}
                     </span>
                 </div>
 
@@ -192,7 +255,7 @@ export function AdvancedTab() {
                         className="text-[10px] uppercase tracking-widest bg-terminal/10 border border-terminal/30 text-terminal px-3 py-1.5 rounded hover:bg-terminal/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                     >
                         {ttsIniting || ttsPolling ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
-                        {ttsIniting || ttsPolling ? 'Downloading...' : 'Download Model'}
+                        {ttsIniting || ttsPolling ? 'Downloading...' : ttsCached ? 'Warm Up Model' : 'Download Model'}
                     </button>
                 )}
 
@@ -220,6 +283,27 @@ export function AdvancedTab() {
                                     <option key={v.id} value={v.id}>{v.label}</option>
                                 ))}
                             </select>
+                        </div>
+
+                        <div>
+                            <label htmlFor="tts-preview-text" className="block text-[9px] text-text-dim uppercase tracking-wider mb-1">Voice preview</label>
+                            <textarea
+                                id="tts-preview-text"
+                                value={ttsPreviewText}
+                                onChange={e => setTtsPreviewText(e.target.value)}
+                                maxLength={300}
+                                rows={2}
+                                className="bg-void-darker border border-border text-text-primary text-[11px] px-2 py-1.5 rounded outline-none focus:border-terminal w-full resize-y"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => void handleTtsPreview()}
+                                disabled={!ttsPreviewText.trim()}
+                                className="mt-2 text-[10px] uppercase tracking-widest bg-terminal/10 border border-terminal/30 text-terminal px-3 py-1.5 rounded hover:bg-terminal/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                            >
+                                {ttsPreviewing ? <Square size={10} /> : <Volume2 size={10} />}
+                                {ttsPreviewing ? 'Stop Preview' : 'Preview Voice'}
+                            </button>
                         </div>
                     </>
                 )}

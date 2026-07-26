@@ -2,6 +2,7 @@ import { API_BASE as API } from '../../lib/apiBase';
 
 export type TtsStatus = {
     modelReady: boolean;
+    modelCached: boolean;
     initializing: boolean;
     voice: string;
     modelId: string;
