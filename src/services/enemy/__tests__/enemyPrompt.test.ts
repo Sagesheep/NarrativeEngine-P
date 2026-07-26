@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EnemyEntry } from '../../../types';
 import { buildRelevantEnemyBlock } from '../enemyPrompt';
 
+/** Builds a valid baseline template so each test only specifies relevant differences. */
 const enemy = (patch: Partial<EnemyEntry> = {}): EnemyEntry => ({
     id: 'shield-1', name: 'Shield Rapture', aliases: 'Aegis Unit',
     classification: 'Rapture', description: 'Projects a barrier.', threatTier: 'Support',

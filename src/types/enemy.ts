@@ -1,7 +1,11 @@
 export type EnemyStat = { name: string; value: string };
 export type EnemyAction = { name: string; description: string };
 
-/** Reusable template only; current HP and conditions belong to a future encounter instance. */
+/**
+ * Reusable, campaign-scoped enemy reference template.
+ * Runtime HP, conditions, and individual encounter state intentionally live
+ * outside this record so combat cannot mutate the source compendium.
+ */
 export type EnemyEntry = {
     id: string;
     name: string;

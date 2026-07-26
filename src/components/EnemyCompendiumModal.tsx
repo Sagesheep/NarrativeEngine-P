@@ -4,6 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import type { EnemyEntry } from '../types';
 import { toast } from './Toast';
 
+/** Creates a complete unsaved template so every editor field remains controlled. */
 const emptyEnemy = (): EnemyEntry => {
     const now = Date.now();
     return {
@@ -14,13 +15,23 @@ const emptyEnemy = (): EnemyEntry => {
     };
 };
 
+/** Converts a multiline editor value into trimmed, non-empty list entries. */
 const lines = (value: string) => value.split('\n').map(v => v.trim()).filter(Boolean);
+
+/** Parses "name: value" lines while preserving additional colons in the value. */
 const pairs = (value: string) => lines(value).map(line => {
     const [name, ...rest] = line.split(':');
     return { name: name.trim(), value: rest.join(':').trim() };
 });
+
+/** Adapts generic name/value pairs to the EnemyAction data shape. */
 const actions = (value: string) => pairs(value).map(({ name, value }) => ({ name, description: value }));
 
+/**
+ * Provides campaign-scoped CRUD, search, duplication, and JSON transfer for
+ * reusable enemy templates. Store actions handle persistence; this component
+ * only manages the currently edited draft.
+ */
 export function EnemyCompendiumModal() {
     const { enemyCompendiumOpen, toggleEnemyCompendium, enemyCompendium, addEnemy, updateEnemy, removeEnemy, setEnemyCompendium } = useAppStore();
     const [query, setQuery] = useState('');
@@ -37,10 +48,13 @@ export function EnemyCompendiumModal() {
 
     if (!enemyCompendiumOpen) return null;
 
+    /** Loads an existing template into an isolated draft, or starts a new one. */
     const select = (enemy?: EnemyEntry) => {
         setSelectedId(enemy?.id ?? null);
         setDraft(enemy ? structuredClone(enemy) : emptyEnemy());
     };
+
+    /** Validates and persists the draft as either an update or a new template. */
     const save = () => {
         if (!draft.name.trim()) return toast.warning('Enemy name is required');
         const next = { ...draft, name: draft.name.trim(), updatedAt: Date.now() };
@@ -50,17 +64,26 @@ export function EnemyCompendiumModal() {
         setDraft(next);
         toast.success('Enemy saved');
     };
+
+    /** Copies the current draft under a new ID without saving it immediately. */
     const duplicate = () => {
         const now = Date.now();
         setSelectedId(null);
         setDraft({ ...structuredClone(draft), id: crypto.randomUUID(), name: `${draft.name} Copy`, createdAt: now, updatedAt: now });
     };
+
+    /** Downloads the full campaign compendium in the format accepted by import. */
     const exportJson = () => {
         const blob = new Blob([JSON.stringify(enemyCompendium, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a'); a.href = url; a.download = 'enemy-compendium.json'; a.click();
         URL.revokeObjectURL(url);
     };
+
+    /**
+     * Replaces the current compendium with valid named records from a JSON array.
+     * Missing fields receive defaults so older or hand-authored files remain usable.
+     */
     const importJson = async (file?: File) => {
         if (!file) return;
         try {
@@ -73,6 +96,8 @@ export function EnemyCompendiumModal() {
             toast.success(`Imported ${imported.length} enemies`);
         } catch (e) { toast.error(e instanceof Error ? e.message : 'Import failed'); }
     };
+
+    /** Renders a controlled text input or textarea for a scalar template field. */
     const field = (label: string, key: keyof EnemyEntry, multiline = false) => (
         <label className="block text-[10px] uppercase tracking-wider text-text-dim">
             {label}
@@ -81,6 +106,8 @@ export function EnemyCompendiumModal() {
                 : <input value={String(draft[key] ?? '')} onChange={e => setDraft({ ...draft, [key]: e.target.value })} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case" />}
         </label>
     );
+
+    /** Renders a multiline editor backed by one of the template's string arrays. */
     const listField = (label: string, key: 'tags' | 'passiveTraits' | 'specialBehaviors' | 'weaknesses' | 'resistances') => (
         <label className="block text-[10px] uppercase tracking-wider text-text-dim">
             {label} <span className="normal-case">(one per line)</span>

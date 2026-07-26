@@ -1,5 +1,10 @@
 import type { ChatMessage, EnemyEntry } from '../../types';
 
+/**
+ * Selects enabled templates whose name or comma-separated alias appears in the
+ * current message or last ten messages, then returns an immutable reference
+ * block for placement below the prompt-cache boundary.
+ */
 export function buildRelevantEnemyBlock(enemies: EnemyEntry[] | undefined, history: ChatMessage[], userMessage: string): string {
     if (!enemies?.length) return '';
     const text = `${history.slice(-10).map(m => m.content ?? '').join(' ')} ${userMessage}`.toLowerCase();
