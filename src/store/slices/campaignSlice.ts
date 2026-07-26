@@ -1,7 +1,8 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, EnemyInstance, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyEncounterStatus, EnemyEncounterWave, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { createEnemyInstance } from '../../services/enemy/enemyInstance';
+import { createEnemyEncounter as makeEnemyEncounter, createEnemyEncounterWave } from '../../services/enemy/enemyEncounter';
 import { normalizeRelations } from '../../services/npc/relationDedupe';
 import { toast } from '../../components/Toast';
 import { debouncedSaveSettings } from './settingsSlice';
@@ -29,9 +30,9 @@ function preOpBackup(campaignId: string | null, trigger: string) {
 // Getter registered by the slice creator so we always read fresh state at fire time.
 // This prevents stale-snapshot race conditions where two rapid updates within the 1s
 // debounce window would cause the first update's changes to be overwritten.
-let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; enemyInstances: EnemyInstance[]; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }) | null = null;
+let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }) | null = null;
 export function _registerCampaignStateGetter(
-    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; enemyInstances: EnemyInstance[]; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
+    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
 ) {
     _getStateForSave = getter;
 }
@@ -44,6 +45,7 @@ export function cancelPendingSaves() {
     if (npcTimer)   { clearTimeout(npcTimer);   npcTimer   = null; }
     if (enemyTimer) { clearTimeout(enemyTimer); enemyTimer = null; }
     if (enemyInstanceTimer) { clearTimeout(enemyInstanceTimer); enemyInstanceTimer = null; }
+    if (enemyEncounterTimer) { clearTimeout(enemyEncounterTimer); enemyEncounterTimer = null; }
     if (locationTimer) { clearTimeout(locationTimer); locationTimer = null; }
 }
 
@@ -51,7 +53,7 @@ export function cancelPendingSaves() {
  *  disk before a backup is created. Awaiting this guarantees the backup reads current data. */
 export async function flushAllPendingSaves(): Promise<void> {
     if (!_getStateForSave) return;
-    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, enemyCompendium, enemyInstances, locationLedger, pinnedExcerpts } = _getStateForSave();
+    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, enemyCompendium, enemyInstances, enemyEncounters, locationLedger, pinnedExcerpts } = _getStateForSave();
     if (!activeCampaignId) return;
 
     const saves: Promise<unknown>[] = [];
@@ -108,6 +110,15 @@ export async function flushAllPendingSaves(): Promise<void> {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(enemyInstances),
         }).catch(e => console.error('[FlushSave] enemy instances failed:', e)));
+    }
+
+    if (enemyEncounterTimer) {
+        clearTimeout(enemyEncounterTimer);
+        enemyEncounterTimer = null;
+        saves.push(fetch(`${API}/campaigns/${activeCampaignId}/enemy-encounters`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(enemyEncounters),
+        }).catch(e => console.error('[FlushSave] enemy encounters failed:', e)));
     }
 
     if (locationTimer) {
@@ -186,6 +197,18 @@ function debouncedSaveEnemyInstances(campaignId: string | null, instances: Enemy
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(instances),
         }).catch((e) => { console.error(e); toast.error('Failed to save enemy instances'); });
+    }, 1000);
+}
+
+let enemyEncounterTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedSaveEnemyEncounters(campaignId: string | null, encounters: EnemyEncounter[]) {
+    if (!campaignId) return;
+    if (enemyEncounterTimer) clearTimeout(enemyEncounterTimer);
+    enemyEncounterTimer = setTimeout(() => {
+        fetch(`${API}/campaigns/${campaignId}/enemy-encounters`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(encounters),
+        }).catch((e) => { console.error(e); toast.error('Failed to save enemy encounters'); });
     }, 1000);
 }
 
@@ -365,6 +388,16 @@ export type CampaignSlice = {
     spawnEnemyInstance: (templateId: string) => EnemyInstance | null;
     updateEnemyInstance: (id: string, patch: Partial<EnemyInstance>) => void;
     removeEnemyInstance: (id: string) => void;
+    enemyEncounters: EnemyEncounter[];
+    setEnemyEncounters: (encounters: EnemyEncounter[]) => void;
+    createEnemyEncounter: (name: string) => EnemyEncounter;
+    updateEnemyEncounter: (id: string, patch: Partial<EnemyEncounter>) => void;
+    addEnemyEncounterWave: (encounterId: string) => EnemyEncounterWave | null;
+    updateEnemyEncounterWave: (encounterId: string, waveId: string, patch: Partial<EnemyEncounterWave>) => void;
+    setEnemyEncounterStatus: (id: string, status: EnemyEncounterStatus) => void;
+    setEnemyEncounterInstanceAssigned: (encounterId: string, waveId: string, instanceId: string, assigned: boolean) => void;
+    setEnemyEncounterInstanceActive: (encounterId: string, waveId: string, instanceId: string, active: boolean) => void;
+    addEnemyReinforcement: (encounterId: string, waveId: string, templateId: string) => EnemyInstance | null;
     mergeOrRenameNpc: (from: string, to: string, turn: number) => 'merged' | 'renamed' | 'none';
     // ── Player character (WO-A rewrite 2 §1 + §2) ──
     // Stored at `context.playerCharacter`, NOT in npcLedger. `isPC` is vestigial.
@@ -433,7 +466,7 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     // not a stale closure snapshot from the time the action was called.
     _registerCampaignStateGetter(() => {
         const s = get();
-        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger, enemyCompendium: s.enemyCompendium, enemyInstances: s.enemyInstances, locationLedger: s.locationLedger, pinnedExcerpts: s.pinnedExcerpts };
+        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger, enemyCompendium: s.enemyCompendium, enemyInstances: s.enemyInstances, enemyEncounters: s.enemyEncounters, locationLedger: s.locationLedger, pinnedExcerpts: s.pinnedExcerpts };
     });
 
     return {
@@ -628,9 +661,154 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     }),
     removeEnemyInstance: (id) => set((s) => {
         const instances = s.enemyInstances.filter(instance => instance.id !== id);
+        const now = Date.now();
+        const encounters = s.enemyEncounters.map(encounter => ({
+            ...encounter,
+            waves: encounter.waves.map(wave => ({
+                ...wave,
+                instanceIds: wave.instanceIds.filter(instanceId => instanceId !== id),
+                activeInstanceIds: wave.activeInstanceIds.filter(instanceId => instanceId !== id),
+                updatedAt: now,
+            })),
+            updatedAt: now,
+        }));
         debouncedSaveEnemyInstances(s.activeCampaignId, instances);
-        return { enemyInstances: instances } as Partial<CampaignDeps>;
+        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
+        return { enemyInstances: instances, enemyEncounters: encounters } as Partial<CampaignDeps>;
     }),
+    enemyEncounters: [],
+    setEnemyEncounters: (encounters) => set((s) => {
+        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
+        return { enemyEncounters: encounters } as Partial<CampaignDeps>;
+    }),
+    createEnemyEncounter: (name) => {
+        const s = get();
+        const now = Date.now();
+        const encounter = makeEnemyEncounter(name, now);
+        const encounters = [
+            ...s.enemyEncounters.map(existing =>
+                existing.status === 'active'
+                    ? { ...existing, status: 'paused' as const, updatedAt: now }
+                    : existing
+            ),
+            encounter,
+        ];
+        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
+        set({ enemyEncounters: encounters } as Partial<CampaignDeps>);
+        return encounter;
+    },
+    updateEnemyEncounter: (id, patch) => set((s) => {
+        const encounters = s.enemyEncounters.map(encounter =>
+            encounter.id === id ? { ...encounter, ...patch, updatedAt: Date.now() } : encounter
+        );
+        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
+        return { enemyEncounters: encounters } as Partial<CampaignDeps>;
+    }),
+    addEnemyEncounterWave: (encounterId) => {
+        const s = get();
+        const encounter = s.enemyEncounters.find(candidate => candidate.id === encounterId);
+        if (!encounter) return null;
+        const now = Date.now();
+        const wave = createEnemyEncounterWave(encounter.waves.length + 1, now);
+        const encounters = s.enemyEncounters.map(candidate =>
+            candidate.id === encounterId
+                ? { ...candidate, waves: [...candidate.waves, wave], activeWaveId: wave.id, updatedAt: now }
+                : candidate
+        );
+        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
+        set({ enemyEncounters: encounters } as Partial<CampaignDeps>);
+        return wave;
+    },
+    updateEnemyEncounterWave: (encounterId, waveId, patch) => set((s) => {
+        const now = Date.now();
+        const encounters = s.enemyEncounters.map(encounter =>
+            encounter.id === encounterId
+                ? {
+                    ...encounter,
+                    waves: encounter.waves.map(wave =>
+                        wave.id === waveId ? { ...wave, ...patch, updatedAt: now } : wave
+                    ),
+                    updatedAt: now,
+                }
+                : encounter
+        );
+        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
+        return { enemyEncounters: encounters } as Partial<CampaignDeps>;
+    }),
+    setEnemyEncounterStatus: (id, status) => {
+        const s = get();
+        if (!s.enemyEncounters.some(encounter => encounter.id === id)) return;
+        const now = Date.now();
+        const encounters = s.enemyEncounters.map(encounter => {
+            if (status === 'active' && encounter.id !== id && encounter.status === 'active') {
+                return { ...encounter, status: 'paused' as const, updatedAt: now };
+            }
+            if (encounter.id !== id) return encounter;
+            return {
+                ...encounter,
+                status,
+                updatedAt: now,
+                endedAt: status === 'ended' ? now : undefined,
+            };
+        });
+        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
+        set({ enemyEncounters: encounters } as Partial<CampaignDeps>);
+    },
+    setEnemyEncounterInstanceAssigned: (encounterId, waveId, instanceId, assigned) => {
+        const s = get();
+        const encounter = s.enemyEncounters.find(candidate => candidate.id === encounterId);
+        const wave = encounter?.waves.find(candidate => candidate.id === waveId);
+        if (!encounter || !wave) return;
+        const instanceIds = assigned
+            ? [...new Set([...wave.instanceIds, instanceId])]
+            : wave.instanceIds.filter(id => id !== instanceId);
+        const activeInstanceIds = assigned
+            ? wave.activeInstanceIds
+            : wave.activeInstanceIds.filter(id => id !== instanceId);
+        get().updateEnemyEncounterWave(encounterId, waveId, { instanceIds, activeInstanceIds });
+    },
+    setEnemyEncounterInstanceActive: (encounterId, waveId, instanceId, active) => {
+        const s = get();
+        const encounter = s.enemyEncounters.find(candidate => candidate.id === encounterId);
+        const wave = encounter?.waves.find(candidate => candidate.id === waveId);
+        if (!encounter || !wave || !wave.instanceIds.includes(instanceId)) return;
+        const activeInstanceIds = active
+            ? [...new Set([...wave.activeInstanceIds, instanceId])]
+            : wave.activeInstanceIds.filter(id => id !== instanceId);
+        get().updateEnemyEncounterWave(encounterId, waveId, { activeInstanceIds });
+    },
+    addEnemyReinforcement: (encounterId, waveId, templateId) => {
+        const s = get();
+        const template = s.enemyCompendium.find(enemy => enemy.id === templateId);
+        const encounter = s.enemyEncounters.find(candidate => candidate.id === encounterId);
+        const wave = encounter?.waves.find(candidate => candidate.id === waveId);
+        if (!template || !encounter || !wave) return null;
+        const instance = createEnemyInstance(template, s.enemyInstances);
+        const instances = [...s.enemyInstances, instance];
+        const now = Date.now();
+        const encounters = s.enemyEncounters.map(candidate =>
+            candidate.id === encounterId
+                ? {
+                    ...candidate,
+                    waves: candidate.waves.map(candidateWave =>
+                        candidateWave.id === waveId
+                            ? {
+                                ...candidateWave,
+                                instanceIds: [...new Set([...candidateWave.instanceIds, instance.id])],
+                                activeInstanceIds: [...new Set([...candidateWave.activeInstanceIds, instance.id])],
+                                updatedAt: now,
+                            }
+                            : candidateWave
+                    ),
+                    updatedAt: now,
+                }
+                : candidate
+        );
+        debouncedSaveEnemyInstances(s.activeCampaignId, instances);
+        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
+        set({ enemyInstances: instances, enemyEncounters: encounters } as Partial<CampaignDeps>);
+        return instance;
+    },
     mergeOrRenameNpc: (from, to, turn) => {
         void turn;
         const fromKey = from.trim().toLowerCase();

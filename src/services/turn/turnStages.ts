@@ -337,6 +337,8 @@ export function buildTurnPayload(
         relevantLore: ctx.gathered.relevantLore,
         npcLedger,
         enemyCompendium: state.enemyCompendium,
+        enemyInstances: state.enemyInstances,
+        enemyEncounters: state.enemyEncounters,
         archiveRecall: ctx.gathered.archiveRecall,
         recommendedNPCNames: ctx.gathered.recommendedNPCNames,
         semanticFactText: ctx.gathered.semanticFactText,

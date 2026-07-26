@@ -21,7 +21,7 @@ type EnemyInstancesViewProps = {
 
 /**
  * Edits mutable encounter copies while showing their frozen template origin.
- * Updates are persisted by the campaign slice and do not enter the AI prompt.
+ * The encounter roster separately controls whether a copy enters the AI prompt.
  */
 export function EnemyInstancesView({ selectedTemplateId }: EnemyInstancesViewProps) {
     const {
@@ -86,7 +86,7 @@ export function EnemyInstancesView({ selectedTemplateId }: EnemyInstancesViewPro
                 <div className="flex-1 overflow-y-auto p-5">
                     <div className="mb-4 rounded border border-terminal/30 bg-terminal/5 p-3 text-xs text-text-dim">
                         This copy uses a frozen snapshot of <span className="text-text-normal">{selected.templateSnapshot.name}</span>.
-                        Live encounter state is not sent to the story AI until Phase 3.
+                        It reaches the story AI only when explicitly selected in an active encounter wave.
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <label className="col-span-2 block text-[10px] uppercase tracking-wider text-text-dim">

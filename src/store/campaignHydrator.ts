@@ -1,6 +1,6 @@
 import { useAppStore } from './useAppStore';
 import {
-    loadCampaignState, getLoreChunks, getNPCLedger, getEnemyCompendium, getEnemyInstances, getLocationLedger,
+    loadCampaignState, getLoreChunks, getNPCLedger, getEnemyCompendium, getEnemyInstances, getEnemyEncounters, getLocationLedger,
     loadArchiveIndex, loadTimeline, loadChapters, loadEntities,
     loadDivergenceRegister, saveDivergenceRegister, saveChapters,
     saveNPCLedger, saveCampaignState,
@@ -60,12 +60,13 @@ export function stripOrphanedSwipeState(messages: ChatMessage[]): { messages: Ch
 }
 
 export async function hydrateCampaign(campaignId: string) {
-    const [state, chunks, npcs, enemies, enemyInstances, locations, archiveIndex, timeline, chapters, entities, divReg] = await Promise.all([
+    const [state, chunks, npcs, enemies, enemyInstances, enemyEncounters, locations, archiveIndex, timeline, chapters, entities, divReg] = await Promise.all([
         loadCampaignState(campaignId),
         getLoreChunks(campaignId),
         getNPCLedger(campaignId),
         getEnemyCompendium(campaignId),
         getEnemyInstances(campaignId),
+        getEnemyEncounters(campaignId),
         getLocationLedger(campaignId),
         loadArchiveIndex(campaignId),
         loadTimeline(campaignId),
@@ -137,6 +138,7 @@ export async function hydrateCampaign(campaignId: string) {
         npcLedger: finalNpcLedger,
         enemyCompendium: enemies ?? [],
         enemyInstances: enemyInstances ?? [],
+        enemyEncounters: enemyEncounters ?? [],
         locationLedger: locations ?? [],
         archiveIndex: archiveIndex ?? [],
         timeline: timeline ?? [],

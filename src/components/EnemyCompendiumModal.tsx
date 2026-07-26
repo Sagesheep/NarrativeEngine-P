@@ -4,6 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import type { EnemyEntry } from '../types';
 import { toast } from './Toast';
 import { EnemyInstancesView } from './EnemyInstancesView';
+import { EnemyEncountersView } from './EnemyEncountersView';
 
 /** Creates a complete unsaved template so every editor field remains controlled. */
 const emptyEnemy = (): EnemyEntry => {
@@ -34,9 +35,9 @@ const actions = (value: string) => pairs(value).map(({ name, value }) => ({ name
  * only manages the currently edited draft.
  */
 export function EnemyCompendiumModal() {
-    const { enemyCompendiumOpen, toggleEnemyCompendium, enemyCompendium, enemyInstances, addEnemy, updateEnemy, removeEnemy, setEnemyCompendium } = useAppStore();
+    const { enemyCompendiumOpen, toggleEnemyCompendium, enemyCompendium, enemyInstances, enemyEncounters, addEnemy, updateEnemy, removeEnemy, setEnemyCompendium } = useAppStore();
     const [query, setQuery] = useState('');
-    const [view, setView] = useState<'templates' | 'instances'>('templates');
+    const [view, setView] = useState<'templates' | 'instances' | 'encounters'>('templates');
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [draft, setDraft] = useState<EnemyEntry>(emptyEnemy);
     const importRef = useRef<HTMLInputElement>(null);
@@ -118,7 +119,7 @@ export function EnemyCompendiumModal() {
     );
 
     return <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-        <div className="w-full max-w-6xl h-[88vh] bg-void-lighter border border-border rounded flex overflow-hidden">
+        <div className="w-full max-w-[95vw] h-[88vh] bg-void-lighter border border-border rounded flex overflow-hidden">
             <aside className="w-80 border-r border-border flex flex-col">
                 <div className="p-3 flex gap-2">
                     <div className="relative flex-1"><Search size={13} className="absolute left-2 top-2.5 text-text-dim" /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search enemies…" className="w-full bg-void border border-border rounded py-2 pl-7 pr-2 text-xs" /></div>
@@ -143,6 +144,7 @@ export function EnemyCompendiumModal() {
                         <div className="flex gap-3 mt-2">
                             <button onClick={() => setView('templates')} className={`text-xs ${view === 'templates' ? 'text-terminal' : 'text-text-dim'}`}>Templates</button>
                             <button onClick={() => setView('instances')} className={`text-xs ${view === 'instances' ? 'text-terminal' : 'text-text-dim'}`}>Encounter Instances ({enemyInstances.length})</button>
+                            <button onClick={() => setView('encounters')} className={`text-xs ${view === 'encounters' ? 'text-terminal' : 'text-text-dim'}`}>Encounter Roster ({enemyEncounters.filter(encounter => encounter.status === 'active').length})</button>
                         </div>
                     </div>
                     <button onClick={toggleEnemyCompendium}><X size={20} /></button>
@@ -159,7 +161,9 @@ export function EnemyCompendiumModal() {
                     {field('Preferred Range / Tactics', 'tactics', true)}{field('Loot / Rewards', 'loot', true)}
                     <div className="col-span-2">{field('GM Notes', 'gmNotes', true)}</div>
                     <label className="col-span-2 text-xs"><input type="checkbox" checked={draft.promptEnabled} onChange={e => setDraft({ ...draft, promptEnabled: e.target.checked })} className="mr-2" />Inject this template when its name or alias appears in recent play</label>
-                </div> : <EnemyInstancesView selectedTemplateId={selectedId} />}
+                </div> : view === 'instances'
+                    ? <EnemyInstancesView selectedTemplateId={selectedId} />
+                    : <EnemyEncountersView selectedTemplateId={selectedId} />}
                 {view === 'templates' && <footer className="p-4 border-t border-border flex justify-between">
                     <div className="flex gap-2">
                         <button onClick={duplicate} disabled={!draft.name} className="px-3 py-2 border border-border rounded text-xs disabled:opacity-30"><Copy size={13} className="inline mr-1" />Duplicate</button>

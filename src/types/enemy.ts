@@ -32,7 +32,7 @@ export type EnemyEntry = {
 
 /**
  * A mutable encounter copy backed by an immutable snapshot of its source
- * template. Phase 2 persists these records without adding them to AI context.
+ * template. It enters AI context only through an explicitly active wave roster.
  */
 export type EnemyInstance = {
     id: string;
@@ -48,4 +48,30 @@ export type EnemyInstance = {
     defeated: boolean;
     createdAt: number;
     updatedAt: number;
+};
+
+export type EnemyEncounterStatus = 'active' | 'paused' | 'ended';
+
+export type EnemyEncounterWave = {
+    id: string;
+    name: string;
+    instanceIds: string[];
+    activeInstanceIds: string[];
+    createdAt: number;
+    updatedAt: number;
+};
+
+/**
+ * A saved encounter groups instance IDs into waves. Only the active encounter,
+ * its current wave, and that wave's explicitly active IDs enter AI context.
+ */
+export type EnemyEncounter = {
+    id: string;
+    name: string;
+    status: EnemyEncounterStatus;
+    waves: EnemyEncounterWave[];
+    activeWaveId: string;
+    createdAt: number;
+    updatedAt: number;
+    endedAt?: number;
 };
