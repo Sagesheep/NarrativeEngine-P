@@ -1,4 +1,4 @@
-import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
+import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, EnemyInstance, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
 import { affinityToPcRelation } from '../services/npc/agency/agencyBands';
 
 import { API_BASE as API } from '../lib/apiBase';
@@ -167,6 +167,13 @@ export async function saveEnemyCompendium(campaignId: string, enemies: EnemyEntr
 
 export async function getEnemyCompendium(campaignId: string): Promise<EnemyEntry[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/enemies`);
+    return res.ok ? res.json() : [];
+}
+
+// ─── Enemy Instances ───
+
+export async function getEnemyInstances(campaignId: string): Promise<EnemyInstance[]> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-instances`);
     return res.ok ? res.json() : [];
 }
 

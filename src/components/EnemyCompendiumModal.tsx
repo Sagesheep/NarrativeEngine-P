@@ -3,6 +3,7 @@ import { Download, Plus, Search, Trash2, Upload, X, Copy } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import type { EnemyEntry } from '../types';
 import { toast } from './Toast';
+import { EnemyInstancesView } from './EnemyInstancesView';
 
 /** Creates a complete unsaved template so every editor field remains controlled. */
 const emptyEnemy = (): EnemyEntry => {
@@ -33,8 +34,9 @@ const actions = (value: string) => pairs(value).map(({ name, value }) => ({ name
  * only manages the currently edited draft.
  */
 export function EnemyCompendiumModal() {
-    const { enemyCompendiumOpen, toggleEnemyCompendium, enemyCompendium, addEnemy, updateEnemy, removeEnemy, setEnemyCompendium } = useAppStore();
+    const { enemyCompendiumOpen, toggleEnemyCompendium, enemyCompendium, enemyInstances, addEnemy, updateEnemy, removeEnemy, setEnemyCompendium } = useAppStore();
     const [query, setQuery] = useState('');
+    const [view, setView] = useState<'templates' | 'instances'>('templates');
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [draft, setDraft] = useState<EnemyEntry>(emptyEnemy);
     const importRef = useRef<HTMLInputElement>(null);
@@ -136,10 +138,16 @@ export function EnemyCompendiumModal() {
             </aside>
             <main className="flex-1 flex flex-col min-w-0">
                 <header className="p-4 border-b border-border flex items-center justify-between">
-                    <div><h2 className="font-bold uppercase tracking-wider">Enemy Compendium</h2><p className="text-xs text-text-dim">Reusable templates; encounter damage will not alter these records.</p></div>
+                    <div>
+                        <h2 className="font-bold uppercase tracking-wider">Enemy Compendium</h2>
+                        <div className="flex gap-3 mt-2">
+                            <button onClick={() => setView('templates')} className={`text-xs ${view === 'templates' ? 'text-terminal' : 'text-text-dim'}`}>Templates</button>
+                            <button onClick={() => setView('instances')} className={`text-xs ${view === 'instances' ? 'text-terminal' : 'text-text-dim'}`}>Encounter Instances ({enemyInstances.length})</button>
+                        </div>
+                    </div>
                     <button onClick={toggleEnemyCompendium}><X size={20} /></button>
                 </header>
-                <div className="flex-1 overflow-y-auto p-5 grid grid-cols-2 gap-4">
+                {view === 'templates' ? <div className="flex-1 overflow-y-auto p-5 grid grid-cols-2 gap-4">
                     {field('Name', 'name')}{field('Aliases', 'aliases')}
                     {field('Classification / Species', 'classification')}{field('Threat Tier', 'threatTier')}
                     {field('Faction', 'faction')}{listField('Tags', 'tags')}
@@ -151,14 +159,14 @@ export function EnemyCompendiumModal() {
                     {field('Preferred Range / Tactics', 'tactics', true)}{field('Loot / Rewards', 'loot', true)}
                     <div className="col-span-2">{field('GM Notes', 'gmNotes', true)}</div>
                     <label className="col-span-2 text-xs"><input type="checkbox" checked={draft.promptEnabled} onChange={e => setDraft({ ...draft, promptEnabled: e.target.checked })} className="mr-2" />Inject this template when its name or alias appears in recent play</label>
-                </div>
-                <footer className="p-4 border-t border-border flex justify-between">
+                </div> : <EnemyInstancesView selectedTemplateId={selectedId} />}
+                {view === 'templates' && <footer className="p-4 border-t border-border flex justify-between">
                     <div className="flex gap-2">
                         <button onClick={duplicate} disabled={!draft.name} className="px-3 py-2 border border-border rounded text-xs disabled:opacity-30"><Copy size={13} className="inline mr-1" />Duplicate</button>
                         {selectedId && <button onClick={() => { removeEnemy(selectedId); select(); }} className="px-3 py-2 border border-ember text-ember rounded text-xs"><Trash2 size={13} className="inline mr-1" />Delete</button>}
                     </div>
                     <button onClick={save} className="px-5 py-2 bg-terminal text-void rounded text-xs font-bold">Save Template</button>
-                </footer>
+                </footer>}
             </main>
         </div>
     </div>;

@@ -119,7 +119,7 @@ export function createDefaultChapter(chapterId, title, sceneRangeStart, sceneCou
 }
 
 const CAMPAIGN_FILE_SUFFIXES = [
-    '.json', '.state.json', '.lore.json', '.npcs.json', '.enemies.json', '.locations.json',
+    '.json', '.state.json', '.lore.json', '.npcs.json', '.enemies.json', '.enemy-instances.json', '.locations.json',
     '.archive.md', '.archive.index.json', '.archive.chapters.json',
     '.timeline.json', '.entities.json', '.facts.json',
     '.overworld.json', '.divergence.json',
