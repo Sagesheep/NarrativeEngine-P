@@ -47,7 +47,15 @@ export async function initializeCampaignState(params: {
     let seeds: ReturnType<typeof extractEngineSeeds> | null = null;
     if (loreFile) {
         const loreText = await loreFile.text();
-        const chunks = chunkLoreFile(loreText);
+        // Character chunks are RAG-disabled on import: parseNPCsFromLore below turns the
+        // same chunks into ledger entries, and the ledger is the authoritative injection
+        // path for characters (payload/world.ts drops any ledger NPC whose name collides
+        // with a retrieved lore header, so leaving both on lets lore shadow the ledger).
+        // Filters on category, not disabled, so seeding is unaffected. Re-enable per chunk
+        // or in bulk from the Context Bank → World tab.
+        const chunks = chunkLoreFile(loreText).map(c =>
+            c.category === 'character' ? { ...c, disabled: true } : c
+        );
         await saveLoreChunks(campaignId, chunks);
 
         // Non-blocking LLM keyword enrichment — fire and forget

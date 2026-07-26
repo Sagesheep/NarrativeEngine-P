@@ -231,7 +231,7 @@ export function ChatArea() {
                 onOpenArchive={handleOpenArchive}
             />
 
-            <div className="flex-shrink-0 bg-void border-t border-border">
+            <div className="chat-composer-bar flex-shrink-0 bg-void border-t border-border">
                 <IndexingBanner campaignId={activeCampaignId} />
                 {armedAskGmBrief?.campaignId === activeCampaignId && (
                     <ArmedAskGmNote
