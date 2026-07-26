@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { normalizeRelations } from '../../services/npc/relationDedupe';
 import { toast } from '../../components/Toast';
@@ -28,9 +28,9 @@ function preOpBackup(campaignId: string | null, trigger: string) {
 // Getter registered by the slice creator so we always read fresh state at fire time.
 // This prevents stale-snapshot race conditions where two rapid updates within the 1s
 // debounce window would cause the first update's changes to be overwritten.
-let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }) | null = null;
+let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }) | null = null;
 export function _registerCampaignStateGetter(
-    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
+    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
 ) {
     _getStateForSave = getter;
 }
@@ -41,6 +41,7 @@ export function cancelPendingSaves() {
     if (stateTimer) { clearTimeout(stateTimer); stateTimer = null; }
     if (loreTimer)  { clearTimeout(loreTimer);  loreTimer  = null; }
     if (npcTimer)   { clearTimeout(npcTimer);   npcTimer   = null; }
+    if (enemyTimer) { clearTimeout(enemyTimer); enemyTimer = null; }
     if (locationTimer) { clearTimeout(locationTimer); locationTimer = null; }
 }
 
@@ -48,7 +49,7 @@ export function cancelPendingSaves() {
  *  disk before a backup is created. Awaiting this guarantees the backup reads current data. */
 export async function flushAllPendingSaves(): Promise<void> {
     if (!_getStateForSave) return;
-    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, locationLedger, pinnedExcerpts } = _getStateForSave();
+    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, enemyCompendium, locationLedger, pinnedExcerpts } = _getStateForSave();
     if (!activeCampaignId) return;
 
     const saves: Promise<unknown>[] = [];
@@ -87,6 +88,15 @@ export async function flushAllPendingSaves(): Promise<void> {
                 body: JSON.stringify(npcLedger),
             }).catch(e => console.error('[FlushSave] npcs failed:', e))
         );
+    }
+
+    if (enemyTimer) {
+        clearTimeout(enemyTimer);
+        enemyTimer = null;
+        saves.push(fetch(`${API}/campaigns/${activeCampaignId}/enemies`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(enemyCompendium),
+        }).catch(e => console.error('[FlushSave] enemies failed:', e)));
     }
 
     if (locationTimer) {
@@ -141,6 +151,18 @@ export function debouncedSaveNPCLedger(campaignId: string | null, npcs: NPCEntry
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(npcs),
         }).catch((e) => { console.error(e); toast.error('Failed to save NPC ledger'); });
+    }, 1000);
+}
+
+let enemyTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedSaveEnemyCompendium(campaignId: string | null, enemies: EnemyEntry[]) {
+    if (!campaignId) return;
+    if (enemyTimer) clearTimeout(enemyTimer);
+    enemyTimer = setTimeout(() => {
+        fetch(`${API}/campaigns/${campaignId}/enemies`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(enemies),
+        }).catch((e) => { console.error(e); toast.error('Failed to save enemy compendium'); });
     }, 1000);
 }
 
@@ -310,6 +332,11 @@ export type CampaignSlice = {
     removeNPC: (id: string) => void;
     archiveNPC: (id: string, turn: number, reason: string) => void;
     restoreNPC: (id: string) => void;
+    enemyCompendium: EnemyEntry[];
+    setEnemyCompendium: (enemies: EnemyEntry[]) => void;
+    addEnemy: (enemy: EnemyEntry) => void;
+    updateEnemy: (id: string, patch: Partial<EnemyEntry>) => void;
+    removeEnemy: (id: string) => void;
     mergeOrRenameNpc: (from: string, to: string, turn: number) => 'merged' | 'renamed' | 'none';
     // ── Player character (WO-A rewrite 2 §1 + §2) ──
     // Stored at `context.playerCharacter`, NOT in npcLedger. `isPC` is vestigial.
@@ -378,7 +405,7 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     // not a stale closure snapshot from the time the action was called.
     _registerCampaignStateGetter(() => {
         const s = get();
-        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger, locationLedger: s.locationLedger, pinnedExcerpts: s.pinnedExcerpts };
+        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger, enemyCompendium: s.enemyCompendium, locationLedger: s.locationLedger, pinnedExcerpts: s.pinnedExcerpts };
     });
 
     return {
@@ -527,6 +554,27 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         );
         debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
         return { npcLedger: newLedger };
+    }),
+    enemyCompendium: [],
+    setEnemyCompendium: (enemies) => set((s) => {
+        debouncedSaveEnemyCompendium(s.activeCampaignId, enemies);
+        return { enemyCompendium: enemies } as Partial<CampaignDeps>;
+    }),
+    addEnemy: (enemy) => set((s) => {
+        const enemies = [...s.enemyCompendium, enemy];
+        debouncedSaveEnemyCompendium(s.activeCampaignId, enemies);
+        return { enemyCompendium: enemies } as Partial<CampaignDeps>;
+    }),
+    updateEnemy: (id, patch) => set((s) => {
+        const enemies = s.enemyCompendium.map(e => e.id === id ? { ...e, ...patch, updatedAt: Date.now() } : e);
+        debouncedSaveEnemyCompendium(s.activeCampaignId, enemies);
+        return { enemyCompendium: enemies } as Partial<CampaignDeps>;
+    }),
+    removeEnemy: (id) => set((s) => {
+        preOpBackup(s.activeCampaignId, 'pre-delete-enemy');
+        const enemies = s.enemyCompendium.filter(e => e.id !== id);
+        debouncedSaveEnemyCompendium(s.activeCampaignId, enemies);
+        return { enemyCompendium: enemies } as Partial<CampaignDeps>;
     }),
     mergeOrRenameNpc: (from, to, turn) => {
         void turn;

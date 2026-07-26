@@ -1,6 +1,6 @@
 import { useAppStore } from './useAppStore';
 import {
-    loadCampaignState, getLoreChunks, getNPCLedger, getLocationLedger,
+    loadCampaignState, getLoreChunks, getNPCLedger, getEnemyCompendium, getLocationLedger,
     loadArchiveIndex, loadTimeline, loadChapters, loadEntities,
     loadDivergenceRegister, saveDivergenceRegister, saveChapters,
     saveNPCLedger, saveCampaignState,
@@ -60,10 +60,11 @@ export function stripOrphanedSwipeState(messages: ChatMessage[]): { messages: Ch
 }
 
 export async function hydrateCampaign(campaignId: string) {
-    const [state, chunks, npcs, locations, archiveIndex, timeline, chapters, entities, divReg] = await Promise.all([
+    const [state, chunks, npcs, enemies, locations, archiveIndex, timeline, chapters, entities, divReg] = await Promise.all([
         loadCampaignState(campaignId),
         getLoreChunks(campaignId),
         getNPCLedger(campaignId),
+        getEnemyCompendium(campaignId),
         getLocationLedger(campaignId),
         loadArchiveIndex(campaignId),
         loadTimeline(campaignId),
@@ -133,6 +134,7 @@ export async function hydrateCampaign(campaignId: string) {
         condenser: { ...(state?.condenser ?? DEFAULT_CONDENSER) },
         loreChunks: chunks,
         npcLedger: finalNpcLedger,
+        enemyCompendium: enemies ?? [],
         locationLedger: locations ?? [],
         archiveIndex: archiveIndex ?? [],
         timeline: timeline ?? [],

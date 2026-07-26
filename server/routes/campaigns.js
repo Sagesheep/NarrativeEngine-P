@@ -21,6 +21,7 @@ export function createCampaignsRouter() {
             !f.includes('.state') &&
             !f.includes('.lore') &&
             !f.includes('.npcs') &&
+            !f.includes('.enemies') &&
             !f.includes('.locations') &&
             !f.includes('.archive') &&
             !f.includes('.index')
@@ -197,6 +198,23 @@ export function createCampaignsRouter() {
         ensureDirs();
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
         writeJson(filePath, req.body);
+        res.json({ ok: true });
+    }));
+
+    // ═══════════════════════════════════════════
+    //  Enemy Compendium
+    // ═══════════════════════════════════════════
+
+    router.get('/api/campaigns/:id/enemies', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemies.json`), []));
+    }));
+
+    router.put('/api/campaigns/:id/enemies', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Enemy compendium must be an array' });
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemies.json`), req.body);
         res.json({ ok: true });
     }));
 

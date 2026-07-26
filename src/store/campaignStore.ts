@@ -1,4 +1,4 @@
-import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
+import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
 import { affinityToPcRelation } from '../services/npc/agency/agencyBands';
 
 import { API_BASE as API } from '../lib/apiBase';
@@ -153,6 +153,21 @@ export async function getNPCLedger(campaignId: string): Promise<NPCEntry[]> {
         if (n.exampleOutput && typeof n.exampleOutput !== 'string') n.exampleOutput = String(n.exampleOutput);
     }
     return npcs;
+}
+
+// ─── Enemy Compendium ───
+
+export async function saveEnemyCompendium(campaignId: string, enemies: EnemyEntry[]): Promise<void> {
+    await fetch(`${API}/campaigns/${campaignId}/enemies`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(enemies),
+    });
+}
+
+export async function getEnemyCompendium(campaignId: string): Promise<EnemyEntry[]> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/enemies`);
+    return res.ok ? res.json() : [];
 }
 
 // ─── Location Ledger ───

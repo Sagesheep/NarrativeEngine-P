@@ -10,6 +10,7 @@ export type UISlice = {
     settingsOpen: boolean;
     drawerOpen: boolean;
     npcLedgerOpen: boolean;
+    enemyCompendiumOpen: boolean;
     pcPanelOpen: boolean;
     locationLedgerOpen: boolean;
     backupModalOpen: boolean;
@@ -24,6 +25,7 @@ export type UISlice = {
     toggleSettings: () => void;
     toggleDrawer: () => void;
     toggleNPCLedger: () => void;
+    toggleEnemyCompendium: () => void;
     togglePCPanel: () => void;
     toggleLocationLedger: () => void;
     toggleBackupModal: () => void;
@@ -95,6 +97,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     settingsOpen: false,
     drawerOpen: true,
     npcLedgerOpen: false,
+    enemyCompendiumOpen: false,
     pcPanelOpen: false,
     locationLedgerOpen: false,
     backupModalOpen: false,
@@ -108,6 +111,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
     toggleDrawer: () => set((s) => ({ drawerOpen: !s.drawerOpen })),
     toggleNPCLedger: () => set((s) => ({ npcLedgerOpen: !s.npcLedgerOpen })),
+    toggleEnemyCompendium: () => set((s) => ({ enemyCompendiumOpen: !s.enemyCompendiumOpen })),
     togglePCPanel: () => set((s) => ({ pcPanelOpen: !s.pcPanelOpen })),
     toggleLocationLedger: () => set((s) => ({ locationLedgerOpen: !s.locationLedgerOpen })),
     toggleBackupModal: () => set((s) => ({ backupModalOpen: !s.backupModalOpen })),

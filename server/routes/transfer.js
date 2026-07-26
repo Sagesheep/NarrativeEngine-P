@@ -68,6 +68,7 @@ export function createTransferRouter() {
         const state = readJson(path.join(CAMPAIGNS_DIR, `${id}.state.json`), null);
         const lore = readJson(path.join(CAMPAIGNS_DIR, `${id}.lore.json`), []);
         const npcs = readJson(path.join(CAMPAIGNS_DIR, `${id}.npcs.json`), []);
+        const enemies = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemies.json`), []);
         const archiveIndex = readJson(archiveIndexPath(id), []);
         const chapters = readJson(chaptersPath(id), []);
         const facts = readJson(factsPath(id), []);
@@ -87,6 +88,7 @@ export function createTransferRouter() {
             state,
             lore,
             npcs,
+            enemies,
             scenes,
             archiveIndex,
             chapters,
@@ -111,7 +113,7 @@ export function createTransferRouter() {
         // ID collision check — only match bare {id}.json metadata files
         const existingIds = new Set(
             fs.readdirSync(CAMPAIGNS_DIR)
-                .filter(f => f.endsWith('.json') && !f.includes('.state') && !f.includes('.lore') && !f.includes('.npcs') && !f.includes('.archive') && !f.includes('.index') && !f.includes('.timeline') && !f.includes('.entities') && !f.includes('.facts') && !f.includes('.overworld') && !f.includes('.chapters'))
+                .filter(f => f.endsWith('.json') && !f.includes('.state') && !f.includes('.lore') && !f.includes('.npcs') && !f.includes('.enemies') && !f.includes('.archive') && !f.includes('.index') && !f.includes('.timeline') && !f.includes('.entities') && !f.includes('.facts') && !f.includes('.overworld') && !f.includes('.chapters'))
                 .map(f => f.slice(0, -5))
         );
         const originalId = bundle.campaign?.id;
@@ -137,6 +139,10 @@ export function createTransferRouter() {
         // Write npcs
         if (bundle.npcs?.length) {
             writeJson(path.join(CAMPAIGNS_DIR, `${newId}.npcs.json`), bundle.npcs);
+        }
+
+        if (bundle.enemies?.length) {
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemies.json`), bundle.enemies);
         }
 
         // Write archive index

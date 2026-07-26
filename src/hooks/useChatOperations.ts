@@ -36,11 +36,12 @@ export function useChatOperations({
     const deepArmed = useAppStore(s => s.deepArmed);
     const setDeepArmed = useAppStore(s => s.setDeepArmed);
 
-    const { settings, loreChunks, npcLedger, archiveIndex } = useAppStore(
+    const { settings, loreChunks, npcLedger, enemyCompendium, archiveIndex } = useAppStore(
         useShallow(s => ({
             settings: s.settings,
             loreChunks: s.loreChunks,
             npcLedger: s.npcLedger,
+            enemyCompendium: s.enemyCompendium,
             archiveIndex: s.archiveIndex,
         }))
     );
@@ -215,6 +216,7 @@ export function useChatOperations({
             condenser: storeSnapshot.condenser,
             loreChunks,
             npcLedger,
+            enemyCompendium,
             archiveIndex,
             activeCampaignId,
             provider: storyProvider,
