@@ -10,6 +10,7 @@ let tmpDir;
 let createBackup;
 let updateBackupLabel;
 let pruneAutoBackups;
+let restoreBackup;
 let CAMPAIGNS_DIR;
 let BACKUPS_DIR;
 
@@ -25,6 +26,7 @@ beforeEach(async () => {
     createBackup = backup.createBackup;
     updateBackupLabel = backup.updateBackupLabel;
     pruneAutoBackups = backup.pruneAutoBackups;
+    restoreBackup = backup.restoreBackup;
     CAMPAIGNS_DIR = store.CAMPAIGNS_DIR;
     BACKUPS_DIR = store.BACKUPS_DIR;
 
@@ -87,6 +89,78 @@ describe('createBackup', () => {
         const result2 = createBackup(id, { isAuto: true });
         expect(result2.skipped).toBeUndefined();
         expect(result2.timestamp).toBeDefined();
+    });
+});
+
+describe('restoreBackup', () => {
+    // A backup taken before the campaign's first scene contains no archive files
+    // at all, because createBackup only copies files that exist. Restore used to
+    // copy just the backup's own files, which left every archive file written
+    // afterwards on disk — so a "restore to blank" kept the scenes, and sealing
+    // the chapter summarised scenes the restored campaign never had.
+    it('deletes campaign files the backup predates', () => {
+        const id = 'restore_blank';
+        seedCampaign(id);
+        const { timestamp } = createBackup(id, { label: 'blank' });
+
+        // Play a turn: the archive files appear for the first time.
+        fs.writeFileSync(path.join(CAMPAIGNS_DIR, `${id}.archive.md`), '## SCENE 001\nGhost scene.\n');
+        fs.writeFileSync(path.join(CAMPAIGNS_DIR, `${id}.archive.index.json`), JSON.stringify([{ sceneId: '001' }]));
+        fs.writeFileSync(path.join(CAMPAIGNS_DIR, `${id}.archive.chapters.json`), JSON.stringify([{ chapterId: 'CH01', sceneIds: ['001'] }]));
+
+        restoreBackup(id, timestamp);
+
+        expect(fs.existsSync(path.join(CAMPAIGNS_DIR, `${id}.archive.md`))).toBe(false);
+        expect(fs.existsSync(path.join(CAMPAIGNS_DIR, `${id}.archive.index.json`))).toBe(false);
+        expect(fs.existsSync(path.join(CAMPAIGNS_DIR, `${id}.archive.chapters.json`))).toBe(false);
+    });
+
+    it('overwrites files the backup does contain', () => {
+        const id = 'restore_overwrite';
+        seedCampaign(id);
+        fs.writeFileSync(path.join(CAMPAIGNS_DIR, `${id}.archive.md`), '## SCENE 001\nOriginal.\n');
+        const { timestamp } = createBackup(id, { label: 'one scene' });
+
+        fs.writeFileSync(path.join(CAMPAIGNS_DIR, `${id}.archive.md`), '## SCENE 001\nOriginal.\n## SCENE 002\nLater.\n');
+
+        restoreBackup(id, timestamp);
+
+        const md = fs.readFileSync(path.join(CAMPAIGNS_DIR, `${id}.archive.md`), 'utf-8');
+        expect(md).toContain('SCENE 001');
+        expect(md).not.toContain('SCENE 002');
+    });
+
+    it('never deletes the campaign identity file', () => {
+        const id = 'restore_identity';
+        seedCampaign(id);
+        // A hand-made backup directory missing `${id}.json` must not unlist the campaign.
+        const ts = Date.now();
+        const backupDir = path.join(BACKUPS_DIR, id, String(ts));
+        fs.mkdirSync(backupDir, { recursive: true });
+        fs.writeFileSync(path.join(backupDir, 'meta.json'), JSON.stringify({ timestamp: ts }));
+        fs.writeFileSync(path.join(backupDir, `${id}.state.json`), JSON.stringify({ messages: [] }));
+
+        restoreBackup(id, ts);
+
+        expect(fs.existsSync(path.join(CAMPAIGNS_DIR, `${id}.json`))).toBe(true);
+    });
+
+    it('takes a pre-restore backup before touching anything', () => {
+        const id = 'restore_undo';
+        seedCampaign(id);
+        const { timestamp } = createBackup(id, { label: 'blank' });
+        fs.writeFileSync(path.join(CAMPAIGNS_DIR, `${id}.archive.md`), '## SCENE 001\nGhost scene.\n');
+
+        const preRestore = restoreBackup(id, timestamp);
+
+        const preRestoreDir = path.join(BACKUPS_DIR, id, String(preRestore.timestamp));
+        expect(fs.existsSync(path.join(preRestoreDir, `${id}.archive.md`))).toBe(true);
+    });
+
+    it('throws a 404-shaped error for a missing backup', () => {
+        const id = 'restore_missing';
+        seedCampaign(id);
+        expect(() => restoreBackup(id, 1)).toThrowError(/Backup not found/);
     });
 });
 
