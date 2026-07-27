@@ -4,8 +4,11 @@ import type {
     EnemyInstance,
     EnemyResource,
 } from '../../types';
+import { normalizeEnemyEntry } from './enemySchema';
 
 export const DEFAULT_ENEMY_COMBAT_CONFIG: EnemyCombatConfig = {
+    promptContextEnabled: true,
+    enemyDiscoveryEnabled: true,
     enabled: false,
     initiativeMode: 'manual',
     initiativeModifierStat: '',
@@ -33,8 +36,38 @@ export type EnemyDamageResult = {
 export function normalizeEnemyInstance(instance: EnemyInstance): EnemyInstance {
     const rawActionsPerTurn = Number(instance.actionsPerTurn);
     const actionsPerTurn = Number.isFinite(rawActionsPerTurn) ? Math.max(0, rawActionsPerTurn) : 1;
+    const templateSnapshot = normalizeEnemyEntry(instance.templateSnapshot, {
+        now: Number.isFinite(instance.updatedAt) ? instance.updatedAt : Date.now(),
+        createId: () => instance.templateId || crypto.randomUUID(),
+    });
     return {
         ...instance,
+        templateSnapshot: templateSnapshot ?? {
+            id: instance.templateId || crypto.randomUUID(),
+            name: typeof instance.displayName === 'string' && instance.displayName.trim()
+                ? instance.displayName.trim()
+                : 'Unknown Enemy',
+            aliases: '',
+            classification: '',
+            description: '',
+            threatTier: '',
+            tags: [],
+            faction: '',
+            stats: [],
+            actions: [],
+            passiveTraits: [],
+            specialBehaviors: [],
+            weaknesses: [],
+            resistances: [],
+            tactics: '',
+            loot: '',
+            gmNotes: '',
+            promptEnabled: true,
+            createdAt: Number.isFinite(instance.createdAt) ? instance.createdAt : Date.now(),
+            updatedAt: Number.isFinite(instance.updatedAt) ? instance.updatedAt : Date.now(),
+        },
+        conditions: Array.isArray(instance.conditions) ? instance.conditions.filter(value => typeof value === 'string') : [],
+        temporaryModifiers: Array.isArray(instance.temporaryModifiers) ? instance.temporaryModifiers : [],
         initiative: Number.isFinite(instance.initiative) ? instance.initiative : null,
         actionsRemaining: Math.max(0, Number(instance.actionsRemaining) || 0),
         actionsPerTurn,
@@ -59,6 +92,8 @@ export function normalizeEnemyCombatConfig(config?: Partial<EnemyCombatConfig> |
             : DEFAULT_ENEMY_COMBAT_CONFIG[key] as boolean;
     return {
         ...DEFAULT_ENEMY_COMBAT_CONFIG,
+        promptContextEnabled: boolean('promptContextEnabled'),
+        enemyDiscoveryEnabled: boolean('enemyDiscoveryEnabled'),
         enabled: boolean('enabled'),
         initiativeMode,
         initiativeModifierStat: typeof config?.initiativeModifierStat === 'string' ? config.initiativeModifierStat : '',

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EnemyEntry, EnemyInstance } from '../../../types';
 import { buildActiveEncounterBlock, createEnemyEncounter } from '../enemyEncounter';
 import { DEFAULT_ENEMY_COMBAT_CONFIG } from '../enemyCombat';
+import { countTokens } from '../../infrastructure/tokenizer';
 
 const template = (name: string): EnemyEntry => ({
     id: `${name}-template`, name, aliases: '', classification: 'Rapture',
@@ -105,5 +106,20 @@ describe('enemy encounters', () => {
         encounter.waves[0].activeInstanceIds = ['missing'];
 
         expect(buildActiveEncounterBlock([encounter], [])).toContain('(No enemy instances are currently active in this wave.)');
+    });
+
+    it('shares duplicate templates and respects the prompt token budget', () => {
+        const first = instance('scout-1', 'Scout Gunner');
+        const second = { ...instance('scout-2', 'Scout Gunner'), displayName: 'Scout Gunner #2' };
+        const encounter = createEnemyEncounter('Tutorial', 10, 'encounter-1', 'wave-1');
+        encounter.waves[0].activeInstanceIds = [first.id, second.id];
+
+        const fullBlock = buildActiveEncounterBlock([encounter], [first, second]);
+        const block = buildActiveEncounterBlock([encounter], [first, second], undefined, 150);
+
+        expect(block).toContain('INSTANCE: Scout Gunner');
+        expect(block).toContain('INSTANCE: Scout Gunner #2');
+        expect(fullBlock.match(/^TEMPLATE: Scout Gunner$/gm)).toHaveLength(1);
+        expect(countTokens(block)).toBeLessThanOrEqual(150);
     });
 });

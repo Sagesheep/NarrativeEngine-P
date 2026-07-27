@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyEncounterStatus, EnemyEncounterWave, EnemyCombatConfig, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyEncounterStatus, EnemyEncounterWave, EnemyCombatConfig, EnemySuggestion, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { createEnemyInstance } from '../../services/enemy/enemyInstance';
 import { createEnemyEncounter as makeEnemyEncounter, createEnemyEncounterWave } from '../../services/enemy/enemyEncounter';
@@ -20,6 +20,7 @@ import {
     getEncounterInstances,
     type EnemyResolutionDraft,
 } from '../../services/enemy/enemyResolution';
+import { canonicalEnemyName } from '../../services/enemy/enemySchema';
 import {
     addTimelineEvent as persistTimelineEvent,
     saveEnemyEncounters,
@@ -428,6 +429,11 @@ export type CampaignSlice = {
     addEnemy: (enemy: EnemyEntry) => void;
     updateEnemy: (id: string, patch: Partial<EnemyEntry>) => void;
     removeEnemy: (id: string) => void;
+    enemySuggestions: EnemySuggestion[];
+    addEnemySuggestions: (suggestions: Array<Omit<EnemySuggestion, 'id' | 'firstSeen' | 'context'>>, context?: string) => void;
+    updateEnemySuggestion: (id: string, patch: Partial<EnemySuggestion>) => void;
+    dismissEnemySuggestion: (id: string) => void;
+    clearEnemySuggestions: () => void;
     enemyInstances: EnemyInstance[];
     setEnemyInstances: (instances: EnemyInstance[]) => void;
     spawnEnemyInstance: (templateId: string) => EnemyInstance | null;
@@ -695,6 +701,46 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         debouncedSaveEnemyCompendium(s.activeCampaignId, enemies);
         return { enemyCompendium: enemies } as Partial<CampaignDeps>;
     }),
+    // Review-only discoveries. Nothing enters the canonical compendium until
+    // the player accepts it in EnemyCompendiumModal.
+    enemySuggestions: [],
+    addEnemySuggestions: (suggestions, context) => set((s) => {
+        const knownNames = new Set(s.enemyCompendium.flatMap(enemy =>
+            [enemy.name, ...(enemy.aliases || '').split(',')].map(canonicalEnemyName).filter(Boolean)));
+        const existing = new Set(s.enemySuggestions.map(suggestion =>
+            `${suggestion.kind}:${suggestion.targetEnemyId ?? ''}:${canonicalEnemyName(suggestion.name)}`));
+        const now = Date.now();
+        const fresh: EnemySuggestion[] = [];
+
+        for (const suggestion of suggestions) {
+            const name = suggestion.name.trim();
+            const nameKey = canonicalEnemyName(name);
+            if (!nameKey || knownNames.has(nameKey)) continue;
+            if (suggestion.kind === 'alias' && !s.enemyCompendium.some(enemy => enemy.id === suggestion.targetEnemyId)) continue;
+            const key = `${suggestion.kind}:${suggestion.targetEnemyId ?? ''}:${nameKey}`;
+            if (existing.has(key)) continue;
+            existing.add(key);
+            fresh.push({
+                ...suggestion,
+                id: crypto.randomUUID(),
+                name,
+                context: context?.slice(-500),
+                firstSeen: now,
+            });
+            if (fresh.length + s.enemySuggestions.length >= 30) break;
+        }
+        return fresh.length
+            ? { enemySuggestions: [...s.enemySuggestions, ...fresh] } as Partial<CampaignDeps>
+            : {};
+    }),
+    updateEnemySuggestion: (id, patch) => set((s) => ({
+        enemySuggestions: s.enemySuggestions.map(suggestion =>
+            suggestion.id === id ? { ...suggestion, ...patch } : suggestion),
+    }) as Partial<CampaignDeps>),
+    dismissEnemySuggestion: (id) => set((s) => ({
+        enemySuggestions: s.enemySuggestions.filter(suggestion => suggestion.id !== id),
+    }) as Partial<CampaignDeps>),
+    clearEnemySuggestions: () => set({ enemySuggestions: [] } as Partial<CampaignDeps>),
     enemyInstances: [],
     setEnemyInstances: (instances) => set((s) => {
         debouncedSaveEnemyInstances(s.activeCampaignId, instances);

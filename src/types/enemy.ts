@@ -9,6 +9,10 @@ export type EnemyEncounterOutcome = 'victory' | 'partial' | 'defeat' | 'escaped'
 export type EnemyInstanceDisposition = 'archive' | 'discard';
 
 export type EnemyCombatConfig = {
+    /** Master gate for all compendium and active-encounter prompt injection. */
+    promptContextEnabled: boolean;
+    /** Runs post-turn enemy/alias discovery into a review queue, never direct mutation. */
+    enemyDiscoveryEnabled: boolean;
     enabled: boolean;
     initiativeMode: EnemyInitiativeMode;
     initiativeModifierStat: string;
@@ -20,6 +24,20 @@ export type EnemyCombatConfig = {
     defaultActionsPerTurn: number;
     cooldownsEnabled: boolean;
     resourcesEnabled: boolean;
+};
+
+export type EnemySuggestionKind = 'new' | 'alias';
+
+/** A post-turn discovery candidate awaiting explicit player approval. */
+export type EnemySuggestion = {
+    id: string;
+    kind: EnemySuggestionKind;
+    name: string;
+    targetEnemyId?: string;
+    classification?: string;
+    reason?: string;
+    context?: string;
+    firstSeen: number;
 };
 
 /**

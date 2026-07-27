@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildPayload } from '../payload/payloadBuilder';
 import { DEFAULT_RULES } from '../rules/defaultRules';
+import { DEFAULT_ENEMY_COMBAT_CONFIG } from '../enemy/enemyCombat';
 import type {
     GameContext,
     AppSettings,
@@ -1504,5 +1505,21 @@ describe('buildPayload — active encounter roster', () => {
         expect(finalUser).toContain('STATE: HP 12/45');
         expect(finalUser).not.toContain('[RELEVANT ENEMY TEMPLATES');
         expect(finalUser).not.toContain('ENEMY: Reserve Gunner');
+    });
+
+    it('omits both encounter and compendium context when the campaign master switch is off', () => {
+        const mentioned = enemyTemplate('orc-template', 'Orc Warrior');
+        const result = buildPayload({
+            settings: baseSettings(),
+            context: baseContext(),
+            history: [],
+            userMessage: 'The Orc Warrior attacks.',
+            enemyCompendium: [mentioned],
+            enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, promptContextEnabled: false },
+        });
+        const finalUser = [...result.messages].reverse().find(message => message.role === 'user')?.content ?? '';
+
+        expect(finalUser).not.toContain('[RELEVANT ENEMY TEMPLATES');
+        expect(finalUser).not.toContain('ENEMY: Orc Warrior');
     });
 });

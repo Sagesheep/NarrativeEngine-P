@@ -6,6 +6,7 @@ import { embedText, buildLoreText, resolveIndexingSpeed } from '../lib/embedder.
 import { storeLoreEmbedding, deleteCampaignEmbeddings } from '../lib/vectorStore.js';
 import { startJob, tickJob, endJob } from '../lib/embedJobs.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
+import { validateEnemyCompendium } from '../lib/enemySchema.js';
 
 export function createCampaignsRouter() {
     const router = Router();
@@ -216,9 +217,12 @@ export function createCampaignsRouter() {
 
     router.put('/api/campaigns/:id/enemies', wrapAsync((req, res) => {
         validateCampaignId(req.params.id);
-        if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Enemy compendium must be an array' });
+        const checked = validateEnemyCompendium(req.body);
+        if (checked.errors.length) {
+            return res.status(400).json({ error: 'Invalid enemy compendium', details: checked.errors });
+        }
         ensureDirs();
-        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemies.json`), req.body);
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemies.json`), checked.value);
         res.json({ ok: true });
     }));
 

@@ -138,9 +138,18 @@ describe('enemy combat integration', () => {
             resources: [],
         });
         expect(normalizeEnemyCombatConfig({ enabled: true, weaknessMultiplier: 0 })).toMatchObject({
+            promptContextEnabled: true,
+            enemyDiscoveryEnabled: true,
             enabled: true,
             weaknessMultiplier: 0,
             initiativeMode: 'manual',
+        });
+        expect(normalizeEnemyCombatConfig({
+            promptContextEnabled: false,
+            enemyDiscoveryEnabled: false,
+        })).toMatchObject({
+            promptContextEnabled: false,
+            enemyDiscoveryEnabled: false,
         });
     });
 });

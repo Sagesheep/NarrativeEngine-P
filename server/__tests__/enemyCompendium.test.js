@@ -62,6 +62,48 @@ describe('enemy compendium campaign files', () => {
         expect(store.campaignFiles('test')).toContain('test.enemy-resolutions.json');
     });
 
+    it('normalizes nullable enemy fields and rejects malformed field shapes through the API', async () => {
+        vi.stubEnv('DATA_DIR', tmpDir);
+        vi.doMock('../lib/embedder.js', () => ({
+            embedText: vi.fn(),
+            buildLoreText: vi.fn(),
+            resolveIndexingSpeed: vi.fn(() => ({ batchSize: 1, delayMs: 0 })),
+        }));
+        vi.doMock('../lib/vectorStore.js', () => ({
+            storeLoreEmbedding: vi.fn(),
+            deleteCampaignEmbeddings: vi.fn(),
+        }));
+        vi.doMock('../lib/embedJobs.js', () => ({
+            startJob: vi.fn(),
+            tickJob: vi.fn(),
+            endJob: vi.fn(),
+        }));
+
+        const { createCampaignsRouter } = await import('../routes/campaigns.js?' + Date.now());
+        const app = express();
+        app.use(express.json());
+        app.use(createCampaignsRouter());
+
+        await request(app).put('/api/campaigns/test/enemies').send([{
+            name: 'Royal Duelist',
+            tags: null,
+            stats: null,
+            actions: [{ name: 'Riposte', description: null }],
+        }]).expect(200);
+        const saved = await request(app).get('/api/campaigns/test/enemies').expect(200);
+        expect(saved.body[0]).toEqual(expect.objectContaining({
+            name: 'Royal Duelist',
+            tags: [],
+            stats: [],
+            actions: [{ name: 'Riposte', description: '' }],
+        }));
+
+        const rejected = await request(app).put('/api/campaigns/test/enemies')
+            .send([{ name: 'Broken Orc', tags: 'melee' }])
+            .expect(400);
+        expect(rejected.body.details).toContain('enemies[0].tags must be an array or null');
+    });
+
     it('persists enemy instances through the campaign API', async () => {
         vi.stubEnv('DATA_DIR', tmpDir);
         vi.doMock('../lib/embedder.js', () => ({

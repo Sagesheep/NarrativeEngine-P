@@ -37,17 +37,22 @@ vi.mock('../chatEngine', () => ({
 }));
 vi.mock('../characterProfileParser', () => ({ scanCharacterProfile: vi.fn() }));
 vi.mock('../inventoryParser', () => ({ scanInventory: vi.fn() }));
+vi.mock('../enemy/enemySuggestions', () => ({ detectEnemySuggestions: vi.fn().mockResolvedValue([]) }));
 
 import { runPostTurnPipeline } from '../turn/postTurnPipeline';
 import { api } from '../llm/apiClient';
 import { backgroundQueue } from '../infrastructure/backgroundQueue';
 import { extractNPCNames, validateNPCCandidates, classifyNPCNames } from '../npc/npcDetector';
+import { detectEnemySuggestions } from '../enemy/enemySuggestions';
+import { DEFAULT_ENEMY_COMBAT_CONFIG } from '../enemy/enemyCombat';
+import { useAppStore } from '../../store/useAppStore';
 
 const mockApi = vi.mocked(api);
 const mockBQ = vi.mocked(backgroundQueue);
 const mockExtractNPCNames = vi.mocked(extractNPCNames);
 const mockValidateNPCCandidates = vi.mocked(validateNPCCandidates);
 const mockClassifyNPCNames = vi.mocked(classifyNPCNames);
+const mockDetectEnemySuggestions = vi.mocked(detectEnemySuggestions);
 
 const baseContext = (): GameContext => ({
     loreRaw: '',
@@ -122,6 +127,30 @@ describe('runPostTurnPipeline', () => {
             ASSISTANT_CONTENT,
             3  // mocked rateImportance returns 3
         );
+    });
+
+    it('queues enemy discoveries for review when campaign discovery is enabled', async () => {
+        mockApi.archive.append.mockResolvedValueOnce({ sceneId: '001' });
+        mockApi.chapters.list.mockResolvedValueOnce([]);
+        mockDetectEnemySuggestions.mockResolvedValueOnce([{
+            kind: 'new',
+            name: 'Orc Berserker',
+            classification: 'Orc',
+        }]);
+        useAppStore.setState({ activeCampaignId: 'campaign-1' });
+        mockBQ.push.mockImplementationOnce(async (_label, execute) => execute());
+        const callbacks = { ...makeCallbacks(), addEnemySuggestions: vi.fn() };
+        const state = makeState({
+            enemyCompendium: [],
+            enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, enemyDiscoveryEnabled: true },
+        });
+
+        await runPostTurnPipeline(state, callbacks, ASSISTANT_CONTENT, ALL_MSGS);
+
+        expect(mockDetectEnemySuggestions).toHaveBeenCalled();
+        expect(callbacks.addEnemySuggestions).toHaveBeenCalledWith([
+            expect.objectContaining({ kind: 'new', name: 'Orc Berserker' }),
+        ], ASSISTANT_CONTENT);
     });
 
     it('returns early (without calling getIndex) when archive.append returns null', async () => {

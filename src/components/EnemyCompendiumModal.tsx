@@ -6,17 +6,11 @@ import { toast } from './Toast';
 import { EnemyInstancesView } from './EnemyInstancesView';
 import { EnemyEncountersView } from './EnemyEncountersView';
 import { EnemyCombatView } from './EnemyCombatView';
+import { createEmptyEnemyEntry, normalizeEnemyEntries } from '../services/enemy/enemySchema';
+import { EnemySuggestionsPanel } from './EnemySuggestionsPanel';
 
 /** Creates a complete unsaved template so every editor field remains controlled. */
-const emptyEnemy = (): EnemyEntry => {
-    const now = Date.now();
-    return {
-        id: crypto.randomUUID(), name: '', aliases: '', classification: '',
-        description: '', threatTier: '', tags: [], faction: '', stats: [], actions: [],
-        passiveTraits: [], specialBehaviors: [], weaknesses: [], resistances: [],
-        tactics: '', loot: '', gmNotes: '', promptEnabled: true, createdAt: now, updatedAt: now,
-    };
-};
+const emptyEnemy = (): EnemyEntry => createEmptyEnemyEntry();
 
 /** Converts a multiline editor value into trimmed, non-empty list entries. */
 const lines = (value: string) => value.split('\n').map(v => v.trim()).filter(Boolean);
@@ -36,7 +30,19 @@ const actions = (value: string) => pairs(value).map(({ name, value }) => ({ name
  * only manages the currently edited draft.
  */
 export function EnemyCompendiumModal() {
-    const { enemyCompendiumOpen, toggleEnemyCompendium, enemyCompendium, enemyInstances, enemyEncounters, addEnemy, updateEnemy, removeEnemy, setEnemyCompendium } = useAppStore();
+    const {
+        enemyCompendiumOpen,
+        toggleEnemyCompendium,
+        enemyCompendium,
+        enemyInstances,
+        enemyEncounters,
+        enemyCombatConfig,
+        addEnemy,
+        updateEnemy,
+        removeEnemy,
+        setEnemyCompendium,
+        setEnemyCombatConfig,
+    } = useAppStore();
     const [query, setQuery] = useState('');
     const [view, setView] = useState<'templates' | 'instances' | 'encounters' | 'combat'>('templates');
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -94,10 +100,10 @@ export function EnemyCompendiumModal() {
             const parsed = JSON.parse(await file.text());
             if (!Array.isArray(parsed)) throw new Error('Expected a JSON array');
             const now = Date.now();
-            const imported = parsed.filter(e => e && typeof e.name === 'string').map(e => ({ ...emptyEnemy(), ...e, id: e.id || crypto.randomUUID(), updatedAt: now }));
-            setEnemyCompendium(imported);
+            const { entries, skipped } = normalizeEnemyEntries(parsed, { now });
+            setEnemyCompendium(entries);
             select();
-            toast.success(`Imported ${imported.length} enemies`);
+            toast.success(`Imported ${entries.length} enemies${skipped ? ` (${skipped} unnamed or invalid records skipped)` : ''}`);
         } catch (e) { toast.error(e instanceof Error ? e.message : 'Import failed'); }
     };
 
@@ -126,6 +132,7 @@ export function EnemyCompendiumModal() {
                     <div className="relative flex-1"><Search size={13} className="absolute left-2 top-2.5 text-text-dim" /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search enemies…" className="w-full bg-void border border-border rounded py-2 pl-7 pr-2 text-xs" /></div>
                     <button onClick={() => select()} title="New enemy" className="p-2 border border-border rounded hover:text-terminal"><Plus size={15} /></button>
                 </div>
+                <EnemySuggestionsPanel onAccepted={select} />
                 <div className="flex-1 overflow-y-auto">
                     {shown.map(enemy => <button key={enemy.id} onClick={() => select(enemy)} className={`w-full text-left p-3 border-b border-border/50 ${selectedId === enemy.id ? 'bg-terminal/10 text-terminal' : 'hover:bg-white/5'}`}>
                         <div className="font-semibold text-sm">{enemy.name}</div>
@@ -147,6 +154,26 @@ export function EnemyCompendiumModal() {
                             <button onClick={() => setView('instances')} className={`text-xs ${view === 'instances' ? 'text-terminal' : 'text-text-dim'}`}>Encounter Instances ({enemyInstances.length})</button>
                             <button onClick={() => setView('encounters')} className={`text-xs ${view === 'encounters' ? 'text-terminal' : 'text-text-dim'}`}>Encounter Roster ({enemyEncounters.filter(encounter => encounter.status === 'active').length})</button>
                             <button onClick={() => setView('combat')} className={`text-xs ${view === 'combat' ? 'text-terminal' : 'text-text-dim'}`}>Combat</button>
+                        </div>
+                        <div className="flex gap-4 mt-3 text-[10px] text-text-dim">
+                            <label title="Master switch for compendium and active-encounter prompt injection">
+                                <input
+                                    type="checkbox"
+                                    checked={enemyCombatConfig.promptContextEnabled}
+                                    onChange={event => setEnemyCombatConfig({ promptContextEnabled: event.target.checked })}
+                                    className="mr-1.5"
+                                />
+                                Include enemy context
+                            </label>
+                            <label title="Scan committed narrative for reviewable new-enemy and alias suggestions">
+                                <input
+                                    type="checkbox"
+                                    checked={enemyCombatConfig.enemyDiscoveryEnabled}
+                                    onChange={event => setEnemyCombatConfig({ enemyDiscoveryEnabled: event.target.checked })}
+                                    className="mr-1.5"
+                                />
+                                Discover enemies
+                            </label>
                         </div>
                     </div>
                     <button onClick={toggleEnemyCompendium}><X size={20} /></button>
