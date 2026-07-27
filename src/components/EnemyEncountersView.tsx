@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Pause, Play, Plus, Square, UserPlus } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { toast } from './Toast';
+import { EnemyResolutionDialog } from './EnemyResolutionDialog';
 
 type EnemyEncountersViewProps = {
     selectedTemplateId: string | null;
@@ -13,7 +14,7 @@ type EnemyEncountersViewProps = {
  */
 export function EnemyEncountersView({ selectedTemplateId }: EnemyEncountersViewProps) {
     const {
-        enemyCompendium, enemyInstances, enemyEncounters,
+        enemyCompendium, enemyInstances, enemyEncounters, enemyResolutions,
         createEnemyEncounter, updateEnemyEncounter, addEnemyEncounterWave,
         updateEnemyEncounterWave, setEnemyEncounterStatus,
         setEnemyEncounterInstanceAssigned, setEnemyEncounterInstanceActive,
@@ -22,6 +23,7 @@ export function EnemyEncountersView({ selectedTemplateId }: EnemyEncountersViewP
     const [newEncounterName, setNewEncounterName] = useState('');
     const [selectedEncounterId, setSelectedEncounterId] = useState<string | null>(null);
     const [selectedWaveId, setSelectedWaveId] = useState<string | null>(null);
+    const [resolving, setResolving] = useState(false);
 
     const sortedEncounters = useMemo(
         () => [...enemyEncounters].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -34,6 +36,9 @@ export function EnemyEncountersView({ selectedTemplateId }: EnemyEncountersViewP
         ?? encounter?.waves.find(candidate => candidate.id === encounter.activeWaveId)
         ?? encounter?.waves[0];
     const selectedTemplate = enemyCompendium.find(template => template.id === selectedTemplateId);
+    const resolution = encounter?.resolutionId
+        ? enemyResolutions.find(candidate => candidate.id === encounter.resolutionId)
+        : undefined;
 
     /** Creates an active encounter and pauses any previously active encounter. */
     const create = () => {
@@ -46,14 +51,14 @@ export function EnemyEncountersView({ selectedTemplateId }: EnemyEncountersViewP
 
     /** Adds a numbered wave and makes it the encounter's current wave. */
     const addWave = () => {
-        if (!encounter) return;
+        if (!encounter || encounter.resolutionId) return;
         const created = addEnemyEncounterWave(encounter.id);
         if (created) setSelectedWaveId(created.id);
     };
 
     /** Spawns a fresh instance and activates it in the selected wave. */
     const reinforce = () => {
-        if (!encounter || !wave || !selectedTemplate) {
+        if (!encounter || encounter.resolutionId || !wave || !selectedTemplate) {
             return toast.warning('Select an encounter, wave, and enemy template first');
         }
         const instance = addEnemyReinforcement(encounter.id, wave.id, selectedTemplate.id);
@@ -95,7 +100,7 @@ export function EnemyEncountersView({ selectedTemplateId }: EnemyEncountersViewP
         </div> : <>
             <section className="w-48 border-r border-border flex flex-col">
                 <div className="p-3 border-b border-border">
-                    <button onClick={addWave} className="w-full px-3 py-2 border border-border rounded text-xs">
+                    <button onClick={addWave} disabled={Boolean(encounter.resolutionId)} className="w-full px-3 py-2 border border-border rounded text-xs disabled:opacity-30">
                         <Plus size={13} className="inline mr-1" />Add Wave
                     </button>
                 </div>
@@ -123,32 +128,51 @@ export function EnemyEncountersView({ selectedTemplateId }: EnemyEncountersViewP
                             onChange={event => updateEnemyEncounter(encounter.id, { name: event.target.value })}
                             className="flex-1 bg-void border border-border rounded p-2 text-sm font-semibold"
                         />
-                        {encounter.status === 'active'
+                        {encounter.resolutionId
+                            ? <span className="px-3 py-2 text-xs uppercase text-text-dim">Resolved</span>
+                            : encounter.status === 'active'
                             ? <button onClick={() => setEnemyEncounterStatus(encounter.id, 'paused')} className="px-3 py-2 border border-border rounded text-xs"><Pause size={13} className="inline mr-1" />Pause</button>
                             : <button onClick={() => setEnemyEncounterStatus(encounter.id, 'active')} className="px-3 py-2 border border-terminal text-terminal rounded text-xs"><Play size={13} className="inline mr-1" />Resume</button>}
-                        <button onClick={() => setEnemyEncounterStatus(encounter.id, 'ended')} className="px-3 py-2 border border-ember text-ember rounded text-xs"><Square size={13} className="inline mr-1" />End</button>
+                        {!encounter.resolutionId && <button onClick={() => setResolving(true)} className="px-3 py-2 border border-ember text-ember rounded text-xs"><Square size={13} className="inline mr-1" />Resolve</button>}
                     </div>
                     {wave && <div className="flex items-center gap-3">
                         <input
                             aria-label="Wave name"
                             value={wave.name}
+                            disabled={Boolean(encounter.resolutionId)}
                             onChange={event => updateEnemyEncounterWave(encounter.id, wave.id, { name: event.target.value })}
                             className="flex-1 bg-void border border-border rounded p-2 text-xs"
                         />
-                        {encounter.activeWaveId !== wave.id && <button onClick={() => updateEnemyEncounter(encounter.id, { activeWaveId: wave.id })} className="px-3 py-2 border border-border rounded text-xs">
+                        {encounter.activeWaveId !== wave.id && <button disabled={Boolean(encounter.resolutionId)} onClick={() => updateEnemyEncounter(encounter.id, { activeWaveId: wave.id })} className="px-3 py-2 border border-border rounded text-xs disabled:opacity-30">
                             Set Current Wave
                         </button>}
-                        <button onClick={reinforce} disabled={!selectedTemplate} className="px-3 py-2 bg-terminal text-void rounded text-xs font-bold disabled:opacity-30">
+                        <button onClick={reinforce} disabled={!selectedTemplate || Boolean(encounter.resolutionId)} className="px-3 py-2 bg-terminal text-void rounded text-xs font-bold disabled:opacity-30">
                             <UserPlus size={13} className="inline mr-1" />
                             {selectedTemplate ? `Reinforce: ${selectedTemplate.name}` : 'Select a template'}
                         </button>
                     </div>}
                     <p className="text-[11px] text-text-dim">
-                        Only checked AI-active instances in the current wave are sent to the storyteller. Pause or end the encounter to remove the entire roster from AI context.
+                        Only checked AI-active instances in the current wave are sent to the storyteller. Pause or resolve the encounter to remove the entire roster from AI context.
                     </p>
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-4">
+                    {resolution && <div className="mb-4 rounded border border-terminal/40 bg-terminal/5 p-4">
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="text-xs font-semibold uppercase tracking-wider">Resolution: {resolution.outcome}</div>
+                            <div className="text-[10px] text-text-dim">{new Date(resolution.resolvedAt).toLocaleString()}</div>
+                        </div>
+                        <p className="mt-2 text-sm">{resolution.summary}</p>
+                        <div className="mt-3 text-xs text-text-dim">
+                            XP: {resolution.xpAwarded}
+                            {resolution.lootAwarded.length ? ` · Loot: ${resolution.lootAwarded.join(', ')}` : ''}
+                            {resolution.otherRewards.length ? ` · Rewards: ${resolution.otherRewards.join(', ')}` : ''}
+                        </div>
+                        <div className="mt-1 text-[10px] text-text-dim">
+                            {resolution.participantNames.join(', ') || 'No saved participants'} · Runtime data {resolution.instanceDisposition === 'archive' ? 'archived' : 'discarded'}
+                            {resolution.timelineEventId ? ' · Timeline event created' : ''}
+                        </div>
+                    </div>}
                     {!wave ? <p className="text-sm text-text-dim">This encounter has no wave.</p> : <div className="space-y-2">
                         {enemyInstances.map(instance => {
                             const assigned = wave.instanceIds.includes(instance.id);
@@ -166,6 +190,7 @@ export function EnemyEncountersView({ selectedTemplateId }: EnemyEncountersViewP
                                         aria-label={`Assign ${instance.displayName} to wave`}
                                         type="checkbox"
                                         checked={assigned}
+                                        disabled={Boolean(encounter.resolutionId)}
                                         onChange={event => setEnemyEncounterInstanceAssigned(encounter.id, wave.id, instance.id, event.target.checked)}
                                         className="mr-2"
                                     />
@@ -176,7 +201,7 @@ export function EnemyEncountersView({ selectedTemplateId }: EnemyEncountersViewP
                                         aria-label={`Make ${instance.displayName} AI active`}
                                         type="checkbox"
                                         checked={active}
-                                        disabled={!assigned}
+                                        disabled={!assigned || Boolean(encounter.resolutionId)}
                                         onChange={event => setEnemyEncounterInstanceActive(encounter.id, wave.id, instance.id, event.target.checked)}
                                         className="mr-2"
                                     />
@@ -189,5 +214,6 @@ export function EnemyEncountersView({ selectedTemplateId }: EnemyEncountersViewP
                 </div>
             </section>
         </>}
+        {resolving && encounter && <EnemyResolutionDialog encounter={encounter} onClose={() => setResolving(false)} />}
     </div>;
 }

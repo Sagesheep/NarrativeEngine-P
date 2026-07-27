@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyEncounterStatus, EnemyEncounterWave, EnemyCombatConfig, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyEncounterStatus, EnemyEncounterWave, EnemyCombatConfig, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { createEnemyInstance } from '../../services/enemy/enemyInstance';
 import { createEnemyEncounter as makeEnemyEncounter, createEnemyEncounterWave } from '../../services/enemy/enemyEncounter';
@@ -14,6 +14,18 @@ import {
     spendEnemyAction as resolveEnemyAction,
     type EnemyDamageResult,
 } from '../../services/enemy/enemyCombat';
+import {
+    buildEnemyResolutionTimelineEvent,
+    createEnemyEncounterResolution,
+    getEncounterInstances,
+    type EnemyResolutionDraft,
+} from '../../services/enemy/enemyResolution';
+import {
+    addTimelineEvent as persistTimelineEvent,
+    saveEnemyEncounters,
+    saveEnemyInstances,
+    saveEnemyResolutions,
+} from '../campaignStore';
 import { normalizeRelations } from '../../services/npc/relationDedupe';
 import { toast } from '../../components/Toast';
 import { debouncedSaveSettings } from './settingsSlice';
@@ -431,6 +443,8 @@ export type CampaignSlice = {
     setEnemyEncounterInstanceAssigned: (encounterId: string, waveId: string, instanceId: string, assigned: boolean) => void;
     setEnemyEncounterInstanceActive: (encounterId: string, waveId: string, instanceId: string, active: boolean) => void;
     addEnemyReinforcement: (encounterId: string, waveId: string, templateId: string) => EnemyInstance | null;
+    enemyResolutions: EnemyEncounterResolution[];
+    resolveEnemyEncounter: (encounterId: string, draft: EnemyResolutionDraft) => Promise<EnemyEncounterResolution | null>;
     enemyCombatConfig: EnemyCombatConfig;
     setEnemyCombatConfig: (patch: Partial<EnemyCombatConfig>) => void;
     applyEnemyDamage: (id: string, amount: number, damageType: string, bypassBarrier?: boolean) => EnemyDamageResult | null;
@@ -781,7 +795,8 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     }),
     setEnemyEncounterStatus: (id, status) => {
         const s = get();
-        if (!s.enemyEncounters.some(encounter => encounter.id === id)) return;
+        const target = s.enemyEncounters.find(encounter => encounter.id === id);
+        if (!target || (target.resolutionId && status !== 'ended')) return;
         const now = Date.now();
         const encounters = s.enemyEncounters.map(encounter => {
             if (status === 'active' && encounter.id !== id && encounter.status === 'active') {
@@ -852,6 +867,104 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
         set({ enemyInstances: instances, enemyEncounters: encounters } as Partial<CampaignDeps>);
         return instance;
+    },
+    enemyResolutions: [],
+    resolveEnemyEncounter: async (encounterId, draft) => {
+        const s = get();
+        const encounter = s.enemyEncounters.find(candidate => candidate.id === encounterId);
+        if (!encounter || encounter.resolutionId) return null;
+
+        const campaignId = s.activeCampaignId;
+        preOpBackup(campaignId, 'pre-resolve-enemy-encounter');
+        // The resolution writes authoritative arrays immediately. Cancel older
+        // debounced snapshots so they cannot overwrite the cleaned instance pool.
+        if (enemyInstanceTimer) { clearTimeout(enemyInstanceTimer); enemyInstanceTimer = null; }
+        if (enemyEncounterTimer) { clearTimeout(enemyEncounterTimer); enemyEncounterTimer = null; }
+        const now = Date.now();
+        const resolution = createEnemyEncounterResolution(encounter, s.enemyInstances, draft, now);
+        const resolvedInstanceIds = new Set(
+            getEncounterInstances(encounter, s.enemyInstances).map(instance => instance.id),
+        );
+        const enemyInstances = s.enemyInstances.filter(instance => !resolvedInstanceIds.has(instance.id));
+        const enemyEncounters = s.enemyEncounters.map(candidate => {
+            let changed = candidate.id === encounterId;
+            const waves = candidate.waves.map(wave => {
+                const waveChanged = wave.instanceIds.some(id => resolvedInstanceIds.has(id))
+                    || wave.activeInstanceIds.some(id => resolvedInstanceIds.has(id));
+                if (!waveChanged) return wave;
+                changed = true;
+                return {
+                    ...wave,
+                    instanceIds: wave.instanceIds.filter(id => !resolvedInstanceIds.has(id)),
+                    activeInstanceIds: wave.activeInstanceIds.filter(id => !resolvedInstanceIds.has(id)),
+                    updatedAt: now,
+                };
+            });
+            if (!changed) return candidate;
+            return {
+                ...candidate,
+                waves,
+                ...(candidate.id === encounterId
+                    ? { status: 'ended' as const, endedAt: now, resolutionId: resolution.id }
+                    : {}),
+                updatedAt: now,
+            };
+        });
+        let enemyResolutions = [...s.enemyResolutions, resolution];
+
+        set({ enemyInstances, enemyEncounters, enemyResolutions } as Partial<CampaignDeps>);
+
+        if (campaignId) {
+            try {
+                await Promise.all([
+                    saveEnemyInstances(campaignId, enemyInstances),
+                    saveEnemyEncounters(campaignId, enemyEncounters),
+                    saveEnemyResolutions(campaignId, enemyResolutions),
+                ]);
+            } catch (error) {
+                console.error('[Enemy Resolution] Failed to persist resolution state:', error);
+                toast.error('Encounter resolved locally, but saving failed');
+            }
+        }
+
+        if (draft.createTimelineEvent && campaignId) {
+            let timelineEvent: TimelineEvent | undefined;
+            try {
+                timelineEvent = await persistTimelineEvent(
+                    campaignId,
+                    buildEnemyResolutionTimelineEvent(
+                        resolution,
+                        s.archiveIndex.at(-1)?.sceneId ?? '000',
+                        s.chapters.find(chapter => !chapter.sealedAt)?.chapterId ?? 'CH00',
+                    ),
+                );
+            } catch (error) {
+                console.error('[Enemy Resolution] Failed to create timeline event:', error);
+            }
+            if (timelineEvent) {
+                enemyResolutions = enemyResolutions.map(candidate =>
+                    candidate.id === resolution.id
+                        ? { ...candidate, timelineEventId: timelineEvent.id }
+                        : candidate
+                );
+                if (get().activeCampaignId === campaignId) {
+                    set((current) => ({
+                        enemyResolutions,
+                        timeline: current.timeline.some(event => event.id === timelineEvent.id)
+                            ? current.timeline
+                            : [...current.timeline, timelineEvent],
+                    }) as Partial<CampaignDeps>);
+                }
+                try {
+                    await saveEnemyResolutions(campaignId, enemyResolutions);
+                } catch (error) {
+                    console.error('[Enemy Resolution] Failed to link timeline event:', error);
+                }
+                return enemyResolutions.find(candidate => candidate.id === resolution.id) ?? resolution;
+            }
+        }
+
+        return resolution;
     },
     enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG },
     setEnemyCombatConfig: (patch) => set((s) => {

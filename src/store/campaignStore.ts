@@ -1,4 +1,4 @@
-import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyCombatConfig, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
+import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyCombatConfig, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
 import { affinityToPcRelation } from '../services/npc/agency/agencyBands';
 
 import { API_BASE as API } from '../lib/apiBase';
@@ -177,11 +177,52 @@ export async function getEnemyInstances(campaignId: string): Promise<EnemyInstan
     return res.ok ? res.json() : [];
 }
 
+/** Persists the live instance pool after an atomic encounter resolution. */
+export async function saveEnemyInstances(campaignId: string, instances: EnemyInstance[]): Promise<void> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-instances`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(instances),
+    });
+    if (!res.ok) throw new Error(`Failed to save enemy instances (${res.status})`);
+}
+
 // ─── Enemy Encounters ───
 
 export async function getEnemyEncounters(campaignId: string): Promise<EnemyEncounter[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/enemy-encounters`);
     return res.ok ? res.json() : [];
+}
+
+/** Persists encounter lifecycle changes after an atomic resolution. */
+export async function saveEnemyEncounters(campaignId: string, encounters: EnemyEncounter[]): Promise<void> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-encounters`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(encounters),
+    });
+    if (!res.ok) throw new Error(`Failed to save enemy encounters (${res.status})`);
+}
+
+// ─── Enemy Encounter Resolutions ─────────────────────────────────────────────
+
+/** Loads immutable Phase 5 encounter outcomes and optional instance archives. */
+export async function getEnemyResolutions(campaignId: string): Promise<EnemyEncounterResolution[]> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-resolutions`);
+    return res.ok ? res.json() : [];
+}
+
+/** Persists the complete immutable encounter-resolution ledger. */
+export async function saveEnemyResolutions(
+    campaignId: string,
+    resolutions: EnemyEncounterResolution[],
+): Promise<void> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-resolutions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(resolutions),
+    });
+    if (!res.ok) throw new Error(`Failed to save enemy resolutions (${res.status})`);
 }
 
 // ─── Optional Enemy Combat Configuration ─────────────────────────────────────

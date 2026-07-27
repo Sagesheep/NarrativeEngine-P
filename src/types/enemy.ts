@@ -5,6 +5,8 @@ export type EnemyCooldown = { id: string; name: string; remainingRounds: number 
 export type EnemyResource = { id: string; name: string; current: number; max: number };
 export type EnemyInitiativeMode = 'manual' | 'd20' | 'd100';
 export type EnemyBarrierMode = 'manual' | 'absorb-first';
+export type EnemyEncounterOutcome = 'victory' | 'partial' | 'defeat' | 'escaped' | 'negotiated' | 'other';
+export type EnemyInstanceDisposition = 'archive' | 'discard';
 
 export type EnemyCombatConfig = {
     enabled: boolean;
@@ -97,4 +99,25 @@ export type EnemyEncounter = {
     createdAt: number;
     updatedAt: number;
     endedAt?: number;
+    resolutionId?: string;
+};
+
+/**
+ * Immutable Phase 5 record created when the player explicitly resolves an
+ * encounter. Full runtime copies are retained only for the archive option.
+ */
+export type EnemyEncounterResolution = {
+    id: string;
+    encounterId: string;
+    encounterName: string;
+    outcome: EnemyEncounterOutcome;
+    summary: string;
+    xpAwarded: number;
+    lootAwarded: string[];
+    otherRewards: string[];
+    participantNames: string[];
+    instanceDisposition: EnemyInstanceDisposition;
+    archivedInstances: EnemyInstance[];
+    timelineEventId?: string;
+    resolvedAt: number;
 };
