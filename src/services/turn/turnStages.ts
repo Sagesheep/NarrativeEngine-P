@@ -633,6 +633,15 @@ export async function runGenerationStage(
                 // design. See the comment at the early capture site for the full rationale.
                 capturePendingTurnSnapshot(state, currentPayload, state.displayInput, ctx);
 
+                // Durable-commit v1: flush the pending turn to disk immediately.
+                // The stamp above rides `updateLastAssistantMessage`, which schedules
+                // no save, and the deferred commit can be minutes or hours away — so
+                // without this the pending markers lived only in memory. A crash /
+                // improper close / idle timeout before the next store write left the
+                // GM text on disk with no `pendingCommit`, nothing for the launch
+                // reconciler to find, and the scene silently never archived.
+                callbacks.persistTurnState?.();
+
                 callbacks.setPipelinePhase?.('idle');
                 abortController.signal.removeEventListener('abort', abortListener);
             },

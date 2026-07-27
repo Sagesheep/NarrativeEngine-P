@@ -22,6 +22,38 @@ import { tierAllows, NPC_UPDATE_COOLDOWN } from './aiTier';
 
 const PRESENT_HEADER_RE = /👥\s*\[Present\]\s*(.+)/i;
 
+// ── Durable-commit v1: "did this turn already land?" ───────────────────────
+// `appendScene` writes the prose to `.archive.md` synchronously, before it can
+// await anything, and `api.archive.append` returns undefined for BOTH a rejected
+// request (nothing written) and a lost response (written, id unknown). Retrying
+// blindly would duplicate the scene. The index carries `userSnippet` — the first
+// 120 raw chars of the turn's user half — so the pairing is recomputable. Same
+// normalized-prefix contract as the hydrator's `rebuildSceneStamps`, and equally
+// conservative: no user text, no unique match, or an unreachable index all mean
+// "not archived", which is the safe answer (a missing scene is repairable; a
+// duplicate is not).
+const SNIPPET_MATCH_CHARS = 80;
+const normalizeSnippet = (s: string): string =>
+    (s || '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, SNIPPET_MATCH_CHARS);
+
+async function findArchivedSceneIdForTurn(
+    campaignId: string,
+    userText: string,
+): Promise<string | undefined> {
+    const want = normalizeSnippet(userText);
+    if (!want) return undefined;
+    try {
+        const index = await api.archive.getIndex(campaignId);
+        // Only the tail can be ours — the append, if it happened, is the newest entry.
+        const from = Math.max(0, index.length - 3);
+        const hits = index.slice(from).filter(e => normalizeSnippet(e.userSnippet ?? '') === want);
+        return hits.length === 1 ? hits[0].sceneId : undefined;
+    } catch (err) {
+        console.warn('[PostTurn] Archive verification lookup failed:', err);
+        return undefined;
+    }
+}
+
 /**
  * Campaign-id guard factory for background-task callbacks. Mirrors the
  * established `guardedUpdateNPC` pattern (L478-485): reads the live
@@ -101,7 +133,12 @@ export async function runPostTurnPipeline(
     // the param optional so callers that don't have a bus (e.g. launch
     // reconciliation's rebuildStateFromLiveStore path) still work.
     turnContext?: import('./turnContext').TurnContext,
-): Promise<void> {
+    // Durable-commit v1: set when a previous commit attempt for THIS turn failed
+    // to archive. Makes the archive track check the index before appending, so a
+    // retry after a lost response re-links the existing scene instead of writing
+    // a second copy of it.
+    options?: { verifyExistingScene?: boolean },
+): Promise<{ archived: boolean }> {
     // WO-P1-03: thread-only seam. Acknowledge the param is intentionally
     // threaded but not yet consumed — Project 4 will read bus fields here.
     // The void reference keeps lint happy without changing behaviour.
@@ -128,10 +165,15 @@ export async function runPostTurnPipeline(
     }
 
     const results = await Promise.allSettled([
-        runArchiveTrack(state, callbacks, displayInput, lastAssistantContent, allMsgs, activeCampaignId),
+        runArchiveTrack(state, callbacks, displayInput, lastAssistantContent, allMsgs, activeCampaignId, options?.verifyExistingScene === true),
         runNPCTrack(state, callbacks, lastAssistantContent, allMsgs, npcLedger, activeCampaignId),
         runPressureTrack(state, callbacks, displayInput, npcLedger, activeCampaignId, lastAssistantContent),
     ]);
+
+    // Durable-commit v1: the archive track's verdict is the one the caller acts on.
+    // A rejected track (thrown) counts as not-archived — the conservative answer.
+    const archiveResult = results[0];
+    const archived = archiveResult.status === 'fulfilled' && archiveResult.value === true;
 
     // ── On-Stage NPC Tracking ──
     const presentNames = parsePresentHeader(lastAssistantContent);
@@ -245,6 +287,8 @@ export async function runPostTurnPipeline(
     } catch (err) {
         console.warn('[ArcTick] Failed (non-fatal):', err);
     }
+
+    return { archived };
 }
 
 // B3 — Auto-enable characterProfileActive for chat-made PCs. The flag was flipped true ONLY by
@@ -276,30 +320,53 @@ function autoEnableCharacterProfile(
     console.log(`[B3] Auto-enabled characterProfileActive; seeded characterProfileData.name from PC "${pc.name}"`);
 }
 
+/** Returns true when the turn is in long-term memory (freshly appended, or already
+ *  there from a previous attempt whose response was lost). False means the scene did
+ *  NOT land — the caller must keep the turn armed rather than clearing its markers. */
 async function runArchiveTrack(
     state: TurnState,
     callbacks: TurnCallbacks,
     displayInput: string,
     lastAssistantContent: string,
     allMsgs: ChatMessage[],
-    activeCampaignId: string
-): Promise<void> {
-    let sceneImportance: number | undefined;
-    const importanceProvider = state.getFreshProvider();
-    if (importanceProvider && tierAllows(state.settings.aiTier, 'importanceRating')) {
-        try {
-            sceneImportance = await rateImportance(importanceProvider, displayInput, lastAssistantContent, allMsgs);
-            console.log(`[ImportanceRater] Scene rated: ${sceneImportance}/5`);
-        } catch (err) {
-            console.warn('[ImportanceRater] Failed (non-fatal):', err);
+    activeCampaignId: string,
+    verifyExistingScene = false,
+): Promise<boolean> {
+    // Durable-commit v1: a retry after a failed commit looks for the scene before
+    // writing one, so a lost-response failure re-links instead of duplicating.
+    let appendedSceneId: string | undefined;
+    if (verifyExistingScene) {
+        appendedSceneId = await findArchivedSceneIdForTurn(activeCampaignId, displayInput);
+        if (appendedSceneId) {
+            console.log(`[PostTurn] Turn was already archived as scene #${appendedSceneId} — re-linking, not re-appending`);
         }
     }
 
-    const appendData = await api.archive.append(activeCampaignId, displayInput, lastAssistantContent, sceneImportance);
-    const appendedSceneId = appendData?.sceneId;
-    if (!appendData) {
-        console.warn('[PostTurn] Archive append returned no data — skipping archive refresh');
-        return;
+    if (!appendedSceneId) {
+        let sceneImportance: number | undefined;
+        const importanceProvider = state.getFreshProvider();
+        if (importanceProvider && tierAllows(state.settings.aiTier, 'importanceRating')) {
+            try {
+                sceneImportance = await rateImportance(importanceProvider, displayInput, lastAssistantContent, allMsgs);
+                console.log(`[ImportanceRater] Scene rated: ${sceneImportance}/5`);
+            } catch (err) {
+                console.warn('[ImportanceRater] Failed (non-fatal):', err);
+            }
+        }
+
+        const appendData = await api.archive.append(activeCampaignId, displayInput, lastAssistantContent, sceneImportance);
+        appendedSceneId = appendData?.sceneId;
+        if (!appendedSceneId) {
+            // The prose write lands synchronously server-side, so "no data" may still
+            // mean "written, response lost". Check before reporting failure.
+            appendedSceneId = await findArchivedSceneIdForTurn(activeCampaignId, displayInput);
+            if (!appendedSceneId) {
+                console.warn('[PostTurn] Archive append failed — turn stays armed for retry');
+                toast.error('Scene not saved to long-term memory. Your text is safe — this turn will retry.');
+                return false;
+            }
+            console.log(`[PostTurn] Append response was lost but scene #${appendedSceneId} is on disk — recovered`);
+        }
     }
 
     // WO-F (2be3ad5) — stamp the archived sceneId onto the last assistant message so the
@@ -325,7 +392,7 @@ async function runArchiveTrack(
     callbacks.setArchiveIndex(freshIndex);
     callbacks.setTimeline?.(freshTimeline);
     state.setChapters(freshChapters);
-    console.log(`[Archive] Appended scene #${appendedSceneId}`);
+    console.log(`[Archive] Scene #${appendedSceneId} committed`);
 
     const entry = freshIndex.find(e => e.sceneId === appendedSceneId);
     const bkProvider = state.getFreshProvider();
@@ -525,6 +592,9 @@ async function runArchiveTrack(
             }
         }
     }
+
+    // The scene is in long-term memory — the caller may safely retire the turn.
+    return true;
 }
 
 export async function runCombinedSeal(

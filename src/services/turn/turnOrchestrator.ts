@@ -52,6 +52,16 @@ export type TurnCallbacks = {
      *  show "Director drafting brief…" + a Skip affordance that aborts only the
      *  Director call (via `TurnState.directorSkipController`), never the turn. */
     onDirectorBriefPhase?: (phase: 'running' | 'done') => void;
+    /** Durable-commit v1: flush the campaign state to disk NOW (no debounce).
+     *  Called once, immediately after the swipe set + `pendingCommit` marker are
+     *  stamped on the finished GM bubble. Until this fires, the pending turn
+     *  exists only in memory: the stamp goes through `updateLastAssistantMessage`,
+     *  which schedules no save, so a crash / close / timeout before the next
+     *  store write left the turn with no marker on disk and nothing for
+     *  `reconcilePendingCommitOnLaunch` to pick up — the scene was lost silently.
+     *  Optional so callers that build their own callbacks (commit path, tests)
+     *  can omit it. */
+    persistTurnState?: () => void;
 };
 
 export type TurnState = {

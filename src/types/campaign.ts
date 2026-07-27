@@ -47,6 +47,13 @@ export type ChatMessage = {
     pendingCommit?: boolean;
     /** Swipe Generation v1 — the index of the currently-visible variant in swipeSet. */
     swipeActiveIndex?: number;
+    /** Durable-commit v1 — a deferred commit ran for this turn and could NOT archive the
+     *  scene (server unreachable / rejected). PERSISTED, unlike `retryable`: it must survive
+     *  a restart so the turn can be re-archived later. The turn stays armed (`pendingCommit`
+     *  + `swipeSet` are kept) so the next commit retries it; if a new turn buries it first,
+     *  `retryFailedCommits()` picks it up on the next launch. Cleared the moment the scene
+     *  lands. */
+    commitFailed?: boolean;
     /** Smart Retry v1 — ephemeral, never persisted. Story AI failed/aborted; Retry is offered.
      *  The in-memory `PendingTurnSnapshot` captured before the Story AI run backs the Retry
      *  button so it can re-enter generation without regathering. */

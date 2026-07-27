@@ -17,7 +17,15 @@ export const api = {
                 if (res.ok) {
                     return await res.json();
                 }
+                // Durable-commit v1: a rejected append means the scene was NOT written
+                // (the route validates before `appendScene` touches disk). Log the status
+                // — silently returning undefined here is what let failed archives pass as
+                // successful commits. The caller decides whether to retry.
+                console.warn(`[Archive] Append rejected: ${res.status} ${res.statusText}`);
             } catch (err) {
+                // Network-level failure: the write MAY have landed (the prose write is
+                // synchronous server-side and precedes the response), so the caller must
+                // verify against the index before re-appending.
                 console.warn('[Archive] Failed to append:', err);
             }
             return undefined;
