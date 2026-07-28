@@ -30,6 +30,7 @@ export function NPCGalleryView({ npcLedger, selectedId, selectMode, checkedIds, 
                     <div
                         key={npc.id}
                         onClick={() => selectMode ? onToggleCheck(npc.id) : onSelect(npc)}
+                        title={npc.faction ? `${npc.name} — ${npc.faction}` : npc.name}
                         className={`relative aspect-[3/4] rounded overflow-hidden cursor-pointer border group transition-all ${isActive ? 'border-terminal ring-1 ring-terminal shadow-[0_0_15px_rgba(0,255,0,0.15)]' : isChecked ? 'border-terminal/50 ring-1 ring-terminal/30' : 'border-border hover:border-terminal/50'}`}
                     >
                         {npc.portrait ? (
@@ -40,17 +41,12 @@ export function NPCGalleryView({ npcLedger, selectedId, selectMode, checkedIds, 
                                 <span className="text-[10px] text-text-dim/50 uppercase tracking-widest">No Portrait</span>
                             </div>
                         )}
+                        {/* Portrait + name only. The overlay is bottom-anchored inside an
+                            overflow-hidden card, so anything stacked here grows upward and
+                            shoves the name out of the card — which is what unbounded faction
+                            chips used to do. Factions live in the tooltip and detail pane. */}
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-void via-void/80 to-transparent p-3 pt-8">
                             <p className={`text-xs font-bold leading-tight line-clamp-2 break-words ${isActive ? 'text-terminal glow-green-sm' : 'text-text-primary'}`}>{npc.name}</p>
-                            {npc.faction && (
-                                <div className="flex flex-wrap gap-1 mt-0.5">
-                                    {npc.faction.split(/[,;/]/).map(f => f.trim()).filter(Boolean).map((fac, idx) => (
-                                        <span key={idx} className="bg-terminal/10 text-terminal text-[9px] px-1 rounded uppercase truncate max-w-full">
-                                            {fac}
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
                         </div>
                         {selectMode ? (
                             <div className="absolute top-2 left-2 p-1 bg-void/80 rounded" onClick={(e) => { e.stopPropagation(); onToggleCheck(npc.id); }}>
