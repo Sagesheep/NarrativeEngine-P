@@ -31,11 +31,18 @@ export function Header() {
         divergenceRegister,
         settings,
         updateSettings,
+        enemyCombatConfig,
     } = useAppStore();
 
     const pinnedExcerpts = useAppStore(s => s.pinnedExcerpts);
     const aiTier = (settings?.aiTier ?? 'pro') as AiTier;
     const { t } = useTranslation();
+    // A saved opt-in must not look active after the user switches to Lite,
+    // because Lite is deliberately blocked from running discovery scans.
+    const enemyScannerEnabled = aiTier !== 'lite' && enemyCombatConfig.enemyDiscoveryEnabled;
+    const enemyScannerState = enemyScannerEnabled
+        ? t('header.enemyCompendium.state.on')
+        : t('header.enemyCompendium.state.off');
 
     const handleExit = async () => {
         if (activeCampaignId) {
@@ -129,11 +136,11 @@ export function Header() {
                 <button
                     onClick={toggleEnemyCompendium}
                     className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
-                    title={t('header.enemyCompendium.tooltip')}
-                    aria-label={t('header.enemyCompendium.aria')}
+                    title={t('header.enemyCompendium.tooltip', { state: enemyScannerState })}
+                    aria-label={t('header.enemyCompendium.aria', { state: enemyScannerState })}
                 >
                     <Swords size={13} />
-                    <span className="hidden sm:inline">{t('header.enemyCompendium.label')}</span>
+                    <span className="hidden sm:inline">{t('header.enemyCompendium.label', { state: enemyScannerState })}</span>
                 </button>
 
                 <button

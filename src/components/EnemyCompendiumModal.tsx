@@ -42,12 +42,15 @@ export function EnemyCompendiumModal() {
         removeEnemy,
         setEnemyCompendium,
         setEnemyCombatConfig,
+        settings,
     } = useAppStore();
     const [query, setQuery] = useState('');
     const [view, setView] = useState<'templates' | 'instances' | 'encounters' | 'combat'>('templates');
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [draft, setDraft] = useState<EnemyEntry>(emptyEnemy);
     const importRef = useRef<HTMLInputElement>(null);
+    const aiTier = settings?.aiTier ?? 'pro';
+    const discoveryAvailable = aiTier !== 'lite';
 
     const shown = useMemo(() => {
         const q = query.toLowerCase().trim();
@@ -155,25 +158,31 @@ export function EnemyCompendiumModal() {
                             <button onClick={() => setView('encounters')} className={`text-xs ${view === 'encounters' ? 'text-terminal' : 'text-text-dim'}`}>Encounter Roster ({enemyEncounters.filter(encounter => encounter.status === 'active').length})</button>
                             <button onClick={() => setView('combat')} className={`text-xs ${view === 'combat' ? 'text-terminal' : 'text-text-dim'}`}>Combat</button>
                         </div>
-                        <div className="flex gap-4 mt-3 text-[10px] text-text-dim">
-                            <label title="Master switch for compendium and active-encounter prompt injection">
-                                <input
-                                    type="checkbox"
-                                    checked={enemyCombatConfig.promptContextEnabled}
-                                    onChange={event => setEnemyCombatConfig({ promptContextEnabled: event.target.checked })}
-                                    className="mr-1.5"
-                                />
-                                Include enemy context
+                        <div className="grid gap-2 mt-3 max-w-3xl text-[10px] text-text-dim">
+                            <label className="rounded border border-border/60 bg-void/40 p-2.5" title="Adds saved enemy information to the narrative prompt; it does not create enemies.">
+                                <span className="flex items-center font-semibold text-text-normal">
+                                    <input
+                                        type="checkbox"
+                                        checked={enemyCombatConfig.promptContextEnabled}
+                                        onChange={event => setEnemyCombatConfig({ promptContextEnabled: event.target.checked })}
+                                        className="mr-1.5"
+                                    />
+                                    Include enemy context
+                                </span>
+                                <span className="block mt-1 leading-relaxed">When a saved enemy name or alias appears in recent play, its template and any active encounter details are given to the narrative AI as extra context. This never creates or changes enemies.</span>
                             </label>
-                            <label title="Optional: scan committed narrative for reviewable new-enemy and alias suggestions. Off by default. Lite tier cannot run discovery even if enabled.">
-                                <input
-                                    type="checkbox"
-                                    checked={enemyCombatConfig.enemyDiscoveryEnabled}
-                                    onChange={event => setEnemyCombatConfig({ enemyDiscoveryEnabled: event.target.checked })}
-                                    className="mr-1.5"
-                                />
-                                Discover enemies (optional)
-                            </label>
+                            {discoveryAvailable && <label className="rounded border border-border/60 bg-void/40 p-2.5" title="Pro and Max only. Suggestions always require your approval.">
+                                <span className="flex items-center font-semibold text-text-normal">
+                                    <input
+                                        type="checkbox"
+                                        checked={enemyCombatConfig.enemyDiscoveryEnabled}
+                                        onChange={event => setEnemyCombatConfig({ enemyDiscoveryEnabled: event.target.checked })}
+                                        className="mr-1.5"
+                                    />
+                                    Discover enemies (optional)
+                                </span>
+                                <span className="block mt-1 leading-relaxed">After a committed turn, a secondary AI can suggest new enemies or aliases from the narrative. Every suggestion stays in the review queue until you accept it; nothing is added automatically. Pro scans at most once every 5 scenes; Max may scan every committed scene.</span>
+                            </label>}
                         </div>
                     </div>
                     <button onClick={toggleEnemyCompendium}><X size={20} /></button>
