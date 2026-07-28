@@ -1,6 +1,6 @@
-import type { ArchiveIndexEntry, ChatMessage, EndpointConfig, GameContext, LoreChunk, NPCEntry, ProviderConfig, SemanticFact } from '../../types';
+import type { ArchiveIndexEntry, ChatMessage, EndpointConfig, EnemyEncounter, EnemyEntry, EnemyInstance, GameContext, LocationEntry, LoreChunk, NPCEntry, ProviderConfig, SemanticFact } from '../../types';
 
-export type OocSourceKind = 'fact' | 'recent-story' | 'archive' | 'lore' | 'rules';
+export type OocSourceKind = 'fact' | 'recent-story' | 'archive' | 'lore' | 'rules' | 'npc' | 'place' | 'enemy';
 
 export type OocSource = {
     kind: OocSourceKind;
@@ -27,6 +27,10 @@ export type OocCampaignSnapshot = {
     loreChunks: LoreChunk[];
     archiveIndex: ArchiveIndexEntry[];
     npcLedger: NPCEntry[];
+    locationLedger: LocationEntry[];
+    enemyCompendium: EnemyEntry[];
+    enemyInstances: EnemyInstance[];
+    enemyEncounters: EnemyEncounter[];
 };
 
 export type OocAnswerRequest = {
