@@ -1001,11 +1001,13 @@ async function runEnemySuggestionTrack(
         enemyCompendium: state.enemyCompendium ?? [],
         providers: {
             utilityProvider: state.getUtilityEndpoint?.(),
-            // Raw auxiliary endpoint — NOT getFreshAuxiliaryProvider, which silently
-            // returns the Story provider when the auxiliary endpoint has no model
-            // name. Discovery must never use the Story AI unless no secondary
-            // endpoint exists, so we read the raw resolver here.
+            // Raw secondary endpoints — NOT getFreshAuxiliaryProvider, which
+            // silently returns the Story provider when the auxiliary endpoint
+            // has no model name. Discovery must never use the Story AI unless
+            // all secondary endpoints are absent or unusable, so we read the
+            // raw resolvers here.
             auxiliaryProvider: useAppStore.getState().getActiveAuxiliaryEndpoint?.(),
+            summariserProvider: useAppStore.getState().getActiveSummarizerEndpoint?.(),
             storyProvider: state.getFreshProvider(),
         },
     };

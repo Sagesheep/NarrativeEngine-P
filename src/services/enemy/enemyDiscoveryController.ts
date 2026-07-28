@@ -5,6 +5,7 @@ import { detectEnemySuggestions, type EnemySuggestionDraft } from './enemySugges
 export type EnemyDiscoveryProviderChain = {
     utilityProvider?: EndpointConfig | ProviderConfig | undefined;
     auxiliaryProvider?: EndpointConfig | ProviderConfig | undefined;
+    summariserProvider?: EndpointConfig | ProviderConfig | undefined;
     storyProvider?: EndpointConfig | ProviderConfig | undefined;
 };
 
@@ -21,29 +22,34 @@ export type EnemyDiscoveryContext = {
 
 export type EnemyDiscoveryDecision =
     | { kind: 'skip'; reason: 'disabled' | 'tier-blocked' | 'cooldown' | 'in-flight' | 'no-provider' }
-    | { kind: 'run'; provider: EndpointConfig | ProviderConfig; providerSource: 'utility' | 'auxiliary' | 'story' };
+    | { kind: 'run'; provider: EndpointConfig | ProviderConfig; providerSource: 'utility' | 'auxiliary' | 'summariser' | 'story' };
 
 const usable = (provider: EndpointConfig | ProviderConfig | undefined): provider is EndpointConfig | ProviderConfig =>
     Boolean(provider && (provider as EndpointConfig).endpoint && (provider as EndpointConfig).modelName);
 
 /**
- * Provider precedence for enemy discovery. The Story AI is only a clear final
- * fallback when NO secondary endpoint exists. A secondary endpoint missing its
- * model name is treated as absent (not silently promoted to the Story provider)
- * — this is the safety fix for the helper that returned Story while appearing
- * auxiliary.
+ * Provider precedence for enemy discovery:
+ *   Utility → Auxiliary/Context → Summariser → Story fallback.
  *
- * IMPORTANT: callers MUST pass the raw auxiliary endpoint (the result of
- * `getActiveAuxiliaryEndpoint`), NOT `getFreshAuxiliaryProvider`, which silently
- * returns the Story provider when the auxiliary endpoint has no model name.
- * Passing `getFreshAuxiliaryProvider` here would defeat the precedence chain.
+ * The Story AI is selected ONLY when all three secondary endpoints are absent
+ * or unusable. A secondary endpoint missing its model name is treated as absent
+ * (not silently promoted to the Story provider) — this is the safety fix for
+ * the helper that returned Story while appearing auxiliary.
+ *
+ * IMPORTANT: callers MUST pass the raw secondary endpoints (the results of
+ * `getActiveUtilityEndpoint` / `getActiveAuxiliaryEndpoint` /
+ * `getActiveSummarizerEndpoint`), NOT `getFreshAuxiliaryProvider`, which
+ * silently returns the Story provider when the auxiliary endpoint has no model
+ * name. Passing `getFreshAuxiliaryProvider` here would defeat the precedence
+ * chain.
  */
 export function resolveDiscoveryProvider(chain: EnemyDiscoveryProviderChain): {
     provider: EndpointConfig | ProviderConfig | undefined;
-    source: 'utility' | 'auxiliary' | 'story' | 'none';
+    source: 'utility' | 'auxiliary' | 'summariser' | 'story' | 'none';
 } {
     if (usable(chain.utilityProvider)) return { provider: chain.utilityProvider, source: 'utility' };
     if (usable(chain.auxiliaryProvider)) return { provider: chain.auxiliaryProvider, source: 'auxiliary' };
+    if (usable(chain.summariserProvider)) return { provider: chain.summariserProvider, source: 'summariser' };
     // Story is the final fallback ONLY when no secondary endpoint is configured.
     // The `source` field makes this fallback explicit to callers and tests.
     if (usable(chain.storyProvider)) return { provider: chain.storyProvider, source: 'story' };

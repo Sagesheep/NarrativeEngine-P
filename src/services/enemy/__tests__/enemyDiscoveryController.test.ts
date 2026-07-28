@@ -24,6 +24,7 @@ const baseCtx = (overrides: Partial<EnemyDiscoveryContext> = {}): EnemyDiscovery
     providers: {
         utilityProvider: endpoint('utility'),
         auxiliaryProvider: endpoint('aux'),
+        summariserProvider: endpoint('summariser'),
         storyProvider: endpoint('story'),
     },
     ...overrides,
@@ -88,30 +89,44 @@ describe('enemy discovery controller', () => {
     });
 
     describe('provider precedence', () => {
-        it('Utility provider wins over auxiliary', () => {
+        it('Utility provider wins over auxiliary, summariser, and Story', () => {
             const result = resolveDiscoveryProvider({
                 utilityProvider: endpoint('utility'),
                 auxiliaryProvider: endpoint('aux'),
+                summariserProvider: endpoint('summariser'),
                 storyProvider: endpoint('story'),
             });
             expect(result.source).toBe('utility');
             expect((result.provider as EndpointConfig).modelName).toBe('utility');
         });
 
-        it('Auxiliary wins over Story fallback', () => {
+        it('Auxiliary wins over summariser and Story fallback', () => {
             const result = resolveDiscoveryProvider({
                 utilityProvider: undefined,
                 auxiliaryProvider: endpoint('aux'),
+                summariserProvider: endpoint('summariser'),
                 storyProvider: endpoint('story'),
             });
             expect(result.source).toBe('auxiliary');
             expect((result.provider as EndpointConfig).modelName).toBe('aux');
         });
 
-        it('Story fallback happens only when no secondary provider exists', () => {
+        it('Summariser wins over Story fallback', () => {
             const result = resolveDiscoveryProvider({
                 utilityProvider: undefined,
                 auxiliaryProvider: undefined,
+                summariserProvider: endpoint('summariser'),
+                storyProvider: endpoint('story'),
+            });
+            expect(result.source).toBe('summariser');
+            expect((result.provider as EndpointConfig).modelName).toBe('summariser');
+        });
+
+        it('Story fallback happens only when all three secondary endpoints are absent or unusable', () => {
+            const result = resolveDiscoveryProvider({
+                utilityProvider: undefined,
+                auxiliaryProvider: undefined,
+                summariserProvider: undefined,
                 storyProvider: endpoint('story'),
             });
             expect(result.source).toBe('story');
@@ -124,6 +139,7 @@ describe('enemy discovery controller', () => {
             const result = resolveDiscoveryProvider({
                 utilityProvider: undefined,
                 auxiliaryProvider: noModelAux,
+                summariserProvider: undefined,
                 storyProvider: endpoint('story'),
             });
             // Falls through to Story because the aux is unusable — but the aux
@@ -131,9 +147,31 @@ describe('enemy discovery controller', () => {
             expect(result.source).toBe('story');
         });
 
+        it('A summariser missing its model name is treated as absent (falls to Story)', () => {
+            const noModelSummariser = { endpoint: 'http://sum', apiKey: 'k' } as EndpointConfig;
+            const result = resolveDiscoveryProvider({
+                utilityProvider: undefined,
+                auxiliaryProvider: undefined,
+                summariserProvider: noModelSummariser,
+                storyProvider: endpoint('story'),
+            });
+            expect(result.source).toBe('story');
+        });
+
+        it('Story is NOT selected when any secondary endpoint is usable', () => {
+            // Only summariser configured (no utility/aux) → summariser wins, not Story.
+            const result = resolveDiscoveryProvider({
+                utilityProvider: undefined,
+                auxiliaryProvider: undefined,
+                summariserProvider: endpoint('summariser'),
+                storyProvider: endpoint('story'),
+            });
+            expect(result.source).toBe('summariser');
+        });
+
         it('Returns none when no provider is usable', () => {
             const decision = decideDiscoveryScan(baseCtx({
-                providers: { utilityProvider: undefined, auxiliaryProvider: undefined, storyProvider: undefined },
+                providers: { utilityProvider: undefined, auxiliaryProvider: undefined, summariserProvider: undefined, storyProvider: undefined },
             }));
             expect(decision.kind).toBe('skip');
             if (decision.kind === 'skip') expect(decision.reason).toBe('no-provider');
@@ -146,6 +184,7 @@ describe('enemy discovery controller', () => {
             const result = resolveDiscoveryProvider({
                 utilityProvider: undefined,
                 auxiliaryProvider: undefined, // raw aux is undefined — correct
+                summariserProvider: undefined,
                 storyProvider: dangerousAux,
             });
             expect(result.source).toBe('story'); // explicit Story fallback, not disguised

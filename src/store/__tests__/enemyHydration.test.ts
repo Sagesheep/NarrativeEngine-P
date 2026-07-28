@@ -120,6 +120,41 @@ describe('enemy hydration integrity', () => {
         });
     });
 
+    it('normalizes malformed nested archived instances inside a resolution', async () => {
+        vi.mocked(campaignStore.getEnemyResolutions).mockResolvedValueOnce([
+            {
+                id: 'res-1',
+                encounterId: 'enc-1',
+                encounterName: 'Ambush',
+                outcome: 'victory',
+                xpAwarded: 50,
+                archivedInstances: [
+                    { id: 'i-1', templateId: 'orc-1', displayName: 'Orc #1', currentHp: 0, maxHp: 20 },
+                    null,
+                    'not-an-object',
+                    { id: 'i-2', templateId: 'orc-2', displayName: 'Orc #2', currentHp: 10, maxHp: 20 },
+                ],
+            },
+        ] as any);
+        await hydrateCampaign('campaign-1');
+        const state = useAppStore.getState();
+        expect(state.enemyResolutions).toHaveLength(1);
+        const resolution = state.enemyResolutions[0];
+        // Null and non-object entries are dropped; valid objects are normalized.
+        expect(resolution.archivedInstances).toHaveLength(2);
+        expect(resolution.archivedInstances[0]).toMatchObject({
+            id: 'i-1',
+            templateId: 'orc-1',
+            displayName: 'Orc #1',
+            currentHp: 0,
+            maxHp: 20,
+            conditions: [],
+            cooldowns: [],
+            resources: [],
+        });
+        expect(resolution.archivedInstances[1]).toMatchObject({ id: 'i-2', displayName: 'Orc #2' });
+    });
+
     it('normalizes malformed enemy combat config and keeps enemyDiscoveryEnabled off by default', async () => {
         vi.mocked(campaignStore.getEnemyCombatConfig).mockResolvedValueOnce({
             enabled: 'not-a-boolean',
