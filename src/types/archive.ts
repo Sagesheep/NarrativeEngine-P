@@ -75,6 +75,37 @@ export type ArchiveChapter = {
     _lastSeenSessionId?: string;
 };
 
+/**
+ * What a chapter refit would cost, without performing it.
+ *
+ * The expensive part of a refit is not the boundary rewrite — that is free —
+ * but `changedCount`, the number of chapter summaries it invalidates. Each one
+ * is an LLM call, so the user is shown this number before committing.
+ */
+export type ChapterRefitPreview = {
+    wouldChange: boolean;
+    /** Index of the first chapter whose window moves; -1 when nothing moves. */
+    firstChangedIndex: number;
+    /** Chapters needing regeneration — everything from firstChangedIndex on. */
+    changedCount: number;
+    removedChapterIds: string[];
+    totalScenes: number;
+    chapterCountBefore: number;
+    chapterCountAfter: number;
+    target: number;
+};
+
+export type ChapterRefitResult = {
+    ok: boolean;
+    changed: boolean;
+    changedCount: number;
+    firstChangedIndex?: number;
+    removedChapterIds: string[];
+    divergenceRepointed: number;
+    timelineRepointed: number;
+    chapters: ArchiveChapter[];
+};
+
 export type BackupMeta = {
     timestamp: number;
     label: string;

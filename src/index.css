@@ -392,6 +392,13 @@ html[data-has-bg="true"] .chat-bubble {
   background-color: color-mix(in srgb, var(--color-void-lighter) var(--chat-opacity, 70%), transparent);
 }
 
+/* The composer bar (input row + staging banners) sits below .chat-panel and
+   would otherwise stay solid bg-void over the image. Follow the same slider. */
+html[data-has-bg="true"] .chat-composer-bar {
+  background-color: color-mix(in srgb, var(--color-void) var(--chat-opacity, 70%), transparent);
+  backdrop-filter: blur(3px);
+}
+
 /* ─── Floating chat nav buttons (Prev/Latest) ───
    In dark mode the default border/icon colors blend into the background,
    so bump the border + icon contrast and add a subtle surface lift. */

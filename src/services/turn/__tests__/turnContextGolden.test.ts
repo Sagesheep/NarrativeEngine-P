@@ -375,7 +375,6 @@ const buildPayloadMock = vi.fn(() => ({
 }));
 const capturePendingTurnSnapshotMock = vi.fn();
 const gatherContextMock = vi.fn(async () => ({
-    sceneNumber: '042',
     archiveRecall: ARCHIVE_RECALL,
     recommendedNPCNames: ['Aldric'],
     timelineEvents: TIMELINE,

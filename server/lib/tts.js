@@ -77,6 +77,10 @@ export function isTtsReady() {
 export function getTtsStatus() {
     return {
         modelReady,
+        // A cached model survives server/app restarts, but needs a short warmup
+        // before it can synthesize. Expose that distinction so the UI does not
+        // incorrectly tell users their download vanished during startup.
+        modelCached: isTtsModelCached(),
         initializing: !!initPromise,
         voice: activeVoice,
         modelId: MODEL_ID,

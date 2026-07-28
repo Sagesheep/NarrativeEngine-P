@@ -75,6 +75,13 @@ export function MessageBubble({
         ? msg.displayContent
         : (typeof msg.content === 'string' ? msg.content : '');
 
+    // The scene number is rendered from `msg.sceneId` (the id the server actually
+    // assigned) in the header below — never from the prose. Historical messages
+    // have a `Scene #NNN | ` prefix baked into their text from when the number
+    // was predicted at gather time and glued on; that prediction was frequently
+    // wrong, so strip it rather than show a stale number next to the real one.
+    markdownContent = markdownContent.replace(/^Scene\s*#\d+\s*\|?\s*/i, '');
+
     let thinkingBlock = '';
     const thinkMatch = markdownContent.match(/<think([\s\S]*?)<\/think>/i);
     if (thinkMatch) {
@@ -179,6 +186,11 @@ export function MessageBubble({
                     {msg.role === 'tool' && msg.name && (
                         <span className="text-[9px] text-terminal font-bold tracking-wider opacity-80">
                             [{msg.name}]
+                        </span>
+                    )}
+                    {msg.role === 'assistant' && msg.sceneId && (
+                        <span className="text-[9px] text-ice/60 tracking-wider" title="Archived scene">
+                            SCENE {msg.sceneId}
                         </span>
                     )}
                     <span className="text-[9px] text-text-dim">

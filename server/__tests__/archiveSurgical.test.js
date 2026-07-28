@@ -165,12 +165,17 @@ describe('WO-F: surgical scene delete', () => {
         const tl = JSON.parse(fs.readFileSync(path.join(CAMPAIGNS_DIR, `${ID}.timeline.json`), 'utf-8'));
         expect(tl.every(e => e.sceneId !== '001')).toBe(true);
 
-        // chapter repaired: 001 dropped, sceneCount decremented, seal invalidated
+        // chapter repaired: 001 dropped, sceneCount recomputed, summary flagged stale
         const ch = JSON.parse(fs.readFileSync(path.join(CAMPAIGNS_DIR, `${ID}.archive.chapters.json`), 'utf-8'));
         expect(ch[0].sceneIds).toEqual(['002']);
         expect(ch[0].sceneCount).toBe(1);
-        expect(ch[0].sealedAt).toBeUndefined();
         expect(ch[0].invalidated).toBe(true);
+        // Stays sealed. Deleting a scene used to unseal its chapter, which was a
+        // latent hazard: the append path takes the FIRST chapter without
+        // `sealedAt` as the open one, so unsealing a chapter mid-book would send
+        // new scenes into it while the real trailing chapter sat idle.
+        // `invalidated` already signals "summary needs regenerating".
+        expect(ch[0].sealedAt).toBeDefined();
 
         // embedding deleted
         expect(deleteMock).toHaveBeenCalledWith(ID, '001');

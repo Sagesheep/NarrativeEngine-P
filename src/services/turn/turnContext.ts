@@ -97,7 +97,6 @@ export function createTurnContext(args: {
         displayInputFinal: args.displayInput,
         historyInput: args.input,
         gathered: {
-            sceneNumber: undefined,
             archiveRecall: undefined,
             recommendedNPCNames: undefined,
             timelineEvents: [],

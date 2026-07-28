@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { runTurn } from '../services/turn/turnOrchestrator';
-import { commitPendingTurn, findRetryableMessage } from '../services/turn/pendingCommit';
+import { commitPendingTurn, findRetryableMessage, persistPendingTurn } from '../services/turn/pendingCommit';
 import { debouncedSaveCampaignState } from '../store/slices/campaignSlice';
 import type { InventoryProposal } from '../types';
 import type { useSceneContinue } from '../components/hooks/useSceneContinue';
@@ -275,6 +275,11 @@ export function useChatOperations({
             archiveNPC: storeSnapshot.archiveNPC,
             restoreNPC: storeSnapshot.restoreNPC,
             stageInventoryProposal: (proposal) => setPendingProposal(proposal),
+            // Durable-commit v1: flush the finished turn (text + pendingCommit + swipe
+            // set) the moment it is staged, so an improper close or an idle timeout
+            // before the deferred commit leaves a recoverable turn on disk instead of
+            // an orphaned GM bubble that no code path can ever archive.
+            persistTurnState: () => { void persistPendingTurn(); },
             onDirectorBriefPhase: (phase) => {
                 // 'running' → show "Director drafting brief…" + Skip; 'done' → hide.
                 // The flag toggles true on start and false on settle (success,

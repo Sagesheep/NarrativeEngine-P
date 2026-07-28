@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
-import { CAMPAIGNS_DIR, BACKUPS_DIR, readJson, validateCampaignId, campaignFileNames } from '../lib/fileStore.js';
-import { createBackup, updateBackupLabel } from '../services/backup.js';
+import { CAMPAIGNS_DIR, BACKUPS_DIR, readJson, validateCampaignId } from '../lib/fileStore.js';
+import { createBackup, updateBackupLabel, restoreBackup } from '../services/backup.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 import { serverError } from '../lib/serverError.js';
 
@@ -106,24 +106,7 @@ export function createBackupsRouter() {
         }
 
         try {
-            const restoreBackup = createBackup(id, {
-                label: `Pre-restore from ${new Date(Number(ts)).toLocaleString()}`,
-                trigger: 'pre-restore',
-                isAuto: false,
-            });
-
-            const allowedNames = new Set(campaignFileNames(id));
-            const backupFiles = fs.readdirSync(backupPath).filter(f => f !== 'meta.json');
-            for (const name of backupFiles) {
-                if (!allowedNames.has(name)) {
-                    continue;
-                }
-                const src = path.join(backupPath, name);
-                const dst = path.join(CAMPAIGNS_DIR, name);
-                fs.copyFileSync(src, dst);
-            }
-
-            res.json({ ok: true, preRestoreBackup: restoreBackup });
+            res.json({ ok: true, preRestoreBackup: restoreBackup(id, ts) });
         } catch (err) {
             serverError(res, err, 'Backup');
         }

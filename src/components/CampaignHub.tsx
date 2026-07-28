@@ -67,6 +67,12 @@ export function CampaignHub() {
         const updatedCampaign = { ...campaign, lastPlayedAt: Date.now() };
         await saveCampaign(updatedCampaign);
         await hydrateCampaign(campaign.id);
+        // Durable-commit v1: same reconcile App.tsx runs for an auto-loaded campaign.
+        // Opening a campaign from the hub used to skip it, so a turn left pending by a
+        // crash was only picked up if the user happened to send another message —
+        // and a turn whose commit failed and was then buried was never picked up at all.
+        const { reconcilePendingCommitOnLaunch } = await import('../services/turn/pendingCommit');
+        reconcilePendingCommitOnLaunch().catch(e => console.warn('[Reconcile] failed:', e));
     };
 
     const handleExport = async (id: string) => {

@@ -3,7 +3,7 @@ import { useAppStore } from '../../../store/useAppStore';
 import { scanInventory } from '../../../services/inventoryParser';
 import { toast } from '../../Toast';
 import type { EndpointConfig, ProviderConfig, InventoryItemCategory, InventoryItem } from '../../../types';
-import { normalizeLocationTag, normalizeInventoryItem } from '../../../types';
+import { normalizeInventoryItem } from '../../../types';
 
 const ALL_CATS: (InventoryItemCategory | 'all' | 'equipped')[] = ['all', 'equipped', 'weapon', 'armor', 'consumable', 'currency', 'key', 'misc'];
 const DISPLAY_LABEL: Record<string, string> = {

@@ -1,4 +1,4 @@
-import type { AppSettings, ArchiveChapter, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, SceneEvent } from '../../types';
+import type { AppSettings, ArchiveChapter, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, SceneEvent, ChapterRefitPreview, ChapterRefitResult } from '../../types';
 
 import { API_BASE as API } from '../../lib/apiBase';
 
@@ -17,7 +17,15 @@ export const api = {
                 if (res.ok) {
                     return await res.json();
                 }
+                // Durable-commit v1: a rejected append means the scene was NOT written
+                // (the route validates before `appendScene` touches disk). Log the status
+                // — silently returning undefined here is what let failed archives pass as
+                // successful commits. The caller decides whether to retry.
+                console.warn(`[Archive] Append rejected: ${res.status} ${res.statusText}`);
             } catch (err) {
+                // Network-level failure: the write MAY have landed (the prose write is
+                // synchronous server-side and precedes the response), so the caller must
+                // verify against the index before re-appending.
                 console.warn('[Archive] Failed to append:', err);
             }
             return undefined;
@@ -189,7 +197,45 @@ export const api = {
                 console.warn('[Chapters] Failed to split:', err);
             }
             return undefined;
-        }
+        },
+        /**
+         * Delete an empty chapter. The server rejects anything holding scenes or
+         * prose with a 409, so the returned `error` is worth surfacing rather
+         * than swallowing — it carries the reason.
+         */
+        async remove(campaignId: string, chapterId: string): Promise<{ ok: boolean; error?: string }> {
+            try {
+                const res = await fetch(`${API}/campaigns/${campaignId}/archive/chapters/${chapterId}`, {
+                    method: 'DELETE',
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) return { ok: true };
+                return { ok: false, error: data?.error || `Delete failed (${res.status})` };
+            } catch (err) {
+                console.warn('[Chapters] Failed to delete:', err);
+                return { ok: false, error: 'Could not reach the server' };
+            }
+        },
+        async refitPreview(campaignId: string): Promise<ChapterRefitPreview | undefined> {
+            try {
+                const res = await fetch(`${API}/campaigns/${campaignId}/archive/chapters/refit/preview`);
+                if (res.ok) return await res.json();
+            } catch (err) {
+                console.warn('[Chapters] Failed to preview refit:', err);
+            }
+            return undefined;
+        },
+        async refit(campaignId: string): Promise<ChapterRefitResult | undefined> {
+            try {
+                const res = await fetch(`${API}/campaigns/${campaignId}/archive/chapters/refit`, {
+                    method: 'POST',
+                });
+                if (res.ok) return await res.json();
+            } catch (err) {
+                console.warn('[Chapters] Failed to refit:', err);
+            }
+            return undefined;
+        },
     },
     facts: {
         async get(campaignId: string): Promise<SemanticFact[]> {

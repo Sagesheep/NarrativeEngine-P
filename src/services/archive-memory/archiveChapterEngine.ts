@@ -3,7 +3,26 @@ import { extractContextActivations, expandActivationsWithFacts, retrieveArchiveM
 import { getChatUrl, buildChatHeaders, buildChatBody, extractContent, getApiFormat } from '../../utils/llmApiHelper';
 import { llmFetch } from '../llm/llmFetch';
 
-const AUTO_SEAL_SCENE_THRESHOLD = 25; // ~25 exchanges is a meaningful arc
+import { CHAPTER_SCENE_SOFT_CAP } from '../../types';
+
+/**
+ * One past the highest chapter number already used.
+ *
+ * Mirrors `nextChapterNumber` in server/services/chapterFitting.js — see the
+ * comment there for why counting the array is wrong. Split siblings (CH02A /
+ * CH02B) both parse to 2, which is fine: the max only has to clear every
+ * numeric prefix.
+ */
+export function nextChapterNumber(chapters: ArchiveChapter[]): number {
+    let highest = 0;
+    for (const ch of chapters ?? []) {
+        const match = /^CH(\d+)/.exec(ch?.chapterId ?? '');
+        if (!match) continue;
+        const n = parseInt(match[1], 10);
+        if (Number.isFinite(n) && n > highest) highest = n;
+    }
+    return highest + 1;
+}
 
 // Phase 3 constants
 const MAX_LLM_ITERATIONS = 5;
@@ -37,12 +56,13 @@ export function shouldAutoSeal(
         return { shouldSeal: false, reason: 'no_open_chapter' };
     }
 
-    // Count scenes in open chapter's range
-    const startNum = parseInt(openChapter.sceneRange[0], 10);
-    const endNum = parseInt(openChapter.sceneRange[1], 10);
-    const sceneCount = endNum - startNum + 1;
+    // `sceneCount` is recomputed server-side from the scenes that actually
+    // exist, so it survives deletions. Range arithmetic was used here before and
+    // counted the gaps a deleted scene leaves behind as if they were still
+    // scenes — which sealed chapters early, at fewer real scenes than the cap.
+    const sceneCount = openChapter.sceneCount ?? 0;
 
-    if (sceneCount >= AUTO_SEAL_SCENE_THRESHOLD) {
+    if (sceneCount >= CHAPTER_SCENE_SOFT_CAP) {
         return { shouldSeal: true, reason: 'scene_threshold' };
     }
 
@@ -90,7 +110,7 @@ export function sealChapter(
     };
 
     // Create new open chapter
-    const nextChapterNum = chapters.length + 1;
+    const nextChapterNum = nextChapterNumber(chapters);
     const newOpen: ArchiveChapter = {
         chapterId: `CH${String(nextChapterNum).padStart(2, '0')}`,
         title: 'Open Chapter',

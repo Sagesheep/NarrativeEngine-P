@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { X, UserCircle, FileText, ScrollText, Package, BarChart3, Upload, Download } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
-import { SheetTab } from './tabs/SheetTab';
+import { SheetTab, type SheetTabHandle } from './tabs/SheetTab';
 import { RecordTab } from './tabs/RecordTab';
 import { InventoryTab } from './tabs/InventoryTab';
 import { StatsTab } from './tabs/StatsTab';
 import { AIGuidedCreationWizard } from './AIGuidedCreationWizard';
 import { ImportChoiceDialog } from '../npc-ledger/ImportChoiceDialog';
+import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { prepareImportedNpcs, type NpcImportMode } from '../../services/npc/importTransform';
 import { buildCharacterExportData, buildCharacterExportFilename } from '../../services/npc/characterExport';
 import { toast } from '../Toast';
@@ -44,6 +45,9 @@ export function CharacterLedgerModal() {
     const playerCharacter = useAppStore((s) => s.playerCharacter);
     const setPlayerCharacter = useAppStore((s) => s.setPlayerCharacter);
 
+    const sheetRef = useRef<SheetTabHandle>(null);
+    const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
+
     const [activeTab, setActiveTab] = useState<LedgerTab>('sheet');
     const [guidedMode, setGuidedMode] = useState(false);
     const importRef = useRef<HTMLInputElement>(null);
@@ -58,16 +62,43 @@ export function CharacterLedgerModal() {
         if (pcPanelOpen) {
             setActiveTab('sheet');
             setGuidedMode(false);
+            setShowUnsavedPrompt(false);
         }
     }
 
+    // Single close-request funnel for all three close paths (backdrop click,
+    // Escape key, X button). If the Sheet tab has un-saved edits, surface the
+    // UnsavedChangesDialog instead of closing — the user picks Save / Discard
+    // / Cancel. The guard only fires on the Sheet tab (the other tabs write
+    // to the store on every keystroke, so they have no un-saved state).
+    const requestClose = useCallback(() => {
+        if (sheetRef.current?.isDirty()) {
+            setShowUnsavedPrompt(true);
+            return;
+        }
+        togglePCPanel();
+    }, [togglePCPanel]);
+
+    const handleSaveAndClose = useCallback(() => {
+        if (sheetRef.current?.save()) {
+            setShowUnsavedPrompt(false);
+            togglePCPanel();
+        }
+    }, [togglePCPanel]);
+
+    const handleDiscardAndClose = useCallback(() => {
+        sheetRef.current?.discard();
+        setShowUnsavedPrompt(false);
+        togglePCPanel();
+    }, [togglePCPanel]);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && pcPanelOpen) togglePCPanel();
+            if (e.key === 'Escape' && pcPanelOpen) requestClose();
         };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [pcPanelOpen, togglePCPanel]);
+    }, [pcPanelOpen, requestClose]);
 
     if (!pcPanelOpen) return null;
 
@@ -120,7 +151,7 @@ export function CharacterLedgerModal() {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-void/80 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="Character Ledger" onClick={togglePCPanel}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-void/80 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="Character Ledger" onClick={requestClose}>
             <div
                 className="bg-surface border border-border shadow-2xl rounded-lg w-full max-w-4xl max-h-[88vh] flex flex-col overflow-hidden transition-[max-width] duration-200 relative"
                 style={guidedMode ? { maxWidth: 1200 } : undefined}
@@ -128,7 +159,7 @@ export function CharacterLedgerModal() {
             >
                 {/* Hidden import input lives INSIDE the stopPropagation container. If it sat
                     on the backdrop, importRef.current.click() would bubble a click to the
-                    overlay's onClick={togglePCPanel}, closing the modal and unmounting the
+                    overlay's onClick={requestClose}, closing the modal and unmounting the
                     input before the OS file dialog resolved — so onChange never fired.
                     (Same bug class just fixed in NPCLedgerModal — do not reintroduce it.) */}
                 <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
@@ -139,6 +170,14 @@ export function CharacterLedgerModal() {
                         label="character"
                         onChoose={commitImport}
                         onCancel={() => setPendingImport(null)}
+                    />
+                )}
+
+                {showUnsavedPrompt && (
+                    <UnsavedChangesDialog
+                        onSave={handleSaveAndClose}
+                        onDiscard={handleDiscardAndClose}
+                        onCancel={() => setShowUnsavedPrompt(false)}
                     />
                 )}
 
@@ -153,7 +192,7 @@ export function CharacterLedgerModal() {
                         <button onClick={handleExport} disabled={!playerCharacter} title="Export character to JSON" className="flex items-center gap-1 py-1 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                             <Download size={12} /> Export
                         </button>
-                        <button onClick={togglePCPanel} className="text-text-dim hover:text-text-bright transition-colors text-lg leading-none" aria-label="Close">
+                        <button onClick={requestClose} className="text-text-dim hover:text-text-bright transition-colors text-lg leading-none" aria-label="Close">
                             <X size={18} />
                         </button>
                     </div>
@@ -190,7 +229,7 @@ export function CharacterLedgerModal() {
 
                         {/* Tab Panels */}
                         <div className="flex-1 overflow-y-auto flex flex-col">
-                            {activeTab === 'sheet' && <SheetTab onStartGuidedCreation={() => setGuidedMode(true)} />}
+                            {activeTab === 'sheet' && <SheetTab ref={sheetRef} onStartGuidedCreation={() => setGuidedMode(true)} />}
                             {activeTab === 'record' && <RecordTab />}
                             {activeTab === 'inventory' && <InventoryTab />}
                             {activeTab === 'stats' && <StatsTab />}

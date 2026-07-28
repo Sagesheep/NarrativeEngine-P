@@ -419,7 +419,6 @@ export async function runGenerationStage(
     // at the top of `runTurn` after `if (!provider) return;`.)
     const providerSafe = provider!;
     const payload = ctx.payload!;
-    const sceneNumber = ctx.gathered.sceneNumber;
 
     // Smart Retry v1: capture the precontext snapshot BEFORE the Story AI runs.
     // The success-path capture at the end of `executeTurn`'s onDone (below) re-
@@ -479,9 +478,10 @@ export async function runGenerationStage(
             providerSafe,
             requestPayload,
             (fullText) => {
-                const newText = sceneNumber ? `Scene #${sceneNumber} | ${stripLLMSceneHeader(fullText)}` : fullText;
                 callbacks.updateLastAssistant(
-                    accumulatedContent ? `${accumulatedContent}\n\n${stripLLMSceneHeader(fullText)}` : newText
+                    accumulatedContent
+                        ? `${accumulatedContent}\n\n${stripLLMSceneHeader(fullText)}`
+                        : stripLLMSceneHeader(fullText)
                 );
             },
             async (finalText, toolCall, reasoningContent) => {
@@ -500,9 +500,7 @@ export async function runGenerationStage(
                         callbacks.onCheckingNotes(true);
                     }
 
-                    const engineText = sceneNumber
-                        ? `Scene #${sceneNumber} | ${stripLLMSceneHeader(finalText)}`
-                        : finalText;
+                    const engineText = stripLLMSceneHeader(finalText);
                     const dispatchResult = toolHandler({ arguments: toolCall.arguments, loreChunks, notebook: state.context.notebook, diceSystem: context.diceSystem });
                     if (dispatchResult.accumulation === 'overwrite') {
                         accumulatedContent = engineText;
@@ -572,12 +570,9 @@ export async function runGenerationStage(
                 callbacks.setStreaming(false);
                 callbacks.onCheckingNotes(false);
                 callbacks.setPipelinePhase?.('post-processing');
-                const baseText = sceneNumber
-                    ? `Scene #${sceneNumber} | ${stripLLMSceneHeader(finalText)}`
-                    : finalText;
                 const engineText = accumulatedContent
                     ? `${accumulatedContent}\n\n${stripLLMSceneHeader(finalText)}`
-                    : baseText;
+                    : stripLLMSceneHeader(finalText);
 
                 // ── Swipe Generation v1 (per-variant scene-stakes strip) ──
                 // mainApp accumulates tool-call preamble into engineText (unlike mobile,
@@ -641,6 +636,15 @@ export async function runGenerationStage(
                 // complete ctx). DO NOT remove either capture — the two are redundant by
                 // design. See the comment at the early capture site for the full rationale.
                 capturePendingTurnSnapshot(state, currentPayload, state.displayInput, ctx);
+
+                // Durable-commit v1: flush the pending turn to disk immediately.
+                // The stamp above rides `updateLastAssistantMessage`, which schedules
+                // no save, and the deferred commit can be minutes or hours away — so
+                // without this the pending markers lived only in memory. A crash /
+                // improper close / idle timeout before the next store write left the
+                // GM text on disk with no `pendingCommit`, nothing for the launch
+                // reconciler to find, and the scene silently never archived.
+                callbacks.persistTurnState?.();
 
                 callbacks.setPipelinePhase?.('idle');
                 abortController.signal.removeEventListener('abort', abortListener);

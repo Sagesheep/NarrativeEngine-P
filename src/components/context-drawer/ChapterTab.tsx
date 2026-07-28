@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { BookOpen, Plus, Loader2, Sparkles } from 'lucide-react';
+import { BookOpen, Plus, Loader2, Sparkles, Scale } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { api } from '../../services/llm/apiClient';
 import { ChapterCard } from './ChapterCard';
@@ -8,6 +8,7 @@ import { runCombinedSeal } from '../../services/turn/postTurnPipeline';
 import { backfillChapterSynopses, chaptersNeedingSynopsis } from '../../services/archive-memory/synopsisBackfill';
 import { toast } from '../Toast';
 import type { ArchiveChapter } from '../../types';
+import { CHAPTER_SCENE_SOFT_CAP } from '../../types';
 
 export const ChapterTab: React.FC = () => {
     const {
@@ -21,6 +22,12 @@ export const ChapterTab: React.FC = () => {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [isRegenerating, setIsRegenerating] = useState<string | null>(null);
     const [isCreating, setIsCreating] = useState(false);
+    const [isRefitting, setIsRefitting] = useState(false);
+    // A ref, not the `isCreating` state: `disabled` only takes effect after
+    // React commits the re-render, so two clicks landing in the same tick both
+    // pass the state check. The ref flips synchronously. (The server also
+    // serializes creates now — this just avoids the wasted round-trip.)
+    const creatingRef = useRef(false);
     // WO-07: synopsis backfill progress. `null` = idle; otherwise {done,total}.
     const [backfillProgress, setBackfillProgress] = useState<{ done: number; total: number } | null>(null);
     // AbortController for the in-flight backfill. Aborted on unmount or campaign switch.
@@ -225,7 +232,8 @@ export const ChapterTab: React.FC = () => {
     }, [activeCampaignId, removeTimelineEvent]);
 
     const handleNewChapter = useCallback(async () => {
-        if (!activeCampaignId) return;
+        if (!activeCampaignId || creatingRef.current) return;
+        creatingRef.current = true;
         setIsCreating(true);
         try {
             await api.chapters.create(activeCampaignId);
@@ -234,9 +242,88 @@ export const ChapterTab: React.FC = () => {
         } catch (err) {
             toast.error('Failed to create chapter');
         } finally {
+            creatingRef.current = false;
             setIsCreating(false);
         }
     }, [activeCampaignId, refreshChapters]);
+
+    const handleDeleteChapter = useCallback(async (chapter: ArchiveChapter) => {
+        if (!activeCampaignId) return;
+        const ok = window.confirm(
+            `Delete "${chapter.title}"?\n\nThis chapter holds no scenes, so no prose, timeline events or facts are affected.`
+        );
+        if (!ok) return;
+
+        const result = await api.chapters.remove(activeCampaignId, chapter.chapterId);
+        if (!result.ok) {
+            toast.error(result.error || 'Failed to delete chapter');
+            return;
+        }
+        // `pinChapter` toggles, so only call it when actually pinned.
+        if (pinnedChapterIds.includes(chapter.chapterId)) pinChapter(chapter.chapterId);
+        if (expandedId === chapter.chapterId) setExpandedId(null);
+        await refreshChapters();
+        toast.success('Chapter deleted');
+    }, [activeCampaignId, pinnedChapterIds, pinChapter, expandedId, refreshChapters]);
+
+    /**
+     * Reflow chapter boundaries to CHAPTER_SCENE_SOFT_CAP scenes each.
+     *
+     * Manual only, and it does not regenerate anything — it marks the affected
+     * chapters `invalidated` and leaves the LLM calls to the per-chapter Repair
+     * button. The confirm states how many that will be, since that is the real
+     * cost of the operation.
+     */
+    const handleRefit = useCallback(async () => {
+        if (!activeCampaignId || isRefitting) return;
+
+        const preview = await api.chapters.refitPreview(activeCampaignId);
+        if (!preview) {
+            toast.error('Could not check chapter fit');
+            return;
+        }
+        if (!preview.wouldChange) {
+            toast.info('Chapters are already evenly fitted');
+            return;
+        }
+
+        const plural = preview.changedCount === 1 ? '' : 's';
+        const ok = window.confirm(
+            `Refit ${preview.totalScenes} scenes into chapters of ${preview.target}?\n\n` +
+            `${preview.changedCount} chapter${plural} will be marked for regeneration — ` +
+            `their summaries no longer match the scenes they hold.\n\n` +
+            `Chapters before the first change keep their summaries untouched. ` +
+            `No prose, embeddings or timeline events are deleted.`
+        );
+        if (!ok) return;
+
+        setIsRefitting(true);
+        try {
+            const result = await api.chapters.refit(activeCampaignId);
+            if (!result?.ok) {
+                toast.error('Refit failed');
+                return;
+            }
+            await refreshChapters();
+            toast.success(
+                result.changed
+                    ? `Chapters refitted — ${result.changedCount} need regenerating`
+                    : 'Chapters were already even'
+            );
+        } catch (err) {
+            console.error(err);
+            toast.error('Refit failed');
+        } finally {
+            setIsRefitting(false);
+        }
+    }, [activeCampaignId, isRefitting, refreshChapters]);
+
+    // Sealed chapters that do not hold exactly a full chapter's worth of scenes.
+    // The open chapter is excluded — being under the cap is just it filling up.
+    const driftCount = useMemo(
+        () => chapters.filter(c => c.sealedAt && c.sceneCount !== CHAPTER_SCENE_SOFT_CAP).length,
+        [chapters]
+    );
 
     // WO-07: button visibility — only show when ≥1 sealed chapter lacks `synopsis`.
     const missingSynopsisCount = useMemo(
@@ -259,14 +346,29 @@ export const ChapterTab: React.FC = () => {
                         </span>
                     )}
                 </div>
-                <button 
-                    onClick={handleNewChapter}
-                    disabled={isCreating}
-                    className="flex items-center space-x-1 px-2 py-1 rounded bg-terminal/10 border border-terminal/30 text-terminal hover:bg-terminal/20 transition-colors text-[10px] font-bold uppercase disabled:opacity-50"
-                >
-                    {isCreating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-                    <span>New</span>
-                </button>
+                <div className="flex items-center space-x-1.5">
+                    {/* Always reachable, not just when drift is detected — the
+                        answer "your chapters are already even" is one the user
+                        should be able to ask for, and a button that only exists
+                        when something is wrong cannot be found when it is. */}
+                    <button
+                        onClick={handleRefit}
+                        disabled={isRefitting}
+                        title={`Reflow chapters to ${CHAPTER_SCENE_SOFT_CAP} scenes each`}
+                        className="flex items-center space-x-1 px-2 py-1 rounded bg-void-dark border border-border hover:border-ice hover:text-ice text-text-muted transition-colors text-[10px] font-bold uppercase disabled:opacity-50"
+                    >
+                        {isRefitting ? <Loader2 size={12} className="animate-spin" /> : <Scale size={12} />}
+                        <span>Refit</span>
+                    </button>
+                    <button
+                        onClick={handleNewChapter}
+                        disabled={isCreating}
+                        className="flex items-center space-x-1 px-2 py-1 rounded bg-terminal/10 border border-terminal/30 text-terminal hover:bg-terminal/20 transition-colors text-[10px] font-bold uppercase disabled:opacity-50"
+                    >
+                        {isCreating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                        <span>New</span>
+                    </button>
+                </div>
             </div>
 
             {missingSynopsisCount > 0 && (
@@ -285,6 +387,28 @@ export const ChapterTab: React.FC = () => {
                             <>
                                 <Sparkles size={12} />
                                 <span>Generate missing synopses ({missingSynopsisCount})</span>
+                            </>
+                        )}
+                    </button>
+                </div>
+            )}
+
+            {driftCount > 0 && (
+                <div className="mb-3 px-1">
+                    <button
+                        onClick={handleRefit}
+                        disabled={isRefitting}
+                        className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded bg-ice/10 border border-ice/30 text-ice hover:bg-ice/20 transition-colors text-[10px] font-bold uppercase tracking-wider disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        {isRefitting ? (
+                            <>
+                                <Loader2 size={12} className="animate-spin" />
+                                <span>Refitting chapters…</span>
+                            </>
+                        ) : (
+                            <>
+                                <Scale size={12} />
+                                <span>Refit to {CHAPTER_SCENE_SOFT_CAP} scenes ({driftCount} uneven)</span>
                             </>
                         )}
                     </button>
@@ -328,6 +452,7 @@ export const ChapterTab: React.FC = () => {
                                     onDeleteTimelineEvent={handleDeleteTimelineEvent}
                                     isPinned={pinnedChapterIds.includes(ch.chapterId)}
                                     onTogglePin={() => pinChapter(ch.chapterId)}
+                                    onDelete={() => handleDeleteChapter(ch)}
                                 />
                             </div>
                         );

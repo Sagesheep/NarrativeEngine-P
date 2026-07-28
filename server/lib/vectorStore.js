@@ -320,10 +320,36 @@ export const searchLore = createSearchFn('lore_vss', 'lore_id', 'loreId', 'lore'
 // Rules are deliberately never diversified — see comment above createSearchFn.
 export const searchRules = createSearchFn('rules_vss', 'rule_id', 'ruleId', 'rule', false);
 
+/**
+ * Every scene id that currently holds a vector for this campaign.
+ *
+ * Read from `embedding_meta` rather than `archive_vss`: the meta table is a
+ * plain table (scannable), and both are written together by
+ * `storeArchiveEmbedding`, so their id sets match. Used by backup restore to
+ * find vectors whose scene no longer exists in the restored index.
+ */
+export function listArchiveSceneIds(campaignId) {
+    if (!db) return [];
+    return db.prepare("SELECT item_id FROM embedding_meta WHERE campaign_id = ? AND item_type = 'scene'")
+        .all(campaignId)
+        .map(r => r.item_id);
+}
+
 export function deleteArchiveEmbedding(campaignId, sceneId) {
     if (!db) return;
     db.prepare("DELETE FROM archive_vss WHERE campaign_id = ? AND scene_id = ?").run(campaignId, sceneId);
     db.prepare("DELETE FROM embedding_meta WHERE campaign_id = ? AND item_type = 'scene' AND item_id = ?").run(campaignId, sceneId);
+}
+
+/**
+ * Drop EVERY scene vector for a campaign, leaving lore + rules untouched.
+ * Used by clear-archive, which wipes the prose/index/chapters/timeline but has
+ * no business touching the lore or rules indexes.
+ */
+export function deleteAllArchiveEmbeddings(campaignId) {
+    if (!db) return;
+    db.prepare("DELETE FROM archive_vss WHERE campaign_id = ?").run(campaignId);
+    db.prepare("DELETE FROM embedding_meta WHERE campaign_id = ? AND item_type = 'scene'").run(campaignId);
 }
 
 export function deleteRulesEmbedding(campaignId, ruleId) {

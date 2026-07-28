@@ -1,7 +1,7 @@
 import React, { memo, useState, useEffect, useRef } from 'react';
 import {
     ChevronDown, ChevronUp, Lock, Unlock, AlertCircle,
-    RefreshCcw, Edit2, Check, X, GitMerge, Scissors, Pin, PinOff
+    RefreshCcw, Edit2, Check, X, GitMerge, Scissors, Pin, PinOff, Trash2
 } from 'lucide-react';
 import type { ArchiveChapter, TimelineEvent } from '../../types';
 import { TimelineDotRow } from './TimelineDotRow';
@@ -44,6 +44,8 @@ interface ChapterCardProps {
     onDeleteTimelineEvent?: (eventId: string) => void;
     isPinned?: boolean;
     onTogglePin?: () => void;
+    /** Only wired for chapters that hold nothing — see `isEmpty` below. */
+    onDelete?: () => void;
 }
 
 export const ChapterCard = memo(function ChapterCard({
@@ -60,6 +62,7 @@ export const ChapterCard = memo(function ChapterCard({
     onDeleteTimelineEvent,
     isPinned,
     onTogglePin,
+    onDelete,
 }: ChapterCardProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [editTitle, setEditTitle] = useState(chapter.title);
@@ -93,6 +96,22 @@ export const ChapterCard = memo(function ChapterCard({
 
     const status = chapter.invalidated ? 'invalidated' : (chapter.sealedAt ? 'sealed' : 'open');
     const chapterEvents = timelineEvents ? getEventsByChapter(timelineEvents, chapter.chapterId) : [];
+
+    // Mirrors `isChapterEmpty` on the server, which is the actual gate — this
+    // only decides whether to offer the button. `sceneCount` arrives already
+    // recomputed from the scenes that exist, so a chapter emptied by deletions
+    // reports honestly here.
+    const isEmpty = (chapter.sceneCount ?? 0) === 0
+        && (chapter.sceneIds ?? []).length === 0
+        && !chapter.summary?.trim()
+        && !chapter.synopsis?.trim();
+
+    // An open chapter under the cap is simply still filling up — that is not
+    // drift, so it gets a progress hint near the cap instead of a warning.
+    // A sealed chapter that is not exactly full *is* drift: scenes were deleted
+    // out from under it, and a refit would even it back out.
+    const showFillProgress = status === 'open' && chapter.sceneCount >= 20;
+    const showDrift = status !== 'open' && chapter.sceneCount !== CHAPTER_SCENE_SOFT_CAP;
     
     const statusColors = {
         sealed: 'text-terminal border-terminal/30 bg-terminal/5',
@@ -158,8 +177,16 @@ export const ChapterCard = memo(function ChapterCard({
                         <span>SCENES {chapter.sceneRange[0]}–{chapter.sceneRange[1]}</span>
                         <span className="opacity-50">|</span>
                         <span>{chapter.sceneCount} SCENES</span>
-                        {status === 'open' && chapter.sceneCount >= 20 && (
+                        {showFillProgress && (
                             <span className={`text-[9px] font-bold uppercase px-1 py-0.5 rounded ${chapter.sceneCount >= CHAPTER_SCENE_SOFT_CAP ? 'text-ember bg-ember/10 border border-ember/30' : 'text-amber-400 bg-amber-400/10 border border-amber-400/30'}`}>
+                                {chapter.sceneCount}/{CHAPTER_SCENE_SOFT_CAP}
+                            </span>
+                        )}
+                        {showDrift && (
+                            <span
+                                title={`Holds ${chapter.sceneCount} of ${CHAPTER_SCENE_SOFT_CAP} scenes. Refit to even the chapters back out.`}
+                                className="text-[9px] font-bold uppercase px-1 py-0.5 rounded text-ice bg-ice/10 border border-ice/30"
+                            >
                                 {chapter.sceneCount}/{CHAPTER_SCENE_SOFT_CAP}
                             </span>
                         )}
@@ -310,12 +337,26 @@ export const ChapterCard = memo(function ChapterCard({
                             )}
 
                             {isNextAdjacent && onMergeWithNext && (
-                                <button 
+                                <button
                                     onClick={onMergeWithNext}
                                     className="flex items-center space-x-1 px-3 py-1.5 rounded bg-void-dark border border-border hover:border-terminal hover:text-terminal text-text-secondary transition-colors font-bold text-[11px] uppercase"
                                 >
                                     <GitMerge size={12} />
                                     <span>Merge with Next</span>
+                                </button>
+                            )}
+
+                            {/* Empty chapters only. `ml-auto` parks it away from
+                                Seal so a destructive click is never adjacent to
+                                the one people reach for most. */}
+                            {isEmpty && onDelete && (
+                                <button
+                                    onClick={onDelete}
+                                    title="Delete this empty chapter"
+                                    className="ml-auto flex items-center space-x-1 px-3 py-1.5 rounded bg-void-dark border border-border hover:border-ember hover:text-ember text-text-muted transition-colors font-bold text-[11px] uppercase"
+                                >
+                                    <Trash2 size={12} />
+                                    <span>Delete</span>
                                 </button>
                             )}
                         </div>

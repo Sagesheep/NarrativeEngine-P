@@ -66,6 +66,55 @@ export function getCachedSwipePayload(): OpenAIMessage[] | null {
     return pendingSnapshot?.cachedPayload ?? null;
 }
 
+// ── Durable-commit v1 ──────────────────────────────────────────────────
+/** Flush the campaign state to disk immediately (no debounce). Called right after
+ *  the swipe set + `pendingCommit` marker land on the finished GM bubble.
+ *
+ *  The stamp rides `updateLastAssistantMessage`, which schedules no save, and the
+ *  commit itself is deferred to the next send / Exit / campaign switch. So until
+ *  this fires the pending turn exists ONLY in memory: an improper close or an idle
+ *  timeout left the GM text on disk with no marker, `findPendingCommitMessage`
+ *  returned null forever after, and the scene was never archived. */
+export async function persistPendingTurn(): Promise<void> {
+    const s = useAppStore.getState();
+    if (!s.activeCampaignId) return;
+    try {
+        await saveCampaignState(s.activeCampaignId, {
+            context: s.context,
+            messages: s.messages,
+            condenser: s.condenser,
+            pinnedExcerpts: s.pinnedExcerpts,
+        });
+    } catch (e) {
+        console.warn('[PendingTurn] Immediate persist failed:', e);
+    }
+}
+
+/** The user half of the turn a pending GM message answers — the nearest preceding
+ *  user bubble. `displayContent` is the player-facing text (what the live commit
+ *  path archives via `state.displayInput`); `content` carries injected directives,
+ *  so it is only the fallback.
+ *
+ *  This is what makes a pending turn self-describing on disk. The live commit reads
+ *  the input from the in-memory snapshot, but that snapshot dies with the process —
+ *  and the crash-recovery rebuild used to substitute an empty string, which the
+ *  archive endpoint rejects outright (400: non-empty userContent required). Every
+ *  turn recovered after a crash was therefore dropped on the floor. */
+export function findTurnUserInput(messages: ChatMessage[], pendingMsgId?: string): string {
+    let from = messages.length - 1;
+    if (pendingMsgId) {
+        const idx = messages.findIndex(m => m.id === pendingMsgId);
+        if (idx !== -1) from = idx - 1;
+    }
+    for (let i = from; i >= 0; i--) {
+        const m = messages[i];
+        if (m.role === 'user') return m.displayContent || m.content || '';
+        // Don't cross into an earlier, already-committed turn.
+        if (m.role === 'assistant' && m.sceneId) break;
+    }
+    return '';
+}
+
 /** After a continue merges text into the pending message, refresh the snapshot's
  *  frozen copy of that message so the commit-time importance rater sees the
  *  merged text (snapshot.messages holds stale object refs otherwise). */
@@ -168,7 +217,26 @@ function buildCommitCallbacks(activeCampaignId: string): TurnCallbacks {
 // Fires runPostTurnPipeline with the visible variant's CURRENT (possibly edited)
 // text. Guards against late swipe results. Reworded failure toast for the
 // commit path. Auto-condense runs here (moved out of the orchestrator onDone).
-export async function commitPendingTurn(): Promise<void> {
+//
+// SINGLE-FLIGHT. Four independent callers reach this — `handleSend`,
+// `setActiveCampaign`, `reconcilePendingCommitOnLaunch` and the Arc Injector —
+// and none of them coordinate. The `pendingCommit` / `swipeSet` markers that
+// gate the early return below are only cleared AFTER `await
+// runPostTurnPipeline`, so two calls overlapping that await both observe a live
+// pending message and both append the SAME turn. That produced a byte-identical
+// duplicate scene pair in a live campaign (024 == 025): one turn, archived
+// twice, retrievable twice by recall, and the scene counter permanently one
+// ahead. Concurrent callers now await the in-flight commit instead of starting
+// a second one.
+let inFlightCommit: Promise<void> | null = null;
+
+export function commitPendingTurn(): Promise<void> {
+    if (inFlightCommit) return inFlightCommit;
+    inFlightCommit = runCommitPendingTurn().finally(() => { inFlightCommit = null; });
+    return inFlightCommit;
+}
+
+async function runCommitPendingTurn(): Promise<void> {
     const snapshot = pendingSnapshot;
     const store = useAppStore.getState();
     const messages = store.messages;
@@ -194,6 +262,16 @@ export async function commitPendingTurn(): Promise<void> {
     const variantIdx = pendingMsg.swipeActiveIndex ?? 0;
     const variant = pendingMsg.swipeSet[variantIdx];
     if (!variant) {
+        clearPendingTurnSnapshot();
+        return;
+    }
+
+    // Durable-commit v1: an armed message that ALREADY carries a sceneId was
+    // archived by an earlier attempt that then died mid-pipeline. Re-running would
+    // append the same turn a second time (the 024/025 duplicate class). Retire it.
+    if (pendingMsg.sceneId) {
+        console.warn(`[Commit] Pending message already archived as scene #${pendingMsg.sceneId} — retiring without re-append`);
+        retirePendingMessage(pendingMsg.id, commitStateCampaignId(snapshot, store));
         clearPendingTurnSnapshot();
         return;
     }
@@ -228,16 +306,29 @@ export async function commitPendingTurn(): Promise<void> {
     // never live getMessages() (a late commit must not see the next turn's messages).
     const commitState: TurnState = snapshot
         ? { ...snapshot.turnState, getMessages: () => snapshot.messages }
-        : rebuildStateFromLiveStore(store);
+        : rebuildStateFromLiveStore(store, findTurnUserInput(messages, pendingMsg.id));
 
     const commitCallbacks = buildCommitCallbacks(commitState.activeCampaignId ?? '');
     const snapshotMessages = commitState.getMessages();
 
+    // Durable-commit v1: did the scene actually reach long-term memory? Only then
+    // may the turn be retired. Pre-fix this was assumed — the markers were cleared
+    // unconditionally, so one failed append (server down, or the empty-user-input
+    // 400 the rebuild path used to produce) turned a retryable turn into a
+    // permanently uncommittable one: the next send, Exit, relaunch and even a
+    // backup restore all found no marker and no-op'd, and the scene was gone.
+    let archived = false;
     try {
         // WO-P1-03: pass the bus (carried by the snapshot across the commit
         // boundary) to the post-turn pipeline. Thread-only — the pipeline does
         // NOT yet read it; Project 4 will swap selected reads to bus fields.
-        await runPostTurnPipeline(commitState, commitCallbacks, text, snapshotMessages, snapshot?.turnContext);
+        const result = await runPostTurnPipeline(
+            commitState, commitCallbacks, text, snapshotMessages, snapshot?.turnContext,
+            { verifyExistingScene: pendingMsg.commitFailed === true },
+        );
+        // A pipeline that reports nothing (older signature / test doubles) is taken
+        // at its word: only an explicit `archived: false` blocks retirement.
+        archived = result?.archived !== false;
 
         // Auto-condense check — moved to commit (was in the orchestrator completion callback).
         if (commitState.settings.autoCondenseEnabled) {
@@ -251,34 +342,84 @@ export async function commitPendingTurn(): Promise<void> {
         }
     } catch (err) {
         console.error('[Commit] runPostTurnPipeline failed:', err);
-        toast.error('Turn committed but some archive updates may be missing. Your story is saved.');
+        // A throw says nothing about whether the append landed — leave the turn
+        // armed and let the next attempt's index check decide (it re-links an
+        // already-written scene instead of duplicating it).
+        archived = false;
+        toast.error('Turn could not be filed. Your story is saved — this turn will retry.');
+    }
+
+    const activeCampaignId = commitState.activeCampaignId ?? '';
+
+    if (!archived) {
+        // Keep `pendingCommit` + `swipeSet` so the next commit retries this turn,
+        // and flag it so a retry verifies before appending. Persisted, so the retry
+        // survives a restart even if a new turn buries this one in the meantime
+        // (`retryFailedCommits` sweeps those on launch).
+        markCommitFailed(pendingMsg.id, activeCampaignId);
+        return;
     }
 
     // Clear the swipe set + pendingCommit marker — the bubble is now a
     // normal historical message. Flush immediately (commit path should not debounce).
-    const freshStore = useAppStore.getState();
-    const freshMsgs = freshStore.messages;
-    const idx = freshMsgs.findIndex(m => m.id === pendingMsg.id);
-    if (idx !== -1) {
-        const updated = [...freshMsgs];
-        const rest = { ...updated[idx] };
-        delete rest.swipeSet;
-        delete rest.pendingCommit;
-        delete rest.swipeActiveIndex;
-        updated[idx] = rest as ChatMessage;
-        useAppStore.setState({ messages: updated });
-        const activeCampaignId = commitState.activeCampaignId;
-        if (activeCampaignId) {
-            saveCampaignState(activeCampaignId, {
-                context: useAppStore.getState().context,
-                messages: updated,
-                condenser: useAppStore.getState().condenser,
-                pinnedExcerpts: useAppStore.getState().pinnedExcerpts,
-            }).catch(e => console.warn('[Commit] saveCampaignState failed:', e));
-        }
-    }
-
+    retirePendingMessage(pendingMsg.id, activeCampaignId);
     clearPendingTurnSnapshot();
+}
+
+// ── Message-state transitions (shared by commit + the recovery sweep) ───
+/** The turn is filed: drop the pre-commit markers so the bubble becomes ordinary
+ *  history, and flush immediately. */
+function retirePendingMessage(messageId: string, activeCampaignId: string): void {
+    const freshMsgs = useAppStore.getState().messages;
+    const idx = freshMsgs.findIndex(m => m.id === messageId);
+    if (idx === -1) return;
+
+    const updated = [...freshMsgs];
+    const rest = { ...updated[idx] };
+    delete rest.swipeSet;
+    delete rest.pendingCommit;
+    delete rest.swipeActiveIndex;
+    delete rest.commitFailed;
+    updated[idx] = rest as ChatMessage;
+    useAppStore.setState({ messages: updated });
+
+    if (activeCampaignId) {
+        saveCampaignState(activeCampaignId, {
+            context: useAppStore.getState().context,
+            messages: updated,
+            condenser: useAppStore.getState().condenser,
+            pinnedExcerpts: useAppStore.getState().pinnedExcerpts,
+        }).catch(e => console.warn('[Commit] saveCampaignState failed:', e));
+    }
+}
+
+/** The scene did not land: keep the turn armed and record that it needs a retry. */
+function markCommitFailed(messageId: string, activeCampaignId: string): void {
+    const freshMsgs = useAppStore.getState().messages;
+    const idx = freshMsgs.findIndex(m => m.id === messageId);
+    if (idx === -1) return;
+
+    const updated = [...freshMsgs];
+    updated[idx] = { ...updated[idx], commitFailed: true };
+    useAppStore.setState({ messages: updated });
+    console.warn('[Commit] Turn left armed for retry (scene not archived)');
+
+    if (activeCampaignId) {
+        saveCampaignState(activeCampaignId, {
+            context: useAppStore.getState().context,
+            messages: updated,
+            condenser: useAppStore.getState().condenser,
+            pinnedExcerpts: useAppStore.getState().pinnedExcerpts,
+        }).catch(e => console.warn('[Commit] saveCampaignState failed:', e));
+    }
+}
+
+/** Campaign id for the early-exit paths, which run before `commitState` is built. */
+function commitStateCampaignId(
+    snapshot: PendingTurnSnapshot | null,
+    store: ReturnType<typeof useAppStore.getState>,
+): string {
+    return snapshot?.activeCampaignId || store.activeCampaignId || '';
 }
 
 // ── Rebuild TurnState from the live store (crash recovery path) ────────
@@ -286,10 +427,18 @@ export async function commitPendingTurn(): Promise<void> {
 // lost (Electron/renderer death). At relaunch, no "next turn's messages"
 // exist, so reading live is safe — the snapshot invariant (don't see the
 // next turn's messages) holds vacuously.
-function rebuildStateFromLiveStore(store: ReturnType<typeof useAppStore.getState>): TurnState {
+function rebuildStateFromLiveStore(
+    store: ReturnType<typeof useAppStore.getState>,
+    // Durable-commit v1: the turn's user half, recovered from the chat log by
+    // `findTurnUserInput`. This used to be hardcoded `''`, which the archive
+    // endpoint rejects (400 — userContent must be a non-empty string), so EVERY
+    // crash-recovered turn failed to archive. The importance rater, pressure scan
+    // and agency/arc ticks read the same field and were equally blind.
+    recoveredUserInput = '',
+): TurnState {
     return {
-        input: '',
-        displayInput: '',
+        input: recoveredUserInput,
+        displayInput: recoveredUserInput,
         settings: store.settings,
         context: store.context,
         messages: store.messages,
@@ -328,10 +477,83 @@ function rebuildStateFromLiveStore(store: ReturnType<typeof useAppStore.getState
 export async function reconcilePendingCommitOnLaunch(): Promise<void> {
     const store = useAppStore.getState();
     const pendingMsg = findPendingCommitMessage(store.messages);
-    if (!pendingMsg || !pendingMsg.swipeSet) return;
+    if (pendingMsg?.swipeSet) {
+        console.log('[Reconcile] Found pendingCommit on launch — firing deferred runPostTurnPipeline');
+        await commitPendingTurn();
+    }
 
-    console.log('[Reconcile] Found pendingCommit on launch — firing deferred runPostTurnPipeline');
-    await commitPendingTurn();
+    // Durable-commit v1: sweep up turns whose commit failed and were then buried by
+    // a later turn. `findPendingCommitMessage` stops at the first user message, so a
+    // buried failure is invisible to it — without this sweep those scenes would sit
+    // in the chat log forever, unreachable by recall.
+    await retryFailedCommits();
+}
+
+// ── Recovery sweep for buried failed commits ───────────────────────────
+// Keyed STRICTLY off the explicit `commitFailed` marker — never off "assistant
+// without a sceneId", which describes every message in a pre-WO-F campaign and
+// would re-archive an entire history. Repairs the archive link only: the NPC /
+// agency / arc bookkeeping for a buried turn would run against a state that has
+// moved on, so it stays skipped (logged, not silently).
+export async function retryFailedCommits(): Promise<number> {
+    const store = useAppStore.getState();
+    const messages = store.messages;
+    const activeCampaignId = store.activeCampaignId ?? '';
+    if (!activeCampaignId) return 0;
+
+    // The current pending turn is owned by commitPendingTurn — don't race it.
+    const ownedByCommit = findPendingCommitMessage(messages)?.id;
+    const buried = messages.filter(m =>
+        m.role === 'assistant' && m.commitFailed === true && !m.sceneId && m.id !== ownedByCommit
+    );
+    if (buried.length === 0) return 0;
+
+    console.log(`[Reconcile] ${buried.length} unarchived turn(s) from failed commits — repairing`);
+    const { api } = await import('../llm/apiClient');
+    let repaired = 0;
+
+    // Oldest first, so scene numbering follows story order.
+    for (const msg of buried) {
+        const userText = findTurnUserInput(messages, msg.id);
+        if (!userText.trim()) {
+            console.warn(`[Reconcile] Skipping ${msg.id} — no user half found to archive with`);
+            continue;
+        }
+        const appended = await api.archive.append(activeCampaignId, userText, msg.content);
+        if (!appended?.sceneId) {
+            console.warn('[Reconcile] Repair append failed — leaving the turn flagged for the next launch');
+            break; // Server still unreachable; stop rather than hammer it.
+        }
+        const fresh = useAppStore.getState().messages;
+        const idx = fresh.findIndex(m => m.id === msg.id);
+        if (idx !== -1) {
+            const updated = [...fresh];
+            const rest = { ...updated[idx], sceneId: appended.sceneId };
+            delete rest.swipeSet;
+            delete rest.pendingCommit;
+            delete rest.swipeActiveIndex;
+            delete rest.commitFailed;
+            updated[idx] = rest as ChatMessage;
+            useAppStore.setState({ messages: updated });
+        }
+        repaired++;
+        console.log(`[Reconcile] Repaired turn ${msg.id} → scene #${appended.sceneId} (archive link only; post-turn bookkeeping for it stays skipped)`);
+    }
+
+    if (repaired > 0) {
+        const s = useAppStore.getState();
+        await saveCampaignState(activeCampaignId, {
+            context: s.context, messages: s.messages, condenser: s.condenser, pinnedExcerpts: s.pinnedExcerpts,
+        }).catch(e => console.warn('[Reconcile] Save after repair failed:', e));
+        try {
+            const freshIndex = await api.archive.getIndex(activeCampaignId);
+            s.setArchiveIndex(freshIndex);
+        } catch (e) {
+            console.warn('[Reconcile] Index refresh after repair failed:', e);
+        }
+        toast.success(`Recovered ${repaired} unsaved scene${repaired > 1 ? 's' : ''} into long-term memory.`);
+    }
+    return repaired;
 }
 
 // ── Swipe-set helpers ──────────────────────────────────────────────────

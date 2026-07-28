@@ -153,14 +153,47 @@ describe('runPostTurnPipeline', () => {
         ], ASSISTANT_CONTENT);
     });
 
-    it('returns early (without calling getIndex) when archive.append returns null', async () => {
+    // Durable-commit v1: a failed append no longer just returns quietly. The index is
+    // consulted once — the prose write lands synchronously server-side, so "no data"
+    // can mean "written, response lost" — and the verdict is reported to the caller,
+    // which keeps the turn armed instead of retiring an unarchived scene.
+    it('reports archived:false and refreshes nothing when append fails and no scene is on disk', async () => {
         mockApi.archive.append.mockResolvedValueOnce(null);
+        mockApi.archive.getIndex.mockResolvedValueOnce([]); // verification: nothing there
 
         const callbacks = makeCallbacks();
-        await runPostTurnPipeline(makeState(), callbacks, ASSISTANT_CONTENT, ALL_MSGS);
+        const result = await runPostTurnPipeline(makeState(), callbacks, ASSISTANT_CONTENT, ALL_MSGS);
 
-        expect(mockApi.archive.getIndex).not.toHaveBeenCalled();
+        expect(result).toEqual({ archived: false });
         expect(callbacks.setArchiveIndex).not.toHaveBeenCalled();
+    });
+
+    it('recovers the scene id from the index when the append response was lost', async () => {
+        const written = [{ sceneId: '001', timestamp: 1, keywords: [], npcsMentioned: [], witnesses: [], userSnippet: 'attack the goblin' }];
+        mockApi.archive.append.mockResolvedValueOnce(null);
+        mockApi.archive.getIndex.mockResolvedValue(written);
+        mockApi.chapters.list.mockResolvedValueOnce([]);
+
+        const callbacks = makeCallbacks();
+        const result = await runPostTurnPipeline(makeState(), callbacks, ASSISTANT_CONTENT, ALL_MSGS);
+
+        expect(result).toEqual({ archived: true });
+        expect(callbacks.updateLastAssistantMessage).toHaveBeenCalledWith({ sceneId: '001' });
+    });
+
+    it('re-links instead of re-appending when a retry finds the turn already archived', async () => {
+        const written = [{ sceneId: '001', timestamp: 1, keywords: [], npcsMentioned: [], witnesses: [], userSnippet: 'attack the goblin' }];
+        mockApi.archive.getIndex.mockResolvedValue(written);
+        mockApi.chapters.list.mockResolvedValueOnce([]);
+
+        const callbacks = makeCallbacks();
+        const result = await runPostTurnPipeline(
+            makeState(), callbacks, ASSISTANT_CONTENT, ALL_MSGS, undefined, { verifyExistingScene: true },
+        );
+
+        expect(mockApi.archive.append).not.toHaveBeenCalled();
+        expect(result).toEqual({ archived: true });
+        expect(callbacks.updateLastAssistantMessage).toHaveBeenCalledWith({ sceneId: '001' });
     });
 
     it('calls callbacks.setArchiveIndex with fresh index after successful append', async () => {

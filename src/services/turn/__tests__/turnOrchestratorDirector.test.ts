@@ -45,7 +45,6 @@ vi.mock('../pendingCommit', () => ({
 // orchestrator destructures these fields, so they must all be present.
 vi.mock('../contextGatherer', () => ({
     gatherContext: vi.fn(async () => ({
-        sceneNumber: undefined,
         archiveRecall: undefined,
         recommendedNPCNames: undefined,
         timelineEvents: [],
