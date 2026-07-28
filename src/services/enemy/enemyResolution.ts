@@ -6,6 +6,7 @@ import type {
     EnemyInstanceDisposition,
     TimelineEvent,
 } from '../../types';
+import { normalizeEnemyInstance } from './enemyCombat';
 
 export type EnemyResolutionDraft = {
     outcome: EnemyEncounterOutcome;
@@ -155,8 +156,10 @@ export function normalizeEnemyResolution(value: unknown): EnemyEncounterResoluti
     const instanceDisposition: EnemyEncounterResolution['instanceDisposition'] = typeof value.instanceDisposition === 'string' && INSTANCE_DISPOSITIONS.has(value.instanceDisposition)
         ? value.instanceDisposition as EnemyEncounterResolution['instanceDisposition']
         : 'archive';
-    const archivedInstances = Array.isArray(value.archivedInstances)
-        ? value.archivedInstances.filter(isRecord)
+    const archivedInstances: EnemyInstance[] = Array.isArray(value.archivedInstances)
+        ? value.archivedInstances
+            .filter(isRecord)
+            .map(instance => normalizeEnemyInstance(instance as EnemyInstance))
         : [];
     return {
         id: optionalText(value.id) || crypto.randomUUID(),
@@ -169,7 +172,7 @@ export function normalizeEnemyResolution(value: unknown): EnemyEncounterResoluti
         otherRewards: optionalStringList(value.otherRewards),
         participantNames: optionalStringList(value.participantNames),
         instanceDisposition,
-        archivedInstances: archivedInstances as EnemyInstance[],
+        archivedInstances,
         ...(optionalText(value.timelineEventId) ? { timelineEventId: value.timelineEventId as string } : {}),
         resolvedAt: finiteNumber(value.resolvedAt, now),
     };
