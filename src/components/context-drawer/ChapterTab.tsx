@@ -346,14 +346,29 @@ export const ChapterTab: React.FC = () => {
                         </span>
                     )}
                 </div>
-                <button 
-                    onClick={handleNewChapter}
-                    disabled={isCreating}
-                    className="flex items-center space-x-1 px-2 py-1 rounded bg-terminal/10 border border-terminal/30 text-terminal hover:bg-terminal/20 transition-colors text-[10px] font-bold uppercase disabled:opacity-50"
-                >
-                    {isCreating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-                    <span>New</span>
-                </button>
+                <div className="flex items-center space-x-1.5">
+                    {/* Always reachable, not just when drift is detected — the
+                        answer "your chapters are already even" is one the user
+                        should be able to ask for, and a button that only exists
+                        when something is wrong cannot be found when it is. */}
+                    <button
+                        onClick={handleRefit}
+                        disabled={isRefitting}
+                        title={`Reflow chapters to ${CHAPTER_SCENE_SOFT_CAP} scenes each`}
+                        className="flex items-center space-x-1 px-2 py-1 rounded bg-void-dark border border-border hover:border-ice hover:text-ice text-text-muted transition-colors text-[10px] font-bold uppercase disabled:opacity-50"
+                    >
+                        {isRefitting ? <Loader2 size={12} className="animate-spin" /> : <Scale size={12} />}
+                        <span>Refit</span>
+                    </button>
+                    <button
+                        onClick={handleNewChapter}
+                        disabled={isCreating}
+                        className="flex items-center space-x-1 px-2 py-1 rounded bg-terminal/10 border border-terminal/30 text-terminal hover:bg-terminal/20 transition-colors text-[10px] font-bold uppercase disabled:opacity-50"
+                    >
+                        {isCreating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                        <span>New</span>
+                    </button>
+                </div>
             </div>
 
             {missingSynopsisCount > 0 && (
