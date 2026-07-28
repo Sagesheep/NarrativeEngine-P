@@ -165,14 +165,14 @@ export function EnemyCompendiumModal() {
                                 />
                                 Include enemy context
                             </label>
-                            <label title="Scan committed narrative for reviewable new-enemy and alias suggestions">
+                            <label title="Optional: scan committed narrative for reviewable new-enemy and alias suggestions. Off by default. Lite tier cannot run discovery even if enabled.">
                                 <input
                                     type="checkbox"
                                     checked={enemyCombatConfig.enemyDiscoveryEnabled}
                                     onChange={event => setEnemyCombatConfig({ enemyDiscoveryEnabled: event.target.checked })}
                                     className="mr-1.5"
                                 />
-                                Discover enemies
+                                Discover enemies (optional)
                             </label>
                         </div>
                     </div>

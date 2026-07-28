@@ -8,7 +8,7 @@ import { normalizeEnemyEntry } from './enemySchema';
 
 export const DEFAULT_ENEMY_COMBAT_CONFIG: EnemyCombatConfig = {
     promptContextEnabled: true,
-    enemyDiscoveryEnabled: true,
+    enemyDiscoveryEnabled: false,
     enabled: false,
     initiativeMode: 'manual',
     initiativeModifierStat: '',

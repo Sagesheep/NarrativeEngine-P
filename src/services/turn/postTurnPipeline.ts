@@ -20,6 +20,10 @@ import { mergeLifecycleEntries, EMPTY_REGISTER } from '../campaign-state/diverge
 import { saveDivergenceRegister } from '../../store/campaignStore';
 import { tierAllows, NPC_UPDATE_COOLDOWN } from './aiTier';
 import { detectEnemySuggestions } from '../enemy/enemySuggestions';
+import {
+    decideDiscoveryScan,
+    type EnemyDiscoveryContext,
+} from '../enemy/enemyDiscoveryController';
 
 const PRESENT_HEADER_RE = /👥\s*\[Present\]\s*(.+)/i;
 
@@ -934,8 +938,45 @@ async function runPressureTrack(
 }
 
 /**
- * Runs the conservative utility-model enemy scan after a committed turn. The
- * campaign guard prevents late results from leaking into a newly opened game.
+ * Per-campaign enemy-discovery single-flight + cooldown state. At most one
+ * discovery request may be pending or running per campaign; an eligible turn
+ * that arrives while one is in flight is skipped (never queued as a backlog).
+ * `lastScanScene` records the scene number of the last accepted scan so the
+ * tier cooldown (Pro: 5, Max: 0, Lite: blocked) is enforced.
+ *
+ * Cleared on campaign switch via `clearEnemyDiscoveryState` (called from the
+ * campaign-switch path so a stale in-flight flag from a closed campaign does
+ * not block a reopened one).
+ */
+const enemyDiscoveryState = new Map<string, { inFlight: boolean; lastScanScene: number }>();
+
+export function clearEnemyDiscoveryState(campaignId: string | null | undefined): void {
+    if (!campaignId) return;
+    enemyDiscoveryState.delete(campaignId);
+}
+
+function getDiscoveryState(campaignId: string): { inFlight: boolean; lastScanScene: number } {
+    let entry = enemyDiscoveryState.get(campaignId);
+    if (!entry) {
+        entry = { inFlight: false, lastScanScene: -Infinity };
+        enemyDiscoveryState.set(campaignId, entry);
+    }
+    return entry;
+}
+
+/**
+ * Runs the conservative utility-model enemy scan after a committed turn.
+ *
+ * Tier + flag + cooldown + single-flight gating happens in `decideDiscoveryScan`
+ * BEFORE the background task is queued, so an ineligible turn never enters the
+ * queue (no discovery backlog). The background task re-verifies the active
+ * campaign before writing suggestions (second guard), and the controller clears
+ * the in-flight flag in a `finally` so a crashed scan never permanently blocks
+ * the campaign.
+ *
+ * Provider precedence (utility → auxiliary → story-only-as-final-fallback) is
+ * enforced by `resolveDiscoveryProvider`. The Story AI is only used when no
+ * secondary endpoint exists, and that choice is made explicit in the decision.
  */
 async function runEnemySuggestionTrack(
     state: TurnState,
@@ -943,17 +984,63 @@ async function runEnemySuggestionTrack(
     lastAssistantContent: string,
     activeCampaignId: string,
 ): Promise<void> {
-    if (state.enemyCombatConfig?.enemyDiscoveryEnabled !== true || !callbacks.addEnemySuggestions) return;
-    const provider = state.getFreshProvider();
-    if (!provider) return;
+    if (!callbacks.addEnemySuggestions) return;
+
+    const discoveryState = getDiscoveryState(activeCampaignId);
+    const sceneNumber = state.archiveIndex.length > 0
+        ? parseInt(state.archiveIndex[state.archiveIndex.length - 1].sceneId, 10) || 0
+        : 0;
+
+    const discoveryCtx: EnemyDiscoveryContext = {
+        campaignId: activeCampaignId,
+        tier: state.settings.aiTier,
+        enabled: state.enemyCombatConfig?.enemyDiscoveryEnabled === true,
+        sceneNumber,
+        lastScanScene: discoveryState.lastScanScene,
+        inFlight: discoveryState.inFlight,
+        enemyCompendium: state.enemyCompendium ?? [],
+        providers: {
+            utilityProvider: state.getUtilityEndpoint?.(),
+            // Raw auxiliary endpoint — NOT getFreshAuxiliaryProvider, which silently
+            // returns the Story provider when the auxiliary endpoint has no model
+            // name. Discovery must never use the Story AI unless no secondary
+            // endpoint exists, so we read the raw resolver here.
+            auxiliaryProvider: useAppStore.getState().getActiveAuxiliaryEndpoint?.(),
+            storyProvider: state.getFreshProvider(),
+        },
+    };
+
+    const decision = decideDiscoveryScan(discoveryCtx);
+    if (decision.kind !== 'run') return;
+
+    // Mark in-flight immediately so a concurrent eligible turn skips (single-flight).
+    discoveryState.inFlight = true;
 
     backgroundQueue.push('Enemy-Discovery', async () => {
-        const suggestions = await detectEnemySuggestions(provider, lastAssistantContent, state.enemyCompendium ?? []);
-        if (!suggestions.length) return;
-        if (useAppStore.getState().activeCampaignId !== activeCampaignId) {
-            console.warn('[Enemy Discovery] Dropping suggestions because the active campaign changed.');
-            return;
+        try {
+            // Re-verify the active campaign before starting the queued request.
+            if (useAppStore.getState().activeCampaignId !== activeCampaignId) {
+                console.warn('[Enemy Discovery] Skipping queued scan — campaign changed before start.');
+                return;
+            }
+            const suggestions = await detectEnemySuggestions(decision.provider, lastAssistantContent, state.enemyCompendium ?? []);
+            if (!suggestions.length) return;
+            // Re-verify the active campaign before writing suggestions.
+            if (useAppStore.getState().activeCampaignId !== activeCampaignId) {
+                console.warn('[Enemy Discovery] Dropping suggestions because the active campaign changed.');
+                return;
+            }
+            callbacks.addEnemySuggestions?.(suggestions, lastAssistantContent);
+        } catch (error) {
+            console.warn('[Enemy Discovery] Background scan failed:', error);
+        } finally {
+            const current = enemyDiscoveryState.get(activeCampaignId);
+            if (current) {
+                current.inFlight = false;
+                if (useAppStore.getState().activeCampaignId === activeCampaignId) {
+                    current.lastScanScene = sceneNumber;
+                }
+            }
         }
-        callbacks.addEnemySuggestions?.(suggestions, lastAssistantContent);
     }).catch(error => console.warn('[Enemy Discovery] Background scan failed:', error));
 }

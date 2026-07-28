@@ -125,3 +125,58 @@ export function buildEnemyResolutionTimelineEvent(
         importance: 7,
     };
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const optionalText = (value: unknown): string =>
+    typeof value === 'string' ? value.trim() : '';
+
+const optionalStringList = (value: unknown): string[] =>
+    Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean)
+        : [];
+
+const finiteNumber = (value: unknown, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const ENCOUNTER_OUTCOMES = new Set(['victory', 'partial', 'defeat', 'escaped', 'negotiated', 'other']);
+const INSTANCE_DISPOSITIONS = new Set(['archive', 'discard']);
+
+/**
+ * Safely normalizes a persisted or imported resolution. Malformed archived
+ * instances are dropped; incompatible enum values degrade to safe defaults so
+ * the Enemy Compendium UI never crashes on legacy/damaged files.
+ */
+export function normalizeEnemyResolution(value: unknown): EnemyEncounterResolution | null {
+    if (!isRecord(value)) return null;
+    const now = Date.now();
+    const outcome: EnemyEncounterResolution['outcome'] = typeof value.outcome === 'string' && ENCOUNTER_OUTCOMES.has(value.outcome) ? value.outcome as EnemyEncounterResolution['outcome'] : 'other';
+    const instanceDisposition: EnemyEncounterResolution['instanceDisposition'] = typeof value.instanceDisposition === 'string' && INSTANCE_DISPOSITIONS.has(value.instanceDisposition)
+        ? value.instanceDisposition as EnemyEncounterResolution['instanceDisposition']
+        : 'archive';
+    const archivedInstances = Array.isArray(value.archivedInstances)
+        ? value.archivedInstances.filter(isRecord)
+        : [];
+    return {
+        id: optionalText(value.id) || crypto.randomUUID(),
+        encounterId: optionalText(value.encounterId),
+        encounterName: optionalText(value.encounterName) || 'Encounter',
+        outcome,
+        summary: optionalText(value.summary) || 'Encounter ended.',
+        xpAwarded: Math.max(0, finiteNumber(value.xpAwarded, 0)),
+        lootAwarded: optionalStringList(value.lootAwarded),
+        otherRewards: optionalStringList(value.otherRewards),
+        participantNames: optionalStringList(value.participantNames),
+        instanceDisposition,
+        archivedInstances: archivedInstances as EnemyInstance[],
+        ...(optionalText(value.timelineEventId) ? { timelineEventId: value.timelineEventId as string } : {}),
+        resolvedAt: finiteNumber(value.resolvedAt, now),
+    };
+}
+
+/** Normalizes an unknown list of resolutions, dropping records that cannot be identified. */
+export function normalizeEnemyResolutions(value: unknown): EnemyEncounterResolution[] {
+    if (!Array.isArray(value)) return [];
+    return value.map(normalizeEnemyResolution).filter((r): r is EnemyEncounterResolution => r !== null);
+}

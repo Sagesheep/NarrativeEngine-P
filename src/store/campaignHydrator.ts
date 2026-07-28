@@ -12,6 +12,8 @@ import { migrateV1ToV2 } from '../services/campaign-state/divergenceRegister';
 import { migratePCIntoContext } from '../services/character/migratePC';
 import { normalizeEnemyCombatConfig, normalizeEnemyInstance } from '../services/enemy/enemyCombat';
 import { normalizeEnemyEntries } from '../services/enemy/enemySchema';
+import { normalizeEnemyEncounters } from '../services/enemy/enemyEncounter';
+import { normalizeEnemyResolutions } from '../services/enemy/enemyResolution';
 import { safeSceneNum } from '../utils/helpers';
 
 function backfillSceneIds(chapters: ArchiveChapter[]): { chapters: ArchiveChapter[]; changed: boolean } {
@@ -261,8 +263,8 @@ export async function hydrateCampaign(campaignId: string) {
         enemyCompendium: normalizeEnemyEntries(enemies).entries,
         enemySuggestions: [],
         enemyInstances: (enemyInstances ?? []).map(normalizeEnemyInstance),
-        enemyEncounters: enemyEncounters ?? [],
-        enemyResolutions: enemyResolutions ?? [],
+        enemyEncounters: normalizeEnemyEncounters(enemyEncounters),
+        enemyResolutions: normalizeEnemyResolutions(enemyResolutions),
         enemyCombatConfig: normalizeEnemyCombatConfig(enemyCombatConfig),
         locationLedger: locations ?? [],
         archiveIndex: archiveIndex ?? [],

@@ -9,6 +9,13 @@ import { embedText, buildArchiveText, buildLoreText } from '../lib/embedder.js';
 import { storeArchiveEmbedding, storeLoreEmbedding } from '../lib/vectorStore.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 import path from 'path';
+import {
+    validateEnemyCompendium,
+    validateEnemyInstances,
+    validateEnemyEncounters,
+    validateEnemyResolutions,
+    validateEnemyCombatConfig,
+} from '../lib/enemySchema.js';
 
 function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -118,6 +125,25 @@ export function createTransferRouter() {
         const bundle = req.body;
         if (bundle?.version !== 1) return res.status(400).json({ error: 'Unsupported bundle version' });
 
+        // Validate ALL enemy data BEFORE writing any files. A malformed bundle
+        // is rejected with a useful 400 response so a partial import cannot leave
+        // crash-prone enemy files on disk while other ledgers are already written.
+        const enemyChecks = [
+            validateEnemyCompendium(bundle.enemies),
+            validateEnemyInstances(bundle.enemyInstances),
+            validateEnemyEncounters(bundle.enemyEncounters),
+            validateEnemyResolutions(bundle.enemyResolutions),
+            validateEnemyCombatConfig(bundle.enemyCombatConfig),
+        ];
+        const enemyErrors = enemyChecks.flatMap(check => check.errors);
+        if (enemyErrors.length) {
+            return res.status(400).json({
+                error: 'Malformed enemy data in campaign bundle',
+                details: enemyErrors,
+            });
+        }
+        const [validEnemies, validEnemyInstances, validEnemyEncounters, validEnemyResolutions, validEnemyCombatConfig] = enemyChecks;
+
         // ID collision check — only match bare {id}.json metadata files
         const existingIds = new Set(
             fs.readdirSync(CAMPAIGNS_DIR)
@@ -149,24 +175,24 @@ export function createTransferRouter() {
             writeJson(path.join(CAMPAIGNS_DIR, `${newId}.npcs.json`), bundle.npcs);
         }
 
-        if (bundle.enemies?.length) {
-            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemies.json`), bundle.enemies);
+        if (validEnemies.value?.length) {
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemies.json`), validEnemies.value);
         }
 
-        if (bundle.enemyInstances?.length) {
-            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-instances.json`), bundle.enemyInstances);
+        if (validEnemyInstances.value?.length) {
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-instances.json`), validEnemyInstances.value);
         }
 
-        if (bundle.enemyEncounters?.length) {
-            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-encounters.json`), bundle.enemyEncounters);
+        if (validEnemyEncounters.value?.length) {
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-encounters.json`), validEnemyEncounters.value);
         }
 
-        if (bundle.enemyResolutions?.length) {
-            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-resolutions.json`), bundle.enemyResolutions);
+        if (validEnemyResolutions.value?.length) {
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-resolutions.json`), validEnemyResolutions.value);
         }
 
-        if (bundle.enemyCombatConfig) {
-            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-combat.json`), bundle.enemyCombatConfig);
+        if (validEnemyCombatConfig.value) {
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-combat.json`), validEnemyCombatConfig.value);
         }
 
         // Write archive index
