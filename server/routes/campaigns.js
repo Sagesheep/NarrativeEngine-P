@@ -6,7 +6,7 @@ import { embedText, buildLoreText, resolveIndexingSpeed } from '../lib/embedder.
 import { storeLoreEmbedding, deleteCampaignEmbeddings } from '../lib/vectorStore.js';
 import { startJob, tickJob, endJob } from '../lib/embedJobs.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
-import { validateEnemyCompendium } from '../lib/enemySchema.js';
+import { validateEnemyCompendium, validateEnemyInstances, validateEnemyEncounters, validateEnemyResolutions, validateEnemyCombatConfig } from '../lib/enemySchema.js';
 
 export function createCampaignsRouter() {
     const router = Router();
@@ -235,9 +235,12 @@ export function createCampaignsRouter() {
 
     router.put('/api/campaigns/:id/enemy-instances', wrapAsync((req, res) => {
         validateCampaignId(req.params.id);
-        if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Enemy instances must be an array' });
+        const checked = validateEnemyInstances(req.body);
+        if (checked.errors.length) {
+            return res.status(400).json({ error: 'Invalid enemy instances', details: checked.errors });
+        }
         ensureDirs();
-        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-instances.json`), req.body);
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-instances.json`), checked.value);
         res.json({ ok: true });
     }));
 
@@ -250,9 +253,12 @@ export function createCampaignsRouter() {
 
     router.put('/api/campaigns/:id/enemy-encounters', wrapAsync((req, res) => {
         validateCampaignId(req.params.id);
-        if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Enemy encounters must be an array' });
+        const checked = validateEnemyEncounters(req.body);
+        if (checked.errors.length) {
+            return res.status(400).json({ error: 'Invalid enemy encounters', details: checked.errors });
+        }
         ensureDirs();
-        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-encounters.json`), req.body);
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-encounters.json`), checked.value);
         res.json({ ok: true });
     }));
 
@@ -265,9 +271,12 @@ export function createCampaignsRouter() {
 
     router.put('/api/campaigns/:id/enemy-resolutions', wrapAsync((req, res) => {
         validateCampaignId(req.params.id);
-        if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Enemy resolutions must be an array' });
+        const checked = validateEnemyResolutions(req.body);
+        if (checked.errors.length) {
+            return res.status(400).json({ error: 'Invalid enemy resolutions', details: checked.errors });
+        }
         ensureDirs();
-        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-resolutions.json`), req.body);
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-resolutions.json`), checked.value);
         res.json({ ok: true });
     }));
 
@@ -280,11 +289,12 @@ export function createCampaignsRouter() {
 
     router.put('/api/campaigns/:id/enemy-combat', wrapAsync((req, res) => {
         validateCampaignId(req.params.id);
-        if (!req.body || Array.isArray(req.body) || typeof req.body !== 'object') {
-            return res.status(400).json({ error: 'Enemy combat configuration must be an object' });
+        const checked = validateEnemyCombatConfig(req.body);
+        if (checked.errors.length) {
+            return res.status(400).json({ error: 'Invalid enemy combat configuration', details: checked.errors });
         }
         ensureDirs();
-        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-combat.json`), req.body);
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-combat.json`), checked.value);
         res.json({ ok: true });
     }));
 

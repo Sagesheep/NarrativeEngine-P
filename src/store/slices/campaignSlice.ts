@@ -562,6 +562,15 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
             } catch (e) {
                 console.warn('[CampaignSwitch] clearDirectorBriefCache failed:', e);
             }
+            // Enemy discovery single-flight + cooldown state is per-campaign. Clear
+            // the old campaign's in-flight flag so a reopened campaign is not
+            // permanently blocked by a stale flag from a closed/switched-away one.
+            try {
+                const { clearEnemyDiscoveryState } = await import('../../services/turn/postTurnPipeline');
+                clearEnemyDiscoveryState(currentId);
+            } catch (e) {
+                console.warn('[CampaignSwitch] clearEnemyDiscoveryState failed:', e);
+            }
         }
 
         // Flush any pending campaign state save for the OLD campaign before switching.

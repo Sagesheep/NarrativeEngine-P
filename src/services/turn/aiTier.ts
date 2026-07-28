@@ -10,7 +10,8 @@ export type TierFeature =
   | 'arcTick' | 'arcSpawn'
   | 'directorBrief'
   | 'lodDynamicElevation'
-  | 'lodSlottedRag';
+  | 'lodSlottedRag'
+  | 'enemyDiscovery';
 
 const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
     lite: {
@@ -24,6 +25,7 @@ const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
         directorBrief: false,
         lodDynamicElevation: false,
         lodSlottedRag: false,
+        enemyDiscovery: false,
     },
     pro: {
         introEngine: false, planner: true, expandQuery: false, reranker: false, archiveFunnel: true,
@@ -36,6 +38,7 @@ const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
         directorBrief: true,
         lodDynamicElevation: true,
         lodSlottedRag: false,
+        enemyDiscovery: true,
     },
     max: {
         introEngine: true, planner: true, expandQuery: true, reranker: true, archiveFunnel: true,
@@ -48,6 +51,7 @@ const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
         directorBrief: true,
         lodDynamicElevation: true,
         lodSlottedRag: true,
+        enemyDiscovery: true,
     },
 };
 
@@ -57,3 +61,9 @@ export function tierAllows(tier: AiTier | undefined, f: TierFeature): boolean {
 
 // 0 = every turn (Max), Infinity = never (Lite)
 export const NPC_UPDATE_COOLDOWN: Record<AiTier, number> = { lite: Infinity, pro: 5, max: 0 };
+
+// Enemy discovery cooldown: Lite is runtime-blocked (Infinity). Pro scans at most
+// once every 5 committed turns. Max may scan after every committed turn (0).
+// The cooldown is a minimum gap between the scene number of the last accepted scan
+// and the scene number of the next eligible turn.
+export const ENEMY_DISCOVERY_COOLDOWN: Record<AiTier, number> = { lite: Infinity, pro: 5, max: 0 };

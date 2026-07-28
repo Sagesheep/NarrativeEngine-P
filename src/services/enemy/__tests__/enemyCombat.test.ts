@@ -139,7 +139,7 @@ describe('enemy combat integration', () => {
         });
         expect(normalizeEnemyCombatConfig({ enabled: true, weaknessMultiplier: 0 })).toMatchObject({
             promptContextEnabled: true,
-            enemyDiscoveryEnabled: true,
+            enemyDiscoveryEnabled: false,
             enabled: true,
             weaknessMultiplier: 0,
             initiativeMode: 'manual',
@@ -150,6 +150,11 @@ describe('enemy combat integration', () => {
         })).toMatchObject({
             promptContextEnabled: false,
             enemyDiscoveryEnabled: false,
+        });
+        // Safety: an explicit opt-in is preserved, but the default remains OFF.
+        expect(normalizeEnemyCombatConfig({ enemyDiscoveryEnabled: true, enabled: true })).toMatchObject({
+            enemyDiscoveryEnabled: true,
+            enabled: true,
         });
     });
 });

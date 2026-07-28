@@ -115,3 +115,64 @@ export function buildActiveEncounterBlock(
         tokenBudget,
     );
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const optionalText = (value: unknown): string =>
+    typeof value === 'string' ? value.trim() : '';
+
+const optionalStringList = (value: unknown): string[] =>
+    Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean)
+        : [];
+
+const finiteNumber = (value: unknown, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const ENCOUNTER_STATUSES = new Set(['active', 'paused', 'ended']);
+
+/** Safely normalizes a persisted or imported wave. Drops malformed fields. */
+export function normalizeEnemyEncounterWave(value: unknown): EnemyEncounterWave | null {
+    if (!isRecord(value)) return null;
+    const now = Date.now();
+    return {
+        id: optionalText(value.id) || crypto.randomUUID(),
+        name: optionalText(value.name) || 'Wave',
+        instanceIds: optionalStringList(value.instanceIds),
+        activeInstanceIds: optionalStringList(value.activeInstanceIds),
+        createdAt: finiteNumber(value.createdAt, now),
+        updatedAt: finiteNumber(value.updatedAt, now),
+    };
+}
+
+/**
+ * Safely normalizes a persisted or imported encounter. Legacy/damaged records
+ * degrade to a usable shape instead of crashing the Enemy Compendium UI.
+ */
+export function normalizeEnemyEncounter(value: unknown): EnemyEncounter | null {
+    if (!isRecord(value)) return null;
+    const now = Date.now();
+    const waves = Array.isArray(value.waves)
+        ? value.waves.map(normalizeEnemyEncounterWave).filter((w): w is EnemyEncounterWave => w !== null)
+        : [];
+    const status: EnemyEncounter['status'] = typeof value.status === 'string' && ENCOUNTER_STATUSES.has(value.status) ? value.status as EnemyEncounter['status'] : 'active';
+    const activeWaveId = optionalText(value.activeWaveId) || (waves.length ? waves[0].id : '');
+    return {
+        id: optionalText(value.id) || crypto.randomUUID(),
+        name: optionalText(value.name) || 'Untitled Encounter',
+        status,
+        waves,
+        activeWaveId,
+        createdAt: finiteNumber(value.createdAt, now),
+        updatedAt: finiteNumber(value.updatedAt, now),
+        ...(typeof value.endedAt === 'number' && Number.isFinite(value.endedAt) ? { endedAt: value.endedAt } : {}),
+        ...(optionalText(value.resolutionId) ? { resolutionId: value.resolutionId as string } : {}),
+    };
+}
+
+/** Normalizes an unknown list of encounters, dropping records that cannot be identified. */
+export function normalizeEnemyEncounters(value: unknown): EnemyEncounter[] {
+    if (!Array.isArray(value)) return [];
+    return value.map(normalizeEnemyEncounter).filter((e): e is EnemyEncounter => e !== null);
+}
