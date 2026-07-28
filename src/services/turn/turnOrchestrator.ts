@@ -1,5 +1,5 @@
 import { useAppStore } from '../../store/useAppStore';
-import type { AppSettings, GameContext, ChatMessage, NPCEntry, EnemyEntry, AbilityEntry, CharacterAbility, EnemyInstance, EnemyEncounter, EnemyCombatConfig, EnemySuggestion, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact } from '../../types';
+import type { AppSettings, GameContext, ChatMessage, NPCEntry, EnemyEntry, AbilityEntry, CharacterAbility, AbilityRuntimeState, EnemyInstance, EnemyEncounter, EnemyCombatConfig, EnemySuggestion, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact } from '../../types';
 import type { OneShotEventId } from '../oneshot/oneShotEvents';
 import { createTurnContext } from './turnContext';
 import {
@@ -77,6 +77,7 @@ export type TurnState = {
     enemyCompendium?: EnemyEntry[];
     abilityCompendium?: AbilityEntry[];
     characterAbilities?: CharacterAbility[];
+    abilityRuntimeStates?: AbilityRuntimeState[];
     enemyInstances?: EnemyInstance[];
     enemyEncounters?: EnemyEncounter[];
     enemyCombatConfig?: EnemyCombatConfig;

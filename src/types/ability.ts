@@ -40,6 +40,33 @@ export type CharacterAbility = {
     updatedAt: number;
 };
 
+export type AbilityRuntimeEffect = {
+    id: string;
+    name: string;
+    remainingTurns: number;
+    notes: string;
+};
+
+/**
+ * Mutable encounter state for one character-owned ability. This references the
+ * ownership row rather than the canonical definition so two characters can use
+ * the same definition without sharing cooldowns, charges, or active effects.
+ * A null charge value means the ability is not charge-limited.
+ */
+export type AbilityRuntimeState = {
+    id: string;
+    characterAbilityId: string;
+    cooldownRemaining: number;
+    cooldownMax: number;
+    chargesRemaining: number | null;
+    chargesMax: number | null;
+    activeEffects: AbilityRuntimeEffect[];
+    uses: number;
+    lastUsedSceneId: string;
+    notes: string;
+    updatedAt: number;
+};
+
 /**
  * Campaign-scoped canonical ability definition.
  * Ownership, mastery, cooldowns, charges, and other mutable character state

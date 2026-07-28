@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AbilityEntry, CharacterAbility, ChatMessage, NPCEntry } from '../../../types';
+import type { AbilityEntry, AbilityRuntimeState, CharacterAbility, ChatMessage, NPCEntry } from '../../../types';
 import { createEmptyAbilityEntry } from '../abilitySchema';
 import { buildRelevantAbilityBlock } from '../abilityPrompt';
 
@@ -80,5 +80,46 @@ describe('ability prompt selection', () => {
         expect(output).toContain('OWNER MODIFICATIONS (Marcus): Can carry one passenger');
         expect(output).not.toContain('Sable');
         expect(output).toContain('EFFECT: Relocate through an existing flame.');
+    });
+
+    it('injects runtime availability for a relevant owned ability', () => {
+        const ashStep = ability('Ash Step');
+        const ownership: CharacterAbility = {
+            id: 'known-ash',
+            abilityId: ashStep.id,
+            ownerType: 'pc',
+            ownerId: 'hero',
+            mastery: 'Adept',
+            variantName: '',
+            modifications: [],
+            learnedSceneId: '',
+            notes: '',
+            promptEnabled: true,
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const runtime: AbilityRuntimeState = {
+            id: 'runtime-ash',
+            characterAbilityId: ownership.id,
+            cooldownRemaining: 2,
+            cooldownMax: 4,
+            chargesRemaining: 1,
+            chargesMax: 3,
+            activeEffects: [{ id: 'effect-1', name: 'Afterimage', remainingTurns: 2, notes: 'Evasion up' }],
+            uses: 5,
+            lastUsedSceneId: '007',
+            notes: '',
+            updatedAt: 1,
+        };
+        const hero = { id: 'hero', name: 'Kael' } as NPCEntry;
+
+        const output = buildRelevantAbilityBlock([ashStep], [], 'I use Ash Step.', 1000, 4, {
+            characterAbilities: [ownership],
+            abilityRuntimeStates: [runtime],
+            playerCharacter: hero,
+        });
+
+        expect(output).toContain('RUNTIME (Kael): COOLDOWN 2/4 | CHARGES 1/3 | USES 5 | LAST USED scene 007');
+        expect(output).toContain('ACTIVE EFFECTS (Kael): Afterimage (2 turns; Evasion up)');
     });
 });

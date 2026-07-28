@@ -448,6 +448,7 @@ function rebuildStateFromLiveStore(
         enemyCompendium: store.enemyCompendium,
         abilityCompendium: store.abilityCompendium,
         characterAbilities: store.characterAbilities,
+        abilityRuntimeStates: store.abilityRuntimeStates,
         enemyInstances: store.enemyInstances,
         enemyEncounters: store.enemyEncounters,
         enemyCombatConfig: store.enemyCombatConfig,

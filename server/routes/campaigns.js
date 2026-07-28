@@ -9,6 +9,7 @@ import { wrapAsync } from '../lib/asyncHandler.js';
 import { validateEnemyCompendium, validateEnemyInstances, validateEnemyEncounters, validateEnemyResolutions, validateEnemyCombatConfig } from '../lib/enemySchema.js';
 import { validateAbilityCompendium } from '../lib/abilitySchema.js';
 import { validateCharacterAbilities } from '../lib/characterAbilitySchema.js';
+import { validateAbilityRuntimeStates } from '../lib/abilityRuntimeSchema.js';
 
 export function createCampaignsRouter() {
     const router = Router();
@@ -27,6 +28,7 @@ export function createCampaignsRouter() {
             !f.includes('.enemies') &&
             !f.includes('.abilities') &&
             !f.includes('.known-abilities') &&
+            !f.includes('.ability-runtime') &&
             !f.includes('.enemy-instances') &&
             !f.includes('.enemy-encounters') &&
             !f.includes('.enemy-resolutions') &&
@@ -263,6 +265,23 @@ export function createCampaignsRouter() {
         }
         ensureDirs();
         writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.known-abilities.json`), checked.value);
+        res.json({ ok: true });
+    }));
+
+    // Mutable per-character ability runtime state
+    router.get('/api/campaigns/:id/ability-runtime', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.ability-runtime.json`), []));
+    }));
+
+    router.put('/api/campaigns/:id/ability-runtime', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        const checked = validateAbilityRuntimeStates(req.body);
+        if (checked.errors.length) {
+            return res.status(400).json({ error: 'Invalid ability runtime states', details: checked.errors });
+        }
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.ability-runtime.json`), checked.value);
         res.json({ ok: true });
     }));
 

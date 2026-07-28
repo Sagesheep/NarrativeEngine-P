@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, EnemyEntry, AbilityEntry, CharacterAbility, EnemyInstance, EnemyEncounter, EnemyCombatConfig, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, EnemyEntry, AbilityEntry, CharacterAbility, AbilityRuntimeState, EnemyInstance, EnemyEncounter, EnemyCombatConfig, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import { createTraceCollector } from './traceCollector';
 import { computeBudgets } from './budgets';
@@ -27,6 +27,7 @@ export type BuildPayloadOptions = {
     enemyCompendium?: EnemyEntry[];
     abilityCompendium?: AbilityEntry[];
     characterAbilities?: CharacterAbility[];
+    abilityRuntimeStates?: AbilityRuntimeState[];
     enemyInstances?: EnemyInstance[];
     enemyEncounters?: EnemyEncounter[];
     enemyCombatConfig?: EnemyCombatConfig;
@@ -84,6 +85,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         enemyCompendium,
         abilityCompendium,
         characterAbilities,
+        abilityRuntimeStates,
         enemyInstances,
         enemyEncounters,
         enemyCombatConfig,
@@ -144,6 +146,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         undefined,
         {
             characterAbilities,
+            abilityRuntimeStates,
             playerCharacter: context.playerCharacter,
             npcLedger,
             onStageNpcIds,

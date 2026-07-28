@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, AbilityEntry, CharacterAbility, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyEncounterStatus, EnemyEncounterWave, EnemyCombatConfig, EnemySuggestion, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, AbilityEntry, CharacterAbility, AbilityRuntimeState, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyEncounterStatus, EnemyEncounterWave, EnemyCombatConfig, EnemySuggestion, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { createEnemyInstance } from '../../services/enemy/enemyInstance';
 import { createEnemyEncounter as makeEnemyEncounter, createEnemyEncounterWave } from '../../services/enemy/enemyEncounter';
@@ -54,9 +54,9 @@ function preOpBackup(campaignId: string | null, trigger: string) {
 // Getter registered by the slice creator so we always read fresh state at fire time.
 // This prevents stale-snapshot race conditions where two rapid updates within the 1s
 // debounce window would cause the first update's changes to be overwritten.
-let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; abilityCompendium: AbilityEntry[]; characterAbilities: CharacterAbility[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }) | null = null;
+let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; abilityCompendium: AbilityEntry[]; characterAbilities: CharacterAbility[]; abilityRuntimeStates: AbilityRuntimeState[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }) | null = null;
 export function _registerCampaignStateGetter(
-    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; abilityCompendium: AbilityEntry[]; characterAbilities: CharacterAbility[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
+    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; abilityCompendium: AbilityEntry[]; characterAbilities: CharacterAbility[]; abilityRuntimeStates: AbilityRuntimeState[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
 ) {
     _getStateForSave = getter;
 }
@@ -70,6 +70,7 @@ export function cancelPendingSaves() {
     if (enemyTimer) { clearTimeout(enemyTimer); enemyTimer = null; }
     if (abilityTimer) { clearTimeout(abilityTimer); abilityTimer = null; }
     if (characterAbilityTimer) { clearTimeout(characterAbilityTimer); characterAbilityTimer = null; }
+    if (abilityRuntimeTimer) { clearTimeout(abilityRuntimeTimer); abilityRuntimeTimer = null; }
     if (enemyInstanceTimer) { clearTimeout(enemyInstanceTimer); enemyInstanceTimer = null; }
     if (enemyEncounterTimer) { clearTimeout(enemyEncounterTimer); enemyEncounterTimer = null; }
     if (enemyCombatTimer) { clearTimeout(enemyCombatTimer); enemyCombatTimer = null; }
@@ -80,7 +81,7 @@ export function cancelPendingSaves() {
  *  disk before a backup is created. Awaiting this guarantees the backup reads current data. */
 export async function flushAllPendingSaves(): Promise<void> {
     if (!_getStateForSave) return;
-    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, enemyCompendium, abilityCompendium, characterAbilities, enemyInstances, enemyEncounters, enemyCombatConfig, locationLedger, pinnedExcerpts } = _getStateForSave();
+    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, enemyCompendium, abilityCompendium, characterAbilities, abilityRuntimeStates, enemyInstances, enemyEncounters, enemyCombatConfig, locationLedger, pinnedExcerpts } = _getStateForSave();
     if (!activeCampaignId) return;
 
     const saves: Promise<unknown>[] = [];
@@ -146,6 +147,15 @@ export async function flushAllPendingSaves(): Promise<void> {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(characterAbilities),
         }).catch(e => console.error('[FlushSave] character abilities failed:', e)));
+    }
+
+    if (abilityRuntimeTimer) {
+        clearTimeout(abilityRuntimeTimer);
+        abilityRuntimeTimer = null;
+        saves.push(fetch(`${API}/campaigns/${activeCampaignId}/ability-runtime`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(abilityRuntimeStates),
+        }).catch(e => console.error('[FlushSave] ability runtime failed:', e)));
     }
 
     if (enemyInstanceTimer) {
@@ -263,6 +273,18 @@ function debouncedSaveCharacterAbilities(campaignId: string | null, entries: Cha
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(entries),
         }).catch((error) => { console.error(error); toast.error('Failed to save character abilities'); });
+    }, 1000);
+}
+
+let abilityRuntimeTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedSaveAbilityRuntimeStates(campaignId: string | null, entries: AbilityRuntimeState[]) {
+    if (!campaignId) return;
+    if (abilityRuntimeTimer) clearTimeout(abilityRuntimeTimer);
+    abilityRuntimeTimer = setTimeout(() => {
+        fetch(`${API}/campaigns/${campaignId}/ability-runtime`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(entries),
+        }).catch((error) => { console.error(error); toast.error('Failed to save ability runtime state'); });
     }, 1000);
 }
 
@@ -483,6 +505,11 @@ export type CampaignSlice = {
     addCharacterAbility: (entry: CharacterAbility) => void;
     updateCharacterAbility: (id: string, patch: Partial<CharacterAbility>) => void;
     removeCharacterAbility: (id: string) => void;
+    abilityRuntimeStates: AbilityRuntimeState[];
+    setAbilityRuntimeStates: (entries: AbilityRuntimeState[]) => void;
+    upsertAbilityRuntimeState: (entry: AbilityRuntimeState) => void;
+    removeAbilityRuntimeState: (characterAbilityId: string) => void;
+    advanceAbilityRuntimeTurn: (characterAbilityId?: string) => void;
     enemySuggestions: EnemySuggestion[];
     addEnemySuggestions: (suggestions: Array<Omit<EnemySuggestion, 'id' | 'firstSeen' | 'context'>>, context?: string) => void;
     updateEnemySuggestion: (id: string, patch: Partial<EnemySuggestion>) => void;
@@ -584,7 +611,7 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     // not a stale closure snapshot from the time the action was called.
     _registerCampaignStateGetter(() => {
         const s = get();
-        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger, enemyCompendium: s.enemyCompendium, abilityCompendium: s.abilityCompendium, characterAbilities: s.characterAbilities, enemyInstances: s.enemyInstances, enemyEncounters: s.enemyEncounters, enemyCombatConfig: s.enemyCombatConfig, locationLedger: s.locationLedger, pinnedExcerpts: s.pinnedExcerpts };
+        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger, enemyCompendium: s.enemyCompendium, abilityCompendium: s.abilityCompendium, characterAbilities: s.characterAbilities, abilityRuntimeStates: s.abilityRuntimeStates, enemyInstances: s.enemyInstances, enemyEncounters: s.enemyEncounters, enemyCombatConfig: s.enemyCombatConfig, locationLedger: s.locationLedger, pinnedExcerpts: s.pinnedExcerpts };
     });
 
     return {
@@ -784,11 +811,17 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         preOpBackup(s.activeCampaignId, 'pre-delete-ability');
         const abilities = s.abilityCompendium.filter(ability => ability.id !== id);
         const characterAbilities = s.characterAbilities.filter(entry => entry.abilityId !== id);
+        const retainedAssignmentIds = new Set(characterAbilities.map(entry => entry.id));
+        const abilityRuntimeStates = s.abilityRuntimeStates.filter(entry =>
+            retainedAssignmentIds.has(entry.characterAbilityId));
         debouncedSaveAbilityCompendium(s.activeCampaignId, abilities);
         if (characterAbilities.length !== s.characterAbilities.length) {
             debouncedSaveCharacterAbilities(s.activeCampaignId, characterAbilities);
         }
-        return { abilityCompendium: abilities, characterAbilities } as Partial<CampaignDeps>;
+        if (abilityRuntimeStates.length !== s.abilityRuntimeStates.length) {
+            debouncedSaveAbilityRuntimeStates(s.activeCampaignId, abilityRuntimeStates);
+        }
+        return { abilityCompendium: abilities, characterAbilities, abilityRuntimeStates } as Partial<CampaignDeps>;
     }),
     characterAbilities: [],
     setCharacterAbilities: (entries) => set((s) => {
@@ -796,13 +829,20 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         return { characterAbilities: entries } as Partial<CampaignDeps>;
     }),
     addCharacterAbility: (entry) => set((s) => {
-        const withoutDuplicate = s.characterAbilities.filter(existing =>
-            !(existing.ownerType === entry.ownerType
+        const replaced = s.characterAbilities.filter(existing =>
+            existing.ownerType === entry.ownerType
                 && existing.ownerId === entry.ownerId
-                && existing.abilityId === entry.abilityId));
+                && existing.abilityId === entry.abilityId);
+        const replacedIds = new Set(replaced.map(existing => existing.id));
+        const withoutDuplicate = s.characterAbilities.filter(existing => !replacedIds.has(existing.id));
         const entries = [...withoutDuplicate, entry];
+        const abilityRuntimeStates = s.abilityRuntimeStates.filter(runtime =>
+            !replacedIds.has(runtime.characterAbilityId));
         debouncedSaveCharacterAbilities(s.activeCampaignId, entries);
-        return { characterAbilities: entries } as Partial<CampaignDeps>;
+        if (abilityRuntimeStates.length !== s.abilityRuntimeStates.length) {
+            debouncedSaveAbilityRuntimeStates(s.activeCampaignId, abilityRuntimeStates);
+        }
+        return { characterAbilities: entries, abilityRuntimeStates } as Partial<CampaignDeps>;
     }),
     updateCharacterAbility: (id, patch) => set((s) => {
         const entries = s.characterAbilities.map(entry =>
@@ -813,8 +853,49 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     removeCharacterAbility: (id) => set((s) => {
         preOpBackup(s.activeCampaignId, 'pre-remove-character-ability');
         const entries = s.characterAbilities.filter(entry => entry.id !== id);
+        const abilityRuntimeStates = s.abilityRuntimeStates.filter(entry => entry.characterAbilityId !== id);
         debouncedSaveCharacterAbilities(s.activeCampaignId, entries);
-        return { characterAbilities: entries } as Partial<CampaignDeps>;
+        if (abilityRuntimeStates.length !== s.abilityRuntimeStates.length) {
+            debouncedSaveAbilityRuntimeStates(s.activeCampaignId, abilityRuntimeStates);
+        }
+        return { characterAbilities: entries, abilityRuntimeStates } as Partial<CampaignDeps>;
+    }),
+    abilityRuntimeStates: [],
+    setAbilityRuntimeStates: (entries) => set((s) => {
+        debouncedSaveAbilityRuntimeStates(s.activeCampaignId, entries);
+        return { abilityRuntimeStates: entries } as Partial<CampaignDeps>;
+    }),
+    upsertAbilityRuntimeState: (entry) => set((s) => {
+        const entries = [
+            ...s.abilityRuntimeStates.filter(existing =>
+                existing.characterAbilityId !== entry.characterAbilityId),
+            { ...entry, updatedAt: Date.now() },
+        ];
+        debouncedSaveAbilityRuntimeStates(s.activeCampaignId, entries);
+        return { abilityRuntimeStates: entries } as Partial<CampaignDeps>;
+    }),
+    removeAbilityRuntimeState: (characterAbilityId) => set((s) => {
+        const entries = s.abilityRuntimeStates.filter(entry =>
+            entry.characterAbilityId !== characterAbilityId);
+        debouncedSaveAbilityRuntimeStates(s.activeCampaignId, entries);
+        return { abilityRuntimeStates: entries } as Partial<CampaignDeps>;
+    }),
+    advanceAbilityRuntimeTurn: (characterAbilityId) => set((s) => {
+        const now = Date.now();
+        const entries = s.abilityRuntimeStates.map(entry => {
+            if (characterAbilityId && entry.characterAbilityId !== characterAbilityId) return entry;
+            return {
+                ...entry,
+                cooldownRemaining: Math.max(0, entry.cooldownRemaining - 1),
+                activeEffects: entry.activeEffects.flatMap(effect =>
+                    effect.remainingTurns <= 1
+                        ? []
+                        : [{ ...effect, remainingTurns: effect.remainingTurns - 1 }]),
+                updatedAt: now,
+            };
+        });
+        debouncedSaveAbilityRuntimeStates(s.activeCampaignId, entries);
+        return { abilityRuntimeStates: entries } as Partial<CampaignDeps>;
     }),
     // Review-only discoveries. Nothing enters the canonical compendium until
     // the player accepts it in EnemyCompendiumModal.

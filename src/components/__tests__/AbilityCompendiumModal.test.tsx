@@ -13,6 +13,7 @@ describe('AbilityCompendiumModal', () => {
             abilityCompendiumOpen: true,
             abilityCompendium: [],
             characterAbilities: [],
+            abilityRuntimeStates: [],
             context: { ...context, playerCharacter: null },
             playerCharacter: null,
             npcLedger: [],
@@ -68,5 +69,20 @@ describe('AbilityCompendiumModal', () => {
             }),
         ]);
         expect(screen.getByText('Cinder Step')).toBeInTheDocument();
+
+        fireEvent.change(screen.getByLabelText('Cooldown Maximum'), { target: { value: '3' } });
+        fireEvent.change(screen.getByLabelText('Charges Maximum'), { target: { value: '2' } });
+        fireEvent.change(screen.getByLabelText('Activation Scene'), { target: { value: '007' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Activate' }));
+
+        expect(useAppStore.getState().abilityRuntimeStates[0]).toEqual(expect.objectContaining({
+            characterAbilityId: useAppStore.getState().characterAbilities[0].id,
+            cooldownRemaining: 3,
+            cooldownMax: 3,
+            chargesRemaining: 1,
+            chargesMax: 2,
+            uses: 1,
+            lastUsedSceneId: '007',
+        }));
     });
 });

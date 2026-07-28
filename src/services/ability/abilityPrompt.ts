@@ -1,10 +1,11 @@
-import type { AbilityEntry, CharacterAbility, ChatMessage, NPCEntry } from '../../types';
+import type { AbilityEntry, AbilityRuntimeState, CharacterAbility, ChatMessage, NPCEntry } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
 
 export const MAX_RELEVANT_ABILITY_MATCHES = 4;
 
 export type AbilityOwnershipContext = {
     characterAbilities?: CharacterAbility[];
+    abilityRuntimeStates?: AbilityRuntimeState[];
     playerCharacter?: NPCEntry | null;
     npcLedger?: NPCEntry[];
     onStageNpcIds?: string[];
@@ -63,12 +64,28 @@ export function buildRelevantAbilityBlock(
             .sort((a, b) => a.priority - b.priority || a.owner.name.localeCompare(b.owner.name))
             .slice(0, 3);
 
-        const ownershipLines = owned.flatMap(({ entry, owner }) => [
-            `KNOWN BY: ${owner.name}${entry.mastery ? ` | MASTERY: ${entry.mastery}` : ''}${entry.variantName ? ` | VARIANT: ${entry.variantName}` : ''}`,
-            entry.modifications.length && `OWNER MODIFICATIONS (${owner.name}): ${entry.modifications.join('; ')}`,
-            entry.learnedSceneId && `LEARNED (${owner.name}): scene ${entry.learnedSceneId}`,
-            entry.notes && `OWNERSHIP NOTES (${owner.name}): ${entry.notes}`,
-        ].filter((line): line is string => Boolean(line)));
+        const ownershipLines = owned.flatMap(({ entry, owner }) => {
+            const runtime = ownership.abilityRuntimeStates?.find(state =>
+                state.characterAbilityId === entry.id);
+            const runtimeStatus = runtime
+                ? runtime.cooldownRemaining > 0
+                    ? `COOLDOWN ${runtime.cooldownRemaining}/${runtime.cooldownMax}`
+                    : runtime.chargesRemaining === 0 ? 'NO CHARGES' : 'READY'
+                : '';
+            const chargeStatus = runtime?.chargesMax == null
+                ? ''
+                : ` | CHARGES ${runtime.chargesRemaining}/${runtime.chargesMax}`;
+            return [
+                `KNOWN BY: ${owner.name}${entry.mastery ? ` | MASTERY: ${entry.mastery}` : ''}${entry.variantName ? ` | VARIANT: ${entry.variantName}` : ''}`,
+                entry.modifications.length && `OWNER MODIFICATIONS (${owner.name}): ${entry.modifications.join('; ')}`,
+                runtime && `RUNTIME (${owner.name}): ${runtimeStatus}${chargeStatus} | USES ${runtime.uses}${runtime.lastUsedSceneId ? ` | LAST USED scene ${runtime.lastUsedSceneId}` : ''}`,
+                runtime?.activeEffects.length && `ACTIVE EFFECTS (${owner.name}): ${runtime.activeEffects.map(effect =>
+                    `${effect.name} (${effect.remainingTurns} turn${effect.remainingTurns === 1 ? '' : 's'}${effect.notes ? `; ${effect.notes}` : ''})`).join('; ')}`,
+                runtime?.notes && `RUNTIME NOTES (${owner.name}): ${runtime.notes}`,
+                entry.learnedSceneId && `LEARNED (${owner.name}): scene ${entry.learnedSceneId}`,
+                entry.notes && `OWNERSHIP NOTES (${owner.name}): ${entry.notes}`,
+            ].filter((line): line is string => Boolean(line));
+        });
 
         const lines = [
             `ABILITY: ${ability.name}`,

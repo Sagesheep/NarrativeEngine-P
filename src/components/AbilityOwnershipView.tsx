@@ -4,6 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import type { AbilityOwnerType, CharacterAbility } from '../types';
 import { createEmptyCharacterAbility } from '../services/ability/characterAbilitySchema';
 import { toast } from './Toast';
+import { AbilityRuntimePanel } from './AbilityRuntimePanel';
 
 type OwnerOption = {
     key: string;
@@ -87,7 +88,6 @@ export function AbilityOwnershipView({ initialAbilityId = '' }: { initialAbility
             ...draft,
             ownerType: owner.type,
             ownerId: owner.id,
-            updatedAt: Date.now(),
         };
         if (selectedAssignmentId) updateCharacterAbility(selectedAssignmentId, next);
         else addCharacterAbility(next);
@@ -134,7 +134,8 @@ export function AbilityOwnershipView({ initialAbilityId = '' }: { initialAbility
             </div>
         </aside>
         <section className="flex-1 flex flex-col min-w-0">
-            <div className="flex-1 overflow-y-auto p-5 grid grid-cols-2 gap-4">
+            <div className="flex-1 overflow-y-auto">
+            <div className="p-5 grid grid-cols-2 gap-4">
                 <label className="block text-[10px] uppercase tracking-wider text-text-dim col-span-2">
                     Canonical Ability
                     <select value={draft.abilityId} onChange={event => setDraft({ ...draft, abilityId: event.target.value })} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case">
@@ -170,6 +171,8 @@ export function AbilityOwnershipView({ initialAbilityId = '' }: { initialAbility
                     Ownership Notes
                     <textarea value={draft.notes} onChange={event => setDraft({ ...draft, notes: event.target.value })} rows={4} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case" />
                 </label>
+            </div>
+            {selectedAssignmentId && <AbilityRuntimePanel characterAbilityId={selectedAssignmentId} />}
             </div>
             <footer className="p-4 border-t border-border flex justify-between">
                 <div>
