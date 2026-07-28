@@ -28,6 +28,48 @@ const nullableStringList = (value, path, errors) => {
     });
 };
 
+const nonNegativeInteger = (value, path, errors) => {
+    if (value == null) return 0;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+        errors.push(`${path} must be a non-negative finite number or null`);
+        return 0;
+    }
+    return Math.floor(value);
+};
+
+const nullableMilestones = (value, path, errors) => {
+    if (value == null) return [];
+    if (!Array.isArray(value)) {
+        errors.push(`${path} must be an array or null`);
+        return [];
+    }
+    return value.flatMap((item, index) => {
+        if (!isRecord(item)) {
+            errors.push(`${path}[${index}] must be an object`);
+            return [];
+        }
+        const name = nullableText(item.name, `${path}[${index}].name`, errors);
+        if (!name) {
+            errors.push(`${path}[${index}].name is required`);
+            return [];
+        }
+        const completed = item.completed == null ? false : item.completed;
+        if (typeof completed !== 'boolean') errors.push(`${path}[${index}].completed must be a boolean or null`);
+        const completedAt = item.completedAt == null ? null : item.completedAt;
+        if (completedAt !== null && (typeof completedAt !== 'number' || !Number.isFinite(completedAt))) {
+            errors.push(`${path}[${index}].completedAt must be a finite number or null`);
+        }
+        return [{
+            id: nullableText(item.id, `${path}[${index}].id`, errors) || randomUUID(),
+            name,
+            requirement: nullableText(item.requirement, `${path}[${index}].requirement`, errors),
+            completed: completed === true,
+            completedSceneId: nullableText(item.completedSceneId, `${path}[${index}].completedSceneId`, errors),
+            completedAt: typeof completedAt === 'number' && Number.isFinite(completedAt) ? completedAt : null,
+        }];
+    });
+};
+
 export function validateCharacterAbility(value, index = 0, now = Date.now()) {
     const path = `characterAbilities[${index}]`;
     const errors = [];
@@ -48,6 +90,11 @@ export function validateCharacterAbility(value, index = 0, now = Date.now()) {
         ownerType: ownerType === 'npc' ? 'npc' : 'pc',
         ownerId,
         mastery: nullableText(value.mastery, `${path}.mastery`, errors),
+        masteryTierId: nullableText(value.masteryTierId, `${path}.masteryTierId`, errors),
+        unlockedUpgradeIds: nullableStringList(value.unlockedUpgradeIds, `${path}.unlockedUpgradeIds`, errors),
+        trainingProgress: nonNegativeInteger(value.trainingProgress, `${path}.trainingProgress`, errors),
+        trainingGoal: nonNegativeInteger(value.trainingGoal, `${path}.trainingGoal`, errors),
+        trainingMilestones: nullableMilestones(value.trainingMilestones, `${path}.trainingMilestones`, errors),
         variantName: nullableText(value.variantName, `${path}.variantName`, errors),
         modifications: nullableStringList(value.modifications, `${path}.modifications`, errors),
         learnedSceneId: nullableText(value.learnedSceneId, `${path}.learnedSceneId`, errors),

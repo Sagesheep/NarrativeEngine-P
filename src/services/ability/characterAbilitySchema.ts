@@ -1,4 +1,4 @@
-import type { AbilityOwnerType, CharacterAbility } from '../../types';
+import type { AbilityOwnerType, AbilityTrainingMilestone, CharacterAbility } from '../../types';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -18,6 +18,30 @@ const optionalStringList = (value: unknown): string[] =>
         ? value.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean)
         : [];
 
+const nonNegativeInteger = (value: unknown, fallback = 0): number =>
+    typeof value === 'number' && Number.isFinite(value)
+        ? Math.max(0, Math.floor(value))
+        : fallback;
+
+const optionalMilestones = (value: unknown): AbilityTrainingMilestone[] =>
+    Array.isArray(value)
+        ? value.flatMap(item => {
+            if (!isRecord(item)) return [];
+            const name = optionalText(item.name);
+            if (!name) return [];
+            return [{
+                id: optionalText(item.id) || crypto.randomUUID(),
+                name,
+                requirement: optionalText(item.requirement),
+                completed: item.completed === true,
+                completedSceneId: optionalText(item.completedSceneId),
+                completedAt: typeof item.completedAt === 'number' && Number.isFinite(item.completedAt)
+                    ? item.completedAt
+                    : null,
+            }];
+        })
+        : [];
+
 const normalizeOwnerType = (value: unknown): AbilityOwnerType | null =>
     value === 'pc' || value === 'npc' ? value : null;
 
@@ -35,6 +59,11 @@ export function createEmptyCharacterAbility(
         ownerType,
         ownerId,
         mastery: '',
+        masteryTierId: '',
+        unlockedUpgradeIds: [],
+        trainingProgress: 0,
+        trainingGoal: 0,
+        trainingMilestones: [],
         variantName: '',
         modifications: [],
         learnedSceneId: '',
@@ -63,6 +92,11 @@ export function normalizeCharacterAbility(
         ownerType,
         ownerId,
         mastery: optionalText(value.mastery),
+        masteryTierId: optionalText(value.masteryTierId),
+        unlockedUpgradeIds: optionalStringList(value.unlockedUpgradeIds),
+        trainingProgress: nonNegativeInteger(value.trainingProgress),
+        trainingGoal: nonNegativeInteger(value.trainingGoal),
+        trainingMilestones: optionalMilestones(value.trainingMilestones),
         variantName: optionalText(value.variantName),
         modifications: optionalStringList(value.modifications),
         learnedSceneId: optionalText(value.learnedSceneId),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AbilityEntry, AbilityRuntimeState, CharacterAbility, ChatMessage, NPCEntry } from '../../../types';
 import { createEmptyAbilityEntry } from '../abilitySchema';
+import { createEmptyCharacterAbility } from '../characterAbilitySchema';
 import { buildRelevantAbilityBlock } from '../abilityPrompt';
 
 const ability = (name: string, patch: Partial<AbilityEntry> = {}): AbilityEntry => ({
@@ -121,5 +122,98 @@ describe('ability prompt selection', () => {
 
         expect(output).toContain('RUNTIME (Kael): COOLDOWN 2/4 | CHARGES 1/3 | USES 5 | LAST USED scene 007');
         expect(output).toContain('ACTIVE EFFECTS (Kael): Afterimage (2 turns; Evasion up)');
+    });
+
+    it('injects structured mastery, unlocked upgrades, and completed training', () => {
+        const ashStep = ability('Ash Step', {
+            masteryLadder: [{ id: 'adept', name: 'Adept', requirements: '', benefits: 'Longer range' }],
+            upgradeNodes: [{
+                id: 'passenger',
+                branch: 'Utility',
+                name: 'Carry Passenger',
+                description: '',
+                prerequisiteTierId: 'adept',
+                prerequisiteUpgradeIds: [],
+            }],
+        });
+        const hero = { id: 'hero', name: 'Kael' } as NPCEntry;
+        const ownership: CharacterAbility = {
+            ...createEmptyCharacterAbility('pc', hero.id, ashStep.id, { now: 1, createId: () => 'known-ash' }),
+            masteryTierId: 'adept',
+            unlockedUpgradeIds: ['passenger'],
+            trainingProgress: 3,
+            trainingGoal: 5,
+            trainingMilestones: [{
+                id: 'first-crossing',
+                name: 'Cross a Wildfire',
+                requirement: '',
+                completed: true,
+                completedSceneId: '009',
+                completedAt: 1,
+            }],
+        };
+
+        const output = buildRelevantAbilityBlock([ashStep], [], 'I use Ash Step.', 1000, 4, {
+            characterAbilities: [ownership],
+            playerCharacter: hero,
+        });
+
+        expect(output).toContain('KNOWN BY: Kael | MASTERY: Adept');
+        expect(output).toContain('UNLOCKED UPGRADES (Kael): Carry Passenger');
+        expect(output).toContain('TRAINING (Kael): 3/5');
+        expect(output).toContain('COMPLETED MILESTONES (Kael): Cross a Wildfire');
+    });
+
+    it('enforces inventory possession and equipped requirements for item-granted powers', () => {
+        const relicPower = ability('Relic Flare', {
+            origin: 'item-granted',
+            sourceInventoryItemId: 'sun-relic',
+            inventoryRequiresEquipped: true,
+        });
+        const hero = { id: 'hero', name: 'Kael' } as NPCEntry;
+        const item = {
+            id: 'sun-relic',
+            name: 'Sun Relic',
+            qty: 1,
+            category: 'misc' as const,
+            keywords: [],
+            equipped: false,
+            lastUsedScene: '',
+            importance: 5,
+            notes: '',
+            locationTag: 'inventory',
+        };
+
+        expect(buildRelevantAbilityBlock([relicPower], [], 'Use Relic Flare.', 1000, 4, {
+            playerCharacter: hero,
+            inventoryItems: [item],
+        })).toBe('');
+
+        const output = buildRelevantAbilityBlock([relicPower], [], 'Use Relic Flare.', 1000, 4, {
+            playerCharacter: hero,
+            inventoryItems: [{ ...item, equipped: true }],
+        });
+        expect(output).toContain('ORIGIN: item-granted');
+        expect(output).toContain('GRANTED BY ITEM: Sun Relic (equipped)');
+    });
+
+    it('blocks lore-gated abilities until verified', () => {
+        const secretArt = ability('Secret Art', {
+            loreCheckRequired: true,
+            loreStatus: 'unverified',
+        });
+        expect(buildRelevantAbilityBlock([secretArt], [], 'Use Secret Art.', 1000)).toBe('');
+        expect(buildRelevantAbilityBlock([{ ...secretArt, loreStatus: 'verified' }], [], 'Use Secret Art.', 1000))
+            .toContain('ABILITY: Secret Art');
+    });
+
+    it('includes unmentioned abilities whose structured tags counter a named ability', () => {
+        const flame = ability('Flame Burst', { interactionTags: ['fire'] });
+        const ward = ability('Dousing Ward', { counterTags: ['fire'] });
+        const output = buildRelevantAbilityBlock([flame, ward], [], 'Use Flame Burst.', 1000);
+
+        expect(output).toContain('ABILITY: Flame Burst');
+        expect(output).toContain('ABILITY: Dousing Ward');
+        expect(output).toContain('COUNTER TAGS: fire');
     });
 });

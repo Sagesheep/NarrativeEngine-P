@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EnemyEntry } from '../../../types';
 import { countTokens } from '../../infrastructure/tokenizer';
 import { buildRelevantEnemyBlock } from '../enemyPrompt';
+import { createEmptyAbilityEntry } from '../../ability/abilitySchema';
 
 /** Builds a valid baseline template so each test only specifies relevant differences. */
 const enemy = (patch: Partial<EnemyEntry> = {}): EnemyEntry => ({
@@ -58,5 +59,24 @@ describe('buildRelevantEnemyBlock', () => {
         expect(block).toContain('ENEMY: Orc');
         expect(countTokens(block)).toBeLessThanOrEqual(80);
         expect(block).not.toContain('Secret referee material');
+    });
+
+    it('resolves enemy action references through canonical abilities', () => {
+        const pulse = {
+            ...createEmptyAbilityEntry({ now: 1, createId: () => 'pulse-ability' }),
+            name: 'Rapture Pulse',
+            origin: 'enemy-action' as const,
+            effect: 'Disrupts active shields.',
+            interactionTags: ['electric'],
+            counterTags: ['grounding'],
+        };
+        const linked = enemy({
+            actions: [{ name: 'Pulse', description: 'A focused discharge.', abilityId: pulse.id }],
+        });
+        const block = buildRelevantEnemyBlock([linked], [], 'Shield Rapture attacks.', 1000, 4, [pulse]);
+
+        expect(block).toContain('ABILITY Rapture Pulse');
+        expect(block).toContain('Disrupts active shields.');
+        expect(block).toContain('countered by: grounding');
     });
 });

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Download, Plus, Search, Trash2, Upload, X, Copy } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import type { EnemyEntry } from '../types';
+import type { EnemyAction, EnemyEntry } from '../types';
 import { toast } from './Toast';
 import { EnemyInstancesView } from './EnemyInstancesView';
 import { EnemyEncountersView } from './EnemyEncountersView';
@@ -22,7 +22,11 @@ const pairs = (value: string) => lines(value).map(line => {
 });
 
 /** Adapts generic name/value pairs to the EnemyAction data shape. */
-const actions = (value: string) => pairs(value).map(({ name, value }) => ({ name, description: value }));
+const actions = (value: string, existing: EnemyAction[]) => pairs(value).map(({ name, value }) => ({
+    name,
+    description: value,
+    abilityId: existing.find(action => action.name.toLocaleLowerCase() === name.toLocaleLowerCase())?.abilityId,
+}));
 
 /**
  * Provides campaign-scoped CRUD, search, duplication, and JSON transfer for
@@ -34,6 +38,7 @@ export function EnemyCompendiumModal() {
         enemyCompendiumOpen,
         toggleEnemyCompendium,
         enemyCompendium,
+        abilityCompendium,
         enemyInstances,
         enemyEncounters,
         enemyCombatConfig,
@@ -193,7 +198,27 @@ export function EnemyCompendiumModal() {
                     {field('Faction', 'faction')}{listField('Tags', 'tags')}
                     <div className="col-span-2">{field('Description', 'description', true)}</div>
                     <label className="block text-[10px] uppercase tracking-wider text-text-dim">Stats <span className="normal-case">(Name: value)</span><textarea value={draft.stats.map(s => `${s.name}: ${s.value}`).join('\n')} onChange={e => setDraft({ ...draft, stats: pairs(e.target.value) })} rows={5} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case" /></label>
-                    <label className="block text-[10px] uppercase tracking-wider text-text-dim">Actions <span className="normal-case">(Name: description)</span><textarea value={draft.actions.map(a => `${a.name}: ${a.description}`).join('\n')} onChange={e => setDraft({ ...draft, actions: actions(e.target.value) })} rows={5} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case" /></label>
+                    <div className="space-y-2">
+                        <label className="block text-[10px] uppercase tracking-wider text-text-dim">Actions <span className="normal-case">(Name: description)</span><textarea value={draft.actions.map(a => `${a.name}: ${a.description}`).join('\n')} onChange={e => setDraft({ ...draft, actions: actions(e.target.value, draft.actions) })} rows={5} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case" /></label>
+                        {draft.actions.map((action, index) => <label key={`${action.name}-${index}`} className="block text-[9px] uppercase tracking-wider text-text-dim">
+                            {action.name} · Canonical Ability
+                            <select
+                                aria-label={`${action.name} canonical ability`}
+                                value={action.abilityId ?? ''}
+                                onChange={event => setDraft({
+                                    ...draft,
+                                    actions: draft.actions.map((candidate, candidateIndex) =>
+                                        candidateIndex === index ? { ...candidate, abilityId: event.target.value || undefined } : candidate),
+                                })}
+                                className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case"
+                            >
+                                <option value="">No ability reference</option>
+                                {[...abilityCompendium]
+                                    .sort((a, b) => (a.origin === 'enemy-action' ? -1 : 1) - (b.origin === 'enemy-action' ? -1 : 1) || a.name.localeCompare(b.name))
+                                    .map(ability => <option key={ability.id} value={ability.id}>{ability.origin === 'enemy-action' ? 'Enemy · ' : ''}{ability.name}</option>)}
+                            </select>
+                        </label>)}
+                    </div>
                     {listField('Passive Traits', 'passiveTraits')}{listField('Special Behaviours', 'specialBehaviors')}
                     {listField('Weaknesses', 'weaknesses')}{listField('Resistances', 'resistances')}
                     {field('Preferred Range / Tactics', 'tactics', true)}{field('Loot / Rewards', 'loot', true)}

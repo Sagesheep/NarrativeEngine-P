@@ -1,4 +1,4 @@
-import type { AbilityCategory, AbilityCost, AbilityEntry } from '../../types';
+import type { AbilityCategory, AbilityCost, AbilityEntry, AbilityMasteryTier, AbilityOrigin, AbilityUpgradeNode } from '../../types';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -20,6 +20,26 @@ export const ABILITY_CATEGORIES: readonly AbilityCategory[] = [
     'narrative-permission',
     'other',
 ] as const;
+
+export const ABILITY_ORIGINS: readonly AbilityOrigin[] = [
+    'innate',
+    'trained',
+    'spell',
+    'item-granted',
+    'enemy-action',
+    'lore-granted',
+    'other',
+] as const;
+
+export const ABILITY_ORIGIN_LABELS: Record<AbilityOrigin, string> = {
+    innate: 'Innate',
+    trained: 'Trained',
+    spell: 'Spell',
+    'item-granted': 'Inventory Power',
+    'enemy-action': 'Enemy Action',
+    'lore-granted': 'Lore-Granted',
+    other: 'Other',
+};
 
 const isRecord = (value: unknown): value is UnknownRecord =>
     Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -47,10 +67,52 @@ const optionalCosts = (value: unknown): AbilityCost[] =>
         })
         : [];
 
+const optionalMasteryLadder = (value: unknown): AbilityMasteryTier[] =>
+    Array.isArray(value)
+        ? value.flatMap(item => {
+            if (!isRecord(item)) return [];
+            const name = optionalText(item.name);
+            if (!name) return [];
+            return [{
+                id: optionalText(item.id) || crypto.randomUUID(),
+                name,
+                requirements: optionalText(item.requirements),
+                benefits: optionalText(item.benefits),
+            }];
+        })
+        : [];
+
+const optionalUpgradeNodes = (value: unknown): AbilityUpgradeNode[] =>
+    Array.isArray(value)
+        ? value.flatMap(item => {
+            if (!isRecord(item)) return [];
+            const name = optionalText(item.name);
+            if (!name) return [];
+            return [{
+                id: optionalText(item.id) || crypto.randomUUID(),
+                branch: optionalText(item.branch),
+                name,
+                description: optionalText(item.description),
+                prerequisiteTierId: optionalText(item.prerequisiteTierId),
+                prerequisiteUpgradeIds: optionalStringList(item.prerequisiteUpgradeIds),
+            }];
+        })
+        : [];
+
 const normalizeCategory = (value: unknown): AbilityCategory =>
     typeof value === 'string' && ABILITY_CATEGORIES.includes(value as AbilityCategory)
         ? value as AbilityCategory
         : 'active';
+
+const normalizeOrigin = (value: unknown, tags: string[], name: string): AbilityOrigin => {
+    if (typeof value === 'string' && ABILITY_ORIGINS.includes(value as AbilityOrigin)) {
+        return value as AbilityOrigin;
+    }
+    const hints = [name, ...tags].join(' ').toLocaleLowerCase();
+    if (/\bspell\b|\bcantrip\b/.test(hints)) return 'spell';
+    if (/\bweapon mastery\b|\borigin feat\b|\bskill\b|\btechnique\b/.test(hints)) return 'trained';
+    return 'trained';
+};
 
 /** Creates a complete controlled draft for the library editor. */
 export function createEmptyAbilityEntry(options: NormalizeAbilityOptions = {}): AbilityEntry {
@@ -61,6 +123,7 @@ export function createEmptyAbilityEntry(options: NormalizeAbilityOptions = {}): 
         name: '',
         aliases: '',
         category: 'active',
+        origin: 'trained',
         description: '',
         appearance: '',
         activation: '',
@@ -74,6 +137,16 @@ export function createEmptyAbilityEntry(options: NormalizeAbilityOptions = {}): 
         limitations: [],
         counters: [],
         prerequisites: [],
+        interactionTags: [],
+        counterTags: [],
+        sourceInventoryItemId: '',
+        inventoryRequiresEquipped: true,
+        loreCheckRequired: false,
+        loreStatus: 'unverified',
+        loreCheckNotes: '',
+        loreCheckedAt: null,
+        masteryLadder: [],
+        upgradeNodes: [],
         tags: [],
         source: '',
         gmNotes: '',
@@ -98,11 +171,13 @@ export function normalizeAbilityEntry(
 
     const now = options.now ?? Date.now();
     const createId = options.createId ?? (() => crypto.randomUUID());
+    const tags = optionalStringList(value.tags);
     return {
         id: optionalText(value.id) || createId(),
         name,
         aliases: optionalText(value.aliases),
         category: normalizeCategory(value.category),
+        origin: normalizeOrigin(value.origin, tags, name),
         description: optionalText(value.description),
         appearance: optionalText(value.appearance),
         activation: optionalText(value.activation),
@@ -116,7 +191,23 @@ export function normalizeAbilityEntry(
         limitations: optionalStringList(value.limitations),
         counters: optionalStringList(value.counters),
         prerequisites: optionalStringList(value.prerequisites),
-        tags: optionalStringList(value.tags),
+        interactionTags: optionalStringList(value.interactionTags),
+        counterTags: optionalStringList(value.counterTags),
+        sourceInventoryItemId: optionalText(value.sourceInventoryItemId),
+        inventoryRequiresEquipped: typeof value.inventoryRequiresEquipped === 'boolean'
+            ? value.inventoryRequiresEquipped
+            : true,
+        loreCheckRequired: value.loreCheckRequired === true,
+        loreStatus: value.loreStatus === 'verified' || value.loreStatus === 'flagged'
+            ? value.loreStatus
+            : 'unverified',
+        loreCheckNotes: optionalText(value.loreCheckNotes),
+        loreCheckedAt: typeof value.loreCheckedAt === 'number' && Number.isFinite(value.loreCheckedAt)
+            ? value.loreCheckedAt
+            : null,
+        masteryLadder: optionalMasteryLadder(value.masteryLadder),
+        upgradeNodes: optionalUpgradeNodes(value.upgradeNodes),
+        tags,
         source: optionalText(value.source),
         gmNotes: optionalText(value.gmNotes),
         promptEnabled: typeof value.promptEnabled === 'boolean' ? value.promptEnabled : true,

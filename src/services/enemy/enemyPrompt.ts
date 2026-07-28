@@ -1,7 +1,22 @@
-import type { ChatMessage, EnemyEntry } from '../../types';
+import type { AbilityEntry, ChatMessage, EnemyAction, EnemyEntry } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
 
 export const MAX_RELEVANT_ENEMY_MATCHES = 4;
+
+export function renderEnemyAction(action: EnemyAction, abilities: AbilityEntry[] = []): string {
+    const ability = action.abilityId
+        ? abilities.find(candidate =>
+            candidate.id === action.abilityId
+            && (!candidate.loreCheckRequired || candidate.loreStatus === 'verified'))
+        : undefined;
+    const abilityDetails = ability ? [
+        `ABILITY ${ability.name}`,
+        ability.effect,
+        ability.interactionTags?.length ? `tags: ${ability.interactionTags.join(', ')}` : '',
+        ability.counterTags?.length ? `countered by: ${ability.counterTags.join(', ')}` : '',
+    ].filter(Boolean).join(' | ') : '';
+    return `${action.name} — ${[action.description, abilityDetails].filter(Boolean).join(' | ')}`;
+}
 
 /**
  * Normalizes prose into Unicode letter/number tokens. Matching token sequences
@@ -73,6 +88,7 @@ export function buildRelevantEnemyBlock(
     userMessage: string,
     tokenBudget = Infinity,
     maxMatches = MAX_RELEVANT_ENEMY_MATCHES,
+    abilities: AbilityEntry[] = [],
 ): string {
     if (!enemies?.length || maxMatches <= 0 || tokenBudget <= 0) return '';
     const textWords = normalizedWords(`${history.slice(-10).map(m => m.content ?? '').join(' ')} ${userMessage}`);
@@ -90,7 +106,7 @@ export function buildRelevantEnemyBlock(
         enemy.threatTier && `THREAT: ${enemy.threatTier}`,
         enemy.faction && `FACTION: ${enemy.faction}`,
         enemy.stats?.length && `STATS: ${enemy.stats.map(stat => `${stat.name} ${stat.value}`).join('; ')}`,
-        enemy.actions?.length && `ACTIONS: ${enemy.actions.map(action => `${action.name} — ${action.description}`).join('; ')}`,
+        enemy.actions?.length && `ACTIONS: ${enemy.actions.map(action => renderEnemyAction(action, abilities)).join('; ')}`,
         enemy.specialBehaviors?.length && `SPECIAL: ${enemy.specialBehaviors.join('; ')}`,
         enemy.weaknesses?.length && `WEAKNESSES: ${enemy.weaknesses.join('; ')}`,
         enemy.resistances?.length && `RESISTANCES: ${enemy.resistances.join('; ')}`,

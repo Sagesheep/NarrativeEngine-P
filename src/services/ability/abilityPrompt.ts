@@ -1,4 +1,4 @@
-import type { AbilityEntry, AbilityRuntimeState, CharacterAbility, ChatMessage, NPCEntry } from '../../types';
+import type { AbilityEntry, AbilityRuntimeState, CharacterAbility, ChatMessage, InventoryItem, NPCEntry } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
 
 export const MAX_RELEVANT_ABILITY_MATCHES = 4;
@@ -9,6 +9,7 @@ export type AbilityOwnershipContext = {
     playerCharacter?: NPCEntry | null;
     npcLedger?: NPCEntry[];
     onStageNpcIds?: string[];
+    inventoryItems?: InventoryItem[];
 };
 
 const normalizedWords = (value: string): string[] =>
@@ -20,6 +21,27 @@ const containsExactPhrase = (textWords: string[], phrase: string): boolean => {
     return textWords.some((word, start) =>
         word === phraseWords[0]
         && phraseWords.every((phraseWord, offset) => textWords[start + offset] === phraseWord));
+};
+
+const canonicalTag = (value: string) => value.toLocaleLowerCase().trim();
+
+const activeGrantItem = (ability: AbilityEntry, inventoryItems: InventoryItem[] = []): InventoryItem | null => {
+    if (ability.origin !== 'item-granted') return null;
+    const item = inventoryItems.find(candidate =>
+        candidate.id === ability.sourceInventoryItemId
+        && candidate.qty > 0
+        && (candidate.locationTag ?? 'inventory') === 'inventory');
+    if (!item || (ability.inventoryRequiresEquipped && !item.equipped)) return null;
+    return item;
+};
+
+const interactsWith = (left: AbilityEntry, right: AbilityEntry): boolean => {
+    const leftInteractions = new Set((left.interactionTags ?? []).map(canonicalTag));
+    const leftCounters = new Set((left.counterTags ?? []).map(canonicalTag));
+    const rightInteractions = new Set((right.interactionTags ?? []).map(canonicalTag));
+    const rightCounters = new Set((right.counterTags ?? []).map(canonicalTag));
+    return [...leftCounters].some(tag => rightInteractions.has(tag))
+        || [...rightCounters].some(tag => leftInteractions.has(tag));
 };
 
 /**
@@ -37,11 +59,24 @@ export function buildRelevantAbilityBlock(
 ): string {
     if (!abilities?.length || tokenBudget <= 0 || maxMatches <= 0) return '';
     const textWords = normalizedWords(`${history.slice(-10).map(message => message.content ?? '').join(' ')} ${userMessage}`);
-    const relevant = abilities.filter(ability => {
+    const eligible = abilities.filter(ability => {
         if (ability.promptEnabled === false) return false;
+        if (ability.loreCheckRequired && ability.loreStatus !== 'verified') return false;
+        if (ability.origin === 'item-granted' && !activeGrantItem(ability, ownership.inventoryItems)) return false;
+        return true;
+    });
+    const named = eligible.filter(ability => {
         const aliases = ability.aliases.split(',').map(alias => alias.trim()).filter(Boolean);
         return [ability.name, ...aliases].some(name => containsExactPhrase(textWords, name));
-    }).slice(0, maxMatches);
+    });
+    const relevant = [...named];
+    for (const seed of named) {
+        for (const candidate of eligible) {
+            if (relevant.length >= maxMatches) break;
+            if (!relevant.includes(candidate) && interactsWith(seed, candidate)) relevant.push(candidate);
+        }
+    }
+    relevant.splice(maxMatches);
     if (!relevant.length) return '';
 
     const header = '[RELEVANT ABILITY RULES — canonical definitions and owner-specific variants]';
@@ -75,8 +110,14 @@ export function buildRelevantAbilityBlock(
             const chargeStatus = runtime?.chargesMax == null
                 ? ''
                 : ` | CHARGES ${runtime.chargesRemaining}/${runtime.chargesMax}`;
+            const tier = ability.masteryLadder.find(candidate => candidate.id === entry.masteryTierId);
+            const upgrades = ability.upgradeNodes.filter(node => (entry.unlockedUpgradeIds ?? []).includes(node.id));
+            const completedMilestones = (entry.trainingMilestones ?? []).filter(milestone => milestone.completed);
             return [
-                `KNOWN BY: ${owner.name}${entry.mastery ? ` | MASTERY: ${entry.mastery}` : ''}${entry.variantName ? ` | VARIANT: ${entry.variantName}` : ''}`,
+                `KNOWN BY: ${owner.name}${tier?.name || entry.mastery ? ` | MASTERY: ${tier?.name || entry.mastery}` : ''}${entry.variantName ? ` | VARIANT: ${entry.variantName}` : ''}`,
+                upgrades.length && `UNLOCKED UPGRADES (${owner.name}): ${upgrades.map(upgrade => upgrade.name).join('; ')}`,
+                ((entry.trainingGoal ?? 0) > 0 || (entry.trainingProgress ?? 0) > 0) && `TRAINING (${owner.name}): ${entry.trainingProgress ?? 0}/${entry.trainingGoal || '?'}`,
+                completedMilestones.length && `COMPLETED MILESTONES (${owner.name}): ${completedMilestones.map(milestone => milestone.name).join('; ')}`,
                 entry.modifications.length && `OWNER MODIFICATIONS (${owner.name}): ${entry.modifications.join('; ')}`,
                 runtime && `RUNTIME (${owner.name}): ${runtimeStatus}${chargeStatus} | USES ${runtime.uses}${runtime.lastUsedSceneId ? ` | LAST USED scene ${runtime.lastUsedSceneId}` : ''}`,
                 runtime?.activeEffects.length && `ACTIVE EFFECTS (${owner.name}): ${runtime.activeEffects.map(effect =>
@@ -86,10 +127,16 @@ export function buildRelevantAbilityBlock(
                 entry.notes && `OWNERSHIP NOTES (${owner.name}): ${entry.notes}`,
             ].filter((line): line is string => Boolean(line));
         });
+        const grantItem = activeGrantItem(ability, ownership.inventoryItems);
+        if (grantItem && ownership.playerCharacter) {
+            ownershipLines.unshift(
+                `KNOWN BY: ${ownership.playerCharacter.name} | GRANTED BY ITEM: ${grantItem.name}${ability.inventoryRequiresEquipped ? ' (equipped)' : ''}`,
+            );
+        }
 
         const lines = [
             `ABILITY: ${ability.name}`,
-            `CATEGORY: ${ability.category}`,
+            `CATEGORY: ${ability.category} | ORIGIN: ${ability.origin ?? 'trained'}`,
             ...ownershipLines,
             ability.effect && `EFFECT: ${ability.effect}`,
             ability.activation && `ACTIVATION: ${ability.activation}`,
@@ -102,6 +149,8 @@ export function buildRelevantAbilityBlock(
             ability.limitations.length && `LIMITS: ${ability.limitations.join('; ')}`,
             ability.counters.length && `COUNTERS: ${ability.counters.join('; ')}`,
             ability.prerequisites.length && `PREREQUISITES: ${ability.prerequisites.join('; ')}`,
+            ability.interactionTags?.length && `INTERACTION TAGS: ${ability.interactionTags.join('; ')}`,
+            ability.counterTags?.length && `COUNTER TAGS: ${ability.counterTags.join('; ')}`,
             ability.outcomeGuidance && `OUTCOMES: ${ability.outcomeGuidance}`,
             ability.description && `DESCRIPTION: ${ability.description}`,
             ability.appearance && `APPEARANCE: ${ability.appearance}`,

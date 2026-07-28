@@ -35,4 +35,35 @@ describe('character ability API schema', () => {
         expect(result.errors).toContain('characterAbilities[0].ownerType must be "pc" or "npc"');
         expect(result.errors).toContain('characterAbilities[0].modifications must be an array or null');
     });
+
+    it('normalizes structured progression and completed milestones', () => {
+        const result = validateCharacterAbility({
+            abilityId: 'ash-step',
+            ownerType: 'pc',
+            ownerId: 'hero',
+            masteryTierId: 'adept',
+            unlockedUpgradeIds: ['passenger'],
+            trainingProgress: 3.8,
+            trainingGoal: 5,
+            trainingMilestones: [{
+                id: 'wildfire',
+                name: 'Cross a Wildfire',
+                completed: true,
+                completedSceneId: '009',
+                completedAt: 20,
+            }],
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(result.value).toEqual(expect.objectContaining({
+            masteryTierId: 'adept',
+            unlockedUpgradeIds: ['passenger'],
+            trainingProgress: 3,
+            trainingGoal: 5,
+            trainingMilestones: [expect.objectContaining({
+                name: 'Cross a Wildfire',
+                completed: true,
+            })],
+        }));
+    });
 });

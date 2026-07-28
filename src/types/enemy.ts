@@ -1,5 +1,5 @@
 export type EnemyStat = { name: string; value: string };
-export type EnemyAction = { name: string; description: string };
+export type EnemyAction = { name: string; description: string; abilityId?: string };
 export type EnemyModifier = { id: string; name: string; value: string };
 export type EnemyCooldown = { id: string; name: string; remainingRounds: number };
 export type EnemyResource = { id: string; name: string; current: number; max: number };

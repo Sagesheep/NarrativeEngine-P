@@ -11,11 +11,47 @@ export type AbilityCategory =
     | 'narrative-permission'
     | 'other';
 
+export type AbilityOrigin =
+    | 'innate'
+    | 'trained'
+    | 'spell'
+    | 'item-granted'
+    | 'enemy-action'
+    | 'lore-granted'
+    | 'other';
+
+export type AbilityLoreStatus = 'unverified' | 'verified' | 'flagged';
+
 export type AbilityCost = {
     resource: string;
     amount: string;
     timing: string;
     condition: string;
+};
+
+export type AbilityMasteryTier = {
+    id: string;
+    name: string;
+    requirements: string;
+    benefits: string;
+};
+
+export type AbilityUpgradeNode = {
+    id: string;
+    branch: string;
+    name: string;
+    description: string;
+    prerequisiteTierId: string;
+    prerequisiteUpgradeIds: string[];
+};
+
+export type AbilityTrainingMilestone = {
+    id: string;
+    name: string;
+    requirement: string;
+    completed: boolean;
+    completedSceneId: string;
+    completedAt: number | null;
 };
 
 export type AbilityOwnerType = 'pc' | 'npc';
@@ -35,13 +71,18 @@ export type AbilityProposal = {
     ownerType: AbilityOwnerType | null;
     ownerId: string;
     category: AbilityCategory;
+    origin: AbilityOrigin;
     effect: string;
     activation: string;
     mastery: string;
+    masteryTierId: string;
     modification: string;
+    upgradeId: string;
+    trainingDelta: number;
     reason: string;
     evidence: string;
     sourceSceneId: string;
+    sourceProfileAbility?: string;
     createdAt: number;
     updatedAt: number;
 };
@@ -57,6 +98,11 @@ export type CharacterAbility = {
     ownerType: AbilityOwnerType;
     ownerId: string;
     mastery: string;
+    masteryTierId: string;
+    unlockedUpgradeIds: string[];
+    trainingProgress: number;
+    trainingGoal: number;
+    trainingMilestones: AbilityTrainingMilestone[];
     variantName: string;
     modifications: string[];
     learnedSceneId: string;
@@ -103,6 +149,7 @@ export type AbilityEntry = {
     name: string;
     aliases: string;
     category: AbilityCategory;
+    origin: AbilityOrigin;
     description: string;
     appearance: string;
     activation: string;
@@ -116,6 +163,16 @@ export type AbilityEntry = {
     limitations: string[];
     counters: string[];
     prerequisites: string[];
+    interactionTags: string[];
+    counterTags: string[];
+    sourceInventoryItemId: string;
+    inventoryRequiresEquipped: boolean;
+    loreCheckRequired: boolean;
+    loreStatus: AbilityLoreStatus;
+    loreCheckNotes: string;
+    loreCheckedAt: number | null;
+    masteryLadder: AbilityMasteryTier[];
+    upgradeNodes: AbilityUpgradeNode[];
     tags: string[];
     source: string;
     gmNotes: string;

@@ -47,4 +47,42 @@ describe('ability discovery sanitizer', () => {
 
         expect(result).toEqual([]);
     });
+
+    it('accepts only progression tier and upgrade IDs defined by the canonical ability', () => {
+        const structured = {
+            ...ability,
+            masteryLadder: [{ id: 'adept', name: 'Adept', requirements: '', benefits: '' }],
+            upgradeNodes: [{
+                id: 'long-range',
+                branch: 'Control',
+                name: 'Long Range',
+                description: '',
+                prerequisiteTierId: 'adept',
+                prerequisiteUpgradeIds: [],
+            }],
+        };
+        const result = sanitizeAbilityProposalResponse({ proposals: [{
+            kind: 'progression',
+            abilityId: 'target-mark',
+            ownerType: 'pc',
+            ownerId: 'parallax',
+            masteryTierId: 'adept',
+            upgradeId: 'long-range',
+            trainingDelta: 2,
+        }, {
+            kind: 'progression',
+            abilityId: 'target-mark',
+            ownerType: 'pc',
+            ownerId: 'parallax',
+            masteryTierId: 'hallucinated-tier',
+            upgradeId: 'hallucinated-upgrade',
+        }] }, [structured], [assignment], owners);
+
+        expect(result).toHaveLength(1);
+        expect(result[0]).toEqual(expect.objectContaining({
+            masteryTierId: 'adept',
+            upgradeId: 'long-range',
+            trainingDelta: 2,
+        }));
+    });
 });

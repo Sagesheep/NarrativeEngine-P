@@ -11,12 +11,14 @@ describe('ability proposal server schema', () => {
             ownerId: 'hero',
             mastery: 'Adept',
             modification: 'Crosses wider gaps',
+            sourceProfileAbility: 'Ash Step (Adept)',
         }, 0, 10);
         expect(result.errors).toEqual([]);
         expect(result.value).toEqual(expect.objectContaining({
             kind: 'progression',
             abilityId: 'ash-step',
             ownerId: 'hero',
+            sourceProfileAbility: 'Ash Step (Adept)',
             createdAt: 10,
         }));
     });

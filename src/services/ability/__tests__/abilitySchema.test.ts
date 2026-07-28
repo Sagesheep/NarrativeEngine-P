@@ -7,6 +7,7 @@ describe('ability schema normalization', () => {
         expect(entry).toEqual(expect.objectContaining({
             id: 'ability-1',
             category: 'active',
+            origin: 'trained',
             costs: [],
             limitations: [],
             promptEnabled: true,
@@ -37,5 +38,14 @@ describe('ability schema normalization', () => {
         const result = normalizeAbilityEntries([{ name: 'Valid' }, { description: 'No name' }, null]);
         expect(result.entries).toHaveLength(1);
         expect(result.skipped).toBe(2);
+    });
+
+    it('infers spell origin for older tagged compendium imports', () => {
+        const spell = normalizeAbilityEntry({
+            name: 'Thunderwave',
+            category: 'active',
+            tags: ['D&D', 'Bard', 'Spell', '1st-level'],
+        });
+        expect(spell?.origin).toBe('spell');
     });
 });

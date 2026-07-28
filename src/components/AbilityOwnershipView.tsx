@@ -5,6 +5,9 @@ import type { AbilityOwnerType, CharacterAbility } from '../types';
 import { createEmptyCharacterAbility } from '../services/ability/characterAbilitySchema';
 import { toast } from './Toast';
 import { AbilityRuntimePanel } from './AbilityRuntimePanel';
+import { AbilityProgressionPanel } from './AbilityProgressionPanel';
+import { InventoryGrantedAbilities } from './InventoryGrantedAbilities';
+import { ABILITY_ORIGIN_LABELS } from '../services/ability/abilitySchema';
 
 type OwnerOption = {
     key: string;
@@ -28,6 +31,7 @@ export function AbilityOwnershipView({ initialAbilityId = '' }: { initialAbility
         context,
         npcLedger,
         abilityCompendium,
+        inventoryItems,
         characterAbilities,
         addCharacterAbility,
         updateCharacterAbility,
@@ -57,6 +61,7 @@ export function AbilityOwnershipView({ initialAbilityId = '' }: { initialAbility
     ));
 
     const owner = parseOwnerKey(ownerKey);
+    const selectedAbility = abilityCompendium.find(ability => ability.id === draft.abilityId);
     const assignments = characterAbilities
         .filter(entry => owner && entry.ownerType === owner.type && entry.ownerId === owner.id)
         .sort((a, b) => {
@@ -119,12 +124,16 @@ export function AbilityOwnershipView({ initialAbilityId = '' }: { initialAbility
                     </select>
                 </label>
             </div>
+            {owner?.type === 'pc' && <InventoryGrantedAbilities abilities={abilityCompendium} inventoryItems={inventoryItems} />}
             <div className="flex-1 overflow-y-auto">
                 {assignments.map(entry => {
                     const ability = abilityCompendium.find(candidate => candidate.id === entry.abilityId);
                     return <button key={entry.id} onClick={() => selectAssignment(entry)} className={`w-full text-left p-3 border-b border-border/50 ${selectedAssignmentId === entry.id ? 'bg-terminal/10 text-terminal' : 'hover:bg-white/5'}`}>
                         <div className="font-semibold text-sm">{entry.variantName || ability?.name || 'Missing definition'}</div>
-                        <div className="text-[10px] text-text-dim">{[ability?.name !== entry.variantName ? ability?.name : '', entry.mastery].filter(Boolean).join(' · ') || 'Unranked'}</div>
+                        <div className="text-[10px] text-text-dim">
+                            {ability ? `${ABILITY_ORIGIN_LABELS[ability.origin]} · ` : ''}
+                            {[ability?.name !== entry.variantName ? ability?.name : '', entry.mastery].filter(Boolean).join(' · ') || 'Unranked'}
+                        </div>
                     </button>;
                 })}
                 {!assignments.length && <div className="p-5 text-center text-xs text-text-dim">No assigned abilities.</div>}
@@ -172,6 +181,7 @@ export function AbilityOwnershipView({ initialAbilityId = '' }: { initialAbility
                     <textarea value={draft.notes} onChange={event => setDraft({ ...draft, notes: event.target.value })} rows={4} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case" />
                 </label>
             </div>
+            <AbilityProgressionPanel ability={selectedAbility} draft={draft} onChange={setDraft} />
             {selectedAssignmentId && <AbilityRuntimePanel characterAbilityId={selectedAssignmentId} />}
             </div>
             <footer className="p-4 border-t border-border flex justify-between">
@@ -181,7 +191,7 @@ export function AbilityOwnershipView({ initialAbilityId = '' }: { initialAbility
                         newAssignment();
                     }} className="px-3 py-2 border border-ember text-ember rounded text-xs"><Trash2 size={13} className="inline mr-1" />Remove from Character</button>}
                 </div>
-                <button onClick={save} disabled={!abilityCompendium.length} className="px-5 py-2 bg-terminal text-void rounded text-xs font-bold disabled:opacity-30"><UserRound size={13} className="inline mr-1" />Save Assignment</button>
+                <button onClick={save} disabled={!abilityCompendium.length} className="px-5 py-2 bg-terminal text-void rounded text-xs font-bold disabled:opacity-30"><UserRound size={13} className="inline mr-1" />Add to Character</button>
             </footer>
         </section>
     </div>;

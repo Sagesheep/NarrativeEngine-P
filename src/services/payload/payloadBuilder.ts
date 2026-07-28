@@ -121,10 +121,10 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
     const { volatileContent, volatileTokens } = buildVolatile({ context, inventoryCategories, profileFields, budgetVolatile: budgetMap.volatile, collector, plannerEventTypes: resolvedEventTypes, userMessage, history, npcLedger, locationLedger });
     const enemyContextEnabled = enemyCombatConfig?.promptContextEnabled !== false;
     const activeEncounterBlock = enemyContextEnabled
-        ? buildActiveEncounterBlock(enemyEncounters, enemyInstances, enemyCombatConfig, budgetMap.enemy)
+        ? buildActiveEncounterBlock(enemyEncounters, enemyInstances, enemyCombatConfig, budgetMap.enemy, abilityCompendium)
         : '';
     const enemyBlock = activeEncounterBlock || (enemyContextEnabled
-        ? buildRelevantEnemyBlock(enemyCompendium, history, userMessage, budgetMap.enemy)
+        ? buildRelevantEnemyBlock(enemyCompendium, history, userMessage, budgetMap.enemy, undefined, abilityCompendium)
         : '');
     const enemyTokens = countTokens(enemyBlock);
     if (enemyBlock) {
@@ -150,6 +150,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             playerCharacter: context.playerCharacter,
             npcLedger,
             onStageNpcIds,
+            inventoryItems: context.inventoryItems,
         },
     );
     const abilityTokens = countTokens(abilityBlock);

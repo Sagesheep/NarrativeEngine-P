@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Check, RefreshCw, Trash2, WandSparkles, X } from 'lucide-react';
+import { Check, FileInput, RefreshCw, Trash2, WandSparkles, X } from 'lucide-react';
 import type { AbilityOwnerType, AbilityProposal } from '../types';
 import { useAppStore } from '../store/useAppStore';
-import { ABILITY_CATEGORIES, createEmptyAbilityEntry } from '../services/ability/abilitySchema';
+import { ABILITY_CATEGORIES, ABILITY_ORIGINS, ABILITY_ORIGIN_LABELS, createEmptyAbilityEntry } from '../services/ability/abilitySchema';
 import { createEmptyCharacterAbility } from '../services/ability/characterAbilitySchema';
+import { buildCharacterSheetAbilityImport } from '../services/ability/characterSheetAbilityImport';
+import { getUpgradeAvailability, setCharacterMasteryTier, toggleCharacterUpgrade } from '../services/ability/abilityProgression';
 import {
     discoverAbilityProposals,
     type AbilityDiscoveryOwner,
@@ -72,18 +74,61 @@ export function AbilityDiscoveryView() {
         });
     };
 
-    const accept = (proposal: AbilityProposal) => {
+    const removeProfileAbilitySources = (sources: string[]) => {
+        if (!sources.length) return;
+        const current = useAppStore.getState();
+        const profile = current.characterProfileData ?? current.context.characterProfileData;
+        const sourceKeys = new Set(sources.map(source => source.trim()).filter(Boolean));
+        const abilities = profile.abilities.filter(source => !sourceKeys.has(source.trim()));
+        if (abilities.length !== profile.abilities.length) {
+            current.setCharacterProfileData({ ...profile, abilities });
+        }
+    };
+
+    const importCharacterSheet = () => {
+        const playerCharacter = state.context.playerCharacter;
+        if (!playerCharacter) return toast.warning('Create a player character before importing sheet abilities');
+        const profile = state.characterProfileData ?? state.context.characterProfileData;
+        if (!profile.abilities.length) return toast.info('The character sheet has no abilities to import');
+
+        const result = buildCharacterSheetAbilityImport(
+            profile.abilities,
+            playerCharacter.id,
+            state.abilityCompendium,
+            state.characterAbilities,
+            state.abilityProposals,
+        );
+        state.addAbilityProposals(result.proposals);
+        removeProfileAbilitySources(result.alreadyTrackedSources);
+
+        if (result.proposals.length) {
+            toast.success(`Added ${result.proposals.length} character-sheet proposal${result.proposals.length === 1 ? '' : 's'} for review`);
+        } else if (result.alreadyTrackedSources.length) {
+            toast.success(`Removed ${result.alreadyTrackedSources.length} already-tracked entr${result.alreadyTrackedSources.length === 1 ? 'y' : 'ies'} from the character sheet`);
+        } else if (result.pendingSources.length) {
+            toast.info('All character-sheet abilities are already awaiting review');
+        } else {
+            toast.info('No importable character-sheet abilities were found');
+        }
+    };
+
+    const accept = (proposal: AbilityProposal, silent = false): boolean => {
+        const current = useAppStore.getState();
+        const reject = (message: string) => {
+            if (!silent) toast.warning(message);
+            return false;
+        };
         const owner = proposal.ownerType && proposal.ownerId
             ? { type: proposal.ownerType, id: proposal.ownerId }
             : null;
         let ability = proposal.abilityId
-            ? state.abilityCompendium.find(entry => entry.id === proposal.abilityId)
+            ? current.abilityCompendium.find(entry => entry.id === proposal.abilityId)
             : undefined;
 
         if (proposal.kind === 'new') {
             const name = proposal.abilityName.trim();
-            if (!name) return toast.warning('A new ability needs a name');
-            ability = state.abilityCompendium.find(entry =>
+            if (!name) return reject('A new ability needs a name');
+            ability = current.abilityCompendium.find(entry =>
                 [entry.name, ...entry.aliases.split(',')]
                     .some(candidate => canonical(candidate) === canonical(name)));
             if (!ability) {
@@ -91,29 +136,35 @@ export function AbilityDiscoveryView() {
                     ...createEmptyAbilityEntry(),
                     name,
                     category: proposal.category,
+                    origin: proposal.origin,
                     effect: proposal.effect,
                     activation: proposal.activation,
-                    source: proposal.sourceSceneId
+                    source: proposal.sourceProfileAbility
+                        ? 'Imported from character sheet'
+                        : proposal.sourceSceneId
                         ? `Discovered in play — ${proposal.sourceSceneId}`
                         : 'Discovered in play',
                     gmNotes: [proposal.reason, proposal.evidence].filter(Boolean).join('\n'),
                 };
-                state.addAbility(ability);
+                current.addAbility(ability);
             }
         }
 
-        if (!ability) return toast.warning('Choose a canonical ability');
+        if (!ability) return reject('Choose a canonical ability');
 
         if (proposal.kind === 'assign' || (proposal.kind === 'new' && owner)) {
-            if (!owner) return toast.warning('Choose the character who learned this ability');
-            const existing = state.characterAbilities.find(entry =>
+            if (!owner) return reject('Choose the character who learned this ability');
+            const existing = current.characterAbilities.find(entry =>
                 entry.abilityId === ability!.id
                 && entry.ownerType === owner.type
                 && entry.ownerId === owner.id);
             if (!existing) {
-                state.addCharacterAbility({
+                current.addCharacterAbility({
                     ...createEmptyCharacterAbility(owner.type, owner.id, ability.id),
-                    mastery: proposal.mastery,
+                    mastery: proposal.mastery
+                        || ability.masteryLadder.find(tier => tier.id === proposal.masteryTierId)?.name
+                        || '',
+                    masteryTierId: proposal.masteryTierId,
                     modifications: proposal.modification ? [proposal.modification] : [],
                     learnedSceneId: proposal.sourceSceneId,
                     notes: proposal.reason,
@@ -122,31 +173,64 @@ export function AbilityDiscoveryView() {
         }
 
         if (proposal.kind === 'progression') {
-            if (!owner) return toast.warning('Choose the character whose ability progressed');
-            const assignment = state.characterAbilities.find(entry =>
+            if (!owner) return reject('Choose the character whose ability progressed');
+            const assignment = current.characterAbilities.find(entry =>
                 entry.abilityId === ability!.id
                 && entry.ownerType === owner.type
                 && entry.ownerId === owner.id);
-            if (!assignment) return toast.warning('That character does not own this ability');
+            if (!assignment) return reject('That character does not own this ability');
             const modifications = proposal.modification
                 && !assignment.modifications.some(item => canonical(item) === canonical(proposal.modification))
                 ? [...assignment.modifications, proposal.modification]
                 : assignment.modifications;
-            state.updateCharacterAbility(assignment.id, {
-                mastery: proposal.mastery || assignment.mastery,
+            let progressed = proposal.masteryTierId
+                ? setCharacterMasteryTier(ability, assignment, proposal.masteryTierId)
+                : assignment;
+            if (proposal.upgradeId) {
+                const upgrade = ability.upgradeNodes.find(node => node.id === proposal.upgradeId);
+                if (!upgrade) return reject('Choose a valid upgrade');
+                if (progressed.unlockedUpgradeIds.includes(proposal.upgradeId)) {
+                    return reject(`${upgrade.name} is already unlocked`);
+                }
+                const availability = getUpgradeAvailability(ability, progressed, upgrade);
+                if (!availability.available) return reject(availability.reasons.join('; '));
+                progressed = toggleCharacterUpgrade(ability, progressed, proposal.upgradeId);
+            }
+            current.updateCharacterAbility(assignment.id, {
+                mastery: proposal.mastery || progressed.mastery,
+                masteryTierId: progressed.masteryTierId,
+                unlockedUpgradeIds: progressed.unlockedUpgradeIds,
+                trainingProgress: progressed.trainingProgress + proposal.trainingDelta,
                 modifications,
                 notes: [assignment.notes, proposal.reason].filter(Boolean).join('\n'),
             });
         }
 
-        state.dismissAbilityProposal(proposal.id);
-        toast.success(
-            proposal.kind === 'new'
-                ? `Added ${ability.name} to the library${owner ? ' and assigned it' : ''}`
-                : proposal.kind === 'assign'
-                    ? `Assigned ${ability.name}`
-                    : `Updated ${ability.name} progression`,
-        );
+        current.dismissAbilityProposal(proposal.id);
+        if (proposal.sourceProfileAbility) {
+            removeProfileAbilitySources([proposal.sourceProfileAbility]);
+        }
+        if (!silent) {
+            toast.success(
+                proposal.kind === 'new'
+                    ? `Added ${ability.name} to the library${owner ? ' and assigned it' : ''}`
+                    : proposal.kind === 'assign'
+                        ? `Assigned ${ability.name}`
+                        : `Updated ${ability.name} progression`,
+            );
+        }
+        return true;
+    };
+
+    const acceptAll = () => {
+        const proposals = [...useAppStore.getState().abilityProposals];
+        let accepted = 0;
+        for (const proposal of proposals) {
+            if (accept(proposal, true)) accepted++;
+        }
+        const skipped = proposals.length - accepted;
+        if (accepted) toast.success(`Added ${accepted} proposal${accepted === 1 ? '' : 's'} to the compendium`);
+        if (skipped) toast.warning(`${skipped} proposal${skipped === 1 ? ' needs' : 's need'} more information`);
     };
 
     return <div className="flex-1 min-h-0 overflow-y-auto p-5">
@@ -157,17 +241,27 @@ export function AbilityDiscoveryView() {
                         <h3 className="font-semibold flex items-center gap-2"><WandSparkles size={16} />Discovery Review</h3>
                         <p className="text-xs text-text-dim mt-1 max-w-2xl">
                             Scan recent play for newly learned abilities and meaningful progression.
+                            Import existing sheet abilities when starting a compendium.
                             Results remain proposals until you accept them.
                         </p>
                     </div>
-                    <button
-                        onClick={() => void scan()}
-                        disabled={scanning}
-                        className="px-3 py-2 border border-terminal text-terminal rounded text-xs disabled:opacity-40"
-                    >
-                        <RefreshCw size={13} className={`inline mr-1.5 ${scanning ? 'animate-spin' : ''}`} />
-                        {scanning ? 'Scanning…' : 'Scan Recent Play'}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            onClick={importCharacterSheet}
+                            className="px-3 py-2 border border-border text-text-normal rounded text-xs hover:border-terminal hover:text-terminal"
+                        >
+                            <FileInput size={13} className="inline mr-1.5" />
+                            Import Character Sheet
+                        </button>
+                        <button
+                            onClick={() => void scan()}
+                            disabled={scanning}
+                            className="px-3 py-2 border border-terminal text-terminal rounded text-xs disabled:opacity-40"
+                        >
+                            <RefreshCw size={13} className={`inline mr-1.5 ${scanning ? 'animate-spin' : ''}`} />
+                            {scanning ? 'Scanning…' : 'Scan Recent Play'}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -175,13 +269,22 @@ export function AbilityDiscoveryView() {
                 <h3 className="text-xs uppercase tracking-wider text-text-dim">
                     Pending proposals ({state.abilityProposals.length})
                 </h3>
-                <button
-                    onClick={state.clearAbilityProposals}
-                    disabled={!state.abilityProposals.length}
-                    className="text-[10px] text-text-dim hover:text-ember disabled:opacity-30"
-                >
-                    <Trash2 size={12} className="inline mr-1" />Dismiss all
-                </button>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={acceptAll}
+                        disabled={!state.abilityProposals.length}
+                        className="text-[10px] text-terminal hover:text-terminal-bright disabled:opacity-30"
+                    >
+                        <Check size={12} className="inline mr-1" />Add all
+                    </button>
+                    <button
+                        onClick={state.clearAbilityProposals}
+                        disabled={!state.abilityProposals.length}
+                        className="text-[10px] text-text-dim hover:text-ember disabled:opacity-30"
+                    >
+                        <Trash2 size={12} className="inline mr-1" />Dismiss all
+                    </button>
+                </div>
             </div>
 
             {!state.abilityProposals.length && <div className="border border-dashed border-border rounded p-10 text-center text-xs text-text-dim">
@@ -197,6 +300,9 @@ export function AbilityDiscoveryView() {
                         <span className="px-2 py-1 rounded bg-amber-400/10 text-amber-300 text-[9px] uppercase tracking-wider">
                             {proposal.kind}
                         </span>
+                        {proposal.sourceProfileAbility && <span className="px-2 py-1 rounded bg-sky-400/10 text-sky-300 text-[9px] uppercase tracking-wider">
+                            character sheet
+                        </span>}
                         <span className="text-xs text-text-dim flex-1">{proposal.reason || 'Review the proposed durable change.'}</span>
                         <button onClick={() => accept(proposal)} title="Accept proposal" className="p-1.5 text-terminal hover:bg-terminal/10 rounded">
                             <Check size={15} />
@@ -250,6 +356,17 @@ export function AbilityDiscoveryView() {
                             </select>
                         </label>}
 
+                        {proposal.kind === 'new' && <label className="text-[10px] uppercase text-text-dim">
+                            Origin
+                            <select
+                                value={proposal.origin}
+                                onChange={event => state.updateAbilityProposal(proposal.id, { origin: event.target.value as AbilityProposal['origin'] })}
+                                className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case"
+                            >
+                                {ABILITY_ORIGINS.map(origin => <option key={origin} value={origin}>{ABILITY_ORIGIN_LABELS[origin]}</option>)}
+                            </select>
+                        </label>}
+
                         {(proposal.kind === 'assign' || proposal.kind === 'progression') && <label className="text-[10px] uppercase text-text-dim">
                             Mastery / Rank
                             <input
@@ -258,6 +375,17 @@ export function AbilityDiscoveryView() {
                                 className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case"
                             />
                         </label>}
+
+                        {proposal.kind === 'progression' && (() => {
+                            const ability = state.abilityCompendium.find(entry => entry.id === proposal.abilityId);
+                            return ability?.masteryLadder.length ? <label className="text-[10px] uppercase text-text-dim">
+                                Structured Mastery Tier
+                                <select value={proposal.masteryTierId} onChange={event => state.updateAbilityProposal(proposal.id, { masteryTierId: event.target.value })} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case">
+                                    <option value="">No tier change</option>
+                                    {ability.masteryLadder.map(tier => <option key={tier.id} value={tier.id}>{tier.name}</option>)}
+                                </select>
+                            </label> : null;
+                        })()}
                     </div>
 
                     {proposal.kind === 'new' && <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -275,6 +403,23 @@ export function AbilityDiscoveryView() {
                         Personal Modification
                         <input value={proposal.modification} onChange={event => state.updateAbilityProposal(proposal.id, { modification: event.target.value })} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case" />
                     </label>}
+
+                    {proposal.kind === 'progression' && (() => {
+                        const ability = state.abilityCompendium.find(entry => entry.id === proposal.abilityId);
+                        return <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <label className="text-[10px] uppercase text-text-dim">
+                                Unlock Upgrade
+                                <select value={proposal.upgradeId} onChange={event => state.updateAbilityProposal(proposal.id, { upgradeId: event.target.value })} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case">
+                                    <option value="">No upgrade</option>
+                                    {ability?.upgradeNodes.map(node => <option key={node.id} value={node.id}>{node.branch ? `${node.branch} · ` : ''}{node.name}</option>)}
+                                </select>
+                            </label>
+                            <label className="text-[10px] uppercase text-text-dim">
+                                Training Progress Gained
+                                <input type="number" min={0} value={proposal.trainingDelta} onChange={event => state.updateAbilityProposal(proposal.id, { trainingDelta: Math.max(0, Number(event.target.value) || 0) })} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case" />
+                            </label>
+                        </div>;
+                    })()}
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <label className="text-[10px] uppercase text-text-dim">

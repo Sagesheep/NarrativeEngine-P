@@ -53,7 +53,12 @@ const nullablePairs = (value, path, valueKey, errors) => {
             errors.push(`${path}[${index}].name is required`);
             return [];
         }
-        return [{ name, [valueKey]: detail }];
+        const normalized = { name, [valueKey]: detail };
+        if (valueKey === 'description') {
+            const abilityId = nullableText(item.abilityId, `${path}[${index}].abilityId`, errors);
+            if (abilityId) normalized.abilityId = abilityId;
+        }
+        return [normalized];
     });
 };
 

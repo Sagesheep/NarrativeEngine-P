@@ -37,4 +37,17 @@ describe('enemy compendium API schema', () => {
 
         expect(result.errors).toContain('enemies[0].name is required');
     });
+
+    it('keeps canonical ability references on enemy actions', () => {
+        const result = validateEnemyEntry({
+            name: 'Shield Rapture',
+            actions: [{ name: 'Pulse', description: 'Disrupts shields.', abilityId: 'rapture-pulse' }],
+        });
+        expect(result.errors).toEqual([]);
+        expect(result.value.actions).toEqual([{
+            name: 'Pulse',
+            description: 'Disrupts shields.',
+            abilityId: 'rapture-pulse',
+        }]);
+    });
 });

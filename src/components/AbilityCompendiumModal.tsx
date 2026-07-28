@@ -1,11 +1,13 @@
 import { useMemo, useRef, useState } from 'react';
 import { Copy, Download, Plus, Search, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import type { AbilityCost, AbilityEntry } from '../types';
-import { ABILITY_CATEGORIES, createEmptyAbilityEntry, normalizeAbilityEntries } from '../services/ability/abilitySchema';
+import type { AbilityCost, AbilityEntry, AbilityOrigin } from '../types';
+import { ABILITY_CATEGORIES, ABILITY_ORIGINS, ABILITY_ORIGIN_LABELS, createEmptyAbilityEntry, normalizeAbilityEntries } from '../services/ability/abilitySchema';
 import { toast } from './Toast';
 import { AbilityOwnershipView } from './AbilityOwnershipView';
 import { AbilityDiscoveryView } from './AbilityDiscoveryView';
+import { AbilityDefinitionProgressionEditor } from './AbilityDefinitionProgressionEditor';
+import { AbilityCrossSystemEditor } from './AbilityCrossSystemEditor';
 
 const lines = (value: string) => value.split('\n').map(item => item.trim()).filter(Boolean);
 
@@ -26,6 +28,7 @@ export function AbilityCompendiumModal() {
         removeAbility,
     } = useAppStore();
     const [query, setQuery] = useState('');
+    const [originFilter, setOriginFilter] = useState<'all' | AbilityOrigin>('all');
     const [view, setView] = useState<'library' | 'characters' | 'discoveries'>('library');
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [draft, setDraft] = useState<AbilityEntry>(() => createEmptyAbilityEntry());
@@ -34,11 +37,19 @@ export function AbilityCompendiumModal() {
     const shown = useMemo(() => {
         const q = query.toLocaleLowerCase().trim();
         return [...abilityCompendium]
+            .filter(ability => originFilter === 'all' || ability.origin === originFilter)
             .filter(ability => !q || [
-                ability.name, ability.aliases, ability.category, ability.tags.join(' '), ability.source,
+                ability.name, ability.aliases, ability.category, ability.origin,
+                ability.tags.join(' '), ability.interactionTags.join(' '), ability.counterTags.join(' '), ability.source,
             ].some(value => value.toLocaleLowerCase().includes(q)))
             .sort((a, b) => a.name.localeCompare(b.name));
-    }, [abilityCompendium, query]);
+    }, [abilityCompendium, originFilter, query]);
+
+    const originCounts = useMemo(() => {
+        const counts: Partial<Record<AbilityOrigin, number>> = {};
+        for (const ability of abilityCompendium) counts[ability.origin] = (counts[ability.origin] ?? 0) + 1;
+        return counts;
+    }, [abilityCompendium]);
 
     if (!abilityCompendiumOpen) return null;
 
@@ -119,10 +130,18 @@ export function AbilityCompendiumModal() {
                     </div>
                     <button onClick={() => select()} title="New ability" className="p-2 border border-border rounded hover:text-terminal"><Plus size={15} /></button>
                 </div>
+                <div className="px-3 pb-2 flex gap-1 overflow-x-auto">
+                    <button onClick={() => setOriginFilter('all')} className={`shrink-0 px-2 py-1 rounded border text-[9px] ${originFilter === 'all' ? 'border-terminal text-terminal bg-terminal/10' : 'border-border text-text-dim'}`}>
+                        All {abilityCompendium.length}
+                    </button>
+                    {ABILITY_ORIGINS.map(origin => <button key={origin} onClick={() => setOriginFilter(origin)} className={`shrink-0 px-2 py-1 rounded border text-[9px] ${originFilter === origin ? 'border-terminal text-terminal bg-terminal/10' : 'border-border text-text-dim'}`}>
+                        {ABILITY_ORIGIN_LABELS[origin]} {originCounts[origin] ?? 0}
+                    </button>)}
+                </div>
                 <div className="flex-1 overflow-y-auto">
                     {shown.map(ability => <button key={ability.id} onClick={() => select(ability)} className={`w-full text-left p-3 border-b border-border/50 ${selectedId === ability.id ? 'bg-terminal/10 text-terminal' : 'hover:bg-white/5'}`}>
                         <div className="font-semibold text-sm">{ability.name}</div>
-                        <div className="text-[10px] text-text-dim">{ability.category.replace('-', ' ')}</div>
+                        <div className="text-[10px] text-text-dim">{ABILITY_ORIGIN_LABELS[ability.origin]} · {ability.category.replace('-', ' ')}</div>
                     </button>)}
                     {!shown.length && <div className="p-6 text-center text-xs text-text-dim">No abilities found.</div>}
                 </div>
@@ -155,6 +174,7 @@ export function AbilityCompendiumModal() {
                         </select>
                     </label>
                     {field('Canon / Lore Source', 'source')}
+                    <AbilityCrossSystemEditor draft={draft} onChange={setDraft} />
                     <div className="col-span-2">{field('Core Effect', 'effect', true)}</div>
                     {field('Activation Requirements', 'activation', true)}
                     <label className="block text-[10px] uppercase tracking-wider text-text-dim">
@@ -165,6 +185,7 @@ export function AbilityCompendiumModal() {
                     {field('Duration', 'duration')}{field('Area', 'area')}
                     {listField('Limitations', 'limitations')}{listField('Counters', 'counters')}
                     {listField('Prerequisites', 'prerequisites')}{listField('Tags', 'tags')}
+                    <AbilityDefinitionProgressionEditor draft={draft} onChange={setDraft} />
                     <div className="col-span-2">{field('Outcome Guidance', 'outcomeGuidance', true)}</div>
                     {field('Description', 'description', true)}{field('Narrative Appearance', 'appearance', true)}
                     <div className="col-span-2">{field('GM Notes', 'gmNotes', true)}</div>

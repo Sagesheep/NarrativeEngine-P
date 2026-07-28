@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
 import { scanInventory } from '../../../services/inventoryParser';
 import { toast } from '../../Toast';
-import type { EndpointConfig, ProviderConfig, InventoryItemCategory, InventoryItem } from '../../../types';
+import type { AbilityEntry, EndpointConfig, ProviderConfig, InventoryItemCategory, InventoryItem } from '../../../types';
 import { normalizeInventoryItem } from '../../../types';
 
 const ALL_CATS: (InventoryItemCategory | 'all' | 'equipped')[] = ['all', 'equipped', 'weapon', 'armor', 'consumable', 'currency', 'key', 'misc'];
@@ -26,10 +26,12 @@ function SceneTag({ lastScene }: { lastScene: string }) {
 
 function InventoryRow({
     it,
+    linkedAbilities,
     onUpdate,
     onRemove,
 }: {
     it: InventoryItem;
+    linkedAbilities: AbilityEntry[];
     onUpdate: (id: string, patch: Partial<InventoryItem>) => void;
     onRemove: (id: string) => void;
 }) {
@@ -43,6 +45,9 @@ function InventoryRow({
                     onChange={(e) => onUpdate(it.id, { equipped: e.target.checked, locationTag: e.target.checked ? 'inventory' : it.locationTag })}
                     title="Equipped"
                 />
+                {linkedAbilities.length > 0 && <span className="text-[8px] px-1 rounded bg-sky-400/10 text-sky-300 shrink-0" title={`Grants: ${linkedAbilities.map(ability => ability.name).join(', ')}`}>
+                    {linkedAbilities.length} power{linkedAbilities.length === 1 ? '' : 's'}
+                </span>}
                 <button
                     onClick={() => setExpanded(!expanded)}
                     className="text-text-dim/40 hover:text-text-primary w-3 text-center"
@@ -86,6 +91,14 @@ function InventoryRow({
                             onChange={(e) => onUpdate(it.id, { locationTag: e.target.value })}
                         />
                     </div>
+                    {linkedAbilities.length > 0 && <div className="flex items-start gap-2">
+                        <span className="text-[9px] text-text-dim/50 w-14 shrink-0">Powers</span>
+                        <div className="flex flex-wrap gap-1">
+                            {linkedAbilities.map(ability => <span key={ability.id} className="text-[9px] px-1.5 py-0.5 rounded bg-sky-400/10 text-sky-300 border border-sky-400/20">
+                                {ability.name}{ability.inventoryRequiresEquipped ? ' · equipped' : ''}
+                            </span>)}
+                        </div>
+                    </div>}
                     <div className="flex items-center gap-2">
                         <span className="text-[9px] text-text-dim/50 w-14">Keywords</span>
                         <input
@@ -133,6 +146,7 @@ export function InventoryTab() {
     const archiveIndex = useAppStore((s) => s.archiveIndex);
 
     const inventoryItems = useAppStore((s) => s.inventoryItems ?? s.context.inventoryItems ?? []);
+    const abilityCompendium = useAppStore((s) => s.abilityCompendium);
     const setInventoryItems = useAppStore((s) => s.setInventoryItems);
     const getActiveStoryEndpoint = useAppStore((s) => s.getActiveStoryEndpoint);
 
@@ -286,6 +300,8 @@ export function InventoryTab() {
                                 <InventoryRow
                                     key={it.id}
                                     it={it}
+                                    linkedAbilities={abilityCompendium.filter(ability =>
+                                        ability.origin === 'item-granted' && ability.sourceInventoryItemId === it.id)}
                                     onUpdate={updateItem}
                                     onRemove={removeItem}
                                 />

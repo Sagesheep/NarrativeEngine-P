@@ -70,7 +70,12 @@ const optionalActions = (value: unknown): EnemyAction[] =>
             if (!isRecord(item)) return [];
             const name = optionalText(item.name);
             if (!name) return [];
-            return [{ name, description: optionalText(item.description) }];
+            const abilityId = optionalText(item.abilityId);
+            return [{
+                name,
+                description: optionalText(item.description),
+                ...(abilityId ? { abilityId } : {}),
+            }];
         })
         : [];
 

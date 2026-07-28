@@ -1,5 +1,5 @@
-import type { EnemyCombatConfig, EnemyEncounter, EnemyEncounterWave, EnemyInstance } from '../../types';
-import { fitEnemyRecordsToBudget } from './enemyPrompt';
+import type { AbilityEntry, EnemyCombatConfig, EnemyEncounter, EnemyEncounterWave, EnemyInstance } from '../../types';
+import { fitEnemyRecordsToBudget, renderEnemyAction } from './enemyPrompt';
 
 /** Creates an empty numbered wave for a new or existing encounter. */
 export function createEnemyEncounterWave(
@@ -45,6 +45,7 @@ export function buildActiveEncounterBlock(
     instances: EnemyInstance[] | undefined,
     combatConfig?: EnemyCombatConfig,
     tokenBudget = Infinity,
+    abilities: AbilityEntry[] = [],
 ): string {
     const encounter = encounters?.find(candidate => candidate.status === 'active');
     if (!encounter) return '';
@@ -97,7 +98,7 @@ export function buildActiveEncounterBlock(
         template.classification && `TYPE: ${template.classification}`,
         template.threatTier && `THREAT: ${template.threatTier}`,
         template.stats.length && `BASE STATS: ${template.stats.map(stat => `${stat.name} ${stat.value}`).join('; ')}`,
-        template.actions.length && `ACTIONS: ${template.actions.map(action => `${action.name} — ${action.description}`).join('; ')}`,
+        template.actions.length && `ACTIONS: ${template.actions.map(action => renderEnemyAction(action, abilities)).join('; ')}`,
         template.specialBehaviors.length && `SPECIAL: ${template.specialBehaviors.join('; ')}`,
         template.weaknesses.length && `WEAKNESSES: ${template.weaknesses.join('; ')}`,
         template.resistances.length && `RESISTANCES: ${template.resistances.join('; ')}`,
