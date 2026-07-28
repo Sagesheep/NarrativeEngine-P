@@ -86,7 +86,7 @@ export function AskGmPanel({ snapshot, utilityProvider, storyBusy, hasArmedBrief
                 <button onClick={close} title="Close Ask GM" className="text-text-dim hover:text-text-primary"><X size={18} /></button>
             </header>
             <div className="flex-1 overflow-y-auto p-3 space-y-3 font-mono text-sm">
-                {messages.length === 0 && <p className="text-text-dim text-xs">Ask the GM about campaign facts, past events, lore, or rules. This chat is kept only for this session.</p>}
+                {messages.length === 0 && <p className="text-text-dim text-xs">Ask the GM about your character, NPCs, places, enemies, past events, lore, or rules. This chat is kept only for this session.</p>}
                 {messages.map(message => <div key={message.id} className={message.role === 'user' ? 'text-ice' : 'text-text-primary'}>
                     <div className="text-[10px] uppercase tracking-wider text-text-dim">{message.role === 'user' ? 'You' : 'Ask GM'}</div>
                     <div className="whitespace-pre-wrap">{message.content || <Loader2 size={14} className="animate-spin mt-1" />}</div>
