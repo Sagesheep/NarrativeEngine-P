@@ -31,10 +31,28 @@ export function NPCGalleryView({ npcLedger, selectedId, selectMode, checkedIds, 
                         key={npc.id}
                         onClick={() => selectMode ? onToggleCheck(npc.id) : onSelect(npc)}
                         title={npc.faction ? `${npc.name} — ${npc.faction}` : npc.name}
-                        className={`relative aspect-[3/4] rounded overflow-hidden cursor-pointer border group transition-all ${isActive ? 'border-terminal ring-1 ring-terminal shadow-[0_0_15px_rgba(0,255,0,0.15)]' : isChecked ? 'border-terminal/50 ring-1 ring-terminal/30' : 'border-border hover:border-terminal/50'}`}
+                        className={`relative aspect-[2/3] rounded overflow-hidden cursor-pointer border group transition-all ${isActive ? 'border-terminal ring-1 ring-terminal shadow-[0_0_15px_rgba(0,255,0,0.15)]' : isChecked ? 'border-terminal/50 ring-1 ring-terminal/30' : 'border-border hover:border-terminal/50'}`}
                     >
                         {npc.portrait ? (
-                            <img src={npc.portrait} alt={npc.name} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                            /* Portraits are not one shape: generated ones are 2:3 (1024x1536),
+                               but card-style images come back wide (2816x1536). `object-cover`
+                               center-cropped those to the middle ~41% — which on a wide card
+                               image is background, not the character. `object-contain` always
+                               shows the whole portrait; the blurred copy behind it fills the
+                               letterbox so the card still reads as a solid tile. */
+                            <>
+                                <img
+                                    src={npc.portrait}
+                                    alt=""
+                                    aria-hidden="true"
+                                    className="absolute inset-0 w-full h-full object-cover scale-110 blur-md opacity-50"
+                                />
+                                <img
+                                    src={npc.portrait}
+                                    alt={npc.name}
+                                    className="relative w-full h-full object-contain transition-transform group-hover:scale-105"
+                                />
+                            </>
                         ) : (
                             <div className="w-full h-full bg-void-lighter flex flex-col items-center justify-center gap-2">
                                 <User size={32} className="text-text-dim/30" />
@@ -72,10 +90,13 @@ export function NPCGalleryView({ npcLedger, selectedId, selectMode, checkedIds, 
                             <div
                                 key={npc.id}
                                 onClick={() => selectMode ? onToggleCheck(npc.id) : onSelect(npc)}
-                                className={`relative aspect-[3/4] rounded overflow-hidden cursor-pointer border group transition-all opacity-40 hover:opacity-60 ${isChecked ? 'border-terminal/50 ring-1 ring-terminal/30' : 'border-border hover:border-terminal/50'}`}
+                                className={`relative aspect-[2/3] rounded overflow-hidden cursor-pointer border group transition-all opacity-40 hover:opacity-60 ${isChecked ? 'border-terminal/50 ring-1 ring-terminal/30' : 'border-border hover:border-terminal/50'}`}
                             >
                                 {npc.portrait ? (
-                                    <img src={npc.portrait} alt={npc.name} className="w-full h-full object-cover" />
+                                    <>
+                                        <img src={npc.portrait} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover scale-110 blur-md opacity-50" />
+                                        <img src={npc.portrait} alt={npc.name} className="relative w-full h-full object-contain" />
+                                    </>
                                 ) : (
                                     <div className="w-full h-full bg-void-lighter flex flex-col items-center justify-center gap-2">
                                         <User size={32} className="text-text-dim/20" />
