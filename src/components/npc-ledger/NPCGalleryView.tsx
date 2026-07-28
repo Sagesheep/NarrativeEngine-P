@@ -16,8 +16,10 @@ export function NPCGalleryView({ npcLedger, selectedId, selectMode, checkedIds, 
     const activeNpcs = npcLedger.filter(npc => !npc.archived);
     const archivedNpcs = npcLedger.filter(npc => npc.archived);
 
+    // Columns come from the container's real width, not the viewport: this grid lives in a
+    // fixed-width sidebar, so viewport breakpoints made cards *narrower* on bigger screens.
     return (
-        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 content-start">
+        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3 content-start">
             {activeNpcs.length === 0 && archivedNpcs.length === 0 && (
                 <p className="text-text-dim text-xs text-center p-4 italic opacity-50 col-span-full">No records found.</p>
             )}
@@ -39,7 +41,7 @@ export function NPCGalleryView({ npcLedger, selectedId, selectMode, checkedIds, 
                             </div>
                         )}
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-void via-void/80 to-transparent p-3 pt-8">
-                            <p className={`text-xs font-bold truncate ${isActive ? 'text-terminal glow-green-sm' : 'text-text-primary'}`}>{npc.name}</p>
+                            <p className={`text-xs font-bold leading-tight line-clamp-2 break-words ${isActive ? 'text-terminal glow-green-sm' : 'text-text-primary'}`}>{npc.name}</p>
                             {npc.faction && (
                                 <div className="flex flex-wrap gap-1 mt-0.5">
                                     {npc.faction.split(/[,;/]/).map(f => f.trim()).filter(Boolean).map((fac, idx) => (
@@ -85,7 +87,7 @@ export function NPCGalleryView({ npcLedger, selectedId, selectMode, checkedIds, 
                                     </div>
                                 )}
                                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-void via-void/80 to-transparent p-3 pt-8">
-                                    <p className="text-xs font-bold truncate text-text-dim line-through">{npc.name}</p>
+                                    <p className="text-xs font-bold leading-tight line-clamp-2 break-words text-text-dim line-through">{npc.name}</p>
                                 </div>
                                 {onRestore && !selectMode && (
                                     <button
