@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, AbilityEntry, CharacterAbility, AbilityRuntimeState, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyEncounterStatus, EnemyEncounterWave, EnemyCombatConfig, EnemySuggestion, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, AbilityEntry, CharacterAbility, AbilityRuntimeState, AbilityProposal, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyEncounterStatus, EnemyEncounterWave, EnemyCombatConfig, EnemySuggestion, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { createEnemyInstance } from '../../services/enemy/enemyInstance';
 import { createEnemyEncounter as makeEnemyEncounter, createEnemyEncounterWave } from '../../services/enemy/enemyEncounter';
@@ -54,9 +54,9 @@ function preOpBackup(campaignId: string | null, trigger: string) {
 // Getter registered by the slice creator so we always read fresh state at fire time.
 // This prevents stale-snapshot race conditions where two rapid updates within the 1s
 // debounce window would cause the first update's changes to be overwritten.
-let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; abilityCompendium: AbilityEntry[]; characterAbilities: CharacterAbility[]; abilityRuntimeStates: AbilityRuntimeState[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }) | null = null;
+let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; abilityCompendium: AbilityEntry[]; characterAbilities: CharacterAbility[]; abilityRuntimeStates: AbilityRuntimeState[]; abilityProposals: AbilityProposal[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }) | null = null;
 export function _registerCampaignStateGetter(
-    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; abilityCompendium: AbilityEntry[]; characterAbilities: CharacterAbility[]; abilityRuntimeStates: AbilityRuntimeState[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
+    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; abilityCompendium: AbilityEntry[]; characterAbilities: CharacterAbility[]; abilityRuntimeStates: AbilityRuntimeState[]; abilityProposals: AbilityProposal[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
 ) {
     _getStateForSave = getter;
 }
@@ -71,6 +71,7 @@ export function cancelPendingSaves() {
     if (abilityTimer) { clearTimeout(abilityTimer); abilityTimer = null; }
     if (characterAbilityTimer) { clearTimeout(characterAbilityTimer); characterAbilityTimer = null; }
     if (abilityRuntimeTimer) { clearTimeout(abilityRuntimeTimer); abilityRuntimeTimer = null; }
+    if (abilityProposalTimer) { clearTimeout(abilityProposalTimer); abilityProposalTimer = null; }
     if (enemyInstanceTimer) { clearTimeout(enemyInstanceTimer); enemyInstanceTimer = null; }
     if (enemyEncounterTimer) { clearTimeout(enemyEncounterTimer); enemyEncounterTimer = null; }
     if (enemyCombatTimer) { clearTimeout(enemyCombatTimer); enemyCombatTimer = null; }
@@ -81,7 +82,7 @@ export function cancelPendingSaves() {
  *  disk before a backup is created. Awaiting this guarantees the backup reads current data. */
 export async function flushAllPendingSaves(): Promise<void> {
     if (!_getStateForSave) return;
-    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, enemyCompendium, abilityCompendium, characterAbilities, abilityRuntimeStates, enemyInstances, enemyEncounters, enemyCombatConfig, locationLedger, pinnedExcerpts } = _getStateForSave();
+    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, enemyCompendium, abilityCompendium, characterAbilities, abilityRuntimeStates, abilityProposals, enemyInstances, enemyEncounters, enemyCombatConfig, locationLedger, pinnedExcerpts } = _getStateForSave();
     if (!activeCampaignId) return;
 
     const saves: Promise<unknown>[] = [];
@@ -156,6 +157,15 @@ export async function flushAllPendingSaves(): Promise<void> {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(abilityRuntimeStates),
         }).catch(e => console.error('[FlushSave] ability runtime failed:', e)));
+    }
+
+    if (abilityProposalTimer) {
+        clearTimeout(abilityProposalTimer);
+        abilityProposalTimer = null;
+        saves.push(fetch(`${API}/campaigns/${activeCampaignId}/ability-proposals`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(abilityProposals),
+        }).catch(e => console.error('[FlushSave] ability proposals failed:', e)));
     }
 
     if (enemyInstanceTimer) {
@@ -285,6 +295,18 @@ function debouncedSaveAbilityRuntimeStates(campaignId: string | null, entries: A
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(entries),
         }).catch((error) => { console.error(error); toast.error('Failed to save ability runtime state'); });
+    }, 1000);
+}
+
+let abilityProposalTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedSaveAbilityProposals(campaignId: string | null, entries: AbilityProposal[]) {
+    if (!campaignId) return;
+    if (abilityProposalTimer) clearTimeout(abilityProposalTimer);
+    abilityProposalTimer = setTimeout(() => {
+        fetch(`${API}/campaigns/${campaignId}/ability-proposals`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(entries),
+        }).catch((error) => { console.error(error); toast.error('Failed to save ability proposals'); });
     }, 1000);
 }
 
@@ -510,6 +532,12 @@ export type CampaignSlice = {
     upsertAbilityRuntimeState: (entry: AbilityRuntimeState) => void;
     removeAbilityRuntimeState: (characterAbilityId: string) => void;
     advanceAbilityRuntimeTurn: (characterAbilityId?: string) => void;
+    abilityProposals: AbilityProposal[];
+    setAbilityProposals: (entries: AbilityProposal[]) => void;
+    addAbilityProposals: (entries: Array<Omit<AbilityProposal, 'id' | 'createdAt' | 'updatedAt'>>) => void;
+    updateAbilityProposal: (id: string, patch: Partial<AbilityProposal>) => void;
+    dismissAbilityProposal: (id: string) => void;
+    clearAbilityProposals: () => void;
     enemySuggestions: EnemySuggestion[];
     addEnemySuggestions: (suggestions: Array<Omit<EnemySuggestion, 'id' | 'firstSeen' | 'context'>>, context?: string) => void;
     updateEnemySuggestion: (id: string, patch: Partial<EnemySuggestion>) => void;
@@ -611,7 +639,7 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     // not a stale closure snapshot from the time the action was called.
     _registerCampaignStateGetter(() => {
         const s = get();
-        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger, enemyCompendium: s.enemyCompendium, abilityCompendium: s.abilityCompendium, characterAbilities: s.characterAbilities, abilityRuntimeStates: s.abilityRuntimeStates, enemyInstances: s.enemyInstances, enemyEncounters: s.enemyEncounters, enemyCombatConfig: s.enemyCombatConfig, locationLedger: s.locationLedger, pinnedExcerpts: s.pinnedExcerpts };
+        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger, enemyCompendium: s.enemyCompendium, abilityCompendium: s.abilityCompendium, characterAbilities: s.characterAbilities, abilityRuntimeStates: s.abilityRuntimeStates, abilityProposals: s.abilityProposals, enemyInstances: s.enemyInstances, enemyEncounters: s.enemyEncounters, enemyCombatConfig: s.enemyCombatConfig, locationLedger: s.locationLedger, pinnedExcerpts: s.pinnedExcerpts };
     });
 
     return {
@@ -814,6 +842,7 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         const retainedAssignmentIds = new Set(characterAbilities.map(entry => entry.id));
         const abilityRuntimeStates = s.abilityRuntimeStates.filter(entry =>
             retainedAssignmentIds.has(entry.characterAbilityId));
+        const abilityProposals = s.abilityProposals.filter(entry => entry.abilityId !== id);
         debouncedSaveAbilityCompendium(s.activeCampaignId, abilities);
         if (characterAbilities.length !== s.characterAbilities.length) {
             debouncedSaveCharacterAbilities(s.activeCampaignId, characterAbilities);
@@ -821,7 +850,10 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         if (abilityRuntimeStates.length !== s.abilityRuntimeStates.length) {
             debouncedSaveAbilityRuntimeStates(s.activeCampaignId, abilityRuntimeStates);
         }
-        return { abilityCompendium: abilities, characterAbilities, abilityRuntimeStates } as Partial<CampaignDeps>;
+        if (abilityProposals.length !== s.abilityProposals.length) {
+            debouncedSaveAbilityProposals(s.activeCampaignId, abilityProposals);
+        }
+        return { abilityCompendium: abilities, characterAbilities, abilityRuntimeStates, abilityProposals } as Partial<CampaignDeps>;
     }),
     characterAbilities: [],
     setCharacterAbilities: (entries) => set((s) => {
@@ -896,6 +928,55 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         });
         debouncedSaveAbilityRuntimeStates(s.activeCampaignId, entries);
         return { abilityRuntimeStates: entries } as Partial<CampaignDeps>;
+    }),
+    abilityProposals: [],
+    setAbilityProposals: (entries) => set((s) => {
+        debouncedSaveAbilityProposals(s.activeCampaignId, entries);
+        return { abilityProposals: entries } as Partial<CampaignDeps>;
+    }),
+    addAbilityProposals: (incoming) => set((s) => {
+        const now = Date.now();
+        const keyOf = (entry: Pick<AbilityProposal, 'kind' | 'abilityId' | 'abilityName' | 'ownerType' | 'ownerId' | 'mastery' | 'modification'>) =>
+            [
+                entry.kind,
+                entry.abilityId || entry.abilityName.toLocaleLowerCase(),
+                entry.ownerType ?? '',
+                entry.ownerId,
+                entry.mastery.toLocaleLowerCase(),
+                entry.modification.toLocaleLowerCase(),
+            ].join(':');
+        const existing = new Set(s.abilityProposals.map(keyOf));
+        const fresh: AbilityProposal[] = [];
+        for (const proposal of incoming) {
+            const key = keyOf(proposal);
+            if (existing.has(key)) continue;
+            existing.add(key);
+            fresh.push({
+                ...proposal,
+                id: crypto.randomUUID(),
+                createdAt: now,
+                updatedAt: now,
+            });
+        }
+        if (!fresh.length) return {} as Partial<CampaignDeps>;
+        const entries = [...s.abilityProposals, ...fresh].slice(-50);
+        debouncedSaveAbilityProposals(s.activeCampaignId, entries);
+        return { abilityProposals: entries } as Partial<CampaignDeps>;
+    }),
+    updateAbilityProposal: (id, patch) => set((s) => {
+        const entries = s.abilityProposals.map(entry =>
+            entry.id === id ? { ...entry, ...patch, updatedAt: Date.now() } : entry);
+        debouncedSaveAbilityProposals(s.activeCampaignId, entries);
+        return { abilityProposals: entries } as Partial<CampaignDeps>;
+    }),
+    dismissAbilityProposal: (id) => set((s) => {
+        const entries = s.abilityProposals.filter(entry => entry.id !== id);
+        debouncedSaveAbilityProposals(s.activeCampaignId, entries);
+        return { abilityProposals: entries } as Partial<CampaignDeps>;
+    }),
+    clearAbilityProposals: () => set((s) => {
+        debouncedSaveAbilityProposals(s.activeCampaignId, []);
+        return { abilityProposals: [] } as Partial<CampaignDeps>;
     }),
     // Review-only discoveries. Nothing enters the canonical compendium until
     // the player accepts it in EnemyCompendiumModal.

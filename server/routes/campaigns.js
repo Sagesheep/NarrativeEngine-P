@@ -10,6 +10,7 @@ import { validateEnemyCompendium, validateEnemyInstances, validateEnemyEncounter
 import { validateAbilityCompendium } from '../lib/abilitySchema.js';
 import { validateCharacterAbilities } from '../lib/characterAbilitySchema.js';
 import { validateAbilityRuntimeStates } from '../lib/abilityRuntimeSchema.js';
+import { validateAbilityProposals } from '../lib/abilityProposalSchema.js';
 
 export function createCampaignsRouter() {
     const router = Router();
@@ -29,6 +30,7 @@ export function createCampaignsRouter() {
             !f.includes('.abilities') &&
             !f.includes('.known-abilities') &&
             !f.includes('.ability-runtime') &&
+            !f.includes('.ability-proposals') &&
             !f.includes('.enemy-instances') &&
             !f.includes('.enemy-encounters') &&
             !f.includes('.enemy-resolutions') &&
@@ -282,6 +284,24 @@ export function createCampaignsRouter() {
         }
         ensureDirs();
         writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.ability-runtime.json`), checked.value);
+        res.json({ ok: true });
+    }));
+
+    // Review-only AI discoveries. Accepting a proposal is a frontend action
+    // that writes canonical/ownership records through their existing routes.
+    router.get('/api/campaigns/:id/ability-proposals', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.ability-proposals.json`), []));
+    }));
+
+    router.put('/api/campaigns/:id/ability-proposals', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        const checked = validateAbilityProposals(req.body);
+        if (checked.errors.length) {
+            return res.status(400).json({ error: 'Invalid ability proposals', details: checked.errors });
+        }
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.ability-proposals.json`), checked.value);
         res.json({ ok: true });
     }));
 

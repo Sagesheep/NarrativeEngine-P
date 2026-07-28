@@ -1,6 +1,6 @@
 import { useAppStore } from './useAppStore';
 import {
-    loadCampaignState, getLoreChunks, getNPCLedger, getEnemyCompendium, getAbilityCompendium, getCharacterAbilities, getAbilityRuntimeStates, getEnemyInstances, getEnemyEncounters, getEnemyResolutions, getEnemyCombatConfig, getLocationLedger,
+    loadCampaignState, getLoreChunks, getNPCLedger, getEnemyCompendium, getAbilityCompendium, getCharacterAbilities, getAbilityRuntimeStates, getAbilityProposals, getEnemyInstances, getEnemyEncounters, getEnemyResolutions, getEnemyCombatConfig, getLocationLedger,
     loadArchiveIndex, loadTimeline, loadChapters, loadEntities,
     loadDivergenceRegister, saveDivergenceRegister, saveChapters,
     saveNPCLedger, saveCampaignState,
@@ -18,6 +18,7 @@ import { safeSceneNum } from '../utils/helpers';
 import { normalizeAbilityEntries } from '../services/ability/abilitySchema';
 import { normalizeCharacterAbilities } from '../services/ability/characterAbilitySchema';
 import { normalizeAbilityRuntimeStates } from '../services/ability/abilityRuntimeSchema';
+import { normalizeAbilityProposals } from '../services/ability/abilityProposalSchema';
 
 function backfillSceneIds(chapters: ArchiveChapter[]): { chapters: ArchiveChapter[]; changed: boolean } {
     let changed = false;
@@ -177,7 +178,7 @@ export function rebuildSceneStamps(
 }
 
 export async function hydrateCampaign(campaignId: string) {
-    const [state, chunks, npcs, enemies, abilities, characterAbilities, abilityRuntimeStates, enemyInstances, enemyEncounters, enemyResolutions, enemyCombatConfig, locations, archiveIndex, timeline, chapters, entities, divReg] = await Promise.all([
+    const [state, chunks, npcs, enemies, abilities, characterAbilities, abilityRuntimeStates, abilityProposals, enemyInstances, enemyEncounters, enemyResolutions, enemyCombatConfig, locations, archiveIndex, timeline, chapters, entities, divReg] = await Promise.all([
         loadCampaignState(campaignId),
         getLoreChunks(campaignId),
         getNPCLedger(campaignId),
@@ -185,6 +186,7 @@ export async function hydrateCampaign(campaignId: string) {
         getAbilityCompendium(campaignId),
         getCharacterAbilities(campaignId),
         getAbilityRuntimeStates(campaignId),
+        getAbilityProposals(campaignId),
         getEnemyInstances(campaignId),
         getEnemyEncounters(campaignId),
         getEnemyResolutions(campaignId),
@@ -270,6 +272,7 @@ export async function hydrateCampaign(campaignId: string) {
         abilityCompendium: normalizeAbilityEntries(abilities).entries,
         characterAbilities: normalizeCharacterAbilities(characterAbilities).entries,
         abilityRuntimeStates: normalizeAbilityRuntimeStates(abilityRuntimeStates).entries,
+        abilityProposals: normalizeAbilityProposals(abilityProposals).entries,
         enemySuggestions: [],
         enemyInstances: (enemyInstances ?? []).map(normalizeEnemyInstance),
         enemyEncounters: normalizeEnemyEncounters(enemyEncounters),

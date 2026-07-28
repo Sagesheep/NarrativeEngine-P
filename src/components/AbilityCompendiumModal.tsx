@@ -5,6 +5,7 @@ import type { AbilityCost, AbilityEntry } from '../types';
 import { ABILITY_CATEGORIES, createEmptyAbilityEntry, normalizeAbilityEntries } from '../services/ability/abilitySchema';
 import { toast } from './Toast';
 import { AbilityOwnershipView } from './AbilityOwnershipView';
+import { AbilityDiscoveryView } from './AbilityDiscoveryView';
 
 const lines = (value: string) => value.split('\n').map(item => item.trim()).filter(Boolean);
 
@@ -25,7 +26,7 @@ export function AbilityCompendiumModal() {
         removeAbility,
     } = useAppStore();
     const [query, setQuery] = useState('');
-    const [view, setView] = useState<'library' | 'characters'>('library');
+    const [view, setView] = useState<'library' | 'characters' | 'discoveries'>('library');
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [draft, setDraft] = useState<AbilityEntry>(() => createEmptyAbilityEntry());
     const importRef = useRef<HTMLInputElement>(null);
@@ -139,6 +140,7 @@ export function AbilityCompendiumModal() {
                         <div className="flex gap-3 mt-2">
                             <button onClick={() => setView('library')} className={`text-xs ${view === 'library' ? 'text-terminal' : 'text-text-dim'}`}>Library</button>
                             <button onClick={() => setView('characters')} className={`text-xs ${view === 'characters' ? 'text-terminal' : 'text-text-dim'}`}>Characters</button>
+                            <button onClick={() => setView('discoveries')} className={`text-xs ${view === 'discoveries' ? 'text-terminal' : 'text-text-dim'}`}>Discoveries</button>
                         </div>
                     </div>
                     <button onClick={toggleAbilityCompendium} aria-label="Close ability compendium"><X size={20} /></button>
@@ -178,7 +180,9 @@ export function AbilityCompendiumModal() {
                     </div>
                     <button onClick={save} className="px-5 py-2 bg-terminal text-void rounded text-xs font-bold">Save Definition</button>
                     </footer>
-                </> : <AbilityOwnershipView key={selectedId ?? 'unselected'} initialAbilityId={selectedId ?? ''} />}
+                </> : view === 'characters'
+                    ? <AbilityOwnershipView key={selectedId ?? 'unselected'} initialAbilityId={selectedId ?? ''} />
+                    : <AbilityDiscoveryView />}
             </main>
         </div>
     </div>;

@@ -19,6 +19,7 @@ import {
 import { validateAbilityCompendium } from '../lib/abilitySchema.js';
 import { validateCharacterAbilities } from '../lib/characterAbilitySchema.js';
 import { validateAbilityRuntimeStates } from '../lib/abilityRuntimeSchema.js';
+import { validateAbilityProposals } from '../lib/abilityProposalSchema.js';
 
 function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -82,6 +83,7 @@ export function createTransferRouter() {
         const abilities = readJson(path.join(CAMPAIGNS_DIR, `${id}.abilities.json`), []);
         const characterAbilities = readJson(path.join(CAMPAIGNS_DIR, `${id}.known-abilities.json`), []);
         const abilityRuntimeStates = readJson(path.join(CAMPAIGNS_DIR, `${id}.ability-runtime.json`), []);
+        const abilityProposals = readJson(path.join(CAMPAIGNS_DIR, `${id}.ability-proposals.json`), []);
         const enemyInstances = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemy-instances.json`), []);
         const enemyEncounters = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemy-encounters.json`), []);
         const enemyResolutions = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemy-resolutions.json`), []);
@@ -109,6 +111,7 @@ export function createTransferRouter() {
             abilities,
             characterAbilities,
             abilityRuntimeStates,
+            abilityProposals,
             enemyInstances,
             enemyEncounters,
             enemyResolutions,
@@ -148,10 +151,12 @@ export function createTransferRouter() {
         const abilityCheck = validateAbilityCompendium(bundle.abilities ?? []);
         const characterAbilityCheck = validateCharacterAbilities(bundle.characterAbilities ?? []);
         const abilityRuntimeCheck = validateAbilityRuntimeStates(bundle.abilityRuntimeStates ?? []);
+        const abilityProposalCheck = validateAbilityProposals(bundle.abilityProposals ?? []);
         if (enemyErrors.length
             || abilityCheck.errors.length
             || characterAbilityCheck.errors.length
-            || abilityRuntimeCheck.errors.length) {
+            || abilityRuntimeCheck.errors.length
+            || abilityProposalCheck.errors.length) {
             return res.status(400).json({
                 error: 'Malformed compendium data in campaign bundle',
                 details: [
@@ -159,6 +164,7 @@ export function createTransferRouter() {
                     ...abilityCheck.errors,
                     ...characterAbilityCheck.errors,
                     ...abilityRuntimeCheck.errors,
+                    ...abilityProposalCheck.errors,
                 ],
             });
         }
@@ -167,7 +173,7 @@ export function createTransferRouter() {
         // ID collision check — only match bare {id}.json metadata files
         const existingIds = new Set(
             fs.readdirSync(CAMPAIGNS_DIR)
-                .filter(f => f.endsWith('.json') && !f.includes('.state') && !f.includes('.lore') && !f.includes('.npcs') && !f.includes('.enemies') && !f.includes('.abilities') && !f.includes('.known-abilities') && !f.includes('.ability-runtime') && !f.includes('.enemy-instances') && !f.includes('.enemy-encounters') && !f.includes('.enemy-resolutions') && !f.includes('.enemy-combat') && !f.includes('.archive') && !f.includes('.index') && !f.includes('.timeline') && !f.includes('.entities') && !f.includes('.facts') && !f.includes('.overworld') && !f.includes('.chapters'))
+                .filter(f => f.endsWith('.json') && !f.includes('.state') && !f.includes('.lore') && !f.includes('.npcs') && !f.includes('.enemies') && !f.includes('.abilities') && !f.includes('.known-abilities') && !f.includes('.ability-runtime') && !f.includes('.ability-proposals') && !f.includes('.enemy-instances') && !f.includes('.enemy-encounters') && !f.includes('.enemy-resolutions') && !f.includes('.enemy-combat') && !f.includes('.archive') && !f.includes('.index') && !f.includes('.timeline') && !f.includes('.entities') && !f.includes('.facts') && !f.includes('.overworld') && !f.includes('.chapters'))
                 .map(f => f.slice(0, -5))
         );
         const originalId = bundle.campaign?.id;
@@ -209,6 +215,10 @@ export function createTransferRouter() {
 
         if (abilityRuntimeCheck.value?.length) {
             writeJson(path.join(CAMPAIGNS_DIR, `${newId}.ability-runtime.json`), abilityRuntimeCheck.value);
+        }
+
+        if (abilityProposalCheck.value?.length) {
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.ability-proposals.json`), abilityProposalCheck.value);
         }
 
         if (validEnemyInstances.value?.length) {

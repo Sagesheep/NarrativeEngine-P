@@ -20,6 +20,32 @@ export type AbilityCost = {
 
 export type AbilityOwnerType = 'pc' | 'npc';
 
+export type AbilityProposalKind = 'new' | 'assign' | 'progression';
+
+/**
+ * Review-only result produced by the Phase 4 discovery scan. Proposals are
+ * persisted independently and cannot affect canon or character progression
+ * until the player explicitly accepts them.
+ */
+export type AbilityProposal = {
+    id: string;
+    kind: AbilityProposalKind;
+    abilityId: string;
+    abilityName: string;
+    ownerType: AbilityOwnerType | null;
+    ownerId: string;
+    category: AbilityCategory;
+    effect: string;
+    activation: string;
+    mastery: string;
+    modification: string;
+    reason: string;
+    evidence: string;
+    sourceSceneId: string;
+    createdAt: number;
+    updatedAt: number;
+};
+
 /**
  * Character-specific ownership of a canonical definition. This is persistent
  * progression metadata only; mutable cooldowns, charges, and active effects
