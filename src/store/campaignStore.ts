@@ -1,4 +1,4 @@
-import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyCombatConfig, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
+import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, AbilityEntry, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyCombatConfig, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
 import { affinityToPcRelation } from '../services/npc/agency/agencyBands';
 
 import { API_BASE as API } from '../lib/apiBase';
@@ -167,6 +167,21 @@ export async function saveEnemyCompendium(campaignId: string, enemies: EnemyEntr
 
 export async function getEnemyCompendium(campaignId: string): Promise<EnemyEntry[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/enemies`);
+    return res.ok ? res.json() : [];
+}
+
+// ─── Ability & Power Compendium ───
+
+export async function saveAbilityCompendium(campaignId: string, abilities: AbilityEntry[]): Promise<void> {
+    await fetch(`${API}/campaigns/${campaignId}/abilities`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(abilities),
+    });
+}
+
+export async function getAbilityCompendium(campaignId: string): Promise<AbilityEntry[]> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/abilities`);
     return res.ok ? res.json() : [];
 }
 

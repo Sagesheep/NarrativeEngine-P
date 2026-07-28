@@ -2,7 +2,7 @@ export function computeBudgets(
     limit: number,
     rulesBudgetPct: number | undefined,
     hasDeepContext: boolean
-): { rulesBudget: number; budgetMap: { stable: number; world: number; volatile: number; npc: number; enemy: number } } {
+): { rulesBudget: number; budgetMap: { stable: number; world: number; volatile: number; npc: number; enemy: number; ability: number } } {
     const rulesBudget = Math.floor(limit * (rulesBudgetPct ?? 0.10));
     const remainingAfterRules = limit - rulesBudget;
 
@@ -18,6 +18,10 @@ export function computeBudgets(
     // appended on top of an already-full prompt. The hard ceiling prevents very
     // large context windows from turning compendium entries into prompt bloat.
     const enemy = Math.min(1024, Math.floor(limit * 0.025));
+    // Canonical ability definitions are mention-gated and priority-trimmed.
+    // Keep their allowance smaller than encounter state while still leaving
+    // enough room for costs, limits, and outcome guidance.
+    const ability = Math.min(768, Math.floor(limit * 0.02));
 
     const budgetMap = hasDeepContext
         ? {
@@ -26,6 +30,7 @@ export function computeBudgets(
             volatile: Math.floor(remainingAfterRules * 0.10),
             npc,
             enemy,
+            ability,
         }
         : {
             stable: Math.floor(remainingAfterRules * 0.25),
@@ -33,6 +38,7 @@ export function computeBudgets(
             volatile: Math.floor(remainingAfterRules * 0.10),
             npc,
             enemy,
+            ability,
         };
 
     return { rulesBudget, budgetMap };

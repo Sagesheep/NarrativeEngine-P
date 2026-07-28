@@ -330,6 +330,7 @@ async function buildFallbackPayload(opts: {
             relevantLore: gathered.relevantLore,
             npcLedger: store.npcLedger,
             enemyCompendium: store.enemyCompendium,
+            abilityCompendium: store.abilityCompendium,
             enemyInstances: store.enemyInstances,
             enemyEncounters: store.enemyEncounters,
             enemyCombatConfig: store.enemyCombatConfig,

@@ -8,6 +8,7 @@ import { ChatArea } from './components/ChatArea';
 import { SettingsModal } from './components/SettingsModal';
 import { NPCLedgerModal } from './components/NPCLedgerModal';
 import { EnemyCompendiumModal } from './components/EnemyCompendiumModal';
+import { AbilityCompendiumModal } from './components/AbilityCompendiumModal';
 import { CharacterLedgerModal } from './components/character/CharacterLedgerModal';
 import { LocationLedgerModal } from './components/LocationLedgerModal';
 import { BackupModal } from './components/BackupModal';
@@ -165,6 +166,7 @@ export default function App() {
       <SettingsModal />
       <NPCLedgerModal />
       <EnemyCompendiumModal />
+      <AbilityCompendiumModal />
       <CharacterLedgerModal />
       <LocationLedgerModal />
       <BackupModal />

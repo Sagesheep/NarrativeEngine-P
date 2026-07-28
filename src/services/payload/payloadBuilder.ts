@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyCombatConfig, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, EnemyEntry, AbilityEntry, EnemyInstance, EnemyEncounter, EnemyCombatConfig, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import { createTraceCollector } from './traceCollector';
 import { computeBudgets } from './budgets';
@@ -14,6 +14,7 @@ import type { ElevatedScene } from '../archive-memory/dynamicElevation';
 import type { SlottedRagSnippet } from '../archive-memory/slottedRag';
 import { buildRelevantEnemyBlock } from '../enemy/enemyPrompt';
 import { buildActiveEncounterBlock } from '../enemy/enemyEncounter';
+import { buildRelevantAbilityBlock } from '../ability/abilityPrompt';
 
 export type BuildPayloadOptions = {
     settings: AppSettings;
@@ -24,6 +25,7 @@ export type BuildPayloadOptions = {
     relevantLore?: LoreChunk[];
     npcLedger?: NPCEntry[];
     enemyCompendium?: EnemyEntry[];
+    abilityCompendium?: AbilityEntry[];
     enemyInstances?: EnemyInstance[];
     enemyEncounters?: EnemyEncounter[];
     enemyCombatConfig?: EnemyCombatConfig;
@@ -79,6 +81,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         relevantLore,
         npcLedger,
         enemyCompendium,
+        abilityCompendium,
         enemyInstances,
         enemyEncounters,
         enemyCombatConfig,
@@ -131,6 +134,19 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             preview: enemyBlock,
         });
     }
+    const abilityBlock = buildRelevantAbilityBlock(abilityCompendium, history, userMessage, budgetMap.ability);
+    const abilityTokens = countTokens(abilityBlock);
+    if (abilityBlock) {
+        collector.addTrace({
+            source: 'Ability & Power Compendium',
+            classification: 'stable_truth',
+            tokens: abilityTokens,
+            reason: `Exact-name matched canonical ability rules (budget ${budgetMap.ability} tokens)`,
+            included: true,
+            position: 'user',
+            preview: abilityBlock,
+        });
+    }
     const fitted = buildHistory({
         history,
         condensedUpToIndex,
@@ -138,7 +154,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         limit,
         stableTokens: stableTokens + divergenceTokens,
         currentWorldTokens,
-        volatileTokens: volatileTokens + enemyTokens,
+        volatileTokens: volatileTokens + enemyTokens + abilityTokens,
         context,
         collector,
         // WO-09: plumb the existing `chapters`, `archiveIndex`, `onStageNpcIds`
@@ -191,7 +207,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
     // so they ride in the volatile block below the cache boundary — not in stable. Mirrors
     // mobileApp. Only verbatim full-rules fallback stays in stable (byte-identical across turns).
     const GM_REMINDER = '[GM REMINDER: NPCs push back when their wants/boundaries are crossed. Do not default to facilitation.]';
-    const volatileBlock = [retrievedRulesContent, worldContent, enemyBlock, volatileContent].filter(Boolean).join('\n\n');
+    const volatileBlock = [retrievedRulesContent, worldContent, enemyBlock, abilityBlock, volatileContent].filter(Boolean).join('\n\n');
     const askGmBrief = formatAskGmBrief(nextTurnOocBrief);
 
     // Absolute Command v1: build the binding OOC block (or '' when absent). When

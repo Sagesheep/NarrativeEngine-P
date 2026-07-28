@@ -7,6 +7,7 @@ import { storeLoreEmbedding, deleteCampaignEmbeddings } from '../lib/vectorStore
 import { startJob, tickJob, endJob } from '../lib/embedJobs.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 import { validateEnemyCompendium, validateEnemyInstances, validateEnemyEncounters, validateEnemyResolutions, validateEnemyCombatConfig } from '../lib/enemySchema.js';
+import { validateAbilityCompendium } from '../lib/abilitySchema.js';
 
 export function createCampaignsRouter() {
     const router = Router();
@@ -23,6 +24,7 @@ export function createCampaignsRouter() {
             !f.includes('.lore') &&
             !f.includes('.npcs') &&
             !f.includes('.enemies') &&
+            !f.includes('.abilities') &&
             !f.includes('.enemy-instances') &&
             !f.includes('.enemy-encounters') &&
             !f.includes('.enemy-resolutions') &&
@@ -223,6 +225,24 @@ export function createCampaignsRouter() {
         }
         ensureDirs();
         writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemies.json`), checked.value);
+        res.json({ ok: true });
+    }));
+
+    // ─── Ability & Power Compendium ───────────────────────────────────
+
+    router.get('/api/campaigns/:id/abilities', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.abilities.json`), []));
+    }));
+
+    router.put('/api/campaigns/:id/abilities', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        const checked = validateAbilityCompendium(req.body);
+        if (checked.errors.length) {
+            return res.status(400).json({ error: 'Invalid ability compendium', details: checked.errors });
+        }
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.abilities.json`), checked.value);
         res.json({ ok: true });
     }));
 

@@ -1,4 +1,4 @@
-import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Users, Archive, Save, Pin, Cpu, MapPin, UserCircle, Swords } from 'lucide-react';
+import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Users, Archive, Save, Pin, Cpu, MapPin, UserCircle, Swords, Sparkles } from 'lucide-react';
 import { createBackup } from '../store/campaignStore';
 import { flushAllPendingSaves } from '../store/slices/campaignSlice';
 import { toast } from './Toast';
@@ -18,6 +18,7 @@ export function Header() {
         toggleDrawer,
         toggleNPCLedger,
         toggleEnemyCompendium,
+        toggleAbilityCompendium,
         togglePCPanel,
         toggleLocationLedger,
         toggleBackupModal,
@@ -141,6 +142,16 @@ export function Header() {
                 >
                     <Swords size={13} />
                     <span className="hidden sm:inline">{t('header.enemyCompendium.label', { state: enemyScannerState })}</span>
+                </button>
+
+                <button
+                    onClick={toggleAbilityCompendium}
+                    className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
+                    title={t('header.abilityCompendium.tooltip')}
+                    aria-label={t('header.abilityCompendium.aria')}
+                >
+                    <Sparkles size={13} />
+                    <span className="hidden sm:inline">{t('header.abilityCompendium.label')}</span>
                 </button>
 
                 <button
