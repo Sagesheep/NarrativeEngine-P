@@ -26,7 +26,7 @@ import {
 } from '../lib/nlp.js';
 import { normalizeEntityName } from '../lib/entityResolution.js';
 import { withCampaignLock } from '../lib/writeLock.js';
-import { CAMPAIGNS_DIR, ensureDirs, validateCampaignId, readJson } from '../lib/fileStore.js';
+import { CAMPAIGNS_DIR, ensureDirs, validateCampaignId, readJson, writeJson, divergencePath } from '../lib/fileStore.js';
 
 import {
     appendSceneBlock, readArchiveMd, writeArchiveMd, archiveMdExists, deleteFiles,
@@ -45,6 +45,10 @@ import {
     searchArchiveCandidates, searchLoreCandidates,
 } from './vectorService.js';
 import { archiveEvents, ARCHIVE_WRITTEN } from './archiveEvents.js';
+import {
+    CHAPTER_SCENE_TARGET, sceneNumbersFromIndex, computeRefit,
+    repairChaptersAfterSceneDelete, repointChapterIds, nextChapterNumber, formatChapterId,
+} from './chapterFitting.js';
 
 // ─── Electron shell (lazy, optional) ───────────────────────────────────────
 // Loaded at module init exactly like the original archive.js. Stays null outside
@@ -179,9 +183,9 @@ export async function appendScene(campaignId, payload) {
         let openChapter = chapters.find(c => !c.sealedAt);
 
         if (!openChapter) {
-            const nextNum = chapters.length + 1;
+            const nextNum = nextChapterNumber(chapters);
             openChapter = createDefaultChapter(
-                `CH${String(nextNum).padStart(2, '0')}`,
+                formatChapterId(nextNum),
                 `Chapter ${nextNum}`,
                 sceneId,
                 1,
@@ -429,9 +433,9 @@ export function rollbackScenesFrom(campaignId, sceneIdParam) {
 
         const openChapter = chapters.find(ch => !ch.sealedAt);
         if (!openChapter) {
-            const nextNum = chapters.length + 1;
+            const nextNum = nextChapterNumber(chapters);
             chapters.push(createDefaultChapter(
-                `CH${String(nextNum).padStart(2, '0')}`,
+                formatChapterId(nextNum),
                 `Chapter ${nextNum}`,
                 fromId,
             ));
@@ -511,25 +515,144 @@ export function deleteScene(campaignId, sceneIdParam) {
     // Drop the embedding (non-fatal)
     try { deleteArchiveEmbedding(campaignId, targetId); } catch (e) { /* non-fatal */ }
 
-    // Repair the chapter that contained this scene
+    // Repair the chapters' scene counts.
+    //
+    // This used to look the containing chapter up via `sceneIds` and decrement
+    // by one — but the desktop append path never populates `sceneIds` (it only
+    // maintains `sceneCount` and `sceneRange`), so the lookup always missed and
+    // the repair never ran. Counts only ever went up.
+    //
+    // Recomputing from the index instead is both correct and self-healing: it
+    // fixes chapters that drifted before this fix landed, not just the one
+    // scene being deleted right now.
+    //
+    // Boundaries are deliberately NOT reflowed here. A chapter that drops to 24
+    // scenes stays at 24 until the user asks for a refit — reflowing would
+    // cascade into every later chapter and silently spend a burst of LLM calls
+    // re-summarizing them.
     const cp = chaptersPath(campaignId);
     let chapterRepaired = false;
     if (fs.existsSync(cp)) {
-        const chapters = readChapters(campaignId, []);
-        let touched = false;
-        for (const ch of chapters) {
-            const had = (ch.sceneIds ?? []).some(idEq);
-            if (!had) continue;
-            ch.sceneIds = (ch.sceneIds ?? []).filter(id => !idEq(id));
-            ch.sceneCount = Math.max(0, (ch.sceneCount ?? 0) - 1);
-            if (ch.sealedAt) { ch.invalidated = true; delete ch.sealedAt; }
-            touched = true;
+        const sceneNums = sceneNumbersFromIndex(readIndexAt(idxp, []));
+        const { chapters: repaired, changed } = repairChaptersAfterSceneDelete(
+            readChapters(campaignId, []), sceneNums, targetId,
+        );
+        if (changed) {
+            writeChapters(campaignId, repaired);
             chapterRepaired = true;
         }
-        if (touched) writeChapters(campaignId, chapters);
     }
 
     return { ok: true, removedSceneId: targetId, sceneExisted, chapterRepaired };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 8.5 Chapter refit — reflow boundaries to CHAPTER_SCENE_TARGET scenes each
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Preview a refit without writing anything.
+ *
+ * The UI calls this to fill in the confirm dialog, because the cost of a refit
+ * is not the boundary rewrite (free) but the summaries it invalidates — each
+ * one is an LLM call the user is about to pay for. They get told the number
+ * before they commit to it.
+ */
+export function previewRefitChapters(campaignId) {
+    validateCampaignId(campaignId);
+    const sceneNums = sceneNumbersFromIndex(readIndex(campaignId, []));
+    const chapters = readChapters(campaignId, []);
+    const { firstChangedIndex, changedCount, chapters: fitted, removedChapterIds } =
+        computeRefit(chapters, sceneNums, CHAPTER_SCENE_TARGET);
+
+    return {
+        wouldChange: firstChangedIndex >= 0 || removedChapterIds.length > 0,
+        firstChangedIndex,
+        changedCount,
+        removedChapterIds,
+        totalScenes: sceneNums.length,
+        chapterCountBefore: chapters.length,
+        chapterCountAfter: fitted.length,
+        target: CHAPTER_SCENE_TARGET,
+    };
+}
+
+/**
+ * Reflow chapter boundaries so each holds exactly CHAPTER_SCENE_TARGET scenes,
+ * with the remainder left open at the end.
+ *
+ * Manual only — nothing calls this automatically. Scene deletes repair counts
+ * (see `deleteScene`) but deliberately leave boundaries alone, so a chapter can
+ * sit at 23 scenes indefinitely until the user asks for this.
+ *
+ * Embeddings are untouched: archive vectors are keyed by `scene_id`, and refit
+ * moves windows, not scenes.
+ */
+export async function refitChapters(campaignId) {
+    validateCampaignId(campaignId);
+    ensureDirs();
+
+    return withCampaignLock(campaignId, () => {
+        const sceneNums = sceneNumbersFromIndex(readIndex(campaignId, []));
+        const before = readChapters(campaignId, []);
+        const { chapters: fitted, firstChangedIndex, changedCount, sceneToChapter, removedChapterIds } =
+            computeRefit(before, sceneNums, CHAPTER_SCENE_TARGET);
+
+        if (firstChangedIndex < 0 && removedChapterIds.length === 0) {
+            return {
+                ok: true, changed: false, changedCount: 0,
+                removedChapterIds: [], divergenceRepointed: 0, timelineRepointed: 0,
+                chapters: before,
+            };
+        }
+
+        writeChapters(campaignId, fitted);
+
+        // A scene can land in a different chapter than the one that stamped its
+        // facts. Left alone, those records would attribute to the wrong chapter
+        // in the payload, silently — nothing validates the stamp.
+        let timelineRepointed = 0;
+        if (timelineExists(campaignId)) {
+            const { records, repointed } = repointChapterIds(
+                readTimeline(campaignId, []), sceneToChapter, 'sceneId',
+            );
+            if (repointed > 0) writeTimeline(campaignId, records);
+            timelineRepointed = repointed;
+        }
+
+        let divergenceRepointed = 0;
+        const dp = divergencePath(campaignId);
+        const register = readJson(dp, null);
+        if (register && Array.isArray(register.entries)) {
+            const { records, repointed } = repointChapterIds(
+                register.entries, sceneToChapter, 'sceneRef',
+            );
+            // Toggles for chapters that no longer exist would otherwise sit in
+            // the register forever, and silently suppress a chapter that later
+            // reuses the id.
+            const chapterToggles = { ...(register.chapterToggles ?? {}) };
+            const categoryToggles = { ...(register.categoryToggles ?? {}) };
+            for (const id of removedChapterIds) {
+                delete chapterToggles[id];
+                delete categoryToggles[id];
+            }
+            if (repointed > 0 || removedChapterIds.length > 0) {
+                writeJson(dp, { ...register, entries: records, chapterToggles, categoryToggles });
+            }
+            divergenceRepointed = repointed;
+        }
+
+        return {
+            ok: true,
+            changed: true,
+            changedCount,
+            firstChangedIndex,
+            removedChapterIds,
+            divergenceRepointed,
+            timelineRepointed,
+            chapters: fitted,
+        };
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
