@@ -37,13 +37,17 @@ export function ChatArea() {
     const activeUtilityProvider = useAppStore(s => s.getActiveUtilityEndpoint?.());
     const semanticFacts = useAppStore(s => s.semanticFacts ?? []);
 
-    const { settings, loreChunks, npcLedger, archiveIndex, chapters } = useAppStore(
+    const { settings, loreChunks, npcLedger, archiveIndex, chapters, locationLedger, enemyCompendium, enemyInstances, enemyEncounters } = useAppStore(
         useShallow(s => ({
             settings: s.settings,
             loreChunks: s.loreChunks,
             npcLedger: s.npcLedger,
             archiveIndex: s.archiveIndex,
             chapters: s.chapters,
+            locationLedger: s.locationLedger,
+            enemyCompendium: s.enemyCompendium,
+            enemyInstances: s.enemyInstances,
+            enemyEncounters: s.enemyEncounters,
         }))
     );
 
@@ -271,6 +275,10 @@ export function ChatArea() {
                         loreChunks,
                         archiveIndex,
                         npcLedger,
+                        locationLedger,
+                        enemyCompendium,
+                        enemyInstances,
+                        enemyEncounters,
                     }}
                     utilityProvider={activeUtilityProvider}
                     hasArmedBrief={armedAskGmBrief?.campaignId === activeCampaignId}
