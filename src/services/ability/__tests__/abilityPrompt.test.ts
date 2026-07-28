@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AbilityEntry, ChatMessage } from '../../../types';
+import type { AbilityEntry, CharacterAbility, ChatMessage, NPCEntry } from '../../../types';
 import { createEmptyAbilityEntry } from '../abilitySchema';
 import { buildRelevantAbilityBlock } from '../abilityPrompt';
 
@@ -42,5 +42,43 @@ describe('ability prompt selection', () => {
         ], [], 'Use Ash Step.', 45);
         expect(output).toContain('ABILITY: Ash Step');
         expect(output).not.toContain('GM NOTES');
+    });
+
+    it('annotates PC and on-stage NPC variants without changing canon', () => {
+        const ashStep = ability('Ash Step');
+        const owned = (ownerType: 'pc' | 'npc', ownerId: string, patch: Partial<CharacterAbility> = {}): CharacterAbility => ({
+            id: `${ownerId}-ash`,
+            abilityId: ashStep.id,
+            ownerType,
+            ownerId,
+            mastery: '',
+            variantName: '',
+            modifications: [],
+            learnedSceneId: '',
+            notes: '',
+            promptEnabled: true,
+            createdAt: 1,
+            updatedAt: 1,
+            ...patch,
+        });
+        const hero = { id: 'hero', name: 'Kael' } as NPCEntry;
+        const marcus = { id: 'marcus', name: 'Marcus' } as NPCEntry;
+        const offstage = { id: 'sable', name: 'Sable' } as NPCEntry;
+
+        const output = buildRelevantAbilityBlock([ashStep], [], 'I use Ash Step.', 1000, 4, {
+            characterAbilities: [
+                owned('pc', 'hero', { mastery: 'Adept', variantName: 'Cinder Walk' }),
+                owned('npc', 'marcus', { modifications: ['Can carry one passenger'] }),
+                owned('npc', 'sable', { mastery: 'Master' }),
+            ],
+            playerCharacter: hero,
+            npcLedger: [marcus, offstage],
+            onStageNpcIds: ['marcus'],
+        });
+
+        expect(output).toContain('KNOWN BY: Kael | MASTERY: Adept | VARIANT: Cinder Walk');
+        expect(output).toContain('OWNER MODIFICATIONS (Marcus): Can carry one passenger');
+        expect(output).not.toContain('Sable');
+        expect(output).toContain('EFFECT: Relocate through an existing flame.');
     });
 });

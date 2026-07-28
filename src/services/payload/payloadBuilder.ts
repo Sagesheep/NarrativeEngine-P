@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, EnemyEntry, AbilityEntry, EnemyInstance, EnemyEncounter, EnemyCombatConfig, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, EnemyEntry, AbilityEntry, CharacterAbility, EnemyInstance, EnemyEncounter, EnemyCombatConfig, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import { createTraceCollector } from './traceCollector';
 import { computeBudgets } from './budgets';
@@ -26,6 +26,7 @@ export type BuildPayloadOptions = {
     npcLedger?: NPCEntry[];
     enemyCompendium?: EnemyEntry[];
     abilityCompendium?: AbilityEntry[];
+    characterAbilities?: CharacterAbility[];
     enemyInstances?: EnemyInstance[];
     enemyEncounters?: EnemyEncounter[];
     enemyCombatConfig?: EnemyCombatConfig;
@@ -82,6 +83,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         npcLedger,
         enemyCompendium,
         abilityCompendium,
+        characterAbilities,
         enemyInstances,
         enemyEncounters,
         enemyCombatConfig,
@@ -134,7 +136,19 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             preview: enemyBlock,
         });
     }
-    const abilityBlock = buildRelevantAbilityBlock(abilityCompendium, history, userMessage, budgetMap.ability);
+    const abilityBlock = buildRelevantAbilityBlock(
+        abilityCompendium,
+        history,
+        userMessage,
+        budgetMap.ability,
+        undefined,
+        {
+            characterAbilities,
+            playerCharacter: context.playerCharacter,
+            npcLedger,
+            onStageNpcIds,
+        },
+    );
     const abilityTokens = countTokens(abilityBlock);
     if (abilityBlock) {
         collector.addTrace({

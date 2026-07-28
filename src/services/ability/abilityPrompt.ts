@@ -1,7 +1,14 @@
-import type { AbilityEntry, ChatMessage } from '../../types';
+import type { AbilityEntry, CharacterAbility, ChatMessage, NPCEntry } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
 
 export const MAX_RELEVANT_ABILITY_MATCHES = 4;
+
+export type AbilityOwnershipContext = {
+    characterAbilities?: CharacterAbility[];
+    playerCharacter?: NPCEntry | null;
+    npcLedger?: NPCEntry[];
+    onStageNpcIds?: string[];
+};
 
 const normalizedWords = (value: string): string[] =>
     value.normalize('NFKC').toLocaleLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
@@ -16,7 +23,8 @@ const containsExactPhrase = (textWords: string[], phrase: string): boolean => {
 
 /**
  * Selects only enabled definitions named in the current or ten most recent
- * messages, then adds priority-ordered lines without exceeding the hard cap.
+ * messages. PC, on-stage NPC, and explicitly named-owner assignments annotate
+ * the definition with personal mastery and variants without changing canon.
  */
 export function buildRelevantAbilityBlock(
     abilities: AbilityEntry[] | undefined,
@@ -24,6 +32,7 @@ export function buildRelevantAbilityBlock(
     userMessage: string,
     tokenBudget = Infinity,
     maxMatches = MAX_RELEVANT_ABILITY_MATCHES,
+    ownership: AbilityOwnershipContext = {},
 ): string {
     if (!abilities?.length || tokenBudget <= 0 || maxMatches <= 0) return '';
     const textWords = normalizedWords(`${history.slice(-10).map(message => message.content ?? '').join(' ')} ${userMessage}`);
@@ -34,14 +43,37 @@ export function buildRelevantAbilityBlock(
     }).slice(0, maxMatches);
     if (!relevant.length) return '';
 
-    const header = '[RELEVANT ABILITY RULES — canonical definitions]';
+    const header = '[RELEVANT ABILITY RULES — canonical definitions and owner-specific variants]';
     const footer = '[END ABILITY RULES]';
     const rendered: string[] = [];
 
     for (const ability of relevant) {
+        const owned = (ownership.characterAbilities ?? [])
+            .filter(entry => entry.abilityId === ability.id && entry.promptEnabled !== false)
+            .flatMap(entry => {
+                const owner = entry.ownerType === 'pc'
+                    ? ownership.playerCharacter?.id === entry.ownerId ? ownership.playerCharacter : null
+                    : ownership.npcLedger?.find(npc => npc.id === entry.ownerId) ?? null;
+                if (!owner) return [];
+                const explicitlyMentioned = containsExactPhrase(textWords, owner.name);
+                const active = entry.ownerType === 'pc' || ownership.onStageNpcIds?.includes(owner.id);
+                if (!active && !explicitlyMentioned) return [];
+                return [{ entry, owner, priority: entry.ownerType === 'pc' ? 0 : active ? 1 : 2 }];
+            })
+            .sort((a, b) => a.priority - b.priority || a.owner.name.localeCompare(b.owner.name))
+            .slice(0, 3);
+
+        const ownershipLines = owned.flatMap(({ entry, owner }) => [
+            `KNOWN BY: ${owner.name}${entry.mastery ? ` | MASTERY: ${entry.mastery}` : ''}${entry.variantName ? ` | VARIANT: ${entry.variantName}` : ''}`,
+            entry.modifications.length && `OWNER MODIFICATIONS (${owner.name}): ${entry.modifications.join('; ')}`,
+            entry.learnedSceneId && `LEARNED (${owner.name}): scene ${entry.learnedSceneId}`,
+            entry.notes && `OWNERSHIP NOTES (${owner.name}): ${entry.notes}`,
+        ].filter((line): line is string => Boolean(line)));
+
         const lines = [
             `ABILITY: ${ability.name}`,
             `CATEGORY: ${ability.category}`,
+            ...ownershipLines,
             ability.effect && `EFFECT: ${ability.effect}`,
             ability.activation && `ACTIVATION: ${ability.activation}`,
             ability.costs.length && `COSTS: ${ability.costs.map(cost =>

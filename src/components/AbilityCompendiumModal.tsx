@@ -4,6 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import type { AbilityCost, AbilityEntry } from '../types';
 import { ABILITY_CATEGORIES, createEmptyAbilityEntry, normalizeAbilityEntries } from '../services/ability/abilitySchema';
 import { toast } from './Toast';
+import { AbilityOwnershipView } from './AbilityOwnershipView';
 
 const lines = (value: string) => value.split('\n').map(item => item.trim()).filter(Boolean);
 
@@ -24,6 +25,7 @@ export function AbilityCompendiumModal() {
         removeAbility,
     } = useAppStore();
     const [query, setQuery] = useState('');
+    const [view, setView] = useState<'library' | 'characters'>('library');
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [draft, setDraft] = useState<AbilityEntry>(() => createEmptyAbilityEntry());
     const importRef = useRef<HTMLInputElement>(null);
@@ -107,8 +109,8 @@ export function AbilityCompendiumModal() {
     );
 
     return <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-        <div className="w-full max-w-[95vw] h-[88vh] bg-void-lighter border border-border rounded flex overflow-hidden">
-            <aside className="w-80 border-r border-border flex flex-col">
+        <div className="w-full max-w-[95vw] h-[88vh] bg-void-lighter border border-border rounded flex flex-col md:flex-row overflow-hidden">
+            <aside className="w-full h-44 md:w-80 md:h-auto border-b md:border-b-0 md:border-r border-border flex flex-col shrink-0">
                 <div className="p-3 flex gap-2">
                     <div className="relative flex-1">
                         <Search size={13} className="absolute left-2 top-2.5 text-text-dim" />
@@ -129,15 +131,20 @@ export function AbilityCompendiumModal() {
                     <input ref={importRef} type="file" accept=".json,application/json" hidden onChange={event => void importJson(event.target.files?.[0])} />
                 </div>
             </aside>
-            <main className="flex-1 flex flex-col min-w-0">
+            <main className="flex-1 flex flex-col min-w-0 min-h-0">
                 <header className="p-4 border-b border-border flex items-center justify-between">
                     <div>
                         <h2 className="font-bold uppercase tracking-wider flex items-center gap-2"><Sparkles size={16} />Ability &amp; Power Compendium</h2>
-                        <p className="text-xs text-text-dim mt-1">Canonical definitions; ownership and runtime state arrive in later phases.</p>
+                        <p className="text-xs text-text-dim mt-1">Canonical definitions and character-specific ownership.</p>
+                        <div className="flex gap-3 mt-2">
+                            <button onClick={() => setView('library')} className={`text-xs ${view === 'library' ? 'text-terminal' : 'text-text-dim'}`}>Library</button>
+                            <button onClick={() => setView('characters')} className={`text-xs ${view === 'characters' ? 'text-terminal' : 'text-text-dim'}`}>Characters</button>
+                        </div>
                     </div>
                     <button onClick={toggleAbilityCompendium} aria-label="Close ability compendium"><X size={20} /></button>
                 </header>
-                <div className="flex-1 overflow-y-auto p-5 grid grid-cols-2 gap-4">
+                {view === 'library' ? <>
+                    <div className="flex-1 overflow-y-auto p-5 grid grid-cols-2 gap-4">
                     {field('Name', 'name')}{field('Aliases (comma separated)', 'aliases')}
                     <label className="block text-[10px] uppercase tracking-wider text-text-dim">
                         Category
@@ -163,14 +170,15 @@ export function AbilityCompendiumModal() {
                         <input type="checkbox" checked={draft.promptEnabled} onChange={event => setDraft({ ...draft, promptEnabled: event.target.checked })} className="mr-2" />
                         Inject this definition when its exact name or alias appears in recent play
                     </label>
-                </div>
-                <footer className="p-4 border-t border-border flex justify-between">
+                    </div>
+                    <footer className="p-4 border-t border-border flex justify-between">
                     <div className="flex gap-2">
                         <button onClick={duplicate} disabled={!draft.name} className="px-3 py-2 border border-border rounded text-xs disabled:opacity-30"><Copy size={13} className="inline mr-1" />Duplicate</button>
                         {selectedId && <button onClick={() => { removeAbility(selectedId); select(); }} className="px-3 py-2 border border-ember text-ember rounded text-xs"><Trash2 size={13} className="inline mr-1" />Delete</button>}
                     </div>
                     <button onClick={save} className="px-5 py-2 bg-terminal text-void rounded text-xs font-bold">Save Definition</button>
-                </footer>
+                    </footer>
+                </> : <AbilityOwnershipView key={selectedId ?? 'unselected'} initialAbilityId={selectedId ?? ''} />}
             </main>
         </div>
     </div>;

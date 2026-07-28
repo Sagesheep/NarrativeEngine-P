@@ -25,6 +25,44 @@ describe('ability compendium campaign files', () => {
         fs.writeFileSync(path.join(store.CAMPAIGNS_DIR, 'test.json'), '{}');
         fs.writeFileSync(path.join(store.CAMPAIGNS_DIR, 'test.abilities.json'), '[]');
         expect(store.campaignFiles('test')).toContain('test.abilities.json');
+        fs.writeFileSync(path.join(store.CAMPAIGNS_DIR, 'test.known-abilities.json'), '[]');
+        expect(store.campaignFiles('test')).toContain('test.known-abilities.json');
+    });
+
+    it('validates and persists character ownership separately from definitions', async () => {
+        vi.doMock('../lib/embedder.js', () => ({
+            embedText: vi.fn(),
+            buildLoreText: vi.fn(),
+            resolveIndexingSpeed: vi.fn(() => ({ batchSize: 1, delayMs: 0 })),
+        }));
+        vi.doMock('../lib/vectorStore.js', () => ({
+            storeLoreEmbedding: vi.fn(),
+            deleteCampaignEmbeddings: vi.fn(),
+        }));
+        vi.doMock('../lib/embedJobs.js', () => ({
+            startJob: vi.fn(),
+            tickJob: vi.fn(),
+            endJob: vi.fn(),
+        }));
+        const { createCampaignsRouter } = await import('../routes/campaigns.js?' + Date.now());
+        const app = express();
+        app.use(express.json());
+        app.use(createCampaignsRouter());
+        const ownership = [{
+            abilityId: 'ash-step',
+            ownerType: 'npc',
+            ownerId: 'marcus',
+            mastery: 'Adept',
+            variantName: 'Cinder Passage',
+        }];
+
+        await request(app).put('/api/campaigns/test/known-abilities').send(ownership).expect(200);
+        const response = await request(app).get('/api/campaigns/test/known-abilities').expect(200);
+        expect(response.body[0]).toEqual(expect.objectContaining(ownership[0]));
+
+        await request(app).put('/api/campaigns/test/known-abilities')
+            .send([{ abilityId: 'ash-step', ownerType: 'npc' }])
+            .expect(400);
     });
 
     it('validates, persists, and reads canonical definitions', async () => {
@@ -81,6 +119,7 @@ describe('ability compendium campaign files', () => {
         fs.mkdirSync(store.CAMPAIGNS_DIR, { recursive: true });
         fs.writeFileSync(path.join(store.CAMPAIGNS_DIR, 'source.json'), JSON.stringify({ id: 'source', name: 'Source' }));
         fs.writeFileSync(path.join(store.CAMPAIGNS_DIR, 'source.abilities.json'), JSON.stringify([{ id: 'ash', name: 'Ash Step' }]));
+        fs.writeFileSync(path.join(store.CAMPAIGNS_DIR, 'source.known-abilities.json'), JSON.stringify([{ id: 'known', abilityId: 'ash', ownerType: 'pc', ownerId: 'hero' }]));
 
         const { createTransferRouter } = await import('../routes/transfer.js?' + Date.now());
         const app = express();
@@ -89,10 +128,13 @@ describe('ability compendium campaign files', () => {
 
         const exported = await request(app).get('/api/campaigns/source/export').expect(200);
         expect(exported.body.abilities).toEqual([{ id: 'ash', name: 'Ash Step' }]);
+        expect(exported.body.characterAbilities).toEqual([{ id: 'known', abilityId: 'ash', ownerType: 'pc', ownerId: 'hero' }]);
 
         exported.body.campaign.id = 'imported';
         await request(app).post('/api/campaigns/import').send(exported.body).expect(200);
         expect(JSON.parse(fs.readFileSync(path.join(store.CAMPAIGNS_DIR, 'imported.abilities.json'), 'utf8')))
             .toEqual([{ id: 'ash', name: 'Ash Step' }]);
+        expect(JSON.parse(fs.readFileSync(path.join(store.CAMPAIGNS_DIR, 'imported.known-abilities.json'), 'utf8')))
+            .toEqual([{ id: 'known', abilityId: 'ash', ownerType: 'pc', ownerId: 'hero' }]);
     });
 });

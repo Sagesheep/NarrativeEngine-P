@@ -1,4 +1,4 @@
-import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, AbilityEntry, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyCombatConfig, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
+import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, AbilityEntry, CharacterAbility, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyCombatConfig, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt, LocationEntry } from '../types';
 import { affinityToPcRelation } from '../services/npc/agency/agencyBands';
 
 import { API_BASE as API } from '../lib/apiBase';
@@ -182,6 +182,19 @@ export async function saveAbilityCompendium(campaignId: string, abilities: Abili
 
 export async function getAbilityCompendium(campaignId: string): Promise<AbilityEntry[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/abilities`);
+    return res.ok ? res.json() : [];
+}
+
+export async function saveCharacterAbilities(campaignId: string, entries: CharacterAbility[]): Promise<void> {
+    await fetch(`${API}/campaigns/${campaignId}/known-abilities`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entries),
+    });
+}
+
+export async function getCharacterAbilities(campaignId: string): Promise<CharacterAbility[]> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/known-abilities`);
     return res.ok ? res.json() : [];
 }
 

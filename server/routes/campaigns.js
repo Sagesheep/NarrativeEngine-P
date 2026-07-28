@@ -8,6 +8,7 @@ import { startJob, tickJob, endJob } from '../lib/embedJobs.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 import { validateEnemyCompendium, validateEnemyInstances, validateEnemyEncounters, validateEnemyResolutions, validateEnemyCombatConfig } from '../lib/enemySchema.js';
 import { validateAbilityCompendium } from '../lib/abilitySchema.js';
+import { validateCharacterAbilities } from '../lib/characterAbilitySchema.js';
 
 export function createCampaignsRouter() {
     const router = Router();
@@ -25,6 +26,7 @@ export function createCampaignsRouter() {
             !f.includes('.npcs') &&
             !f.includes('.enemies') &&
             !f.includes('.abilities') &&
+            !f.includes('.known-abilities') &&
             !f.includes('.enemy-instances') &&
             !f.includes('.enemy-encounters') &&
             !f.includes('.enemy-resolutions') &&
@@ -243,6 +245,24 @@ export function createCampaignsRouter() {
         }
         ensureDirs();
         writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.abilities.json`), checked.value);
+        res.json({ ok: true });
+    }));
+
+    // ─── Character Ability Ownership ──────────────────────────────────
+
+    router.get('/api/campaigns/:id/known-abilities', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.known-abilities.json`), []));
+    }));
+
+    router.put('/api/campaigns/:id/known-abilities', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        const checked = validateCharacterAbilities(req.body);
+        if (checked.errors.length) {
+            return res.status(400).json({ error: 'Invalid character abilities', details: checked.errors });
+        }
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.known-abilities.json`), checked.value);
         res.json({ ok: true });
     }));
 

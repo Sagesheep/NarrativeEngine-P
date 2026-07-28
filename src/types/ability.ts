@@ -18,6 +18,28 @@ export type AbilityCost = {
     condition: string;
 };
 
+export type AbilityOwnerType = 'pc' | 'npc';
+
+/**
+ * Character-specific ownership of a canonical definition. This is persistent
+ * progression metadata only; mutable cooldowns, charges, and active effects
+ * remain out of scope until the runtime-state phase.
+ */
+export type CharacterAbility = {
+    id: string;
+    abilityId: string;
+    ownerType: AbilityOwnerType;
+    ownerId: string;
+    mastery: string;
+    variantName: string;
+    modifications: string[];
+    learnedSceneId: string;
+    notes: string;
+    promptEnabled: boolean;
+    createdAt: number;
+    updatedAt: number;
+};
+
 /**
  * Campaign-scoped canonical ability definition.
  * Ownership, mastery, cooldowns, charges, and other mutable character state

@@ -338,6 +338,7 @@ export function buildTurnPayload(
         npcLedger,
         enemyCompendium: state.enemyCompendium,
         abilityCompendium: state.abilityCompendium,
+        characterAbilities: state.characterAbilities,
         enemyInstances: state.enemyInstances,
         enemyEncounters: state.enemyEncounters,
         enemyCombatConfig: state.enemyCombatConfig,
