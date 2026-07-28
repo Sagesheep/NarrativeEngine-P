@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildPayload } from '../payload/payloadBuilder';
 import { DEFAULT_RULES } from '../rules/defaultRules';
+import { DEFAULT_ENEMY_COMBAT_CONFIG } from '../enemy/enemyCombat';
 import type {
     GameContext,
     AppSettings,
@@ -12,6 +13,9 @@ import type {
     TimelineEvent,
     DivergenceRegister,
     ChatMessage,
+    EnemyEntry,
+    EnemyInstance,
+    EnemyEncounter,
 } from '../../types';
 
 const baseContext = (): GameContext => ({
@@ -1432,5 +1436,90 @@ describe('buildPayload — Director Brief (WO-04)', () => {
         // No Director trace for an empty Brief.
         const directorTrace = (result.trace ?? []).find(t => t.source === 'Director');
         expect(directorTrace).toBeUndefined();
+    });
+});
+
+describe('buildPayload — active encounter roster', () => {
+    const enemyTemplate = (id: string, name: string): EnemyEntry => ({
+        id, name, aliases: '', classification: 'Rapture', description: '',
+        threatTier: 'Standard', tags: [], faction: '',
+        stats: [{ name: 'HP', value: '45' }], actions: [],
+        passiveTraits: [], specialBehaviors: [], weaknesses: [], resistances: [],
+        tactics: '', loot: '', gmNotes: '', promptEnabled: true,
+        createdAt: 1, updatedAt: 1,
+    });
+
+    it('uses only the active wave roster instead of name-matched templates', () => {
+        const activeTemplate = enemyTemplate('active-template', 'Active Gunner');
+        const mentionedReserve = enemyTemplate('reserve-template', 'Reserve Gunner');
+        const activeInstance: EnemyInstance = {
+            id: 'active-1',
+            templateId: activeTemplate.id,
+            templateSnapshot: activeTemplate,
+            displayName: 'Active Gunner #1',
+            currentHp: 12,
+            maxHp: 45,
+            currentBarrier: 0,
+            maxBarrier: 0,
+            conditions: [],
+            temporaryModifiers: [],
+            defeated: false,
+            initiative: null,
+            actionsRemaining: 1,
+            actionsPerTurn: 1,
+            cooldowns: [],
+            resources: [],
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const encounter: EnemyEncounter = {
+            id: 'encounter-1',
+            name: 'Current Battle',
+            status: 'active',
+            waves: [{
+                id: 'wave-1',
+                name: 'Wave 1',
+                instanceIds: [activeInstance.id],
+                activeInstanceIds: [activeInstance.id],
+                createdAt: 1,
+                updatedAt: 1,
+            }],
+            activeWaveId: 'wave-1',
+            createdAt: 1,
+            updatedAt: 1,
+        };
+
+        const result = buildPayload({
+            settings: baseSettings(),
+            context: baseContext(),
+            history: [],
+            userMessage: 'I remember the Reserve Gunner.',
+            enemyCompendium: [mentionedReserve],
+            enemyInstances: [activeInstance],
+            enemyEncounters: [encounter],
+        });
+        const finalUser = [...result.messages].reverse().find(message => message.role === 'user')?.content ?? '';
+
+        expect(finalUser).toContain('[ACTIVE ENCOUNTER — authoritative live state]');
+        expect(finalUser).toContain('INSTANCE: Active Gunner #1');
+        expect(finalUser).toContain('STATE: HP 12/45');
+        expect(finalUser).not.toContain('[RELEVANT ENEMY TEMPLATES');
+        expect(finalUser).not.toContain('ENEMY: Reserve Gunner');
+    });
+
+    it('omits both encounter and compendium context when the campaign master switch is off', () => {
+        const mentioned = enemyTemplate('orc-template', 'Orc Warrior');
+        const result = buildPayload({
+            settings: baseSettings(),
+            context: baseContext(),
+            history: [],
+            userMessage: 'The Orc Warrior attacks.',
+            enemyCompendium: [mentioned],
+            enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, promptContextEnabled: false },
+        });
+        const finalUser = [...result.messages].reverse().find(message => message.role === 'user')?.content ?? '';
+
+        expect(finalUser).not.toContain('[RELEVANT ENEMY TEMPLATES');
+        expect(finalUser).not.toContain('ENEMY: Orc Warrior');
     });
 });

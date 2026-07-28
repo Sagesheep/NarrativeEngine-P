@@ -187,6 +187,7 @@ function buildCommitCallbacks(activeCampaignId: string): TurnCallbacks {
         updateNPC: (id, patch) => useAppStore.getState().updateNPC(id, patch),
         addNPC: (npc) => useAppStore.getState().addNPC(npc),
         addNpcSuggestions: (names, ctx) => useAppStore.getState().addNpcSuggestions(names, ctx),
+        addEnemySuggestions: (suggestions, ctx) => useAppStore.getState().addEnemySuggestions(suggestions, ctx),
         setCondensed: (upToIndex) => useAppStore.getState().setCondensed(upToIndex),
         setStreaming: () => {},
         setLastPayloadTrace: useAppStore.getState().setLastPayloadTrace,

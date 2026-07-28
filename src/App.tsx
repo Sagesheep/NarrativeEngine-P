@@ -7,6 +7,7 @@ import { ContextDrawer } from './components/ContextDrawer';
 import { ChatArea } from './components/ChatArea';
 import { SettingsModal } from './components/SettingsModal';
 import { NPCLedgerModal } from './components/NPCLedgerModal';
+import { EnemyCompendiumModal } from './components/EnemyCompendiumModal';
 import { CharacterLedgerModal } from './components/character/CharacterLedgerModal';
 import { LocationLedgerModal } from './components/LocationLedgerModal';
 import { BackupModal } from './components/BackupModal';
@@ -163,6 +164,7 @@ export default function App() {
       {/* <MapPanel /> */}
       <SettingsModal />
       <NPCLedgerModal />
+      <EnemyCompendiumModal />
       <CharacterLedgerModal />
       <LocationLedgerModal />
       <BackupModal />

@@ -6,6 +6,7 @@ import { embedText, buildLoreText, resolveIndexingSpeed } from '../lib/embedder.
 import { storeLoreEmbedding, deleteCampaignEmbeddings } from '../lib/vectorStore.js';
 import { startJob, tickJob, endJob } from '../lib/embedJobs.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
+import { validateEnemyCompendium } from '../lib/enemySchema.js';
 
 export function createCampaignsRouter() {
     const router = Router();
@@ -21,6 +22,11 @@ export function createCampaignsRouter() {
             !f.includes('.state') &&
             !f.includes('.lore') &&
             !f.includes('.npcs') &&
+            !f.includes('.enemies') &&
+            !f.includes('.enemy-instances') &&
+            !f.includes('.enemy-encounters') &&
+            !f.includes('.enemy-resolutions') &&
+            !f.includes('.enemy-combat') &&
             !f.includes('.locations') &&
             !f.includes('.archive') &&
             !f.includes('.index')
@@ -197,6 +203,88 @@ export function createCampaignsRouter() {
         ensureDirs();
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
         writeJson(filePath, req.body);
+        res.json({ ok: true });
+    }));
+
+    // ═══════════════════════════════════════════
+    //  Enemy Compendium
+    // ═══════════════════════════════════════════
+
+    router.get('/api/campaigns/:id/enemies', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemies.json`), []));
+    }));
+
+    router.put('/api/campaigns/:id/enemies', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        const checked = validateEnemyCompendium(req.body);
+        if (checked.errors.length) {
+            return res.status(400).json({ error: 'Invalid enemy compendium', details: checked.errors });
+        }
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemies.json`), checked.value);
+        res.json({ ok: true });
+    }));
+
+    // ─── Enemy Instances ────────────────────────────────────────────────
+
+    router.get('/api/campaigns/:id/enemy-instances', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-instances.json`), []));
+    }));
+
+    router.put('/api/campaigns/:id/enemy-instances', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Enemy instances must be an array' });
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-instances.json`), req.body);
+        res.json({ ok: true });
+    }));
+
+    // ─── Enemy Encounters ───────────────────────────────────────────────
+
+    router.get('/api/campaigns/:id/enemy-encounters', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-encounters.json`), []));
+    }));
+
+    router.put('/api/campaigns/:id/enemy-encounters', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Enemy encounters must be an array' });
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-encounters.json`), req.body);
+        res.json({ ok: true });
+    }));
+
+    // ─── Enemy Encounter Resolutions ─────────────────────────────────────────
+
+    router.get('/api/campaigns/:id/enemy-resolutions', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-resolutions.json`), []));
+    }));
+
+    router.put('/api/campaigns/:id/enemy-resolutions', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Enemy resolutions must be an array' });
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-resolutions.json`), req.body);
+        res.json({ ok: true });
+    }));
+
+    // ─── Optional Enemy Combat Configuration ─────────────────────────────────
+
+    router.get('/api/campaigns/:id/enemy-combat', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-combat.json`), null));
+    }));
+
+    router.put('/api/campaigns/:id/enemy-combat', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        if (!req.body || Array.isArray(req.body) || typeof req.body !== 'object') {
+            return res.status(400).json({ error: 'Enemy combat configuration must be an object' });
+        }
+        ensureDirs();
+        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-combat.json`), req.body);
         res.json({ ok: true });
     }));
 

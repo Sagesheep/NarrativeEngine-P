@@ -13,4 +13,4 @@ export * from './arc';
 export * from './loot';
 export * from './location';
 export * from './sceneImage';
-
+export * from './enemy';

@@ -19,6 +19,7 @@ import { toast } from '../../components/Toast';
 import { mergeLifecycleEntries, EMPTY_REGISTER } from '../campaign-state/divergenceRegister';
 import { saveDivergenceRegister } from '../../store/campaignStore';
 import { tierAllows, NPC_UPDATE_COOLDOWN } from './aiTier';
+import { detectEnemySuggestions } from '../enemy/enemySuggestions';
 
 const PRESENT_HEADER_RE = /👥\s*\[Present\]\s*(.+)/i;
 
@@ -167,6 +168,7 @@ export async function runPostTurnPipeline(
     const results = await Promise.allSettled([
         runArchiveTrack(state, callbacks, displayInput, lastAssistantContent, allMsgs, activeCampaignId, options?.verifyExistingScene === true),
         runNPCTrack(state, callbacks, lastAssistantContent, allMsgs, npcLedger, activeCampaignId),
+        runEnemySuggestionTrack(state, callbacks, lastAssistantContent, activeCampaignId),
         runPressureTrack(state, callbacks, displayInput, npcLedger, activeCampaignId, lastAssistantContent),
     ]);
 
@@ -929,4 +931,29 @@ async function runPressureTrack(
             }
         }
     }
+}
+
+/**
+ * Runs the conservative utility-model enemy scan after a committed turn. The
+ * campaign guard prevents late results from leaking into a newly opened game.
+ */
+async function runEnemySuggestionTrack(
+    state: TurnState,
+    callbacks: TurnCallbacks,
+    lastAssistantContent: string,
+    activeCampaignId: string,
+): Promise<void> {
+    if (state.enemyCombatConfig?.enemyDiscoveryEnabled !== true || !callbacks.addEnemySuggestions) return;
+    const provider = state.getFreshProvider();
+    if (!provider) return;
+
+    backgroundQueue.push('Enemy-Discovery', async () => {
+        const suggestions = await detectEnemySuggestions(provider, lastAssistantContent, state.enemyCompendium ?? []);
+        if (!suggestions.length) return;
+        if (useAppStore.getState().activeCampaignId !== activeCampaignId) {
+            console.warn('[Enemy Discovery] Dropping suggestions because the active campaign changed.');
+            return;
+        }
+        callbacks.addEnemySuggestions?.(suggestions, lastAssistantContent);
+    }).catch(error => console.warn('[Enemy Discovery] Background scan failed:', error));
 }
