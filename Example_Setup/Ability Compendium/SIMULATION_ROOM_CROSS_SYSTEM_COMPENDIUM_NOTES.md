@@ -58,4 +58,3 @@ Burst.
 
 Importing replaces the current canonical library. Export the existing library
 before testing this variant.
-

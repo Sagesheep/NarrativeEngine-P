@@ -73,4 +73,3 @@ Before considering the system ready, make sure it answers:
 - Are lore-only powers blocked until their claims are verified?
 - Are item powers lost naturally when the granting item is unavailable?
 - Do enemy abilities follow the same canonical rules as player abilities?
-

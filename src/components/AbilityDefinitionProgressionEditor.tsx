@@ -99,4 +99,3 @@ export function AbilityDefinitionProgressionEditor({ draft, onChange }: Props) {
         </div>
     </div>;
 }
-

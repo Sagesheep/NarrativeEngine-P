@@ -157,8 +157,14 @@ export function createTransferRouter() {
             || characterAbilityCheck.errors.length
             || abilityRuntimeCheck.errors.length
             || abilityProposalCheck.errors.length) {
+            const hasAbilityErrors = abilityCheck.errors.length
+                || characterAbilityCheck.errors.length
+                || abilityRuntimeCheck.errors.length
+                || abilityProposalCheck.errors.length;
             return res.status(400).json({
-                error: 'Malformed compendium data in campaign bundle',
+                error: enemyErrors.length && !hasAbilityErrors
+                    ? 'Malformed enemy data in campaign bundle'
+                    : 'Malformed compendium data in campaign bundle',
                 details: [
                     ...enemyErrors,
                     ...abilityCheck.errors,

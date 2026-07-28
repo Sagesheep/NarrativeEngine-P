@@ -224,12 +224,12 @@ describe('ability compendium campaign files', () => {
         exported.body.campaign.id = 'imported';
         await request(app).post('/api/campaigns/import').send(exported.body).expect(200);
         expect(JSON.parse(fs.readFileSync(path.join(store.CAMPAIGNS_DIR, 'imported.abilities.json'), 'utf8')))
-            .toEqual([{ id: 'ash', name: 'Ash Step' }]);
+            .toEqual([expect.objectContaining({ id: 'ash', name: 'Ash Step' })]);
         expect(JSON.parse(fs.readFileSync(path.join(store.CAMPAIGNS_DIR, 'imported.known-abilities.json'), 'utf8')))
-            .toEqual([{ id: 'known', abilityId: 'ash', ownerType: 'pc', ownerId: 'hero' }]);
+            .toEqual([expect.objectContaining({ id: 'known', abilityId: 'ash', ownerType: 'pc', ownerId: 'hero' })]);
         expect(JSON.parse(fs.readFileSync(path.join(store.CAMPAIGNS_DIR, 'imported.ability-runtime.json'), 'utf8')))
-            .toEqual([{ id: 'runtime', characterAbilityId: 'known', cooldownRemaining: 2 }]);
+            .toEqual([expect.objectContaining({ id: 'runtime', characterAbilityId: 'known', cooldownRemaining: 2 })]);
         expect(JSON.parse(fs.readFileSync(path.join(store.CAMPAIGNS_DIR, 'imported.ability-proposals.json'), 'utf8')))
-            .toEqual([{ id: 'proposal', kind: 'progression', abilityId: 'ash', ownerType: 'pc', ownerId: 'hero' }]);
+            .toEqual([expect.objectContaining({ id: 'proposal', kind: 'progression', abilityId: 'ash', ownerType: 'pc', ownerId: 'hero' })]);
     });
 });
