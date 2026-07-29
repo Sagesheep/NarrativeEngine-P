@@ -1,0 +1,14 @@
+{
+  "id": "example-grimdark-tone",
+  "name": "Grimdark Tone",
+  "version": "1.0.0",
+  "description": "Harsher consequences. Wounds persist between scenes and mercy costs something.",
+  "contributions": [
+    {
+      "id": "tone",
+      "order": 250,
+      "budget": 120,
+      "text": "Tone: unforgiving. Injuries persist between scenes, favours are never free, and mercy costs the one who gives it."
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "id": "example-tavern-mood",
+  "name": "Tavern Mood",
+  "version": "1.0.0",
+  "appVersion": ">=1.0.0",
+  "description": "Adds crowd texture in taverns and inns, but stays quiet once a fight starts.",
+  "contributions": [
+    {
+      "id": "ambient",
+      "order": 250,
+      "budget": 80,
+      "when": {
+        "location": ["Tavern", "Inn", "Alehouse"],
+        "inCombat": false
+      },
+      "text": "The room in {{location}} is loud and close. Conversations carry further than the speakers think, and a stranger's face is remembered."
+    },
+    {
+      "id": "witnesses",
+      "order": 260,
+      "budget": 60,
+      "when": {
+        "location": ["Tavern", "Inn", "Alehouse"],
+        "inCombat": true
+      },
+      "text": "A fight here has an audience. {{npcs}} will remember who drew first.",
+      "suppresses": ["gm.reminder"]
+    }
+  ]
+}

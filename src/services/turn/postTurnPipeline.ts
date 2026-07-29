@@ -7,9 +7,6 @@ import { rateImportance } from '../archive-memory/importanceRater';
 import { sealChapterCombined } from '../saveFileEngine';
 import { backgroundQueue } from '../infrastructure/backgroundQueue';
 import { extractSceneEvents } from '../archive-memory/sceneEventExtractor';
-import { extractNPCNames, classifyNPCNames, validateNPCCandidates } from '../npc/npcDetector';
-import { updateExistingNPCs, backfillNPCDrives } from '../chatEngine';
-import { scanPressure, buildPressurePatch, shouldArchiveNPC, findArchivedToRestore } from '../npc/npcPressureTracker';
 import { scanCharacterProfile } from '../characterProfileParser';
 import { scanCharacterTraits } from '../characterTraitParser';
 import { scanInventory } from '../inventoryParser';
@@ -18,12 +15,17 @@ import { resolveLocationHeader } from '../locationHeader';
 import { toast } from '../../components/Toast';
 import { mergeLifecycleEntries, EMPTY_REGISTER } from '../campaign-state/divergenceRegister';
 import { saveDivergenceRegister } from '../../store/campaignStore';
-import { tierAllows, NPC_UPDATE_COOLDOWN } from './aiTier';
-import { detectEnemySuggestions } from '../enemy/enemySuggestions';
-import {
-    decideDiscoveryScan,
-    type EnemyDiscoveryContext,
-} from '../enemy/enemyDiscoveryController';
+import { tierAllows } from './aiTier';
+// WO-P2-03 — post-turn track registry. The optional scans live in `tracks/`; the archive
+// commit path deliberately does not (see `tracks/index.ts`).
+import { startPostTurnTracks } from './tracks';
+import type { PostTurnTrackContext } from './tracks/types';
+
+// WO-P2-03: the enemy-discovery single-flight map moved to `tracks/enemySuggestionTrack.ts`
+// along with the track body. Re-exported here so the campaign-switch caller
+// (`campaignSlice.ts:569`, a dynamic `import('.../turn/postTurnPipeline')`) keeps working
+// against the same module instance and the same map.
+export { clearEnemyDiscoveryState } from './tracks/enemySuggestionTrack';
 
 const PRESENT_HEADER_RE = /👥\s*\[Present\]\s*(.+)/i;
 
@@ -169,11 +171,24 @@ export async function runPostTurnPipeline(
         callbacks.updateContext({ arcDigest: '' });
     }
 
+    // WO-P2-03: the optional post-turn scans are registered tracks now (see
+    // `tracks/index.ts`). `startPostTurnTracks` does not await — it starts the enabled
+    // tracks in registration order and returns their in-flight promises, so spreading
+    // them here reproduces the original array literal exactly: same start order, same
+    // single `allSettled`, same containment, archive still at index 0.
+    const trackCtx: PostTurnTrackContext = {
+        state,
+        callbacks,
+        displayInput,
+        lastAssistantContent,
+        allMsgs,
+        npcLedger,
+        activeCampaignId,
+    };
+
     const results = await Promise.allSettled([
         runArchiveTrack(state, callbacks, displayInput, lastAssistantContent, allMsgs, activeCampaignId, options?.verifyExistingScene === true),
-        runNPCTrack(state, callbacks, lastAssistantContent, allMsgs, npcLedger, activeCampaignId),
-        runEnemySuggestionTrack(state, callbacks, lastAssistantContent, activeCampaignId),
-        runPressureTrack(state, callbacks, displayInput, npcLedger, activeCampaignId, lastAssistantContent),
+        ...startPostTurnTracks(trackCtx, state.settings),
     ]);
 
     // Durable-commit v1: the archive track's verdict is the one the caller acts on.
@@ -580,14 +595,11 @@ async function runArchiveTrack(
             if (pc && tierAllows(state.settings.aiTier, 'npcUpdate')) {
                 const pcProvider = state.getFreshProvider();
                 if (pcProvider) {
-                    const guardedUpdatePlayerCharacter = (patch: Partial<typeof pc>) => {
-                        const s = useAppStore.getState();
-                        if (s.activeCampaignId !== activeCampaignId) {
-                            console.warn(`[PC Updater] Dropping patch — campaign switched (${activeCampaignId} → ${s.activeCampaignId})`);
-                            return;
-                        }
-                        s.updatePlayerCharacter(patch);
-                    };
+                    const guardedUpdatePlayerCharacter = makeGuarded(
+                        (patch: Partial<typeof pc>) => useAppStore.getState().updatePlayerCharacter(patch),
+                        activeCampaignId,
+                        'updatePlayerCharacter (PC-Drift)',
+                    );
                     backgroundQueue.push(`PC-Drift:${pc.name}`, async () => {
                         if (!assertStillActive(activeCampaignId, 'PC-Drift')) return;
                         const { checkCharacterDrift } = await import('../character/pcUpdater');
@@ -751,298 +763,4 @@ export async function runCombinedSeal(
     if (result.summary) {
         console.log(`[CombinedSeal] Summary generated for "${chapter.title}"`);
     }
-}
-
-async function runNPCTrack(
-    state: TurnState,
-    callbacks: TurnCallbacks,
-    lastAssistantContent: string,
-    allMsgs: ChatMessage[],
-    npcLedger: import('../../types').NPCEntry[],
-    activeCampaignId: string
-): Promise<void> {
-    // WO-A rewrite 2 §2: the PC lives at `context.playerCharacter` now, not as
-    // an `isPC` row in the ledger. The NPC detector must skip the PC's name +
-    // aliases so play never spawns an NPC clone of the player character.
-    // Defensive: also check the ledger for a legacy `isPC` row (post-migration
-    // this should be empty, but cheap to guard).
-    const pc = state.context.playerCharacter ?? npcLedger.find(n => n.isPC) ?? null;
-    const excludeNames = npcLedger.flatMap(npc => {
-        const aliases = (npc.aliases || '').split(',').map(a => a.trim()).filter(Boolean);
-        return [npc.name, ...aliases];
-    });
-    if (pc) {
-        excludeNames.push(pc.name);
-        if (pc.aliases) {
-            excludeNames.push(...pc.aliases.split(',').map(a => a.trim()).filter(Boolean));
-        }
-    }
-    const extractedNames = extractNPCNames(lastAssistantContent, excludeNames);
-    if (extractedNames.length === 0) return;
-
-    // Lite tier: skip NPC validation LLM call — surface raw extracted names as suggestions only.
-    const freshProvider = state.getFreshProvider();
-    const validatedNames = (freshProvider && tierAllows(state.settings.aiTier, 'npcValidate'))
-        ? await validateNPCCandidates(freshProvider, extractedNames, lastAssistantContent)
-        : extractedNames;
-
-    if (validatedNames.length === 0) return;
-
-    const { newNames, existingNpcs: existingNpcsToUpdate } = classifyNPCNames(validatedNames, npcLedger, excludeNames);
-
-    const guardedUpdateNPC = (id: string, patch: Parameters<typeof callbacks.updateNPC>[1]) => {
-        const currentId = useAppStore.getState().activeCampaignId;
-        if (currentId !== activeCampaignId) {
-            console.warn(`[NPC Update] Dropping update for NPC ${id} — campaign switched (${activeCampaignId} → ${currentId})`);
-            return;
-        }
-        callbacks.updateNPC(id, patch);
-    };
-
-    for (const potentialName of newNames) {
-        console.log(`[NPC Auto-Gen] New character detected: "${potentialName}" — adding to suggestions for player review...`);
-        callbacks.addNpcSuggestions?.([potentialName], lastAssistantContent);
-    }
-
-    if (existingNpcsToUpdate.length > 0 && tierAllows(state.settings.aiTier, 'npcUpdate')) {
-        const cooldown = NPC_UPDATE_COOLDOWN[state.settings.aiTier ?? 'pro'];
-        const archiveIndex = state.archiveIndex;
-        const sceneNow = archiveIndex.length > 0
-            ? parseInt(archiveIndex[archiveIndex.length - 1].sceneId, 10) || 0
-            : 0;
-        // Apply the tier cooldown (Infinity on Lite — but the npcUpdate gate above already
-        // blocks Lite entirely; this still matters for Pro's 5-scene cooldown).
-        const npcsDueForUpdate = existingNpcsToUpdate.filter(
-            npc => sceneNow - (npc.lastUpdateScene ?? -Infinity) >= cooldown
-        );
-
-        if (npcsDueForUpdate.length > 0) {
-            const updateProvider = state.getFreshProvider();
-            if (updateProvider) {
-                backgroundQueue.push(
-                    `NPC-Update:${npcsDueForUpdate.map(n => n.name).join(',')}`,
-                    () => updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC)
-                        .then(() => {
-                            for (const npc of npcsDueForUpdate) {
-                                guardedUpdateNPC(npc.id, { lastUpdateScene: sceneNow });
-                            }
-                        })
-                ).catch(err => console.warn('[NPC Update] Background update failed:', err));
-            }
-        }
-
-        if (tierAllows(state.settings.aiTier, 'drivesBackfill')) {
-            const npcsNeedingDrives = existingNpcsToUpdate.filter(n => !n.drives);
-            if (npcsNeedingDrives.length > 0) {
-                const backfillProvider = state.getFreshProvider();
-                if (backfillProvider) {
-                    backgroundQueue.push(
-                        `NPC-Drives-Backfill:${npcsNeedingDrives.map(n => n.name).join(',')}`,
-                        () => backfillNPCDrives(backfillProvider, allMsgs, npcsNeedingDrives, guardedUpdateNPC)
-                    ).catch(err => console.warn('[NPC Drives Backfill] Background backfill failed:', err));
-                }
-            }
-        }
-    }
-}
-
-async function runPressureTrack(
-    state: TurnState,
-    callbacks: TurnCallbacks,
-    displayInput: string,
-    npcLedger: import('../../types').NPCEntry[],
-    activeCampaignId: string,
-    lastAssistantContent: string
-): Promise<void> {
-    if (!npcLedger || npcLedger.length === 0) return;
-
-    const archiveIndex = state.archiveIndex;
-    const sceneNumber = archiveIndex.length > 0
-        ? parseInt(archiveIndex[archiveIndex.length - 1].sceneId, 10) || 0
-        : 0;
-
-    const loreHeadersSet = new Set<string>();
-    if (state.loreChunks) {
-        for (const chunk of state.loreChunks) {
-            if (chunk.header) loreHeadersSet.add(chunk.header.toLowerCase());
-        }
-    }
-    const activeNPCs = npcLedger.filter(npc => {
-        if (npc.archived) return false;
-        if (!npc.name) return false;
-        if (loreHeadersSet.has(npc.name.toLowerCase())) return false;
-        return true;
-    });
-
-    if (activeNPCs.length === 0) return;
-
-    const updates = scanPressure(displayInput, activeNPCs);
-    if (updates.length === 0) return;
-
-    const guardedUpdateNPC = (id: string, patch: Parameters<typeof callbacks.updateNPC>[1]) => {
-        const currentId = useAppStore.getState().activeCampaignId;
-        if (currentId !== activeCampaignId) return;
-        callbacks.updateNPC(id, patch);
-    };
-
-    for (const update of updates) {
-        const npc = npcLedger.find(n => n.id === update.npcId);
-        if (!npc) continue;
-
-        const patch = buildPressurePatch(npc, update, sceneNumber);
-        guardedUpdateNPC(npc.id, patch);
-
-        if (update.reasons.length > 0) {
-            console.log(`[PressureTracker] ${npc.name}: ignored=${patch.pressure?.ignored?.toFixed(1)}, engaged=${patch.pressure?.engaged?.toFixed(1)} — ${update.reasons.join(', ')}`);
-        }
-    }
-
-    // ── Auto-archive stale NPCs ──
-    const maxStaleTurns = useAppStore.getState().settings.autoArchiveStaleNPCsTurns ?? 0;
-    const currentTurn = archiveIndex.length;
-    if (maxStaleTurns > 0) {
-        const guardedArchiveNPC = (id: string, turn: number, reason: string) => {
-            const currentId = useAppStore.getState().activeCampaignId;
-            if (currentId !== activeCampaignId) return;
-            callbacks.archiveNPC(id, turn, reason);
-        };
-
-        for (const npc of activeNPCs) {
-            const result = shouldArchiveNPC(npc, currentTurn, maxStaleTurns);
-            if (result.shouldArchive) {
-                guardedArchiveNPC(npc.id, currentTurn, result.reason);
-                console.log(`[Auto-Archive] ${npc.name} archived after ${result.turnsSince} turns inactive`);
-            }
-        }
-    }
-
-    // ── Auto-restore archived NPCs mentioned in the response ──
-    const archivedNPCs = npcLedger.filter(n => n.archived);
-    if (archivedNPCs.length > 0) {
-        const toRestore = findArchivedToRestore(lastAssistantContent, archivedNPCs);
-        const guardedRestoreNPC = (id: string) => {
-            const currentId = useAppStore.getState().activeCampaignId;
-            if (currentId !== activeCampaignId) return;
-            callbacks.restoreNPC(id);
-        };
-
-        for (const npcId of toRestore) {
-            const npc = npcLedger.find(n => n.id === npcId);
-            guardedRestoreNPC(npcId);
-            if (npc) {
-                console.log(`[Auto-Restore] ${npc.name} re-enters the scene`);
-                toast.info(`${npc.name} re-enters the scene`);
-            }
-        }
-    }
-}
-
-/**
- * Per-campaign enemy-discovery single-flight + cooldown state. At most one
- * discovery request may be pending or running per campaign; an eligible turn
- * that arrives while one is in flight is skipped (never queued as a backlog).
- * `lastScanScene` records the scene number of the last accepted scan so the
- * tier cooldown (Pro: 5, Max: 0, Lite: blocked) is enforced.
- *
- * Cleared on campaign switch via `clearEnemyDiscoveryState` (called from the
- * campaign-switch path so a stale in-flight flag from a closed campaign does
- * not block a reopened one).
- */
-const enemyDiscoveryState = new Map<string, { inFlight: boolean; lastScanScene: number }>();
-
-export function clearEnemyDiscoveryState(campaignId: string | null | undefined): void {
-    if (!campaignId) return;
-    enemyDiscoveryState.delete(campaignId);
-}
-
-function getDiscoveryState(campaignId: string): { inFlight: boolean; lastScanScene: number } {
-    let entry = enemyDiscoveryState.get(campaignId);
-    if (!entry) {
-        entry = { inFlight: false, lastScanScene: -Infinity };
-        enemyDiscoveryState.set(campaignId, entry);
-    }
-    return entry;
-}
-
-/**
- * Runs the conservative utility-model enemy scan after a committed turn.
- *
- * Tier + flag + cooldown + single-flight gating happens in `decideDiscoveryScan`
- * BEFORE the background task is queued, so an ineligible turn never enters the
- * queue (no discovery backlog). The background task re-verifies the active
- * campaign before writing suggestions (second guard), and the controller clears
- * the in-flight flag in a `finally` so a crashed scan never permanently blocks
- * the campaign.
- *
- * Provider precedence (utility → auxiliary → story-only-as-final-fallback) is
- * enforced by `resolveDiscoveryProvider`. The Story AI is only used when no
- * secondary endpoint exists, and that choice is made explicit in the decision.
- */
-async function runEnemySuggestionTrack(
-    state: TurnState,
-    callbacks: TurnCallbacks,
-    lastAssistantContent: string,
-    activeCampaignId: string,
-): Promise<void> {
-    if (!callbacks.addEnemySuggestions) return;
-
-    const discoveryState = getDiscoveryState(activeCampaignId);
-    const sceneNumber = state.archiveIndex.length > 0
-        ? parseInt(state.archiveIndex[state.archiveIndex.length - 1].sceneId, 10) || 0
-        : 0;
-
-    const discoveryCtx: EnemyDiscoveryContext = {
-        campaignId: activeCampaignId,
-        tier: state.settings.aiTier,
-        enabled: state.enemyCombatConfig?.enemyDiscoveryEnabled === true,
-        sceneNumber,
-        lastScanScene: discoveryState.lastScanScene,
-        inFlight: discoveryState.inFlight,
-        enemyCompendium: state.enemyCompendium ?? [],
-        providers: {
-            utilityProvider: state.getUtilityEndpoint?.(),
-            // Raw secondary endpoints — NOT getFreshAuxiliaryProvider, which
-            // silently returns the Story provider when the auxiliary endpoint
-            // has no model name. Discovery must never use the Story AI unless
-            // all secondary endpoints are absent or unusable, so we read the
-            // raw resolvers here.
-            auxiliaryProvider: useAppStore.getState().getActiveAuxiliaryEndpoint?.(),
-            summariserProvider: useAppStore.getState().getActiveSummarizerEndpoint?.(),
-            storyProvider: state.getFreshProvider(),
-        },
-    };
-
-    const decision = decideDiscoveryScan(discoveryCtx);
-    if (decision.kind !== 'run') return;
-
-    // Mark in-flight immediately so a concurrent eligible turn skips (single-flight).
-    discoveryState.inFlight = true;
-
-    backgroundQueue.push('Enemy-Discovery', async () => {
-        try {
-            // Re-verify the active campaign before starting the queued request.
-            if (useAppStore.getState().activeCampaignId !== activeCampaignId) {
-                console.warn('[Enemy Discovery] Skipping queued scan — campaign changed before start.');
-                return;
-            }
-            const suggestions = await detectEnemySuggestions(decision.provider, lastAssistantContent, state.enemyCompendium ?? []);
-            if (!suggestions.length) return;
-            // Re-verify the active campaign before writing suggestions.
-            if (useAppStore.getState().activeCampaignId !== activeCampaignId) {
-                console.warn('[Enemy Discovery] Dropping suggestions because the active campaign changed.');
-                return;
-            }
-            callbacks.addEnemySuggestions?.(suggestions, lastAssistantContent);
-        } catch (error) {
-            console.warn('[Enemy Discovery] Background scan failed:', error);
-        } finally {
-            const current = enemyDiscoveryState.get(activeCampaignId);
-            if (current) {
-                current.inFlight = false;
-                if (useAppStore.getState().activeCampaignId === activeCampaignId) {
-                    current.lastScanScene = sceneNumber;
-                }
-            }
-        }
-    }).catch(error => console.warn('[Enemy Discovery] Background scan failed:', error));
 }

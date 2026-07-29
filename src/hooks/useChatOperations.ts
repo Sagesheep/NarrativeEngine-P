@@ -229,6 +229,8 @@ export function useChatOperations({
             getMessages: () => useAppStore.getState().messages,
             getFreshProvider: () => useAppStore.getState().getActiveStoryEndpoint(),
             getUtilityEndpoint: () => useAppStore.getState().getActiveUtilityEndpoint(),
+            getRawAuxiliaryProvider: () => useAppStore.getState().getActiveAuxiliaryEndpoint(),
+            getRawSummariserProvider: () => useAppStore.getState().getActiveSummarizerEndpoint(),
             timeline: storeSnapshot.timeline,
             chapters: storeSnapshot.chapters,
             pinnedChapterIds: storeSnapshot.pinnedChapterIds,

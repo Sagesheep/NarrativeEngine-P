@@ -14,6 +14,33 @@ export const PUBLIC_ASSETS_DIR = process.env.NODE_ENV === 'production'
     ? path.join(DATA_DIR, 'portraits')
     : path.join(__projectRoot, 'public', 'assets', 'portraits');
 
+/**
+ * Installed mods (Project 2 / WO-P2-04). Deliberately a SIBLING of `data/` rather than a child:
+ * mods are app-level, not campaign-level, so wiping `data/` must not uninstall them.
+ * Overridable for tests and packaged builds via MODS_DIR.
+ */
+export const MODS_DIR = process.env.MODS_DIR || path.join(__projectRoot, 'mods');
+
+/**
+ * Host app version, from `package.json` — used for mod `appVersion` compatibility checks.
+ *
+ * `undefined` when it cannot be read (e.g. a packaged bundle whose layout puts package.json
+ * elsewhere). Unknown is deliberately NOT the same as incompatible: `modLoader` skips the
+ * compatibility check when it has no version to compare against, because being unable to check
+ * is not evidence that a mod is broken.
+ */
+export const APP_VERSION = readAppVersion();
+
+function readAppVersion() {
+    for (const dir of [__projectRoot, process.cwd()]) {
+        try {
+            const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8'));
+            if (typeof pkg?.version === 'string' && pkg.version.trim()) return pkg.version;
+        } catch { /* try the next candidate */ }
+    }
+    return undefined;
+}
+
 const ID_REGEX = /^[a-zA-Z0-9_-]+$/;
 
 export function validateCampaignId(id) {
@@ -29,6 +56,8 @@ export function ensureDirs() {
     if (!fs.existsSync(CAMPAIGNS_DIR)) fs.mkdirSync(CAMPAIGNS_DIR, { recursive: true });
     if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
     if (!fs.existsSync(PUBLIC_ASSETS_DIR)) fs.mkdirSync(PUBLIC_ASSETS_DIR, { recursive: true });
+    // Created empty so a user has somewhere obvious to drop a `.mod.json` file.
+    if (!fs.existsSync(MODS_DIR)) fs.mkdirSync(MODS_DIR, { recursive: true });
 }
 
 export function readJson(filePath, fallback = null) {

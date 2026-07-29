@@ -115,6 +115,12 @@ export type AppSettings = {
     retrievalAlgorithm?: 'classic' | 'idf-rrf';
     archiveRecallDepth?: 'lean' | 'standard' | 'deep';  // archive recall ceiling; default 'standard' (desktop). 'lean' = mobile parity (3/4/5)
     matureMode?: boolean;            // default false; gates mature-tier NPC traits/wants (NPC Agency Phase 2)
+    /** Project 2 — per-module on/off for prompt contributions (built-ins and mods), keyed by
+     *  module id. Global rather than per-campaign by design (see 00_PLAN.md D4): toggling a
+     *  module affects every campaign, including saves in progress. An absent key means enabled,
+     *  so an empty map is today's behaviour. Structural modules ignore this entirely — a stale
+     *  or corrupt entry can never delete the player's own message from the prompt. */
+    moduleEnabled?: Record<string, boolean>;
     aiTier?: AiTier;                 // 'lite' | 'pro' | 'max' — gates which turn stages run (Phase 4)
     uiScale?: number;                // 0.7–1.3, default 1.0 — global UI zoom (ported from mobile settings)
     embeddingModel?: 'standard' | 'high';  // kept for type parity with mobile; mainApp runs a single server-side embedder, so this is informational only

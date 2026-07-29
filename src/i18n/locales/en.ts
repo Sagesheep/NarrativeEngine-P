@@ -70,6 +70,7 @@ export const en = {
     'settings.tab.global': 'Global',
     'settings.tab.advanced': 'Advanced',
     'settings.tab.debug': 'Debug',
+    'settings.tab.extensions': 'Extensions',
 
     // ── Settings → Language ──────────────────────────────────────────────
     'settings.language.label': 'Interface Language',
@@ -82,6 +83,29 @@ export const en = {
     // `.other` still renders correctly. Call as: t('...untranslated', { count }).
     'settings.language.untranslated.one': '{{count}} item still shows in English.',
     'settings.language.untranslated.other': '{{count}} items still show in English.',
+
+    // ── Settings → Extensions ────────────────────────────────────────────
+    'settings.extensions.title': 'Extensions',
+    // Locked decision D4: enablement is global, not per-campaign. Said plainly, once.
+    'settings.extensions.scope': 'Switching a module off applies to every campaign, including saves already in progress.',
+    'settings.extensions.reset': 'Reset',
+    'settings.extensions.toggle.aria': 'Enable {{name}}',
+    'settings.extensions.mod.meta': 'v{{version}} · {{file}}',
+    'settings.extensions.builtin.title': 'Built-in',
+    'settings.extensions.builtin.help': "The engine's own contributions to each prompt. Switching one off removes just that block — nothing else changes.",
+    'settings.extensions.mods.title': 'Installed mods',
+    'settings.extensions.mods.help': 'Mod files are read from the mods folder at the app root. Drop one in and rescan — no restart needed.',
+    'settings.extensions.mods.rescan': 'Rescan',
+    'settings.extensions.mods.loading': 'Reading the mods folder…',
+    'settings.extensions.mods.error': 'Could not reach the server to list mods. Play is unaffected; previously loaded mods stay as they were.',
+    'settings.extensions.mods.empty': 'No mods installed. Add a .mod.json file to the mods folder, then press Rescan.',
+    'settings.extensions.guide.show': 'Guide to making a mod',
+    'settings.extensions.guide.hide': 'Hide guide',
+    // The path stays out of the translatable string — a file path is not prose and must not be
+    // localised, or a translator's copy of it stops resolving to a real file.
+    'settings.extensions.guide.path': 'You can also read the full document at {{path}} in the app folder.',
+    'settings.extensions.faults.title': 'Rejected files',
+    'settings.extensions.faults.help': 'These files were not loaded, so they have no effect on play. Fix the reason shown and rescan.',
 
     // ── Campaign hub ─────────────────────────────────────────────────────
     'hub.import.tooltip': 'Import Campaign',
