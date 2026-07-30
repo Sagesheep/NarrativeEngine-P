@@ -1,6 +1,25 @@
 import type { EnemyAction, EnemyEntry, EnemyStat } from '../../types';
+// Shared enemy shape (WO-P5-03 Step 4): the field-name lists and enum sets live
+// in @narrative/engine so the server (server/lib/enemySchema.js) and this
+// client file stop being hand-kept mirrors. This file keeps its own
+// normalization logic (it drops malformed fields silently, where the server
+// rejects with indexed errors) — only the duplicated field-name set retires.
+// The `ENEMY_ENTRY_FIELDS` import is the single source of truth for "what
+// fields an EnemyEntry has"; the type guard below asserts the inline
+// assignments in normalizeEnemyEntry stay in lock-step with it.
+import { ENEMY_ENTRY_FIELDS } from '@narrative/engine';
 
 type UnknownRecord = Record<string, unknown>;
+
+// Compile-time guarantee that the EnemyEntry type's keys are exactly the
+// shared field set. If a field is added to EnemyEntry but not to
+// ENEMY_ENTRY_FIELDS (or vice versa), this line fails to compile — which is
+// the "stop being hand-kept mirrors" contract.
+type _EntryKeys = keyof EnemyEntry;
+type _SharedKeys = (typeof ENEMY_ENTRY_FIELDS)[number];
+type _EntryMatchesShared< T extends _EntryKeys = _SharedKeys, U extends _SharedKeys = _EntryKeys> = [T] extends [U] ? ([U] extends [T] ? true : false) : false;
+const _entryMatchesShared: _EntryMatchesShared = true as _EntryMatchesShared;
+void _entryMatchesShared;
 
 export type NormalizeEnemyOptions = {
     now?: number;

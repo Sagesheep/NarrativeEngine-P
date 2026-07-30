@@ -41,3 +41,11 @@ export type {
     TouchpointDeclaration, AbsentTouchpoint, Touchpoint,
     TableDescriptor, TableRegistry,
 } from './tables/tableDescriptor';
+
+export {
+    ENEMY_TEXT_FIELDS, ENEMY_LIST_FIELDS, ENEMY_ENTRY_FIELDS,
+    ENCOUNTER_STATUSES, ENCOUNTER_OUTCOMES, INSTANCE_DISPOSITIONS,
+    INITIATIVE_MODES, BARRIER_MODES,
+    isEncounterStatus, isEncounterOutcome, isInstanceDisposition,
+    isInitiativeMode, isBarrierMode,
+} from './enemy/enemyShape';

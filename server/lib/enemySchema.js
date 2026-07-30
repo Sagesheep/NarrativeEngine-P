@@ -1,13 +1,26 @@
 import { randomUUID } from 'node:crypto';
+// Shared enemy shape (WO-P5-03 Step 4): the field-name lists and enum sets
+// are the single source of truth in @narrative/engine. The server consumes the
+// built dist subpath (Node-ESM-clean — enemyShape.js has no relative imports,
+// so the engine's extensionless-index problem does not apply here). The
+// server keeps its own validation/normalization logic; only the duplicated
+// field names and enum values retire.
+import {
+    ENEMY_TEXT_FIELDS,
+    ENEMY_LIST_FIELDS,
+    ENCOUNTER_STATUSES,
+    ENCOUNTER_OUTCOMES,
+    INSTANCE_DISPOSITIONS,
+    INITIATIVE_MODES,
+    BARRIER_MODES,
+} from '@narrative/engine/enemy/enemyShape';
 
 const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const textFields = [
-    'aliases', 'classification', 'description', 'threatTier', 'faction',
-    'tactics', 'loot', 'gmNotes',
-];
-const listFields = [
-    'tags', 'passiveTraits', 'specialBehaviors', 'weaknesses', 'resistances',
-];
+// The field-name lists retire their hand-kept mirrors; the server now reads
+// them from the shared shape. The frozen arrays are iterable the same way the
+// old mutable arrays were.
+const textFields = ENEMY_TEXT_FIELDS;
+const listFields = ENEMY_LIST_FIELDS;
 
 const nullableText = (value, path, errors) => {
     if (value == null) return '';
@@ -294,15 +307,15 @@ function validateEnemyWave(value, index) {
     };
 }
 
-const ENCOUNTER_STATUSES = new Set(['active', 'paused', 'ended']);
+const ENCOUNTER_STATUSES_SET = new Set(ENCOUNTER_STATUSES);
 
 /** Validates one encounter (a grouping of instance ids into waves). */
 export function validateEnemyEncounter(value, index = 0) {
     const path = `enemyEncounters[${index}]`;
     const errors = [];
     if (!isRecord(value)) return { value: null, errors: [`${path} must be an object`] };
-    const status = ENCOUNTER_STATUSES.has(value.status) ? value.status : 'active';
-    if (value.status != null && !ENCOUNTER_STATUSES.has(value.status)) {
+    const status = ENCOUNTER_STATUSES_SET.has(value.status) ? value.status : 'active';
+    if (value.status != null && !ENCOUNTER_STATUSES_SET.has(value.status)) {
         errors.push(`${path}.status must be one of active, paused, ended or null`);
     }
     const waves = Array.isArray(value.waves)
@@ -336,20 +349,20 @@ export function validateEnemyEncounters(value) {
     };
 }
 
-const ENCOUNTER_OUTCOMES = new Set(['victory', 'partial', 'defeat', 'escaped', 'negotiated', 'other']);
-const INSTANCE_DISPOSITIONS = new Set(['archive', 'discard']);
+const ENCOUNTER_OUTCOMES_SET = new Set(ENCOUNTER_OUTCOMES);
+const INSTANCE_DISPOSITIONS_SET = new Set(INSTANCE_DISPOSITIONS);
 
 /** Validates one immutable encounter resolution record. */
 export function validateEnemyResolution(value, index = 0) {
     const path = `enemyResolutions[${index}]`;
     const errors = [];
     if (!isRecord(value)) return { value: null, errors: [`${path} must be an object`] };
-    const outcome = ENCOUNTER_OUTCOMES.has(value.outcome) ? value.outcome : 'other';
-    if (value.outcome != null && !ENCOUNTER_OUTCOMES.has(value.outcome)) {
+    const outcome = ENCOUNTER_OUTCOMES_SET.has(value.outcome) ? value.outcome : 'other';
+    if (value.outcome != null && !ENCOUNTER_OUTCOMES_SET.has(value.outcome)) {
         errors.push(`${path}.outcome must be one of victory, partial, defeat, escaped, negotiated, other or null`);
     }
-    const instanceDisposition = INSTANCE_DISPOSITIONS.has(value.instanceDisposition) ? value.instanceDisposition : 'archive';
-    if (value.instanceDisposition != null && !INSTANCE_DISPOSITIONS.has(value.instanceDisposition)) {
+    const instanceDisposition = INSTANCE_DISPOSITIONS_SET.has(value.instanceDisposition) ? value.instanceDisposition : 'archive';
+    if (value.instanceDisposition != null && !INSTANCE_DISPOSITIONS_SET.has(value.instanceDisposition)) {
         errors.push(`${path}.instanceDisposition must be one of archive, discard or null`);
     }
     const archivedInstances = Array.isArray(value.archivedInstances)
@@ -386,8 +399,8 @@ export function validateEnemyResolutions(value) {
     };
 }
 
-const INITIATIVE_MODES = new Set(['manual', 'd20', 'd100']);
-const BARRIER_MODES = new Set(['manual', 'absorb-first']);
+const INITIATIVE_MODES_SET = new Set(INITIATIVE_MODES);
+const BARRIER_MODES_SET = new Set(BARRIER_MODES);
 
 /**
  * Validates the optional enemy combat configuration. Optional null fields mean
@@ -401,12 +414,12 @@ export function validateEnemyCombatConfig(value) {
     if (value == null) return { value: null, errors };
     if (!isRecord(value)) return { value: null, errors: ['Enemy combat configuration must be an object'] };
 
-    const initiativeMode = INITIATIVE_MODES.has(value.initiativeMode) ? value.initiativeMode : 'manual';
-    if (value.initiativeMode != null && !INITIATIVE_MODES.has(value.initiativeMode)) {
+    const initiativeMode = INITIATIVE_MODES_SET.has(value.initiativeMode) ? value.initiativeMode : 'manual';
+    if (value.initiativeMode != null && !INITIATIVE_MODES_SET.has(value.initiativeMode)) {
         errors.push('enemyCombatConfig.initiativeMode must be one of manual, d20, d100 or null');
     }
-    const barrierMode = BARRIER_MODES.has(value.barrierMode) ? value.barrierMode : 'absorb-first';
-    if (value.barrierMode != null && !BARRIER_MODES.has(value.barrierMode)) {
+    const barrierMode = BARRIER_MODES_SET.has(value.barrierMode) ? value.barrierMode : 'absorb-first';
+    if (value.barrierMode != null && !BARRIER_MODES_SET.has(value.barrierMode)) {
         errors.push('enemyCombatConfig.barrierMode must be one of manual, absorb-first or null');
     }
     return {
