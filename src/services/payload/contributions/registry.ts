@@ -39,6 +39,23 @@ export interface ContributionModule<I> {
      */
     toggleable?: boolean;
     /**
+     * WO-P5-02 §5 — whether this block fires automatically from the turn pipeline, only
+     * from a manual user action, or is a reserved slot with no call site at all. Defaults
+     * to `'automatic'` (a contribution module runs every turn it is enabled for; the
+     * registry has no concept of a button-fired module today). The block view renders
+     * manual blocks as visible-but-not-switchable, the same visual class as a locked
+     * block; `unwired` blocks render as present-but-inert.
+     */
+    trigger?: 'automatic' | 'manual' | 'unwired';
+    /**
+     * WO-P5-02 §5 — whether this block calls a language model. Defaults to `false`.
+     * Contribution modules themselves only produce synchronous text specs; any model call
+     * that feeds them happens upstream and is gated by a tier feature, not by the module.
+     * Mods, however, may themselves call a model from inside `produce` — they declare so
+     * by setting `callsModel: true`.
+     */
+    callsModel?: boolean;
+    /**
      * Produce this turn's contributions. Return `[]` when the module has nothing to add —
      * that is the normal quiet path, not an error.
      *

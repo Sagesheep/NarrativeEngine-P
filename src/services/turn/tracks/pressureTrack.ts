@@ -116,6 +116,8 @@ export const pressureTrack: PostTurnTrack<PostTurnTrackContext> = {
     name: 'NPC Pressure Tracking',
     description: 'Accrues ignored/engaged pressure per NPC, then auto-archives stale ones and restores those the GM brings back.',
     defaultEnabled: true,
+    trigger: 'automatic',
+    callsModel: false,
     shouldRun: (ctx) => !!ctx.npcLedger && ctx.npcLedger.length > 0,
     run: (ctx) => runPressureTrack(
         ctx.state,

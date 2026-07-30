@@ -8,8 +8,9 @@ import { listTierBlocks, MATRIX, type TierFeature } from '../aiTier';
  * no omissions. Shape mirrors `ContributionRegistry.list()` and
  * `PostTurnTrackRegistry.list()`. `arcSpawn` is `trigger: 'manual'` and
  * `toggleable: false` per §3 (the press IS the gate; the matrix value is never
- * read). Features with no service-side call site are `trigger: 'manual'` per
- * the §5 rule.
+ * read). Features with no call site at all — no pipeline step and no button —
+ * are `trigger: 'unwired'`: present-but-inert, shown to the user as "no call
+ * site exists yet" so a reader does not hunt for a control that is not there.
  */
 
 const TIER_FEATURE_IDS: TierFeature[] = [
@@ -46,7 +47,7 @@ describe('WORKORDER-P5-01 — listTierBlocks declaration table', () => {
             expect(typeof block.description).toBe('string');
             expect(block.description.length).toBeGreaterThan(0);
             expect(typeof block.toggleable).toBe('boolean');
-            expect(['automatic', 'manual']).toContain(block.trigger);
+            expect(['automatic', 'manual', 'unwired']).toContain(block.trigger);
             expect(typeof block.defaultEnabled).toBe('boolean');
         }
     });
@@ -64,22 +65,29 @@ describe('WORKORDER-P5-01 — listTierBlocks declaration table', () => {
         expect(arcSpawn!.toggleable).toBe(false);
     });
 
-    it('features with no service-side call site are manual', () => {
-        // Per §5: "a feature with no service-side call site is manual."
-        // witnessAux and npcProfileGen have zero call sites in src/services.
+    it('features with no call site at all are unwired (reserved slots, not manual)', () => {
+        // Per §5: a feature with no pipeline step AND no button is `unwired`, not `manual`.
+        // `manual` means "fires from a button"; these have no button either. Labelling them
+        // manual sends a user hunting for a control that does not exist.
         const witnessAux = blocks.find(b => b.id === 'witnessAux');
         expect(witnessAux).toBeDefined();
-        expect(witnessAux!.trigger).toBe('manual');
+        expect(witnessAux!.trigger).toBe('unwired');
 
         const npcProfileGen = blocks.find(b => b.id === 'npcProfileGen');
         expect(npcProfileGen).toBeDefined();
-        expect(npcProfileGen!.trigger).toBe('manual');
+        expect(npcProfileGen!.trigger).toBe('unwired');
+    });
+
+    it('arcSpawn calls a model (the 2,000-token spawnArc LLM call)', () => {
+        const arcSpawn = blocks.find(b => b.id === 'arcSpawn');
+        expect(arcSpawn).toBeDefined();
+        expect(arcSpawn!.callsModel).toBe(true);
     });
 
     it('the 24 pipeline-fired features are automatic', () => {
-        const manualIds = new Set(['arcSpawn', 'witnessAux', 'npcProfileGen']);
+        const nonAutomaticIds = new Set(['arcSpawn', 'witnessAux', 'npcProfileGen']);
         for (const block of blocks) {
-            if (manualIds.has(block.id)) continue;
+            if (nonAutomaticIds.has(block.id)) continue;
             expect(block.trigger, `${block.id} should be automatic`).toBe('automatic');
         }
     });

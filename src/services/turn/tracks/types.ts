@@ -42,6 +42,21 @@ export interface PostTurnTrack<Ctx> {
      */
     defaultEnabled: boolean;
     /**
+     * WO-P5-02 §5 — whether this block fires automatically from the turn pipeline, only
+     * from a manual user action, or is a reserved slot with no call site at all. Defaults
+     * to `'automatic'` (every registered track today is a post-turn pipeline step). The
+     * block view renders manual blocks as visible-but-not-switchable; `unwired` blocks
+     * render as present-but-inert.
+     */
+    trigger?: 'automatic' | 'manual' | 'unwired';
+    /**
+     * WO-P5-02 §5 — whether this block calls a language model. Defaults to `false`.
+     * A pressure/collision tick that only rolls dice and writes state is engine-only;
+     * a track that calls a utility model declares `callsModel: true`. The block view
+     * renders an ENGINE / MODEL badge per block from this metadata.
+     */
+    callsModel?: boolean;
+    /**
      * Cheap synchronous pre-check: is there anything for this track to do this turn?
      *
      * Returning `false` means the track is not started at all. It MUST be side-effect free —

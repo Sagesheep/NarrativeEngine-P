@@ -122,6 +122,8 @@ export const npcTrack: PostTurnTrack<PostTurnTrackContext> = {
     name: 'NPC Detection',
     description: 'Spots newly named characters in the GM reply and keeps known NPC profiles current.',
     defaultEnabled: true,
+    trigger: 'automatic',
+    callsModel: true,
     shouldRun: () => true,
     run: (ctx) => runNPCTrack(
         ctx.state,

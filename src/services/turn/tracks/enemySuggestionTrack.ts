@@ -139,6 +139,8 @@ export const enemySuggestionTrack: PostTurnTrack<PostTurnTrackContext> = {
     name: 'Enemy Discovery',
     description: 'Scans the GM reply for creatures worth adding to the enemy compendium and queues them for review.',
     defaultEnabled: true,
+    trigger: 'automatic',
+    callsModel: true,
     shouldRun: (ctx) => !!ctx.callbacks.addEnemySuggestions,
     run: (ctx) => runEnemySuggestionTrack(
         ctx.state,
