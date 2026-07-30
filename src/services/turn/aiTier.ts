@@ -13,7 +13,7 @@ export type TierFeature =
   | 'lodSlottedRag'
   | 'enemyDiscovery';
 
-const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
+export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
     lite: {
         introEngine: false, planner: false, expandQuery: false, reranker: false, archiveFunnel: false,
         deepScan: false, recommender: false,
