@@ -1,7 +1,11 @@
 // Arc Engine — Phase 3 port wrapper. Mobile source: turnPostProcess.ts:938-1070
 // (runArcTick). Faithful port with the minimal desktop adaptations:
-//   - `tierAllows` (Phase 4) is stubbed to `() => true` here — the arc tick runs unconditionally
-//     until Phase 4 wires the real AiTier gate. Tracked in 08_VERIFICATION_AND_GATES.md.
+//   - The real AiTier gate is wired at the caller: `postTurnPipeline.ts:304` wraps both
+//     the dynamic import of this module and the `runArcTick` call in
+//     `if (tierAllows(state.settings.aiTier, 'arcTick'))`. On lite this function is never
+//     entered, so the local stub below is a redundant inner guard, not a hole. The stub
+//     stays because removing it would be a behaviour change this work order promises
+//     none (WORKORDER-P5-01 §3).
 //   - `mergeSealEntries` + `DivergenceEntry` are imported from desktop's divergenceRegister
 //     module (signature matches mobile's).
 
@@ -14,8 +18,9 @@ import { rollArcTick, rollArcOutcome, advanceRung } from './arcDice';
 import { scanArcStance } from './arcStance';
 import { arcSurfaceLine } from './arcSurface';
 
-// Phase 4 stub — until the real AiTier gate is wired, the arc tick runs unconditionally
-// (a no-op when no arcs exist or none are active).
+// Redundant inner guard — the caller in postTurnPipeline.ts already gates this on the
+// real `tierAllows` before the dynamic import. On lite this function is never entered.
+// Kept as a stub (returns true) because removing it is a behaviour change (WORKORDER-P5-01 §3).
 function tierAllows(tier: unknown, feature: string): boolean {
     void tier;
     void feature;

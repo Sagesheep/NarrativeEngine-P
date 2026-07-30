@@ -1,8 +1,12 @@
 // NPC Agency Engine — Phase 2 port wrapper. Mobile source: turnPostProcess.ts:531-927
 // (runAgencyTick + runTimeskipPath + bumpOnStageActivity). Faithful port with the minimal
 // desktop adaptations:
-//   - `tierAllows` (Phase 4) is stubbed to `() => true` here — the tick runs unconditionally
-//     until Phase 4 wires the real AiTier gate. Tracked in 08_VERIFICATION_AND_GATES.md.
+//   - The real AiTier gate is wired at the caller: `postTurnPipeline.ts:257` wraps the
+//     `runAgencyTick` call in `if (tierAllows(state.settings.aiTier, 'heartbeatTick'))`, so
+//     `timeskipRun` inside it is unreachable on lite too. On lite this function is never
+//     entered, so the local stub below is a redundant inner guard, not a hole. The stub
+//     stays because removing it would be a behaviour change this work order promises
+//     none (WORKORDER-P5-01 §3).
 //   - `state.getFreshSummarizerProvider` (mobile) → `state.getUtilityEndpoint` (desktop has no
 //     separate summarizer slot; the utility endpoint is the closest low-priority background LLM).
 //   - Prompt-section helpers (TTRPG_PERSONA_GM_ASSISTANT, joinPromptSections, ANCHOR_BEFORE_INPUT,
@@ -27,9 +31,10 @@ import { buildDigest, visibilityFromBand, type TickDelta } from './agencyDigest'
 import { detectTimeskip, runTimeskip } from './agencyTimeskipRun';
 import { isAgencyEligible } from './agencyLifecycle';
 
-// Phase 4 stub — until the real AiTier gate is wired, the agency tick runs unconditionally
-// (a no-op when no NPCs have goalRecords, which is all legacy NPCs until populateAgencyFields
-// fills wants — tracked as a Phase 5/6 follow-up).
+// Redundant inner guard — the caller in postTurnPipeline.ts already gates this on the
+// real `tierAllows` before the call. On lite this function is never entered (a no-op when
+// no NPCs have goalRecords, which is all legacy NPCs until populateAgencyFields fills wants).
+// Kept as a stub (returns true) because removing it is a behaviour change (WORKORDER-P5-01 §3).
 function tierAllows(tier: unknown, feature: string): boolean {
     void tier;
     void feature;
