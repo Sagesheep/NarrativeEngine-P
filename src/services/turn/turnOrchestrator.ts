@@ -88,6 +88,14 @@ export type TurnState = {
     getFreshProvider: () => EndpointConfig | ProviderConfig | undefined;
     getUtilityEndpoint?: () => EndpointConfig | undefined;
     getFreshAuxiliaryProvider?: () => EndpointConfig | undefined;
+    /** Raw auxiliary-endpoint resolver — unlike `getFreshAuxiliaryProvider`,
+     *  this intentionally skips the Story-provider fallback. Callers (e.g.
+     *  enemy discovery) that must never silently receive the Story AI read
+     *  this instead. */
+    getRawAuxiliaryProvider?: () => EndpointConfig | undefined;
+    /** Raw summariser-endpoint resolver, same no-fallback rationale as
+     *  `getRawAuxiliaryProvider`. */
+    getRawSummariserProvider?: () => EndpointConfig | undefined;
     onStageNpcIds?: string[];
     timeline?: TimelineEvent[];
     // Phase 2B: store-lifted fields (eliminate useAppStore.getState() inside runTurn)

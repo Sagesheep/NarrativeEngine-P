@@ -7,7 +7,7 @@ import { llmFetch } from './llmFetch';
 import { startUtilityCall } from './utilityCallTracker';
 
 const STORY_LABEL = 'story-generation';
-const STREAM_IDLE_TIMEOUT_MS = 120_000;
+const STREAM_IDLE_TIMEOUT_MS = 300_000;
 
 export type OpenAIMessage = {
     role: 'system' | 'user' | 'assistant' | 'tool';

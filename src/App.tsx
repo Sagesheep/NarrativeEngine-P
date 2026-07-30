@@ -25,6 +25,7 @@ import { VaultUnlockModal } from './components/VaultUnlockModal';
 import { hydrateCampaign } from './store/campaignHydrator';
 import { useRulesIndexer } from './hooks/useRulesIndexer';
 import { loadBackground } from './services/background/backgroundManager';
+import { refreshMods } from './services/mods/modBootstrap';
 
 export default function App() {
   const activeCampaignId = useAppStore((s) => s.activeCampaignId);
@@ -69,6 +70,14 @@ export default function App() {
   // Apply the persisted chat background image (if any) once on mount.
   useEffect(() => {
     loadBackground();
+  }, []);
+
+  // Project 2: register installed mods as prompt-contribution modules once on mount.
+  // The Extensions screen refreshes this too, but a user who never opens that screen must
+  // still get the mods they installed — without this, a mod would be listed but never reach
+  // the prompt. `refreshMods` never throws; an unreachable endpoint is reported, not fatal.
+  useEffect(() => {
+    refreshMods();
   }, []);
 
   // After settings load, if we already have an activeCampaignId (restored from a previous

@@ -42,6 +42,8 @@ export function rebuildStateFromLiveStoreLike(
             const aux = store.getActiveAuxiliaryEndpoint?.();
             return aux?.modelName ? aux : store.getActiveStoryEndpoint();
         },
+        getRawAuxiliaryProvider: () => store.getActiveAuxiliaryEndpoint(),
+        getRawSummariserProvider: () => store.getActiveSummarizerEndpoint(),
         chapters: store.chapters ?? [],
         pinnedChapterIds: useAppStore.getState().pinnedChapterIds,
         clearPinnedChapters: overrides.clearPinnedChapters,

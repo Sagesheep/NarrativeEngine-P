@@ -225,8 +225,8 @@ describe('runDirectorBrief', () => {
             expect((usedProvider as EndpointConfig).modelName).toBe('story-model');
         });
 
-        it('uses 120_000ms timeout (DIRECTOR_BRIEF_TIMEOUT_MS)', () => {
-            expect(DIRECTOR_BRIEF_TIMEOUT_MS).toBe(120_000);
+        it('uses 180_000ms timeout (DIRECTOR_BRIEF_TIMEOUT_MS)', () => {
+            expect(DIRECTOR_BRIEF_TIMEOUT_MS).toBe(180_000);
         });
 
         it('passes trackingLabel and priority to llmCall (no own thinkingEffort — WO-04b §3)', async () => {
@@ -235,7 +235,7 @@ describe('runDirectorBrief', () => {
             const opts = mockLlmCall.mock.calls[0][2] as any;
             expect(opts.trackingLabel).toBe('director-brief');
             expect(opts.priority).toBe('low');
-            expect(opts.timeoutMs).toBe(120_000);
+            expect(opts.timeoutMs).toBe(180_000);
             // WO-04b §3: no own `thinkingEffort` property — llmCall inherits the
             // chosen endpoint's configured `thinkingEffort` (llmCall.ts:95).
             expect(Object.prototype.hasOwnProperty.call(opts, 'thinkingEffort')).toBe(false);
@@ -325,7 +325,7 @@ describe('runDirectorBrief', () => {
         it('returns null on UtilityTimeoutError (timeout)', async () => {
             const { UtilityTimeoutError } = await import('../../../utils/llmCall');
             mockLlmCall.mockRejectedValueOnce(
-                new UtilityTimeoutError(120_000, 'director-brief'),
+                new UtilityTimeoutError(180_000, 'director-brief'),
             );
             const brief = await runDirectorBrief(baseInput());
             expect(brief).toBeNull();
@@ -395,7 +395,7 @@ describe('runDirectorBrief', () => {
         it('does NOT cache on timeout/abort (swipe retry may succeed)', async () => {
             const { UtilityTimeoutError } = await import('../../../utils/llmCall');
             mockLlmCall.mockRejectedValueOnce(
-                new UtilityTimeoutError(120_000, 'director-brief'),
+                new UtilityTimeoutError(180_000, 'director-brief'),
             );
             mockLlmCall.mockResolvedValueOnce(VALID_BRIEF);
             const input = baseInput();

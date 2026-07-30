@@ -4,13 +4,14 @@ import { useAppStore } from '../store/useAppStore';
 import { ProvidersTab } from './settings-modal/ProvidersTab';
 import { PresetsTab } from './settings-modal/PresetsTab';
 import { GlobalSettingsTab } from './settings-modal/GlobalSettingsTab';
+import { ExtensionsTab } from './settings-modal/ExtensionsTab';
 import { AdvancedTab } from './settings-modal/AdvancedTab';
 import { DebugTab } from './settings-modal/DebugTab';
 import { APP_VERSION } from '../version';
 import { useTranslation } from '../i18n/useTranslation';
 import type { TranslateKey } from '../i18n';
 
-type TabKey = 'providers' | 'presets' | 'global' | 'advanced' | 'debug';
+type TabKey = 'providers' | 'presets' | 'global' | 'extensions' | 'advanced' | 'debug';
 
 // Label is a translation KEY, resolved at render — a const array evaluated at
 // module load would freeze the language at import time and never update.
@@ -18,6 +19,7 @@ const TABS: { key: TabKey; labelKey: TranslateKey }[] = [
   { key: 'providers', labelKey: 'settings.tab.providers' },
   { key: 'presets', labelKey: 'settings.tab.presets' },
   { key: 'global', labelKey: 'settings.tab.global' },
+  { key: 'extensions', labelKey: 'settings.tab.extensions' },
   { key: 'advanced', labelKey: 'settings.tab.advanced' },
   { key: 'debug', labelKey: 'settings.tab.debug' },
 ];
@@ -77,6 +79,7 @@ export function SettingsModal() {
             <div className={activeTab !== 'providers' ? 'hidden' : ''}><ProvidersTab /></div>
             <div className={activeTab !== 'presets' ? 'hidden' : ''}><PresetsTab /></div>
             <div className={activeTab !== 'global' ? 'hidden' : ''}><GlobalSettingsTab /></div>
+            <div className={activeTab !== 'extensions' ? 'hidden' : ''}><ExtensionsTab /></div>
             <div className={activeTab !== 'advanced' ? 'hidden' : ''}><AdvancedTab /></div>
             <div className={activeTab !== 'debug' ? 'hidden' : ''}><DebugTab /></div>
           </div>

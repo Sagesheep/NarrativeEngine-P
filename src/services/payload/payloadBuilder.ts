@@ -2,14 +2,16 @@ import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, EnemyE
 import type { OpenAIMessage } from '../llm/llmService';
 import { createTraceCollector } from './traceCollector';
 import { computeBudgets } from './budgets';
-import { buildStable, isThinkingEnabled } from './stable';
+import { buildStable } from './stable';
 import { buildWorld } from './world';
 import { buildVolatile } from './volatile';
 import { buildHistory } from './history';
 import { buildPinnedMemoriesBlock } from './pinnedMemories';
-import { formatAskGmBrief } from '../ooc/askGmHandoff';
-import { buildAbsoluteCommandBlock } from '../turn/absoluteCommand';
 import { countTokens } from '../infrastructure/tokenizer';
+import { assembleContributions } from './contributions/assemble';
+import { createFinalUserRegistryWithExtensions } from './contributions/extensions';
+import type { FinalUserModuleInput } from './contributions/builtins';
+import type { ContributionRegistry } from './contributions/registry';
 import type { ElevatedScene } from '../archive-memory/dynamicElevation';
 import type { SlottedRagSnippet } from '../archive-memory/slottedRag';
 import { buildRelevantEnemyBlock } from '../enemy/enemyPrompt';
@@ -71,6 +73,10 @@ export type BuildPayloadOptions = {
      *  is swapped for a subordination line, and the command block is placed LAST — after
      *  userMessage — for maximum recency. Never enters chat history. */
     absoluteCommand?: string;
+    /** Project 2: registry of final-user contributions. Defaults to built-ins only.
+     *  Callers supply their own once mods can be loaded, so `buildPayload` never learns
+     *  what a mod is. */
+    finalUserRegistry?: ContributionRegistry<FinalUserModuleInput>;
 };
 
 export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMessage[]; trace?: PayloadTrace[]; debugSections?: DebugSection[] } {
@@ -111,6 +117,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         elevatedScenes,
         slottedRagSnippets,
         absoluteCommand,
+        finalUserRegistry,
     } = options;
     const isDebug = settings.debugMode === true;
     const limit = settings.contextLimit || 8192;
@@ -225,105 +232,58 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
     // RAG-retrieved rules are per-turn dynamic (re-selected by semantic match to user input),
     // so they ride in the volatile block below the cache boundary — not in stable. Mirrors
     // mobileApp. Only verbatim full-rules fallback stays in stable (byte-identical across turns).
-    const GM_REMINDER = '[GM REMINDER: NPCs push back when their wants/boundaries are crossed. Do not default to facilitation.]';
     const volatileBlock = [retrievedRulesContent, worldContent, enemyBlock, abilityBlock, volatileContent].filter(Boolean).join('\n\n');
-    const askGmBrief = formatAskGmBrief(nextTurnOocBrief);
 
-    // Absolute Command v1: build the binding OOC block (or '' when absent). When
-    // present, GM_REMINDER is dropped (the standing "do not default to facilitation"
-    // instruction is the most direct opponent of an explicit player override), and
-    // the CoT invocation line is swapped for a subordination line. WRITER_COT stays
-    // in the cached stable prefix (never conditionally removed — see WO §2); only
-    // the below-boundary invocation line changes. The block itself is placed LAST
-    // in the final user message — after userMessage — for maximum recency.
-    const absoluteCommandBlock = buildAbsoluteCommandBlock(absoluteCommand);
-    const hasAbsolute = absoluteCommandBlock !== '';
+    // Project 2 / WO-P2-02: the final user message is assembled by the contribution registry
+    // rather than a hand-written array. Every block that used to be open-coded here — the
+    // volatile block, the CoT invocation line, the Director Brief, GM_REMINDER, the watchdog
+    // nudge, the Ask-GM handoff, the player's message, and the Absolute Command — is now a
+    // registered module in `contributions/builtins.ts`, and the precedence rules that used to
+    // be inline conditionals (`hasAbsolute ? '' : ...`, `!directorBrief && !hasAbsolute`) are
+    // declared as `suppresses` on the contributions that win.
+    //
+    // Ordering, suppression, and the emitted traces are unchanged — `finalUserAssemblyGolden`
+    // replicates the old inline expression as an oracle and compares across every combination
+    // of the flags that drove it. Everything here still lands BELOW the cache boundary, so the
+    // cached prefix assembled above is untouched.
+    // Condition facts for mod contributions. Derived only from data already resolved above —
+    // no extra work on the turn path. `location` reuses the same `currentPlaceId` → ledger
+    // resolution that `buildLocationBlock` performs, so a mod and the [LOCATION] block can
+    // never disagree about where the scene is.
+    const facts = {
+        onStageNpcNames: onStageNpcIds
+            ?.map((id) => npcLedger?.find((n) => n.id === id)?.name)
+            .filter((name): name is string => !!name),
+        location: context.currentPlaceId
+            ? locationLedger?.find((l) => l.id === context.currentPlaceId)?.name
+            : undefined,
+        inCombat: activeEncounterBlock !== '',
+    };
 
-    const gmReminderActive = hasAbsolute ? '' : GM_REMINDER;
+    const registry = finalUserRegistry ?? createFinalUserRegistryWithExtensions();
+    const contributions = registry.collect(
+        {
+            settings,
+            userMessage,
+            volatileBlock,
+            directorBrief,
+            watchdogNudge,
+            absoluteCommand,
+            nextTurnOocBrief,
+            facts,
+        },
+        // Enablement rides on `settings` (already threaded everywhere `buildPayload` is called),
+        // so wiring the extensions screen to the prompt needed no call-site changes at all.
+        // Absent key = enabled, so an empty/missing map is exactly today's behaviour.
+        settings.moduleEnabled
+            ? { isEnabled: (id) => settings.moduleEnabled?.[id] !== false }
+            : undefined,
+    );
+    const assembled = assembleContributions(contributions);
 
-    // Per-turn CoT invocation line (thinking-mode only). Rides in the final user
-    // message (below the cache boundary) — kept out of the cached stable prefix so
-    // thinking-off turns stay byte-identical to the pre-CoT payload. Under an
-    // absolute command, subordinates the framework instead of invoking it flatly.
-    const writerCotNudge = !isThinkingEnabled(settings)
-        ? ''
-        : hasAbsolute
-            ? 'Work through the [WRITER REASONING FRAMEWORK] only where it does not conflict with [USER ABSOLUTE COMMAND]. Where they conflict, discard the framework step and follow the command.'
-            : 'Work through the [WRITER REASONING FRAMEWORK] in your reasoning before writing.';
+    messages.push({ role: 'user', content: assembled.text });
 
-    // Director Watchdog nudge (WO-03): rides adjacent to GM_REMINDER in the final user message
-    // (below the cache boundary) so it never perturbs the cached prefix. Suppressed when a
-    // Director Brief is present — the Brief supersedes it (WO-04 wires the actual Brief value;
-    // WO-03 adds the param so the supersession rule is testable). Also suppressed under an
-    // Absolute Command (belt-and-braces — the orchestrator already leaves watchdogNudge
-    // undefined when the command is armed; buildPayload is called from three sites and must
-    // be correct standalone).
-    const watchdogNudgeActive = watchdogNudge && !directorBrief && !hasAbsolute ? watchdogNudge : '';
-
-    // Director Brief (WO-04): rendered as a [DIRECTOR BRIEF] block placed BEFORE GM_REMINDER
-    // in the final user message (below the cache boundary). When present, the watchdog nudge
-    // is omitted (the Brief supersedes it — see `watchdogNudgeActive` gate above). The Brief
-    // carries the LLM-authored Writer Brief from `runDirectorBrief`; the block header is
-    // added here so the Director's bare `WRITER BRIEF\n...` output reads as a labeled
-    // directive to the GM in the final prompt.
-    const directorBriefBlock = directorBrief ? `[DIRECTOR BRIEF]\n${directorBrief}` : '';
-
-    // Ordering: the Brief lands BEFORE GM_REMINDER so the GM reads the audit directives
-    // first, then the standing GM reminder, then the (possibly suppressed) deterministic
-    // nudge. Everything upstream of this point is cache-stable.
-    // Absolute Command v1: the command block is placed LAST — after userMessage — for
-    // maximum recency, explicitly outranking everything above it.
-    const finalUserContent = [
-        volatileBlock, writerCotNudge, directorBriefBlock, gmReminderActive,
-        watchdogNudgeActive, askGmBrief, userMessage, absoluteCommandBlock,
-    ].filter(Boolean).join('\n\n');
-    messages.push({ role: 'user', content: finalUserContent });
-
-    // Trace the watchdog so debug mode shows the dossier (source: 'Watchdog' per WO-03 §4).
-    // Trace is only recorded when the nudge is actually surfaced — a suppressed nudge (Brief
-    // present) or absent input is not a payload contributor this turn.
-    if (watchdogNudgeActive) {
-        collector.addTrace({
-            source: 'Watchdog',
-            classification: 'world_context',
-            tokens: countTokens(watchdogNudgeActive),
-            reason: 'Deterministic NPC-agency nudge (highest-priority signal from buildWatchdogDossier)',
-            included: true,
-            position: 'user',
-            preview: watchdogNudgeActive,
-        });
-    }
-
-    // Trace the Director Brief so debug mode shows the LLM-authored directives (WO-04 §5).
-    // Only recorded when the Brief is actually present — a null/empty Brief (timeout, parse
-    // failure, lite tier) is not a payload contributor this turn. When the Brief is present
-    // the watchdog trace above is skipped, so exactly one of the two traces appears.
-    if (directorBriefBlock) {
-        collector.addTrace({
-            source: 'Director',
-            classification: 'world_context',
-            tokens: countTokens(directorBriefBlock),
-            reason: 'LLM-authored Writer Brief from runDirectorBrief (supersedes the deterministic watchdog nudge)',
-            included: true,
-            position: 'user',
-            preview: directorBriefBlock,
-        });
-    }
-
-    // Absolute Command v1: trace the binding OOC block so debug mode shows it.
-    // Mirrors the Director trace above. Only recorded when the block is
-    // actually present — an absent/empty command is not a payload contributor.
-    if (absoluteCommandBlock) {
-        collector.addTrace({
-            source: 'Absolute Command',
-            classification: 'world_context',
-            tokens: countTokens(absoluteCommandBlock),
-            reason: 'Binding out-of-character player instruction for this turn (supersedes GM_REMINDER, watchdog nudge, and Director Brief)',
-            included: true,
-            position: 'user',
-            preview: absoluteCommandBlock,
-        });
-    }
+    for (const contributionTrace of assembled.traces) collector.addTrace(contributionTrace);
 
     return { messages, trace: isDebug ? collector.trace : undefined, debugSections: isDebug ? collector.debugSections : undefined };
 }

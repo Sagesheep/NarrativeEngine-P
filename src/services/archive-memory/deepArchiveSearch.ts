@@ -4,7 +4,7 @@ import { fetchArchiveScenes } from '../archiveMemory';
 import { safeSceneNum } from '../../utils/helpers';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 
-const TIMEOUT_CHAPTER_SCAN_MS = 120_000;
+const TIMEOUT_CHAPTER_SCAN_MS = 180_000;
 const TIMEOUT_SCENE_SCAN_MS = 210_000;
 const TIMEOUT_SUMMARIZE_MS = 180_000;
 
