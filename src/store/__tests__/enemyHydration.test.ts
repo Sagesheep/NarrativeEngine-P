@@ -3,9 +3,18 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { useAppStore } from '../../store/useAppStore';
 import { hydrateCampaign } from '../campaignHydrator';
 
+// Locations moved off `campaignStore` onto the table descriptor (WO-P5-04), so the
+// stub below no longer intercepts them. Mock the descriptor loader the hydrator
+// actually imports — precise, and scoped to this module. Do NOT stub global `fetch`
+// here: it would swallow every network call any code under test makes, and
+// `vi.clearAllMocks()` does not undo it.
+vi.mock('../../services/tables/locationTable', () => ({
+    locationTableDescriptor: { name: 'locations', fileSuffix: '.locations.json', recordShape: 'array' },
+    loadLocationTable: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('../campaignStore', () => ({
     loadCampaignState: vi.fn().mockResolvedValue({ context: {}, messages: [], condenser: { condensedUpToIndex: -1 }, pinnedExcerpts: [] }),
-    fetch: vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => [] }))),
     getLoreChunks: vi.fn().mockResolvedValue([]),
     getNPCLedger: vi.fn().mockResolvedValue([]),
     getEnemyCompendium: vi.fn().mockResolvedValue([]),
