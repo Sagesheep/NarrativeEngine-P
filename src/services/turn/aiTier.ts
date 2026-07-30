@@ -1,4 +1,5 @@
 import type { AiTier } from '../../types';
+import { isBlockEnabled } from './blockEnablement';
 
 export type TierFeature =
   | 'introEngine' | 'planner' | 'expandQuery' | 'reranker' | 'archiveFunnel'
@@ -56,7 +57,13 @@ export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
 };
 
 export function tierAllows(tier: AiTier | undefined, f: TierFeature): boolean {
-    return MATRIX[tier ?? 'pro']?.[f] ?? false;
+    // The resolver returns `true` for ids not in the matrix (the "absent means enabled"
+    // convention for contributions/tracks). `tierAllows` is typed to `TierFeature` and its
+    // historical contract is "unknown id → false" (the `?? false` in the old body), so guard
+    // the fallthrough here. The 31 call sites only ever pass valid `TierFeature` literals,
+    // so this branch is unreachable in production — it preserves the typed contract.
+    if (!(f in MATRIX[tier ?? 'pro'])) return false;
+    return isBlockEnabled(f, tier, undefined);
 }
 
 // 0 = every turn (Max), Infinity = never (Lite)
