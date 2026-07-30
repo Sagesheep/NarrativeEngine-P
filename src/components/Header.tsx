@@ -1,4 +1,4 @@
-import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Users, Archive, Save, Pin, Cpu, MapPin, UserCircle, Swords } from 'lucide-react';
+import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Users, Archive, Save, Pin, Cpu, MapPin, UserCircle, Swords, Workflow } from 'lucide-react';
 import { createBackup } from '../store/campaignStore';
 import { flushAllPendingSaves } from '../store/slices/campaignSlice';
 import { toast } from './Toast';
@@ -20,6 +20,7 @@ export function Header() {
         toggleEnemyCompendium,
         togglePCPanel,
         toggleLocationLedger,
+        toggleBlockView,
         toggleBackupModal,
         togglePinnedMemories,
         drawerOpen,
@@ -151,6 +152,16 @@ export function Header() {
                 >
                     <MapPin size={13} />
                     <span className="hidden sm:inline">{t('header.places.label')}</span>
+                </button>
+
+                <button
+                    onClick={toggleBlockView}
+                    className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
+                    title={t('header.blockView.tooltip')}
+                    aria-label={t('header.blockView.aria')}
+                >
+                    <Workflow size={13} />
+                    <span className="hidden sm:inline">{t('header.blockView.label')}</span>
                 </button>
 
                 <button

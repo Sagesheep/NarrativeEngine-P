@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BookOpen, Loader2, Puzzle, RefreshCw, RotateCcw } from 'lucide-react';
+import { AlertTriangle, BookOpen, Loader2, Puzzle, RefreshCw, RotateCcw, Workflow } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // The author's guide, inlined at build time rather than fetched.
@@ -70,6 +70,8 @@ const toRow = (module: ContributionModule<FinalUserModuleInput>, meta?: string):
 export function ExtensionsTab() {
     const settings = useAppStore((s) => s.settings);
     const updateSettings = useAppStore((s) => s.updateSettings);
+    const toggleBlockView = useAppStore((s) => s.toggleBlockView);
+    const toggleSettings = useAppStore((s) => s.toggleSettings);
     const { t } = useTranslation();
 
     const [mods, setMods] = useState<ValidatedMod[]>([]);
@@ -208,6 +210,19 @@ export function ExtensionsTab() {
                 >
                     <RotateCcw size={10} />
                     {t('settings.extensions.reset')}
+                </button>
+                {/* WO-P5-02 §3 — cross-link to the Block View. The two screens toggle the
+                 * same `moduleEnabled` state; a user who finds one should find the other.
+                 * The Block View is a Header-launched modal, so opening it from here closes
+                 * Settings first (the two are mutually exclusive overlays). */}
+                <button
+                    type="button"
+                    onClick={() => { toggleSettings(); toggleBlockView(); }}
+                    title={t('blockview.link.extensions.help')}
+                    className="shrink-0 text-[10px] uppercase tracking-widest bg-ember/10 border border-ember/30 text-ember px-3 py-1.5 rounded hover:bg-ember/20 flex items-center gap-1.5"
+                >
+                    <Workflow size={10} />
+                    {t('blockview.link.extensions')}
                 </button>
             </div>
 

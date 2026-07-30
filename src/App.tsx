@@ -10,6 +10,7 @@ import { NPCLedgerModal } from './components/NPCLedgerModal';
 import { EnemyCompendiumModal } from './components/EnemyCompendiumModal';
 import { CharacterLedgerModal } from './components/character/CharacterLedgerModal';
 import { LocationLedgerModal } from './components/LocationLedgerModal';
+import { BlockViewModal } from './components/block-view/BlockViewModal';
 import { BackupModal } from './components/BackupModal';
 import { LoreCheckModal } from './components/LoreCheckModal';
 import { DivergenceReviewModal } from './components/DivergenceReviewModal';
@@ -176,6 +177,7 @@ export default function App() {
       <EnemyCompendiumModal />
       <CharacterLedgerModal />
       <LocationLedgerModal />
+      <BlockViewModal />
       <BackupModal />
       <LoreCheckModal />
       <DivergenceReviewModal />

@@ -13,6 +13,7 @@ export type UISlice = {
     enemyCompendiumOpen: boolean;
     pcPanelOpen: boolean;
     locationLedgerOpen: boolean;
+    blockViewOpen: boolean;
     backupModalOpen: boolean;
     lastPayloadTrace?: PayloadTrace[];
     pipelinePhase: PipelinePhase;
@@ -28,6 +29,7 @@ export type UISlice = {
     toggleEnemyCompendium: () => void;
     togglePCPanel: () => void;
     toggleLocationLedger: () => void;
+    toggleBlockView: () => void;
     toggleBackupModal: () => void;
     setLastPayloadTrace: (trace?: PayloadTrace[]) => void;
     setPipelinePhase: (phase: PipelinePhase) => void;
@@ -100,6 +102,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     enemyCompendiumOpen: false,
     pcPanelOpen: false,
     locationLedgerOpen: false,
+    blockViewOpen: false,
     backupModalOpen: false,
     pipelinePhase: 'idle',
     streamingStats: null,
@@ -114,6 +117,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     toggleEnemyCompendium: () => set((s) => ({ enemyCompendiumOpen: !s.enemyCompendiumOpen })),
     togglePCPanel: () => set((s) => ({ pcPanelOpen: !s.pcPanelOpen })),
     toggleLocationLedger: () => set((s) => ({ locationLedgerOpen: !s.locationLedgerOpen })),
+    toggleBlockView: () => set((s) => ({ blockViewOpen: !s.blockViewOpen })),
     toggleBackupModal: () => set((s) => ({ backupModalOpen: !s.backupModalOpen })),
     setLastPayloadTrace: (trace) => set({ lastPayloadTrace: trace }),
     setPipelinePhase: (phase) => set({ pipelinePhase: phase }),
