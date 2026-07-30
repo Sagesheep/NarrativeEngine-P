@@ -20,7 +20,8 @@ import { createEmbeddingRouter } from './server/routes/embedding.js';
 import { createTtsRouter } from './server/routes/tts.js';
 import { createSceneImagesRouter } from './server/routes/sceneImages.js';
 import { createModsRouter } from './server/routes/mods.js';
-import { mountGenericTableRoutes } from './server/lib/tableRegistry.js';
+import { mountGenericTableRoutes, serverTableRegistry } from './server/lib/tableRegistry.js';
+import { registerLocationTable } from './server/lib/locationTable.js';
 import { initDb } from './server/lib/vectorStore.js';
 import { warmup as warmupEmbedder } from './server/lib/embedder.js';
 import { warmupTts } from './server/lib/tts.js';
@@ -74,6 +75,7 @@ try {
 } catch (err) {
     console.error('[VectorStore] Init failed:', err.message);
 }
+registerLocationTable(serverTableRegistry);
 warmupEmbedder().catch(err => console.error('[Embedder] Warmup failed:', err.message));
 warmupTts().catch(err => console.error('[TTS] Warmup failed:', err.message));
 

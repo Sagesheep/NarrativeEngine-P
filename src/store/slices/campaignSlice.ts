@@ -38,6 +38,8 @@ import {
 
 import { API_BASE as API } from '../../lib/apiBase';
 
+import { createDebouncedSave, createTableSlice } from '../../services/tables/genericAccessor';
+import { locationTableDescriptor } from '../../services/tables/locationTable';
 let autoBackupTimer: ReturnType<typeof setInterval> | null = null;
 
 function preOpBackup(campaignId: string | null, trigger: string) {
@@ -71,14 +73,14 @@ export function cancelPendingSaves() {
     if (enemyInstanceTimer) { clearTimeout(enemyInstanceTimer); enemyInstanceTimer = null; }
     if (enemyEncounterTimer) { clearTimeout(enemyEncounterTimer); enemyEncounterTimer = null; }
     if (enemyCombatTimer) { clearTimeout(enemyCombatTimer); enemyCombatTimer = null; }
-    if (locationTimer) { clearTimeout(locationTimer); locationTimer = null; }
+    locationLedgerSave.cancel();
 }
 
 /** Immediately fires any pending debounced saves so the latest in-memory state is on
  *  disk before a backup is created. Awaiting this guarantees the backup reads current data. */
 export async function flushAllPendingSaves(): Promise<void> {
     if (!_getStateForSave) return;
-    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, enemyCompendium, enemyInstances, enemyEncounters, enemyCombatConfig, locationLedger, pinnedExcerpts } = _getStateForSave();
+    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, enemyCompendium, enemyInstances, enemyEncounters, enemyCombatConfig, pinnedExcerpts } = _getStateForSave();
     if (!activeCampaignId) return;
 
     const saves: Promise<unknown>[] = [];
@@ -155,17 +157,7 @@ export async function flushAllPendingSaves(): Promise<void> {
         }).catch(e => console.error('[FlushSave] enemy combat config failed:', e)));
     }
 
-    if (locationTimer) {
-        clearTimeout(locationTimer);
-        locationTimer = null;
-        saves.push(
-            fetch(`${API}/campaigns/${activeCampaignId}/locations`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(locationLedger),
-            }).catch(e => console.error('[FlushSave] locations failed:', e))
-        );
-    }
+    saves.push(locationLedgerSave.flush());
 
     if (saves.length > 0) await Promise.all(saves);
 }
@@ -258,18 +250,6 @@ function debouncedSaveEnemyCombatConfig(campaignId: string | null, config: Enemy
     }, 1000);
 }
 
-let locationTimer: ReturnType<typeof setTimeout> | null = null;
-export function debouncedSaveLocationLedger(campaignId: string | null, locations: LocationEntry[]) {
-    if (!campaignId) return;
-    if (locationTimer) clearTimeout(locationTimer);
-    locationTimer = setTimeout(() => {
-        fetch(`${API}/campaigns/${campaignId}/locations`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(locations),
-        }).catch((e) => { console.error(e); toast.error('Failed to save location ledger'); });
-    }, 1000);
-}
 
 /**
  * Deduplicates the NPC ledger by name comparison:
@@ -522,6 +502,23 @@ type CampaignDeps = CampaignSlice & {
     condenser: CondenserState;
     pinnedExcerpts: PinnedExcerpt[];
 };
+
+const locationSliceDescriptor = {
+    ...locationTableDescriptor,
+    hooks: { onRemove: ((campaignId: string, id: string, state: CampaignDeps) => {
+        preOpBackup(campaignId, 'pre-delete-location');
+        if (state.context.currentPlaceId !== id) return undefined;
+        const context = migrateLegacyContext({ ...state.context, currentPlaceId: null, currentFeature: null });
+        debouncedSaveCampaignState();
+        return { context };
+    }) as never },
+};
+
+const locationTableSlice = createTableSlice<LocationEntry[], CampaignDeps>(locationSliceDescriptor, []);
+const locationLedgerSave = createDebouncedSave<LocationEntry[]>(locationTableDescriptor as never, () => {
+    const state = _getStateForSave?.();
+    return { activeCampaignId: state?.activeCampaignId ?? null, field: state?.locationLedger ?? [] };
+});
 
 // ── Slice creator ──────────────────────────────────────────────────────
 
@@ -1177,38 +1174,31 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     }) as Partial<CampaignDeps>),
     clearNpcSuggestions: () => set({ npcSuggestions: [] } as Partial<CampaignDeps>),
     // ── Location Ledger (v1) ──
-    locationLedger: [],
+    locationLedger: locationTableSlice.initial,
     setLocationLedger: (locations) => set((s) => {
-        debouncedSaveLocationLedger(s.activeCampaignId, locations);
-        return { locationLedger: locations } as Partial<CampaignDeps>;
+        const transition = locationTableSlice.set(s.locationLedger, locations);
+        locationLedgerSave(transition.field);
+        return { locationLedger: transition.field } as Partial<CampaignDeps>;
     }),
     addLocation: (loc) => set((s) => {
-        const withNew = [...s.locationLedger, loc];
-        debouncedSaveLocationLedger(s.activeCampaignId, withNew);
-        return { locationLedger: withNew } as Partial<CampaignDeps>;
+        const transition = locationTableSlice.add(s.locationLedger, loc);
+        locationLedgerSave(transition.field);
+        return { locationLedger: transition.field } as Partial<CampaignDeps>;
     }),
     updateLocation: (id, patch) => set((s) => {
-        const newLedger = s.locationLedger.map(l => l.id === id ? { ...l, ...patch } : l);
-        debouncedSaveLocationLedger(s.activeCampaignId, newLedger);
-        return { locationLedger: newLedger } as Partial<CampaignDeps>;
+        const transition = locationTableSlice.update(s.locationLedger, id, patch);
+        locationLedgerSave(transition.field);
+        return { locationLedger: transition.field } as Partial<CampaignDeps>;
     }),
     removeLocation: (id) => set((s) => {
-        preOpBackup(s.activeCampaignId, 'pre-delete-location');
-        const newLedger = s.locationLedger.filter(l => l.id !== id);
-        debouncedSaveLocationLedger(s.activeCampaignId, newLedger);
+        const transition = locationTableSlice.remove(s.locationLedger, id, {
+            campaignId: s.activeCampaignId,
+            state: s,
+        });
+        locationLedgerSave(transition.field);
+        return { locationLedger: transition.field, ...transition.statePatch } as Partial<CampaignDeps>;
         // If the deleted entry was the current place, clear the pointer (do NOT silently
         // redirect — the player should re-anchor).
-        const ctx = s.context;
-        let contextPatch: Partial<GameContext> | undefined;
-        if (ctx.currentPlaceId === id) {
-            contextPatch = { currentPlaceId: null, currentFeature: null };
-        }
-        if (contextPatch) {
-            const newContext = migrateLegacyContext({ ...ctx, ...contextPatch });
-            debouncedSaveCampaignState();
-            return { locationLedger: newLedger, context: newContext } as Partial<CampaignDeps>;
-        }
-        return { locationLedger: newLedger } as Partial<CampaignDeps>;
     }),
     locationSuggestions: [],
     addLocationSuggestions: (suggestions) => set((s) => {

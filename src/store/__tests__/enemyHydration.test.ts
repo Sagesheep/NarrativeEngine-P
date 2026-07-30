@@ -5,6 +5,7 @@ import { hydrateCampaign } from '../campaignHydrator';
 
 vi.mock('../campaignStore', () => ({
     loadCampaignState: vi.fn().mockResolvedValue({ context: {}, messages: [], condenser: { condensedUpToIndex: -1 }, pinnedExcerpts: [] }),
+    fetch: vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => [] }))),
     getLoreChunks: vi.fn().mockResolvedValue([]),
     getNPCLedger: vi.fn().mockResolvedValue([]),
     getEnemyCompendium: vi.fn().mockResolvedValue([]),

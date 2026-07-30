@@ -1,6 +1,6 @@
 import { useAppStore } from './useAppStore';
 import {
-    loadCampaignState, getLoreChunks, getNPCLedger, getEnemyCompendium, getEnemyInstances, getEnemyEncounters, getEnemyResolutions, getEnemyCombatConfig, getLocationLedger,
+    loadCampaignState, getLoreChunks, getNPCLedger, getEnemyCompendium, getEnemyInstances, getEnemyEncounters, getEnemyResolutions, getEnemyCombatConfig,
     loadArchiveIndex, loadTimeline, loadChapters, loadEntities,
     loadDivergenceRegister, saveDivergenceRegister, saveChapters,
     saveNPCLedger, saveCampaignState,
@@ -14,6 +14,7 @@ import { normalizeEnemyCombatConfig, normalizeEnemyInstance } from '../services/
 import { normalizeEnemyEntries } from '../services/enemy/enemySchema';
 import { normalizeEnemyEncounters } from '../services/enemy/enemyEncounter';
 import { normalizeEnemyResolutions } from '../services/enemy/enemyResolution';
+import { loadLocationTable } from '../services/tables/locationTable';
 import { safeSceneNum } from '../utils/helpers';
 
 function backfillSceneIds(chapters: ArchiveChapter[]): { chapters: ArchiveChapter[]; changed: boolean } {
@@ -183,7 +184,7 @@ export async function hydrateCampaign(campaignId: string) {
         getEnemyEncounters(campaignId),
         getEnemyResolutions(campaignId),
         getEnemyCombatConfig(campaignId),
-        getLocationLedger(campaignId),
+        loadLocationTable(campaignId),
         loadArchiveIndex(campaignId),
         loadTimeline(campaignId),
         loadChapters(campaignId),

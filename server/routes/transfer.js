@@ -113,6 +113,13 @@ export function createTransferRouter() {
             entities,
         };
 
+        for (const { bundleKey, fileSuffix, recordShape } of getTransferableTables()) {
+            bundle[bundleKey] = readJson(
+                path.join(CAMPAIGNS_DIR, `${id}${fileSuffix}`),
+                recordShape === 'array' ? [] : null,
+            );
+        }
+
         const safeName = (campaign.name || id).replace(/[^a-z0-9]+/gi, '_').toLowerCase();
         const filename = `${safeName}_${new Date().toISOString().slice(0, 10)}.campaign`;
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -216,6 +223,12 @@ export function createTransferRouter() {
         if (bundle.facts?.length) writeJson(factsPath(newId), bundle.facts);
         if (bundle.timeline?.length) writeJson(timelinePath(newId), bundle.timeline);
         if (bundle.entities?.length) writeJson(entitiesPath(newId), bundle.entities);
+
+        for (const { bundleKey, fileSuffix } of getTransferableTables()) {
+            if (bundle[bundleKey] !== undefined) {
+                writeJson(path.join(CAMPAIGNS_DIR, `${newId}${fileSuffix}`), bundle[bundleKey]);
+            }
+        }
 
         // Background re-embedding
         setImmediate(async () => {

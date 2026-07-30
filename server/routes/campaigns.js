@@ -295,20 +295,6 @@ export function createCampaignsRouter() {
     //  Location Ledger
     // ═══════════════════════════════════════════
 
-    router.get('/api/campaigns/:id/locations', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.locations.json`);
-        const locations = readJson(filePath, []);
-        res.json(locations);
-    }));
-
-    router.put('/api/campaigns/:id/locations', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        ensureDirs();
-        const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.locations.json`);
-        writeJson(filePath, req.body);
-        res.json({ ok: true });
-    }));
 
     return router;
 }
