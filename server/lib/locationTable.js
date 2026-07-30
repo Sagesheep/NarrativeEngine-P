@@ -3,6 +3,7 @@ export const locationTableDescriptor = {
     fileSuffix: '.locations.json',
     recordShape: 'array',
     serverRoutes: { present: true, value: { get: true, put: true } },
+    transfer: { present: true, value: { bundleKey: 'locations' } },
 };
 
 export function registerLocationTable(registry) {

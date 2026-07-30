@@ -42,7 +42,7 @@ describe('P5-04 location transfer opt-in', () => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    it('keeps locations out of an exported bundle until the descriptor opts into transfer', async () => {
+    it('round-trips locations after the descriptor opts into transfer', async () => {
         const id = 'location-export';
         const expected = [{ id: 'loc-1', name: 'The Observatory' }];
         fs.writeFileSync(path.join(campaignsDir, `${id}.json`), JSON.stringify({ id, name: 'Location Export' }));
@@ -57,13 +57,14 @@ describe('P5-04 location transfer opt-in', () => {
             .get(`/api/campaigns/${id}/export`)
             .expect(200);
 
-        expect(exported.body.locations).toBeUndefined();
+        expect(exported.body.locations).toEqual(expected);
         const imported = await request(app)
             .post('/api/campaigns/import')
             .send(exported.body)
             .expect(200);
 
-        expect(fs.existsSync(path.join(campaignsDir, `${imported.body.id}.locations.json`))).toBe(false);
+        const importedPath = path.join(campaignsDir, `${imported.body.id}.locations.json`);
+        expect(JSON.parse(fs.readFileSync(importedPath, 'utf-8'))).toEqual(expected);
     });
 });
 
