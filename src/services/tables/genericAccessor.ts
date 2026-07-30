@@ -95,12 +95,44 @@ export async function genericSave(
  * decides whether to debounce (the factory supplies a debounced-save
  * helper that mirrors the eight existing timers in campaignSlice.ts).
  */
-export interface SliceFactoryResult<T> {
+export interface OnRemoveContext<State> {
+    campaignId: string | null;
+    state: State;
+}
+
+export interface SliceFactoryResult<T, State = unknown> {
     initial: T;
     set: (current: T, next: T) => { field: T };
     add: (current: T, item: T extends Array<infer U> ? U : never) => { field: T };
     update: (current: T, id: string, patch: Partial<T extends Array<infer U> ? U : never>) => { field: T };
-    remove: (current: T, id: string) => { field: T };
+    remove: (current: T, id: string, context?: OnRemoveContext<State>) => { field: T; statePatch?: Partial<State> };
+}
+
+/**
+ * Builds the generic state transitions for an array-backed table. The caller
+ * maps the returned `field` to its public store-field name, preserving the
+ * existing store shape. `onRemove` receives the current slice state and may
+ * return a cross-table patch for the caller to merge with the deletion.
+ */
+export function createTableSlice<T extends Array<{ id: string }>, State = unknown>(
+    descriptor: TableDescriptor & { recordShape: 'array' },
+    initial: T,
+): SliceFactoryResult<T, State> {
+    return {
+        initial,
+        set: (_current, next) => ({ field: next }),
+        add: (current, item) => ({ field: [...current, item] as T }),
+        update: (current, id, patch) => ({
+            field: current.map((item) => item.id === id ? { ...item, ...patch } : item) as T,
+        }),
+        remove: (current, id, context) => {
+            const statePatch = context
+                ? runOnRemove(descriptor, context.campaignId, id, context.state)
+                : undefined;
+            const field = current.filter((item) => item.id !== id) as T;
+            return statePatch === undefined ? { field } : { field, statePatch };
+        },
+    };
 }
 
 /**
@@ -144,13 +176,17 @@ export function createDebouncedSave<T>(
  * can merge it alongside the ledger mutation. The hook is OPTIONAL — a
  * descriptor without `onRemove` gets a no-op.
  */
-export function runOnRemove(
+export function runOnRemove<State = unknown>(
     descriptor: TableDescriptor,
     campaignId: string | null,
     id: string,
-): void {
+    state?: State,
+): Partial<State> | undefined {
     const onRemove = descriptor.hooks?.onRemove;
     if (typeof onRemove === 'function' && campaignId) {
-        onRemove(campaignId, id);
+        return (state === undefined
+            ? onRemove(campaignId, id)
+            : onRemove(campaignId, id, state)) as Partial<State> | undefined;
     }
+    return undefined;
 }
