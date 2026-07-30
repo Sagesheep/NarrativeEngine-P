@@ -31,7 +31,7 @@ import { countTokens } from '../infrastructure/tokenizer';
 // 120 s per spec — same budget as AI_CALL_TIMEOUT_MS for other tracked utility
 // calls (importance rating, profile scan). The user can EXTEND via the strip if
 // their local model is slow.
-const DIRECTOR_BRIEF_TIMEOUT_MS = 120_000;
+const DIRECTOR_BRIEF_TIMEOUT_MS = 180_000;
 const TRACKING_LABEL = 'director-brief';
 
 // npcSummary token cap (spec §6: ~120 tokens). countTokens is the codebase's

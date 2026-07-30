@@ -7,5 +7,5 @@
  * - Engine calls (game-engine classifiers like scene-stakes) must stay snappy: they
  *   gate turn pacing and a wrong/late answer is cheap to fall back from.
  */
-export const AI_CALL_TIMEOUT_MS = 120_000;     // 2 min
+export const AI_CALL_TIMEOUT_MS = 180_000;     // 3 min
 export const ENGINE_CALL_TIMEOUT_MS = 30_000;  // 30 s
