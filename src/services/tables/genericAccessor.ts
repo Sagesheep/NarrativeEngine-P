@@ -146,13 +146,19 @@ export function createTableSlice<T extends Array<{ id: string }>, State = unknow
  * closures — the getter is supplied by the caller, the same
  * `_registerCampaignStateGetter` pattern campaignSlice uses).
  */
+export interface DebouncedSave<T> {
+    (value: T): void;
+    cancel(): void;
+    flush(): Promise<void>;
+}
+
 export function createDebouncedSave<T>(
     descriptor: TableDescriptor & { storeAccessor: { present: true; value: { write: true } }; serverRoutes: { present: true; value: { put: true } } },
     getState: () => { activeCampaignId: string | null; field: T },
     delayMs = 1000,
-): (value: T) => void {
+): DebouncedSave<T> {
     let timer: ReturnType<typeof setTimeout> | null = null;
-    return (value: T) => {
+    const save = (value: T) => {
         const { activeCampaignId } = getState();
         if (!activeCampaignId) return;
         if (timer) clearTimeout(timer);
@@ -163,6 +169,22 @@ export function createDebouncedSave<T>(
             });
         }, delayMs);
     };
+    save.cancel = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+    };
+    save.flush = async () => {
+        if (!timer) return;
+        save.cancel();
+        const { activeCampaignId, field } = getState();
+        if (!activeCampaignId) return;
+        try {
+            await genericSave(descriptor, activeCampaignId, field);
+        } catch (e) {
+            console.error(`[tables] save failed for ${descriptor.name}:`, e);
+        }
+    };
+    return save;
 }
 
 /**
