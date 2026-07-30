@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
 import { CAMPAIGNS_DIR, SETTINGS_FILE, campaignFiles, readJson, writeJson, ensureDirs, validateCampaignId } from '../lib/fileStore.js';
+import { isCampaignMetaFile } from '../lib/tableRegistry.js';
 import { embedText, buildLoreText, resolveIndexingSpeed } from '../lib/embedder.js';
 import { storeLoreEmbedding, deleteCampaignEmbeddings } from '../lib/vectorStore.js';
 import { startJob, tickJob, endJob } from '../lib/embedJobs.js';
@@ -17,20 +18,12 @@ export function createCampaignsRouter() {
 
     router.get('/api/campaigns', wrapAsync((_req, res) => {
         ensureDirs();
-        const files = fs.readdirSync(CAMPAIGNS_DIR).filter(f =>
-            f.endsWith('.json') &&
-            !f.includes('.state') &&
-            !f.includes('.lore') &&
-            !f.includes('.npcs') &&
-            !f.includes('.enemies') &&
-            !f.includes('.enemy-instances') &&
-            !f.includes('.enemy-encounters') &&
-            !f.includes('.enemy-resolutions') &&
-            !f.includes('.enemy-combat') &&
-            !f.includes('.locations') &&
-            !f.includes('.archive') &&
-            !f.includes('.index')
-        );
+        // Derived positive test (WO-P5-03 §4): a campaign metadata file is a
+        // .json whose name has no registered campaign-file suffix. Replaces the
+        // hand-written negative substring filter (campaigns.js:20-33) which had
+        // already drifted against the transfer.js filter and would drift again
+        // on every mod-declared table.
+        const files = fs.readdirSync(CAMPAIGNS_DIR).filter(f => isCampaignMetaFile(f));
         const campaigns = files
             .map(f => {
                 const data = readJson(path.join(CAMPAIGNS_DIR, f));

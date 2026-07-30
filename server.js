@@ -20,6 +20,7 @@ import { createEmbeddingRouter } from './server/routes/embedding.js';
 import { createTtsRouter } from './server/routes/tts.js';
 import { createSceneImagesRouter } from './server/routes/sceneImages.js';
 import { createModsRouter } from './server/routes/mods.js';
+import { mountGenericTableRoutes } from './server/lib/tableRegistry.js';
 import { initDb } from './server/lib/vectorStore.js';
 import { warmup as warmupEmbedder } from './server/lib/embedder.js';
 import { warmupTts } from './server/lib/tts.js';
@@ -95,6 +96,12 @@ app.use(createEmbeddingRouter());
 app.use(createTtsRouter());
 app.use(createSceneImagesRouter(vault));
 app.use('/api/mods', createModsRouter({ modsDir: MODS_DIR, appVersion: APP_VERSION }));
+
+// Generic table routes (WO-P5-03 Step 2.2). Mounted AFTER every bespoke router
+// so a descriptor's generic GET/PUT pair can never shadow archive.js,
+// chapters.js, timeline.js, facts.js, overworld.js, divergence.js, or
+// campaigns.js. With no descriptors registered (today) this mounts nothing.
+app.use(mountGenericTableRoutes());
 
 // ─── Central Error Handler ───
 app.use((err, _req, res, _next) => {

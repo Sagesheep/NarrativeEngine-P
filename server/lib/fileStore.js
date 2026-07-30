@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { getCampaignFileSuffixes } from './tableRegistry.js';
 
 const __fileDir = path.dirname(fileURLToPath(import.meta.url));
 const __projectRoot = path.join(__fileDir, '../..');
@@ -178,15 +179,27 @@ export function createDefaultChapter(chapterId, title, sceneRangeStart, sceneCou
     };
 }
 
-const CAMPAIGN_FILE_SUFFIXES = [
+/**
+ * The built-in campaign file suffixes. Source-of-truth fallback for the derived
+ * `getCampaignFileSuffixes()` in tableRegistry.js (WO-P5-03 §5 Step 2.1). When
+ * no descriptors are registered the derived set is exactly this list; when a
+ * real table is converted (WO-P5-04) its descriptor's suffix joins the derived
+ * set and the fallback eventually retires.
+ *
+ * Kept here (not in tableRegistry.js) so fileStore.js has zero inbound imports
+ * from the registry — tableRegistry.js imports fileStore.js, never the reverse.
+ */
+export const BUILTIN_CAMPAIGN_FILE_SUFFIXES = Object.freeze([
     '.json', '.state.json', '.lore.json', '.npcs.json', '.enemies.json', '.enemy-instances.json', '.enemy-encounters.json', '.enemy-resolutions.json', '.enemy-combat.json', '.locations.json',
     '.archive.md', '.archive.index.json', '.archive.chapters.json',
     '.timeline.json', '.entities.json', '.facts.json',
     '.overworld.json', '.divergence.json',
-];
+]);
 
 export function campaignFileNames(id) {
-    return CAMPAIGN_FILE_SUFFIXES.map(s => `${id}${s}`);
+    // Derived (WO-P5-03 Step 2.1): with no descriptors registered this is the
+    // built-in 18, byte-identical to the prior hand-written list.
+    return getCampaignFileSuffixes().map(s => `${id}${s}`);
 }
 
 export function computeCampaignHash(id) {

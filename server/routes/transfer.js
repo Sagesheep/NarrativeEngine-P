@@ -5,6 +5,7 @@ import {
     archivePath, archiveIndexPath, chaptersPath, factsPath,
     entitiesPath, timelinePath, validateCampaignId,
 } from '../lib/fileStore.js';
+import { isCampaignMetaFile, getTransferableTables } from '../lib/tableRegistry.js';
 import { embedText, buildArchiveText, buildLoreText } from '../lib/embedder.js';
 import { storeArchiveEmbedding, storeLoreEmbedding } from '../lib/vectorStore.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
@@ -144,10 +145,15 @@ export function createTransferRouter() {
         }
         const [validEnemies, validEnemyInstances, validEnemyEncounters, validEnemyResolutions, validEnemyCombatConfig] = enemyChecks;
 
-        // ID collision check — only match bare {id}.json metadata files
+        // ID collision check — only match bare {id}.json metadata files.
+        // Derived positive test (WO-P5-03 §4): replaces the hand-written
+        // negative substring filter (transfer.js:150) which had drifted against
+        // the campaigns.js filter. Belt-and-braces: the ID_REGEX in fileStore.js
+        // forbids dots, so a suffixed file can never collide with a real id
+        // anyway; this filter just keeps the candidate set clean.
         const existingIds = new Set(
             fs.readdirSync(CAMPAIGNS_DIR)
-                .filter(f => f.endsWith('.json') && !f.includes('.state') && !f.includes('.lore') && !f.includes('.npcs') && !f.includes('.enemies') && !f.includes('.enemy-instances') && !f.includes('.enemy-encounters') && !f.includes('.enemy-resolutions') && !f.includes('.enemy-combat') && !f.includes('.archive') && !f.includes('.index') && !f.includes('.timeline') && !f.includes('.entities') && !f.includes('.facts') && !f.includes('.overworld') && !f.includes('.chapters'))
+                .filter(f => isCampaignMetaFile(f))
                 .map(f => f.slice(0, -5))
         );
         const originalId = bundle.campaign?.id;
