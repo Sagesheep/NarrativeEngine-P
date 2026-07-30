@@ -6,6 +6,12 @@ Power Compendium Library.
 This is an experimental variant of the faithful 54-skill Simulation Room file.
 It contains 60 definitions and deliberately exercises every Phase 6 origin.
 
+The version 2 `terminology` block gives those origins Simulation Room labels,
+including **Core Trait**, **Nikke Skill**, **Equipment Power**, **Rapture
+Action**, and **Simulation Grant**. The labels can be changed in the file or
+from the Compendium's **Terminology** tab without altering the stable internal
+classification.
+
 ## Origin Distribution
 
 - Trained: 43

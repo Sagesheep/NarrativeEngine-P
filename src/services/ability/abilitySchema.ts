@@ -1,4 +1,4 @@
-import type { AbilityCategory, AbilityCost, AbilityEntry, AbilityMasteryTier, AbilityOrigin, AbilityUpgradeNode } from '../../types';
+import type { AbilityCategory, AbilityCompendiumDocument, AbilityCost, AbilityEntry, AbilityMasteryTier, AbilityOrigin, AbilityTerminology, AbilityUpgradeNode } from '../../types';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -41,6 +41,25 @@ export const ABILITY_ORIGIN_LABELS: Record<AbilityOrigin, string> = {
     other: 'Other',
 };
 
+export const ABILITY_CATEGORY_LABELS: Record<AbilityCategory, string> = {
+    active: 'Active',
+    passive: 'Passive',
+    reaction: 'Reaction',
+    sustained: 'Sustained',
+    transformation: 'Transformation',
+    summon: 'Summon',
+    stance: 'Stance',
+    ritual: 'Ritual',
+    crafting: 'Crafting',
+    'narrative-permission': 'Narrative Permission',
+    other: 'Other',
+};
+
+export const DEFAULT_ABILITY_TERMINOLOGY: AbilityTerminology = {
+    originLabels: {},
+    categoryLabels: {},
+};
+
 const isRecord = (value: unknown): value is UnknownRecord =>
     Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -51,6 +70,33 @@ const optionalStringList = (value: unknown): string[] =>
     Array.isArray(value)
         ? value.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean)
         : [];
+
+export function normalizeAbilityTerminology(value: unknown): AbilityTerminology {
+    if (!isRecord(value)) return { originLabels: {}, categoryLabels: {} };
+    const originSource = isRecord(value.originLabels) ? value.originLabels : {};
+    const categorySource = isRecord(value.categoryLabels) ? value.categoryLabels : {};
+    const originLabels: AbilityTerminology['originLabels'] = {};
+    const categoryLabels: AbilityTerminology['categoryLabels'] = {};
+    for (const origin of ABILITY_ORIGINS) {
+        const label = optionalText(originSource[origin]);
+        if (label) originLabels[origin] = label;
+    }
+    for (const category of ABILITY_CATEGORIES) {
+        const label = optionalText(categorySource[category]);
+        if (label) categoryLabels[category] = label;
+    }
+    return { originLabels, categoryLabels };
+}
+
+export const resolveAbilityOriginLabel = (
+    origin: AbilityOrigin,
+    terminology?: AbilityTerminology,
+): string => terminology?.originLabels[origin] || ABILITY_ORIGIN_LABELS[origin];
+
+export const resolveAbilityCategoryLabel = (
+    category: AbilityCategory,
+    terminology?: AbilityTerminology,
+): string => terminology?.categoryLabels[category] || ABILITY_CATEGORY_LABELS[category];
 
 const optionalCosts = (value: unknown): AbilityCost[] =>
     Array.isArray(value)
@@ -226,4 +272,27 @@ export function normalizeAbilityEntries(
         .map(item => normalizeAbilityEntry(item, options))
         .filter((entry): entry is AbilityEntry => entry !== null);
     return { entries, skipped: value.length - entries.length };
+}
+
+export function normalizeAbilityCompendiumDocument(
+    value: unknown,
+    options: NormalizeAbilityOptions = {},
+): { entries: AbilityEntry[]; skipped: number; terminology: AbilityTerminology } {
+    if (Array.isArray(value)) {
+        return { ...normalizeAbilityEntries(value, options), terminology: normalizeAbilityTerminology(null) };
+    }
+    if (!isRecord(value) || !Array.isArray(value.abilities)) {
+        return { entries: [], skipped: 0, terminology: normalizeAbilityTerminology(null) };
+    }
+    return {
+        ...normalizeAbilityEntries(value.abilities, options),
+        terminology: normalizeAbilityTerminology(value.terminology),
+    };
+}
+
+export function createAbilityCompendiumDocument(
+    abilities: AbilityEntry[],
+    terminology?: AbilityTerminology,
+): AbilityCompendiumDocument {
+    return { schemaVersion: 2, terminology: normalizeAbilityTerminology(terminology), abilities };
 }

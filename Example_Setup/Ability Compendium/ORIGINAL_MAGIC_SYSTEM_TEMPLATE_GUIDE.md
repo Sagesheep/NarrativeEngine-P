@@ -17,28 +17,59 @@ The template contains eight editable archetypes:
 7. **Focus-Bound Power** demonstrates an inventory-granted ability.
 8. **Enemy Signature Action** demonstrates an Enemy Compendium reference.
 
+## Campaign Terminology
+
+The file uses the version 2 document format. Its top-level `terminology` block
+changes the labels shown by the Engine while the stable internal keys remain
+unchanged:
+
+```json
+{
+  "schemaVersion": 2,
+  "terminology": {
+    "originLabels": {
+      "innate": "Bloodline Gift",
+      "trained": "Discipline",
+      "spell": "Invocation"
+    },
+    "categoryLabels": {
+      "active": "Technique",
+      "ritual": "Grand Working"
+    }
+  },
+  "abilities": []
+}
+```
+
+Rename only the values on the right. Keep keys such as `innate`, `trained`,
+`active`, and `ritual` unchanged so the Engine can retain its cross-system
+behavior. Any omitted or empty label falls back to the default terminology.
+Legacy compendiums containing only an array of abilities remain importable.
+
 ## Recommended Workflow
 
 1. Export any existing ability library as a backup.
 2. Import the JSON template.
-3. Edit **Magical Foundation** first. Decide:
+3. Open the **Terminology** tab or edit the file's `terminology` block to name
+   origins and categories for the campaign.
+4. Edit **Magical Foundation** first. Decide:
    - who receives magic and how;
    - what resource or cost constrains it;
    - how magic is perceived;
    - what magic cannot do;
    - what suppresses or counters it.
-4. Rename the shared `template-*` interaction tags to terms meaningful to the
+5. Rename the shared `template-*` interaction tags to terms meaningful to the
    setting. Use the same spelling wherever abilities should interact.
-5. Duplicate **Basic Invocation** for each common technique. Keep each entry
+6. Duplicate **Basic Invocation** for each common technique. Keep each entry
    focused on one durable capability.
-6. Replace every sentence beginning with `Replace` and remove the `Template`
+7. Replace every sentence beginning with `Replace` and remove the `Template`
    tags when an entry is finished.
-7. Link **Focus-Bound Power** to a real inventory item. It will remain inactive
+8. Link **Focus-Bound Power** to a real inventory item. It will remain inactive
    until linked, carried, and equipped.
-8. Link **Enemy Signature Action** from an enemy's optional action.
-9. Give **Forbidden Ritual** a precise lore-verification note, run Lore Check,
+9. Link **Enemy Signature Action** from an enemy's optional action.
+10. Give **Forbidden Ritual** a precise lore-verification note, run Lore Check,
    review the evidence, and save only when satisfied.
-10. Assign learned abilities from the Characters tab. Item powers and enemy
+11. Assign learned abilities from the Characters tab. Item powers and enemy
     actions should remain cross-system references rather than permanent player
     assignments.
 

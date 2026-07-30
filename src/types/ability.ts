@@ -20,6 +20,18 @@ export type AbilityOrigin =
     | 'lore-granted'
     | 'other';
 
+/** Campaign-specific display names for the stable cross-system keys. */
+export type AbilityTerminology = {
+    originLabels: Partial<Record<AbilityOrigin, string>>;
+    categoryLabels: Partial<Record<AbilityCategory, string>>;
+};
+
+export type AbilityCompendiumDocument = {
+    schemaVersion: 2;
+    terminology: AbilityTerminology;
+    abilities: AbilityEntry[];
+};
+
 export type AbilityLoreStatus = 'unverified' | 'verified' | 'flagged';
 
 export type AbilityCost = {

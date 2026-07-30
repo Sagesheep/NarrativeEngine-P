@@ -2,12 +2,13 @@ import { useMemo, useRef, useState } from 'react';
 import { Copy, Download, Plus, Search, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import type { AbilityCost, AbilityEntry, AbilityOrigin } from '../types';
-import { ABILITY_CATEGORIES, ABILITY_ORIGINS, ABILITY_ORIGIN_LABELS, createEmptyAbilityEntry, normalizeAbilityEntries } from '../services/ability/abilitySchema';
+import { ABILITY_CATEGORIES, ABILITY_ORIGINS, createAbilityCompendiumDocument, createEmptyAbilityEntry, normalizeAbilityCompendiumDocument, normalizeAbilityTerminology, resolveAbilityCategoryLabel, resolveAbilityOriginLabel } from '../services/ability/abilitySchema';
 import { toast } from './Toast';
 import { AbilityOwnershipView } from './AbilityOwnershipView';
 import { AbilityDiscoveryView } from './AbilityDiscoveryView';
 import { AbilityDefinitionProgressionEditor } from './AbilityDefinitionProgressionEditor';
 import { AbilityCrossSystemEditor } from './AbilityCrossSystemEditor';
+import { AbilityTerminologyEditor } from './AbilityTerminologyEditor';
 
 const lines = (value: string) => value.split('\n').map(item => item.trim()).filter(Boolean);
 
@@ -26,13 +27,16 @@ export function AbilityCompendiumModal() {
         addAbility,
         updateAbility,
         removeAbility,
+        context,
+        updateContext,
     } = useAppStore();
     const [query, setQuery] = useState('');
     const [originFilter, setOriginFilter] = useState<'all' | AbilityOrigin>('all');
-    const [view, setView] = useState<'library' | 'characters' | 'discoveries'>('library');
+    const [view, setView] = useState<'library' | 'characters' | 'discoveries' | 'terminology'>('library');
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [draft, setDraft] = useState<AbilityEntry>(() => createEmptyAbilityEntry());
     const importRef = useRef<HTMLInputElement>(null);
+    const terminology = normalizeAbilityTerminology(context.abilityTerminology);
 
     const shown = useMemo(() => {
         const q = query.toLocaleLowerCase().trim();
@@ -81,7 +85,9 @@ export function AbilityCompendiumModal() {
     };
 
     const exportJson = () => {
-        const blob = new Blob([JSON.stringify(abilityCompendium, null, 2)], { type: 'application/json' });
+        const blob = new Blob([
+            JSON.stringify(createAbilityCompendiumDocument(abilityCompendium, terminology), null, 2),
+        ], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
@@ -94,9 +100,15 @@ export function AbilityCompendiumModal() {
         if (!file) return;
         try {
             const parsed: unknown = JSON.parse(await file.text());
-            if (!Array.isArray(parsed)) throw new Error('Expected a JSON array');
-            const { entries, skipped } = normalizeAbilityEntries(parsed);
+            if (!Array.isArray(parsed)
+                && (!parsed || typeof parsed !== 'object'
+                    || !Array.isArray((parsed as { abilities?: unknown }).abilities))) {
+                throw new Error('Expected an ability compendium array or versioned document');
+            }
+            const { entries, skipped, terminology: importedTerminology } =
+                normalizeAbilityCompendiumDocument(parsed);
             setAbilityCompendium(entries);
+            updateContext({ abilityTerminology: importedTerminology });
             select();
             toast.success(`Imported ${entries.length} abilities${skipped ? ` (${skipped} invalid records skipped)` : ''}`);
         } catch (error) {
@@ -135,13 +147,13 @@ export function AbilityCompendiumModal() {
                         All {abilityCompendium.length}
                     </button>
                     {ABILITY_ORIGINS.map(origin => <button key={origin} onClick={() => setOriginFilter(origin)} className={`shrink-0 px-2 py-1 rounded border text-[9px] ${originFilter === origin ? 'border-terminal text-terminal bg-terminal/10' : 'border-border text-text-dim'}`}>
-                        {ABILITY_ORIGIN_LABELS[origin]} {originCounts[origin] ?? 0}
+                        {resolveAbilityOriginLabel(origin, terminology)} {originCounts[origin] ?? 0}
                     </button>)}
                 </div>
                 <div className="flex-1 overflow-y-auto">
                     {shown.map(ability => <button key={ability.id} onClick={() => select(ability)} className={`w-full text-left p-3 border-b border-border/50 ${selectedId === ability.id ? 'bg-terminal/10 text-terminal' : 'hover:bg-white/5'}`}>
                         <div className="font-semibold text-sm">{ability.name}</div>
-                        <div className="text-[10px] text-text-dim">{ABILITY_ORIGIN_LABELS[ability.origin]} · {ability.category.replace('-', ' ')}</div>
+                        <div className="text-[10px] text-text-dim">{resolveAbilityOriginLabel(ability.origin, terminology)} · {resolveAbilityCategoryLabel(ability.category, terminology)}</div>
                     </button>)}
                     {!shown.length && <div className="p-6 text-center text-xs text-text-dim">No abilities found.</div>}
                 </div>
@@ -160,6 +172,7 @@ export function AbilityCompendiumModal() {
                             <button onClick={() => setView('library')} className={`text-xs ${view === 'library' ? 'text-terminal' : 'text-text-dim'}`}>Library</button>
                             <button onClick={() => setView('characters')} className={`text-xs ${view === 'characters' ? 'text-terminal' : 'text-text-dim'}`}>Characters</button>
                             <button onClick={() => setView('discoveries')} className={`text-xs ${view === 'discoveries' ? 'text-terminal' : 'text-text-dim'}`}>Discoveries</button>
+                            <button onClick={() => setView('terminology')} className={`text-xs ${view === 'terminology' ? 'text-terminal' : 'text-text-dim'}`}>Terminology</button>
                         </div>
                     </div>
                     <button onClick={toggleAbilityCompendium} aria-label="Close ability compendium"><X size={20} /></button>
@@ -170,7 +183,7 @@ export function AbilityCompendiumModal() {
                     <label className="block text-[10px] uppercase tracking-wider text-text-dim">
                         Category
                         <select value={draft.category} onChange={event => setDraft({ ...draft, category: event.target.value as AbilityEntry['category'] })} className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case">
-                            {ABILITY_CATEGORIES.map(category => <option key={category} value={category}>{category.replace('-', ' ')}</option>)}
+                            {ABILITY_CATEGORIES.map(category => <option key={category} value={category}>{resolveAbilityCategoryLabel(category, terminology)}</option>)}
                         </select>
                     </label>
                     {field('Canon / Lore Source', 'source')}
@@ -203,7 +216,9 @@ export function AbilityCompendiumModal() {
                     </footer>
                 </> : view === 'characters'
                     ? <AbilityOwnershipView key={selectedId ?? 'unselected'} initialAbilityId={selectedId ?? ''} />
-                    : <AbilityDiscoveryView />}
+                    : view === 'discoveries'
+                        ? <AbilityDiscoveryView />
+                        : <AbilityTerminologyEditor />}
             </main>
         </div>
     </div>;

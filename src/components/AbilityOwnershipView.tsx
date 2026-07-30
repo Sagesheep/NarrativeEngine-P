@@ -7,7 +7,7 @@ import { toast } from './Toast';
 import { AbilityRuntimePanel } from './AbilityRuntimePanel';
 import { AbilityProgressionPanel } from './AbilityProgressionPanel';
 import { InventoryGrantedAbilities } from './InventoryGrantedAbilities';
-import { ABILITY_ORIGIN_LABELS } from '../services/ability/abilitySchema';
+import { normalizeAbilityTerminology, resolveAbilityOriginLabel } from '../services/ability/abilitySchema';
 
 type OwnerOption = {
     key: string;
@@ -61,6 +61,7 @@ export function AbilityOwnershipView({ initialAbilityId = '' }: { initialAbility
     ));
 
     const owner = parseOwnerKey(ownerKey);
+    const terminology = normalizeAbilityTerminology(context.abilityTerminology);
     const selectedAbility = abilityCompendium.find(ability => ability.id === draft.abilityId);
     const assignments = characterAbilities
         .filter(entry => owner && entry.ownerType === owner.type && entry.ownerId === owner.id)
@@ -131,7 +132,7 @@ export function AbilityOwnershipView({ initialAbilityId = '' }: { initialAbility
                     return <button key={entry.id} onClick={() => selectAssignment(entry)} className={`w-full text-left p-3 border-b border-border/50 ${selectedAssignmentId === entry.id ? 'bg-terminal/10 text-terminal' : 'hover:bg-white/5'}`}>
                         <div className="font-semibold text-sm">{entry.variantName || ability?.name || 'Missing definition'}</div>
                         <div className="text-[10px] text-text-dim">
-                            {ability ? `${ABILITY_ORIGIN_LABELS[ability.origin]} · ` : ''}
+                            {ability ? `${resolveAbilityOriginLabel(ability.origin, terminology)} · ` : ''}
                             {[ability?.name !== entry.variantName ? ability?.name : '', entry.mastery].filter(Boolean).join(' · ') || 'Unranked'}
                         </div>
                     </button>;

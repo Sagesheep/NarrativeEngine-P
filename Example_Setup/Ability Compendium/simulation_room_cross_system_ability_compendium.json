@@ -1,4 +1,30 @@
-[
+{
+  "schemaVersion": 2,
+  "terminology": {
+    "originLabels": {
+      "innate": "Core Trait",
+      "trained": "Nikke Skill",
+      "spell": "Special Ability",
+      "item-granted": "Equipment Power",
+      "enemy-action": "Rapture Action",
+      "lore-granted": "Simulation Grant",
+      "other": "Other"
+    },
+    "categoryLabels": {
+      "active": "Active Skill",
+      "passive": "Passive Skill",
+      "reaction": "Reactive Skill",
+      "sustained": "Sustained Mode",
+      "transformation": "Transformation",
+      "summon": "Deployment",
+      "stance": "Stance",
+      "ritual": "Protocol",
+      "crafting": "Fabrication",
+      "narrative-permission": "Narrative Permission",
+      "other": "Other"
+    }
+  },
+  "abilities": [
   {
     "id": "nikke-sustained-assault-1",
     "name": "Combat Rhythm",
@@ -5308,3 +5334,4 @@
     "updatedAt": 0
   }
 ]
+}

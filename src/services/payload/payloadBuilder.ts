@@ -151,6 +151,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             npcLedger,
             onStageNpcIds,
             inventoryItems: context.inventoryItems,
+            terminology: context.abilityTerminology,
         },
     );
     const abilityTokens = countTokens(abilityBlock);

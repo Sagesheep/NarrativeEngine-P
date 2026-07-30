@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyAbilityEntry, normalizeAbilityEntries, normalizeAbilityEntry } from '../abilitySchema';
+import { createAbilityCompendiumDocument, createEmptyAbilityEntry, normalizeAbilityCompendiumDocument, normalizeAbilityEntries, normalizeAbilityEntry, resolveAbilityOriginLabel } from '../abilitySchema';
 
 describe('ability schema normalization', () => {
     it('creates controlled definition drafts', () => {
@@ -47,5 +47,28 @@ describe('ability schema normalization', () => {
             tags: ['D&D', 'Bard', 'Spell', '1st-level'],
         });
         expect(spell?.origin).toBe('spell');
+    });
+
+    it('accepts legacy arrays and versioned documents with terminology', () => {
+        const legacy = normalizeAbilityCompendiumDocument([{ name: 'Legacy Step' }]);
+        expect(legacy.entries).toHaveLength(1);
+        expect(legacy.terminology.originLabels).toEqual({});
+
+        const document = normalizeAbilityCompendiumDocument({
+            schemaVersion: 2,
+            terminology: {
+                originLabels: { innate: 'Species Trait', unsupported: 'Discarded' },
+                categoryLabels: { active: 'Action' },
+            },
+            abilities: [{ name: 'Darkvision', origin: 'innate' }],
+        });
+        expect(document.entries[0].name).toBe('Darkvision');
+        expect(document.terminology).toEqual({
+            originLabels: { innate: 'Species Trait' },
+            categoryLabels: { active: 'Action' },
+        });
+        expect(resolveAbilityOriginLabel('innate', document.terminology)).toBe('Species Trait');
+        expect(createAbilityCompendiumDocument(document.entries, document.terminology))
+            .toEqual(expect.objectContaining({ schemaVersion: 2, abilities: document.entries }));
     });
 });

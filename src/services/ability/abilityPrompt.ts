@@ -1,5 +1,6 @@
-import type { AbilityEntry, AbilityRuntimeState, CharacterAbility, ChatMessage, InventoryItem, NPCEntry } from '../../types';
+import type { AbilityEntry, AbilityRuntimeState, AbilityTerminology, CharacterAbility, ChatMessage, InventoryItem, NPCEntry } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
+import { normalizeAbilityTerminology, resolveAbilityCategoryLabel, resolveAbilityOriginLabel } from './abilitySchema';
 
 export const MAX_RELEVANT_ABILITY_MATCHES = 4;
 
@@ -10,6 +11,7 @@ export type AbilityOwnershipContext = {
     npcLedger?: NPCEntry[];
     onStageNpcIds?: string[];
     inventoryItems?: InventoryItem[];
+    terminology?: AbilityTerminology;
 };
 
 const normalizedWords = (value: string): string[] =>
@@ -58,6 +60,7 @@ export function buildRelevantAbilityBlock(
     ownership: AbilityOwnershipContext = {},
 ): string {
     if (!abilities?.length || tokenBudget <= 0 || maxMatches <= 0) return '';
+    const terminology = normalizeAbilityTerminology(ownership.terminology);
     const textWords = normalizedWords(`${history.slice(-10).map(message => message.content ?? '').join(' ')} ${userMessage}`);
     const eligible = abilities.filter(ability => {
         if (ability.promptEnabled === false) return false;
@@ -136,7 +139,7 @@ export function buildRelevantAbilityBlock(
 
         const lines = [
             `ABILITY: ${ability.name}`,
-            `CATEGORY: ${ability.category} | ORIGIN: ${ability.origin ?? 'trained'}`,
+            `CATEGORY: ${ability.category} [${resolveAbilityCategoryLabel(ability.category, terminology)}] | ORIGIN: ${ability.origin ?? 'trained'} [${resolveAbilityOriginLabel(ability.origin ?? 'trained', terminology)}]`,
             ...ownershipLines,
             ability.effect && `EFFECT: ${ability.effect}`,
             ability.activation && `ACTIVATION: ${ability.activation}`,

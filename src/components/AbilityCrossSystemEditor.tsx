@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { BookOpenCheck, RotateCcw } from 'lucide-react';
 import type { AbilityEntry, EndpointConfig } from '../types';
-import { ABILITY_ORIGINS, ABILITY_ORIGIN_LABELS } from '../services/ability/abilitySchema';
+import { ABILITY_ORIGINS, normalizeAbilityTerminology, resolveAbilityCategoryLabel, resolveAbilityOriginLabel } from '../services/ability/abilitySchema';
 import { runLoreCheck } from '../services/lore/loreCheck';
 import { useAppStore } from '../store/useAppStore';
 import { toast } from './Toast';
@@ -17,6 +17,7 @@ export function AbilityCrossSystemEditor({ draft, onChange }: Props) {
     const state = useAppStore();
     const [checking, setChecking] = useState(false);
     const [status, setStatus] = useState('');
+    const terminology = normalizeAbilityTerminology(state.context.abilityTerminology);
 
     const checkLore = async () => {
         const provider = state.getActiveUtilityEndpoint() ?? state.getActiveStoryEndpoint();
@@ -82,12 +83,12 @@ export function AbilityCrossSystemEditor({ draft, onChange }: Props) {
                     })}
                     className="mt-1 w-full bg-void border border-border rounded p-2 text-xs text-text-normal normal-case"
                 >
-                    {ABILITY_ORIGINS.map(origin => <option key={origin} value={origin}>{ABILITY_ORIGIN_LABELS[origin]}</option>)}
+                    {ABILITY_ORIGINS.map(origin => <option key={origin} value={origin}>{resolveAbilityOriginLabel(origin, terminology)}</option>)}
                 </select>
             </label>
             <div className="text-[10px] text-text-dim border border-border/60 rounded p-2">
                 <span className="uppercase tracking-wider">Current grouping</span>
-                <p className="normal-case text-xs text-text-normal mt-1">{ABILITY_ORIGIN_LABELS[draft.origin]} · {draft.category.replace('-', ' ')}</p>
+                <p className="normal-case text-xs text-text-normal mt-1">{resolveAbilityOriginLabel(draft.origin, terminology)} · {resolveAbilityCategoryLabel(draft.category, terminology)}</p>
             </div>
         </div>
 

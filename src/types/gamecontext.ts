@@ -6,6 +6,7 @@ import type { LoreChunk, RuleChunkMeta } from './lore';
 import type { ArcRecord } from './arc';
 export type { ArcRecord };
 import type { LootTree } from './loot';
+import type { AbilityTerminology } from './ability';
 
 // WO-A rewrite 2 §2: PlayerCharacter is an NPCEntry-shaped record stored at
 // `context.playerCharacter`. It is NOT a row in `npcLedger`. `isPC` is vestigial
@@ -221,6 +222,8 @@ export type GameContext = {
     statLabelMap?: Record<string, string>;
     lootTree?: LootTree;
     activeLootProfileId?: string;
+    /** Optional campaign vocabulary for the Ability Compendium UI and prompt. */
+    abilityTerminology?: AbilityTerminology;
     // ── Location Ledger (v1) — current-place pointer (engine-owned writer;
     //    LLM only proposes, player can always override). Lazy migration:
     //    absent on existing campaigns → undefined → "no current place".

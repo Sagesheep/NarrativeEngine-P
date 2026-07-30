@@ -16,7 +16,11 @@ describe('AbilityCompendiumModal', () => {
             characterAbilities: [],
             abilityRuntimeStates: [],
             abilityProposals: [],
-            context: { ...context, playerCharacter: null },
+            context: {
+                ...context,
+                playerCharacter: null,
+                abilityTerminology: { originLabels: {}, categoryLabels: {} },
+            },
             playerCharacter: null,
             npcLedger: [],
         });
@@ -35,6 +39,25 @@ describe('AbilityCompendiumModal', () => {
             promptEnabled: true,
         }));
         expect(screen.getByText('Ash Step')).toBeInTheDocument();
+    });
+
+    it('uses campaign-specific labels without changing stable origin keys', () => {
+        render(<AbilityCompendiumModal />);
+        fireEvent.click(screen.getByRole('button', { name: 'Terminology' }));
+        fireEvent.change(screen.getByLabelText('innate origin label'), {
+            target: { value: 'Species Trait' },
+        });
+
+        expect(useAppStore.getState().context.abilityTerminology?.originLabels.innate)
+            .toBe('Species Trait');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+        fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Darkvision' } });
+        fireEvent.change(screen.getByLabelText('Ability Origin'), { target: { value: 'innate' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save Definition' }));
+
+        expect(useAppStore.getState().abilityCompendium[0].origin).toBe('innate');
+        expect(screen.getByRole('button', { name: 'Species Trait 1' })).toBeInTheDocument();
     });
 
     it('assigns a canonical ability to the player character', () => {

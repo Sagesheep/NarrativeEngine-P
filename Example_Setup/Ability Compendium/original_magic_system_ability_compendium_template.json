@@ -1,4 +1,30 @@
-[
+{
+  "schemaVersion": 2,
+  "terminology": {
+    "originLabels": {
+      "innate": "Innate",
+      "trained": "Trained",
+      "spell": "Spell",
+      "item-granted": "Inventory Power",
+      "enemy-action": "Enemy Action",
+      "lore-granted": "Lore-Granted",
+      "other": "Other"
+    },
+    "categoryLabels": {
+      "active": "Active",
+      "passive": "Passive",
+      "reaction": "Reaction",
+      "sustained": "Sustained",
+      "transformation": "Transformation",
+      "summon": "Summon",
+      "stance": "Stance",
+      "ritual": "Ritual",
+      "crafting": "Crafting",
+      "narrative-permission": "Narrative Permission",
+      "other": "Other"
+    }
+  },
+  "abilities": [
   {
     "id": "template-magic-foundation",
     "name": "[Template] Magical Foundation",
@@ -595,3 +621,4 @@
     "updatedAt": 0
   }
 ]
+}

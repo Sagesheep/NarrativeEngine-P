@@ -29,6 +29,7 @@ export const DEFAULT_CONTEXT = {
     diceFairnessActive: true, sceneNote: '', sceneNoteActive: false, sceneNoteDepth: 3,
     diceSystem: buildDefaultDiceSystem(),
     worldVibe: '',
+    abilityTerminology: { originLabels: {}, categoryLabels: {} },
     worldEventConfig: { initialDC: 498, dcReduction: 2, who: [] as string[], where: [] as string[], why: [] as string[], what: [] as string[] },
     notebook: [],
     notebookActive: true,
