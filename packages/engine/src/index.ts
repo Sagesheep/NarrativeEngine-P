@@ -34,3 +34,10 @@ export type {
     LootDrawNode, LootAmountNode, LootComposeNode, LootNode, LootTree,
     LootProfile, LootItem, LootDropResult, ResolveLootOpts,
 } from './loot/types';
+
+export { createTableRegistry } from './tables/tableDescriptor';
+export type {
+    RecordShape, HookKind, TableHooks,
+    TouchpointDeclaration, AbsentTouchpoint, Touchpoint,
+    TableDescriptor, TableRegistry,
+} from './tables/tableDescriptor';
