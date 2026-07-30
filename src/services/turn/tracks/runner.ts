@@ -1,5 +1,6 @@
 import type { AppSettings } from '../../../types';
 import type { PostTurnTrack } from './types';
+import { isBlockEnabled } from '../blockEnablement';
 
 /**
  * Project 2 / WO-P2-03 — the post-turn track runner.
@@ -66,13 +67,16 @@ export interface PostTurnTrackRegistry<Ctx> {
 
 /**
  * The enablement predicate the extensions screen drives, read off the same `moduleEnabled`
- * map the prompt-contribution registry uses (`payloadBuilder.ts:243`). An absent key means
- * enabled, so an empty or missing map is today's behaviour for every track.
+ * map the prompt-contribution registry uses (`payloadBuilder.ts:243`). Resolved through
+ * `isBlockEnabled`: an explicit moduleEnabled entry wins, else the tier preset, else
+ * enabled (the absent-means-enabled convention for tracks). Tracks are not in the tier
+ * matrix, so the tier never affects them — `undefined` is passed and the resolver falls
+ * back to enabled for matrix misses, matching the old `moduleEnabled?.[id] !== false`.
  */
 export function enablementFromSettings(
     settings: Pick<AppSettings, 'moduleEnabled'> | undefined,
 ): (trackId: string) => boolean {
-    return (trackId: string) => settings?.moduleEnabled?.[trackId] !== false;
+    return (trackId: string) => isBlockEnabled(trackId, undefined, settings?.moduleEnabled);
 }
 
 export function createPostTurnTrackRegistry<Ctx>(): PostTurnTrackRegistry<Ctx> {

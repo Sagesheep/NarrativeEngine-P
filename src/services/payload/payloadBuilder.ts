@@ -16,6 +16,7 @@ import type { ElevatedScene } from '../archive-memory/dynamicElevation';
 import type { SlottedRagSnippet } from '../archive-memory/slottedRag';
 import { buildRelevantEnemyBlock } from '../enemy/enemyPrompt';
 import { buildActiveEncounterBlock } from '../enemy/enemyEncounter';
+import { isBlockEnabled } from '../turn/blockEnablement';
 
 export type BuildPayloadOptions = {
     settings: AppSettings;
@@ -239,10 +240,9 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         },
         // Enablement rides on `settings` (already threaded everywhere `buildPayload` is called),
         // so wiring the extensions screen to the prompt needed no call-site changes at all.
-        // Absent key = enabled, so an empty/missing map is exactly today's behaviour.
-        settings.moduleEnabled
-            ? { isEnabled: (id) => settings.moduleEnabled?.[id] !== false }
-            : undefined,
+        // Resolved through `isBlockEnabled`: explicit moduleEnabled entry wins, else the tier
+        // preset, else enabled (the absent-means-enabled convention for contributions).
+        { isEnabled: (id) => isBlockEnabled(id, settings.aiTier, settings.moduleEnabled) },
     );
     const assembled = assembleContributions(contributions);
 
