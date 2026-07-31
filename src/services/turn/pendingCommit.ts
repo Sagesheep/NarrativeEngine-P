@@ -280,11 +280,18 @@ async function runCommitPendingTurn(): Promise<void> {
     // (which reflects edits the user may have made while browsing).
     const text = pendingMsg.content;
 
+    // Build the commit state — use the ORIGINAL TurnState reference but
+    // override getMessages so the importance rater reads the snapshot,
+    // never live getMessages() (a late commit must not see the next turn's messages).
+    const commitState: TurnState = snapshot
+        ? { ...snapshot.turnState, getMessages: () => snapshot.messages }
+        : rebuildStateFromLiveStore(store, findTurnUserInput(messages, pendingMsg.id));
+
     // Determine scene stakes from the chosen variant.
     let sceneStakes: SceneStakes = variant.sceneStakes;
     if (!variant.tagPresent) {
-        const utilityProvider = snapshot?.turnState.getUtilityEndpoint?.() ?? store.getActiveUtilityEndpoint?.();
-        const aiTier = snapshot?.turnState.settings.aiTier ?? store.settings.aiTier;
+        const utilityProvider = commitState.getUtilityEndpoint?.();
+        const aiTier = commitState.settings.aiTier;
         if (utilityProvider && tierAllows(aiTier, 'sceneStakesClassify')) {
             try {
                 const recentScene = (snapshot?.messages ?? messages).slice(-3).map(m => {
@@ -300,13 +307,6 @@ async function runCommitPendingTurn(): Promise<void> {
 
     // Update context with lastSceneStakes from the chosen variant (commit only).
     store.updateContext({ lastSceneStakes: sceneStakes });
-
-    // Build the commit state — use the ORIGINAL TurnState reference but
-    // override getMessages so the importance rater reads the snapshot,
-    // never live getMessages() (a late commit must not see the next turn's messages).
-    const commitState: TurnState = snapshot
-        ? { ...snapshot.turnState, getMessages: () => snapshot.messages }
-        : rebuildStateFromLiveStore(store, findTurnUserInput(messages, pendingMsg.id));
 
     const commitCallbacks = buildCommitCallbacks(commitState.activeCampaignId ?? '');
     const snapshotMessages = commitState.getMessages();
