@@ -29,6 +29,15 @@ export type TurnCallbacks = {
      */
     updateLastAssistantMessage: (patch: Partial<ChatMessage>) => void;
     updateContext: (patch: Partial<GameContext>) => void;
+    getFreshLocationState: () => {
+        activeCampaignId: string | null;
+        locationLedger: import('../../types').LocationEntry[];
+        context: GameContext;
+    };
+    setCharacterProfileData: (profile: import('../../types').CharacterProfile) => void;
+    setInventoryItems: (items: import('../../types').InventoryItem[]) => void;
+    setLocationLedger: (locations: import('../../types').LocationEntry[]) => void;
+    addLocationSuggestions: (suggestions: import('../../types').LocationSuggestion[]) => void;
     setArchiveIndex: (entries: ArchiveIndexEntry[]) => void;
     setTimeline?: (events: TimelineEvent[]) => void;
     updateNPC: (id: string, patch: Partial<NPCEntry>) => void;

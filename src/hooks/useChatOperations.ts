@@ -262,6 +262,18 @@ export function useChatOperations({
             updateLastMessage: storeSnapshot.updateLastMessage,
             updateLastAssistantMessage: updateLastAssistantMessage,
             updateContext: updateContext,
+            getFreshLocationState: () => {
+                const fresh = useAppStore.getState();
+                return {
+                    activeCampaignId: fresh.activeCampaignId,
+                    locationLedger: fresh.locationLedger,
+                    context: fresh.context,
+                };
+            },
+            setCharacterProfileData: storeSnapshot.setCharacterProfileData,
+            setInventoryItems: storeSnapshot.setInventoryItems,
+            setLocationLedger: storeSnapshot.setLocationLedger,
+            addLocationSuggestions: storeSnapshot.addLocationSuggestions,
             setArchiveIndex: setArchiveIndex,
             setTimeline: setTimeline,
             updateNPC: storeSnapshot.updateNPC,

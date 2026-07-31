@@ -467,11 +467,11 @@ async function runArchiveTrack(
                     guardedSealCallbacks,
                     true,
                     {
-                        npcLedger: useAppStore.getState().npcLedger ?? [],
-                        archiveIndex: useAppStore.getState().archiveIndex ?? [],
-                        divergenceScanBudget: useAppStore.getState().settings.divergenceScanBudget ?? 0,
-                        contextLimit: useAppStore.getState().settings.contextLimit ?? 4096,
-                        divergenceRegister: useAppStore.getState().divergenceRegister ?? EMPTY_REGISTER,
+                        npcLedger: state.npcLedger ?? [],
+                        archiveIndex: state.archiveIndex ?? [],
+                        divergenceScanBudget: state.settings.divergenceScanBudget ?? 0,
+                        contextLimit: state.settings.contextLimit ?? 4096,
+                        divergenceRegister: state.divergenceRegister ?? EMPTY_REGISTER,
                     }
                 );
             }
@@ -491,6 +491,26 @@ async function runArchiveTrack(
             const profileData = state.getFreshContext().characterProfileData || { name: '', race: '', class: '', level: 1, hp: { current: 20, max: 20 }, stats: {}, skills: [], abilities: [], traits: [], notes: '' };
 
             const guardedUpdateContext = makeGuarded(callbacks.updateContext, activeCampaignId, 'updateContext (bookkeeping scan)');
+            const guardedSetCharacterProfileData = makeGuarded(
+                callbacks.setCharacterProfileData,
+                activeCampaignId,
+                'setCharacterProfileData (Profile-Scan)',
+            );
+            const guardedSetInventoryItems = makeGuarded(
+                callbacks.setInventoryItems,
+                activeCampaignId,
+                'setInventoryItems (Inventory-Scan)',
+            );
+            const guardedSetLocationLedger = makeGuarded(
+                callbacks.setLocationLedger,
+                activeCampaignId,
+                'setLocationLedger (Location-Scan)',
+            );
+            const guardedAddLocationSuggestions = makeGuarded(
+                callbacks.addLocationSuggestions,
+                activeCampaignId,
+                'addLocationSuggestions (Location-Scan)',
+            );
 
             if (tierAllows(state.settings.aiTier, 'profileScan')) {
                 backgroundQueue.push('Profile-Scan', async () => {
@@ -501,10 +521,7 @@ async function runArchiveTrack(
                         characterProfileData: newProfile,
                         characterProfileLastScene: sceneId,
                     });
-                    const s = useAppStore.getState();
-                    if (s.activeCampaignId === activeCampaignId && 'setCharacterProfileData' in s) {
-                        (s as any).setCharacterProfileData(newProfile);
-                    }
+                    guardedSetCharacterProfileData(newProfile);
                     console.log(`[Auto Bookkeeping] Profile sheet updated at scene #${sceneId}`);
                 }).catch(err => console.warn('[Auto Bookkeeping] Profile scan failed:', err));
             }
@@ -536,10 +553,7 @@ async function runArchiveTrack(
                         inventoryItems: newItems,
                         inventoryLastScene: sceneId,
                     });
-                    const s = useAppStore.getState();
-                    if (s.activeCampaignId === activeCampaignId && 'setInventoryItems' in s) {
-                        (s as any).setInventoryItems(newItems);
-                    }
+                    guardedSetInventoryItems(newItems);
                     console.log(`[Auto Bookkeeping] Inventory updated at scene #${sceneId}`);
                 }).catch(err => console.warn('[Auto Bookkeeping] Inventory scan failed:', err));
             }
@@ -553,7 +567,7 @@ async function runArchiveTrack(
             if (tierAllows(state.settings.aiTier, 'locationScan')) {
                 backgroundQueue.push('Location-Scan', async () => {
                     if (!assertStillActive(activeCampaignId, 'Location-Scan')) return;
-                    const before = useAppStore.getState();
+                    const before = callbacks.getFreshLocationState();
                     const baselineLedger = before.locationLedger ?? [];
                     const baselinePlaceId = before.context.currentPlaceId ?? null;
                     const baselineFeature = before.context.currentFeature ?? null;
@@ -565,21 +579,21 @@ async function runArchiveTrack(
                         baselineFeature,
                     );
                     if (!assertStillActive(activeCampaignId, 'Location-Scan')) return;
-                    const s = useAppStore.getState();
-                    if (s.activeCampaignId !== activeCampaignId) return;
+                    const after = callbacks.getFreshLocationState();
+                    if (after.activeCampaignId !== activeCampaignId) return;
 
                     // A manual/header pointer change made while the LLM was in flight wins.
-                    if (s.context.currentPlaceId === baselinePlaceId && (s.context.currentFeature ?? null) === baselineFeature
+                    if (after.context.currentPlaceId === baselinePlaceId && (after.context.currentFeature ?? null) === baselineFeature
                         && (scan.currentPlaceId !== baselinePlaceId || scan.currentFeature !== baselineFeature)) {
                         guardedUpdateContext({ currentPlaceId: scan.currentPlaceId, currentFeature: scan.currentFeature });
                     }
 
-                    const mergedLedger = mergeLocationScanLedger(baselineLedger, scan.ledger, s.locationLedger ?? []);
-                    if (mergedLedger !== s.locationLedger && s.activeCampaignId === activeCampaignId) {
-                        s.setLocationLedger(mergedLedger);
+                    const mergedLedger = mergeLocationScanLedger(baselineLedger, scan.ledger, after.locationLedger ?? []);
+                    if (mergedLedger !== after.locationLedger) {
+                        guardedSetLocationLedger(mergedLedger);
                     }
-                    if (scan.suggestions.length > 0 && s.activeCampaignId === activeCampaignId) {
-                        s.addLocationSuggestions(scan.suggestions);
+                    if (scan.suggestions.length > 0) {
+                        guardedAddLocationSuggestions(scan.suggestions);
                     }
                     console.log(`[Auto Bookkeeping] Location scan at scene #${sceneId}: current=${scan.currentPlaceId ?? '(unclear)'}, suggestions=${scan.suggestions.length}`);
                 }).catch(err => console.warn('[Auto Bookkeeping] Location scan failed:', err));

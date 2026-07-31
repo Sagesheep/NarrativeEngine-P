@@ -163,7 +163,10 @@ export function findRetryableMessage(messages: ChatMessage[]): ChatMessage | nul
 }
 
 // ── Build fresh callbacks from the live store for commit ────────────────
-function buildCommitCallbacks(activeCampaignId: string): TurnCallbacks {
+function buildCommitCallbacks(
+    activeCampaignId: string,
+    store: ReturnType<typeof useAppStore.getState>,
+): TurnCallbacks {
     return {
         onCheckingNotes: () => {},
         addMessage: (msg) => useAppStore.getState().addMessage(msg),
@@ -182,6 +185,18 @@ function buildCommitCallbacks(activeCampaignId: string): TurnCallbacks {
         // edit-sync, and LOD history mapping for that turn.
         updateLastAssistantMessage: (patch) => useAppStore.getState().updateLastAssistantMessage(patch),
         updateContext: (patch) => useAppStore.getState().updateContext(patch),
+        getFreshLocationState: () => {
+            const fresh = useAppStore.getState();
+            return {
+                activeCampaignId: fresh.activeCampaignId,
+                locationLedger: fresh.locationLedger,
+                context: fresh.context,
+            };
+        },
+        setCharacterProfileData: store.setCharacterProfileData,
+        setInventoryItems: store.setInventoryItems,
+        setLocationLedger: store.setLocationLedger,
+        addLocationSuggestions: store.addLocationSuggestions,
         setArchiveIndex: (entries) => useAppStore.getState().setArchiveIndex(entries),
         setTimeline: (events) => useAppStore.getState().setTimeline(events),
         updateNPC: (id, patch) => useAppStore.getState().updateNPC(id, patch),
@@ -308,7 +323,7 @@ async function runCommitPendingTurn(): Promise<void> {
     // Update context with lastSceneStakes from the chosen variant (commit only).
     store.updateContext({ lastSceneStakes: sceneStakes });
 
-    const commitCallbacks = buildCommitCallbacks(commitState.activeCampaignId ?? '');
+    const commitCallbacks = buildCommitCallbacks(commitState.activeCampaignId ?? '', store);
     const snapshotMessages = commitState.getMessages();
 
     // Durable-commit v1: did the scene actually reach long-term memory? Only then
