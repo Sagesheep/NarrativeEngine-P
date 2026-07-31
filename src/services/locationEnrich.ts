@@ -149,6 +149,17 @@ Rules:
     }
 }
 
+export type EnrichInput = {
+    raw: RawEnrich;
+    entry: LocationEntry;
+    ledger: LocationEntry[];
+};
+
+/** Pure location-enrichment logic: plain model data in, a clamped patch out. */
+export function computeEnrichment(input: EnrichInput): Partial<LocationEntry> {
+    return sanitizeEnrichPatch(input.raw, input.entry, input.ledger);
+}
+
 /**
  * Fire-and-forget enrichment for a just-created entry. Reads everything it
  * needs from the live store; silently no-ops when the tier gate is closed
@@ -176,7 +187,7 @@ export function queueLocationEnrichment(entryId: string): void {
         // Re-read the entry: the player may have edited it while we were in flight.
         const fresh = now.locationLedger.find(l => l.id === entryId);
         if (!fresh) return;
-        const patch = sanitizeEnrichPatch(raw, fresh, now.locationLedger);
+        const patch = computeEnrichment({ raw, entry: fresh, ledger: now.locationLedger });
         if (Object.keys(patch).length === 0) return;
         now.updateLocation(entryId, patch);
         // Bidirectional default for any connections we added.
