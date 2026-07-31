@@ -59,7 +59,7 @@ async function runPressureTrack(
     }
 
     // ── Auto-archive stale NPCs ──
-    const maxStaleTurns = useAppStore.getState().settings.autoArchiveStaleNPCsTurns ?? 0;
+    const maxStaleTurns = state.settings.autoArchiveStaleNPCsTurns ?? 0;
     const currentTurn = archiveIndex.length;
     if (maxStaleTurns > 0) {
         const guardedArchiveNPC = (id: string, turn: number, reason: string) => {

@@ -57,7 +57,7 @@ const makeCtx = (npcLedger: NPCEntry[], stateOver: Partial<TurnState> = {}): {
         restoreNPC: vi.fn(),
     };
     const state = {
-        settings: { aiTier: 'max' } as any,
+        settings: { aiTier: 'max', autoArchiveStaleNPCsTurns: mockStaleTurns } as any,
         context: {} as any,
         archiveIndex: [{ sceneId: '12' }],
         loreChunks: [],
