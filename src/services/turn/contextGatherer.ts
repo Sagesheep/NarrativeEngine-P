@@ -182,7 +182,8 @@ export async function gatherContext(
         state,
         { deepSearchThisTurn: deps.deepSearchThisTurn, chapters: deps.chapters, setLoadingStatus: deps.setLoadingStatus },
         finalInput,
-        signal
+        signal,
+        facade
     ));
 
     // ─── Semantic Facts ───

@@ -3,6 +3,14 @@ import { llmCall } from '../../utils/llmCall';
 import { fetchArchiveScenes } from '../archiveMemory';
 import { safeSceneNum } from '../../utils/helpers';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
+import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
+
+type DeepModelCall = (request: ModelRequest) => Promise<ModelResponse>;
+
+async function callDeepModel(provider: EndpointConfig | undefined, modelCall: DeepModelCall | undefined, prompt: string, options: Omit<ModelRequest, 'prompt'>): Promise<string> {
+    if (modelCall) return (await modelCall({ prompt, ...options })).content;
+    return provider ? llmCall(provider, prompt, options) : '';
+}
 
 const TIMEOUT_CHAPTER_SCAN_MS = 180_000;
 const TIMEOUT_SCENE_SCAN_MS = 210_000;
@@ -64,11 +72,12 @@ function buildSceneOverview(
 }
 
 async function scanChapters(
-    utilityEndpoint: EndpointConfig,
+    utilityEndpoint: EndpointConfig | undefined,
     sealedChapters: ArchiveChapter[],
     messages: ChatMessage[],
     userMessage: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    modelCall?: DeepModelCall
 ): Promise<string[]> {
     const overview = buildChapterOverview(sealedChapters);
     const conversation = buildConversationExcerpt(messages, userMessage);
@@ -89,7 +98,7 @@ async function scanChapters(
         '{"chapters": ["CH01", "CH03", ...]}',
     ].join('\n');
 
-    const rawContent = await llmCall(utilityEndpoint, prompt, {
+    const rawContent = await callDeepModel(utilityEndpoint, modelCall, prompt, {
             temperature: 0.1,
             signal,
             priority: 'high',
@@ -110,12 +119,13 @@ async function scanChapters(
 }
 
 async function scanScenes(
-    utilityEndpoint: EndpointConfig,
+    utilityEndpoint: EndpointConfig | undefined,
     archiveIndex: ArchiveIndexEntry[],
     selectedChapters: ArchiveChapter[],
     messages: ChatMessage[],
     userMessage: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    modelCall?: DeepModelCall
 ): Promise<Set<string>> {
     const chapterRanges: [string, string][] = selectedChapters.map(c => c.sceneRange);
     const targetTokens = 20000;
@@ -138,7 +148,7 @@ async function scanScenes(
         '{"scenes": ["042", "011", ...]}',
     ].join('\n');
 
-    const rawContent = await llmCall(utilityEndpoint, prompt, {
+    const rawContent = await callDeepModel(utilityEndpoint, modelCall, prompt, {
             temperature: 0.1,
             signal,
             priority: 'high',
@@ -164,10 +174,11 @@ async function scanScenes(
 }
 
 async function summarizeToBudget(
-    utilityEndpoint: EndpointConfig,
+    utilityEndpoint: EndpointConfig | undefined,
     text: string,
     budget: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    modelCall?: DeepModelCall
 ): Promise<string> {
     const prompt = [
         'Compress this narrative content to its essential lore facts. Preserve:',
@@ -182,7 +193,7 @@ async function summarizeToBudget(
         text,
     ].join('\n');
 
-    return llmCall(utilityEndpoint, prompt, {
+    return callDeepModel(utilityEndpoint, modelCall, prompt, {
         temperature: 0.2,
         signal,
         priority: 'high',
@@ -193,22 +204,23 @@ async function summarizeToBudget(
 }
 
 async function summarizePartitions(
-    utilityEndpoint: EndpointConfig,
+    utilityEndpoint: EndpointConfig | undefined,
     sceneTexts: string[],
     budget: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    modelCall?: DeepModelCall
 ): Promise<string> {
     const PARTITION_SIZE = 8000;
 
     if (sceneTexts.length <= 1) {
-        return summarizeToBudget(utilityEndpoint, sceneTexts[0] || '', budget, signal);
+        return summarizeToBudget(utilityEndpoint, sceneTexts[0] || '', budget, signal, modelCall);
     }
 
     const totalTokens = sceneTexts.reduce((sum, t) => sum + estimateTokens(t), 0);
 
     if (totalTokens <= budget) {
         const combined = sceneTexts.map((t, i) => `[Scene Partition ${i + 1}]\n${t}`).join('\n\n');
-        return summarizeToBudget(utilityEndpoint, combined, budget, signal);
+        return summarizeToBudget(utilityEndpoint, combined, budget, signal, modelCall);
     }
 
     const partitions: string[] = [];
@@ -235,7 +247,7 @@ async function summarizePartitions(
     for (let i = 0; i < partitions.length; i++) {
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
         try {
-            const summary = await summarizeToBudget(utilityEndpoint, partitions[i], partitionBudget, signal);
+            const summary = await summarizeToBudget(utilityEndpoint, partitions[i], partitionBudget, signal, modelCall);
             partitionSummaries.push(`[Partition ${i + 1} Summary]\n${summary}`);
         } catch (err) {
             console.warn(`[DeepArchiveSearch] Partition ${i + 1}/${partitions.length} failed:`, err);
@@ -254,7 +266,7 @@ async function summarizePartitions(
         ...partitionSummaries,
     ].join('\n\n');
 
-    return llmCall(utilityEndpoint, mergePrompt, {
+    return callDeepModel(utilityEndpoint, modelCall, mergePrompt, {
         temperature: 0.2,
         signal,
         priority: 'high',
@@ -265,7 +277,7 @@ async function summarizePartitions(
 }
 
 export async function deepArchiveScan(
-    utilityEndpoint: EndpointConfig,
+    utilityEndpoint: EndpointConfig | undefined,
     archiveIndex: ArchiveIndexEntry[],
     sealedChapters: ArchiveChapter[],
     campaignId: string,
@@ -273,7 +285,8 @@ export async function deepArchiveScan(
     userMessage: string,
     availableBudget: number,
     onStatus: (msg: string) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    modelCall?: DeepModelCall
 ): Promise<string> {
     if (sealedChapters.length === 0) {
         console.log('[DeepArchiveSearch] No sealed chapters \u2014 skipping');
@@ -286,7 +299,7 @@ export async function deepArchiveScan(
 
     let selectedChapterIds: string[];
     try {
-        selectedChapterIds = await scanChapters(utilityEndpoint, sealedChapters, messages, userMessage, signal);
+        selectedChapterIds = await scanChapters(utilityEndpoint, sealedChapters, messages, userMessage, signal, modelCall);
     } catch (err) {
         console.warn('[DeepArchiveSearch] Chapter scan failed:', err);
         return '';
@@ -304,7 +317,7 @@ export async function deepArchiveScan(
     onStatus(`Deep Archive: Scanning scenes in ${selectedChapterIds.length} chapters...`);
     let notebookIds: Set<string>;
     try {
-        notebookIds = await scanScenes(utilityEndpoint, archiveIndex, selectedChapters, messages, userMessage, signal);
+        notebookIds = await scanScenes(utilityEndpoint, archiveIndex, selectedChapters, messages, userMessage, signal, modelCall);
     } catch (err) {
         console.warn('[DeepArchiveSearch] Scene scan failed:', err);
         return '';
@@ -338,7 +351,7 @@ export async function deepArchiveScan(
         onStatus('Deep Archive: Round 2 \u2014 scanning newly discovered chapters...');
         const additionalChapters = sealedChapters.filter(c => additionalChapterIds.includes(c.chapterId));
         try {
-            const additionalIds = await scanScenes(utilityEndpoint, archiveIndex, additionalChapters, messages, userMessage, signal);
+            const additionalIds = await scanScenes(utilityEndpoint, archiveIndex, additionalChapters, messages, userMessage, signal, modelCall);
             for (const id of additionalIds) notebookIds.add(id);
             console.log(`[DeepArchiveSearch] Round 2: ${additionalChapters.length} new chapters \u2192 ${additionalIds.size} additional scenes`);
         } catch (err) {
@@ -369,10 +382,10 @@ export async function deepArchiveScan(
     try {
         if (totalSceneTokens <= availableBudget) {
             const combined = scenes.map(s => `[Scene #${s.sceneId}]\n${s.content}`).join('\n\n');
-            deepContextSummary = await summarizeToBudget(utilityEndpoint, combined, availableBudget, signal);
+            deepContextSummary = await summarizeToBudget(utilityEndpoint, combined, availableBudget, signal, modelCall);
         } else {
             const sceneTexts = scenes.map(s => `[Scene #${s.sceneId}]\n${s.content}`);
-            deepContextSummary = await summarizePartitions(utilityEndpoint, sceneTexts, availableBudget, signal);
+            deepContextSummary = await summarizePartitions(utilityEndpoint, sceneTexts, availableBudget, signal, modelCall);
         }
     } catch (err) {
         console.warn('[DeepArchiveSearch] Summarization failed, using raw scene content:', err);
