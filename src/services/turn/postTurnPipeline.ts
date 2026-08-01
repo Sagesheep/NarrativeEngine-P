@@ -1,10 +1,10 @@
-import type { ChatMessage, NPCEntry } from '../../types';
+import type { ChatMessage, NPCEntry, EndpointConfig, ProviderConfig } from '../../types';
 import type { TurnState, TurnCallbacks } from './turnOrchestrator';
 import { useAppStore } from '../../store/useAppStore';
 import { api } from '../llm/apiClient';
 import { CHAPTER_SCENE_SOFT_CAP } from '../../types';
 import { rateImportance } from '../archive-memory/importanceRater';
-import { sealChapterCombined } from '../saveFileEngine';
+import { sealChapterCombined, type SealModelCall } from '../saveFileEngine';
 import { backgroundQueue } from '../infrastructure/backgroundQueue';
 import { extractSceneEvents } from '../archive-memory/sceneEventExtractor';
 import { scanCharacterProfile } from '../characterProfileParser';
@@ -458,8 +458,11 @@ async function runArchiveTrack(
             guardedSetChapters(sealedChapters);
             toast.info(`Chapter "${sealResult.sealedChapter.title}" auto-sealed (${CHAPTER_SCENE_SOFT_CAP} scenes)`);
 
-            const sealProvider = state.getFreshProvider();
-            if (sealProvider && tierAllows(state.settings.aiTier, 'sealChapter')) {
+            const sealProvider = facade ? undefined : state.getFreshProvider();
+            const sealModelCall: SealModelCall | undefined = facade && hasHostModelRole(facade, 'story')
+                ? (request) => facade.model.call('story', request).then(result => result.content)
+                : undefined;
+            if ((sealProvider || sealModelCall) && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'sealChapter')) {
                 // WO-P1-03: pass the 5 formerly-coupling reads as explicit params.
                 // These are read from the store here at the call site (still on
                 // the post-turn path), but the seal function itself no longer
@@ -472,12 +475,13 @@ async function runArchiveTrack(
                     guardedSealCallbacks,
                     true,
                     {
-                        npcLedger: state.npcLedger ?? [],
-                        archiveIndex: state.archiveIndex ?? [],
-                        divergenceScanBudget: state.settings.divergenceScanBudget ?? 0,
-                        contextLimit: state.settings.contextLimit ?? 4096,
-                        divergenceRegister: state.divergenceRegister ?? EMPTY_REGISTER,
-                    }
+                        npcLedger: facade?.data.npcLedger ?? state.npcLedger ?? [],
+                        archiveIndex: facade?.data.archiveIndex ?? state.archiveIndex ?? [],
+                        divergenceScanBudget: facade?.config.divergenceScanBudget ?? state.settings.divergenceScanBudget ?? 0,
+                        contextLimit: facade?.config.contextLimit ?? state.settings.contextLimit ?? 4096,
+                        divergenceRegister: facade?.data.divergenceRegister ?? state.divergenceRegister ?? EMPTY_REGISTER,
+                    },
+                    sealModelCall,
                 );
             }
         }).catch(err => console.warn('[Auto-Seal] Failed:', err));
@@ -641,7 +645,7 @@ async function runArchiveTrack(
 }
 
 export async function runCombinedSeal(
-    provider: { endpoint: string; apiKey: string; modelName: string; apiFormat?: string },
+    provider: EndpointConfig | ProviderConfig | undefined,
     chapter: import('../../types').ArchiveChapter,
     activeCampaignId: string,
     state: TurnState,
@@ -659,6 +663,7 @@ export async function runCombinedSeal(
         contextLimit: number;
         divergenceRegister: import('../../types').DivergenceRegister;
     },
+    modelCall?: SealModelCall,
 ): Promise<void> {
     const startNum = parseInt(chapter.sceneRange[0], 10);
     const endNum = parseInt(chapter.sceneRange[1], 10);
@@ -692,8 +697,7 @@ export async function runCombinedSeal(
     const contextLimit = sealInputs.contextLimit;
     const effectiveScanBudget = scanBudgetSetting > 0 ? scanBudgetSetting : Math.round(contextLimit * 0.75);
 
-    const result = await sealChapterCombined(
-        provider as any,
+    const sealArgs = [
         scenes,
         chapter.chapterId,
         chapter.title,
@@ -703,7 +707,10 @@ export async function runCombinedSeal(
         effectiveScanBudget,
         indexEntries.length > 0 ? indexEntries : undefined,
         sealInputs.divergenceRegister.entries,
-    );
+    ] as const;
+    const result = modelCall
+        ? await sealChapterCombined(provider, ...sealArgs, modelCall)
+        : await sealChapterCombined(provider, ...sealArgs);
 
     if (result.divergenceParseError && !result.summary && !result.divergences.length) {
         toast.error('Chapter seal produced no output. Try regenerating.');

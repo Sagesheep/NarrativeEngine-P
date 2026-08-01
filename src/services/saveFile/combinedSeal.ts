@@ -384,8 +384,16 @@ export function parseCombinedSealOutput(
     return { summary, divergences: entries, divergenceParseError: divergenceParseError || undefined, witnessCorrections, sceneEventMap, sceneEventsParseError };
 }
 
+export type SealModelCall = (request: {
+    prompt: string;
+    maxTokens: number;
+    priority: 'low';
+    trackingLabel: string;
+    timeoutMs: number;
+}) => Promise<string>;
+
 export async function sealChapterCombined(
-    provider: ProviderConfig | EndpointConfig,
+    provider: ProviderConfig | EndpointConfig | undefined,
     scenes: { sceneId: string; content: string }[],
     chapterId: string,
     chapterTitle: string,
@@ -395,6 +403,7 @@ export async function sealChapterCombined(
     scanBudget = 0,
     indexEntries?: { sceneId: string; witnesses?: string[] }[],
     activeStateFacts: DivergenceEntry[] = [],
+    modelCall?: SealModelCall,
 ): Promise<CombinedSealResult> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const prompt = buildCombinedSealPrompt(scenes, chapterTitle, sceneIds, npcLedger, indexEntries, activeStateFacts);
@@ -406,7 +415,9 @@ export async function sealChapterCombined(
             promptTokens: countTokens(prompt),
         });
 
-        const output = await llmCall(provider, prompt, { priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000, trackingLabel: 'chapter-seal', timeoutMs: AI_CALL_TIMEOUT_MS });
+        const output = modelCall
+            ? await modelCall({ prompt, priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000, trackingLabel: 'chapter-seal', timeoutMs: AI_CALL_TIMEOUT_MS })
+            : await llmCall(provider!, prompt, { priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000, trackingLabel: 'chapter-seal', timeoutMs: AI_CALL_TIMEOUT_MS });
         const result = parseCombinedSealOutput(output, chapterId, sceneIds, npcLedger);
 
         if (result.summary && !result.divergenceParseError) {
