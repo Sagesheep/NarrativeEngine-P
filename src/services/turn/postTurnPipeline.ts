@@ -574,7 +574,7 @@ async function runArchiveTrack(
             // connections into existing ledger entries + emits new-place suggestions for
             // player review. Never auto-adds entries. Pointer rides callbacks.updateContext
             // (currentPlaceId/currentFeature); ledger + suggestions ride the store setters.
-            if (bkProvider && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'locationScan')) {
+            if (bkAvailable && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'locationScan')) {
                 backgroundQueue.push('Location-Scan', async () => {
                     if (!assertStillActive(activeCampaignId, 'Location-Scan')) return;
                     const before = callbacks.getFreshLocationState();
@@ -582,11 +582,12 @@ async function runArchiveTrack(
                     const baselinePlaceId = before.context.currentPlaceId ?? null;
                     const baselineFeature = before.context.currentFeature ?? null;
                     const scan = await scanLocation(
-                        bkProvider,
-                        state.getMessages(),
+                        facade ? undefined : bkProvider,
+                        scanMessages,
                         baselineLedger,
                         baselinePlaceId,
                         baselineFeature,
+                        storyModelCall,
                     );
                     if (!assertStillActive(activeCampaignId, 'Location-Scan')) return;
                     const after = callbacks.getFreshLocationState();
@@ -600,10 +601,10 @@ async function runArchiveTrack(
 
                     const mergedLedger = mergeLocationScanLedger(baselineLedger, scan.ledger, after.locationLedger ?? []);
                     if (mergedLedger !== after.locationLedger) {
-                        guardedSetLocationLedger(mergedLedger);
+                        (facade?.write.setLocationLedger ?? guardedSetLocationLedger)(mergedLedger);
                     }
                     if (scan.suggestions.length > 0) {
-                        guardedAddLocationSuggestions(scan.suggestions);
+                        (facade?.write.addLocationSuggestions ?? guardedAddLocationSuggestions)(scan.suggestions);
                     }
                     console.log(`[Auto Bookkeeping] Location scan at scene #${sceneId}: current=${scan.currentPlaceId ?? '(unclear)'}, suggestions=${scan.suggestions.length}`);
                 }).catch(err => console.warn('[Auto Bookkeeping] Location scan failed:', err));

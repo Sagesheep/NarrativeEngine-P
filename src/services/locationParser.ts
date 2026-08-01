@@ -18,6 +18,7 @@
 import type { ChatMessage, ProviderConfig, EndpointConfig, LocationEntry, LocationSuggestion, LocationConnection } from '../types';
 import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
+import type { ModelRequest, ModelResponse } from './turn/hostFacade';
 
 export type LocationScanResult = {
     ledger: LocationEntry[];            // updated ledger (features/connections merged into existing entries)
@@ -78,11 +79,12 @@ export function resolvePlace(name: string, ledger: LocationEntry[]): LocationEnt
 }
 
 export async function scanLocation(
-    provider: ProviderConfig | EndpointConfig,
+    provider: ProviderConfig | EndpointConfig | undefined,
     messages: ChatMessage[],
     ledger: LocationEntry[],
     currentPlaceId: string | null,
     currentFeature: string | null = null,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>
 ): Promise<LocationScanResult> {
     const recentMessages = messages.slice(-6);
     if (recentMessages.length === 0) {
@@ -120,11 +122,11 @@ Rules:
 - If nothing changed: {"current":{"place":"unclear","feature":null},"newPlaces":[],"updates":[]}`;
 
     try {
-        const result = await llmCall(provider, prompt, {
-            priority: 'low',
-            trackingLabel: 'location-scan',
-            timeoutMs: AI_CALL_TIMEOUT_MS,
-        });
+        const result = modelCall
+            ? (await modelCall({ prompt, priority: 'low', trackingLabel: 'location-scan', timeoutMs: AI_CALL_TIMEOUT_MS })).content
+            : provider
+                ? await llmCall(provider, prompt, { priority: 'low', trackingLabel: 'location-scan', timeoutMs: AI_CALL_TIMEOUT_MS })
+                : '';
         let text = result;
         const md = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
         if (md) text = md[1];
