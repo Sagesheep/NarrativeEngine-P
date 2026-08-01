@@ -9,6 +9,7 @@ import { shouldCondense, computeTrimIndex, getCondenseBudgetRatio } from '../arc
 import { toast } from '../../components/Toast';
 import { useAppStore } from '../../store/useAppStore';
 import { saveCampaignState } from '../../store/campaignStore';
+import { buildHostFacade, hasHostModelRole } from './hostFacade';
 
 // ── In-memory snapshot ─────────────────────────────────────────────────
 // Lost on crash — that's OK. Relaunch reconciliation rebuilds from the live
@@ -302,18 +303,23 @@ async function runCommitPendingTurn(): Promise<void> {
         ? { ...snapshot.turnState, getMessages: () => snapshot.messages }
         : rebuildStateFromLiveStore(store, findTurnUserInput(messages, pendingMsg.id));
 
+    const commitCallbacks = buildCommitCallbacks(commitState.activeCampaignId ?? '', store);
+    const facade = buildHostFacade(commitState, commitCallbacks);
+
     // Determine scene stakes from the chosen variant.
     let sceneStakes: SceneStakes = variant.sceneStakes;
     if (!variant.tagPresent) {
-        const utilityProvider = commitState.getUtilityEndpoint?.();
-        const aiTier = commitState.settings.aiTier;
-        if (utilityProvider && tierAllows(aiTier, 'sceneStakesClassify')) {
+        const utilityProvider = hasHostModelRole(facade, 'utility') ? undefined : commitState.getUtilityEndpoint?.();
+        const aiTier = facade.config.aiTier;
+        if ((utilityProvider || hasHostModelRole(facade, 'utility')) && tierAllows(aiTier, 'sceneStakesClassify')) {
             try {
                 const recentScene = (snapshot?.messages ?? messages).slice(-3).map(m => {
                     const role = m.role === 'assistant' ? 'GM' : m.role.toUpperCase();
                     return `[${role}]: ${(m.content || '').slice(0, 500)}`;
                 }).join('\n\n');
-                sceneStakes = await classifySceneStakes(utilityProvider, recentScene + '\n\n' + text.slice(0, 1000));
+                sceneStakes = await classifySceneStakes(utilityProvider, recentScene + '\n\n' + text.slice(0, 1000), hasHostModelRole(facade, 'utility')
+                    ? (prompt, request) => facade.model.call('utility', { prompt, ...request }).then(result => result.content)
+                    : undefined);
             } catch (e) {
                 console.warn('[Commit] scene-stakes fallback classify failed:', e);
             }
@@ -321,9 +327,8 @@ async function runCommitPendingTurn(): Promise<void> {
     }
 
     // Update context with lastSceneStakes from the chosen variant (commit only).
-    store.updateContext({ lastSceneStakes: sceneStakes });
+    facade.write.updateContext({ lastSceneStakes: sceneStakes });
 
-    const commitCallbacks = buildCommitCallbacks(commitState.activeCampaignId ?? '', store);
     const snapshotMessages = commitState.getMessages();
 
     // Durable-commit v1: did the scene actually reach long-term memory? Only then

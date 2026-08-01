@@ -37,8 +37,15 @@ export function extractAndStripSceneStakes(text: string): { displayText: string;
 }
 
 export async function classifySceneStakes(
-    provider: EndpointConfig | ProviderConfig,
+    provider: EndpointConfig | ProviderConfig | undefined,
     recentScene: string,
+    modelCall?: (prompt: string, options: {
+        priority: 'low';
+        maxTokens: number;
+        thinkingEffort: 'off';
+        trackingLabel: string;
+        timeoutMs: number;
+    }) => Promise<string>,
 ): Promise<SceneStakes> {
     const prompt = joinPromptSections(
         TTRPG_PERSONA_STATE_ANALYZER,
@@ -55,13 +62,18 @@ export async function classifySceneStakes(
     recordSceneStakesFallback();
 
     try {
-        const raw = await llmCall(provider, prompt, {
-            priority: 'low',
-            maxTokens: 20,
-            thinkingEffort: 'off',
-            trackingLabel: 'scene-stakes-classify',
-            timeoutMs: ENGINE_CALL_TIMEOUT_MS,
-        });
+        const raw = modelCall
+            ? await modelCall(prompt, { priority: 'low', maxTokens: 20, thinkingEffort: 'off', trackingLabel: 'scene-stakes-classify', timeoutMs: ENGINE_CALL_TIMEOUT_MS })
+            : provider
+                ? await llmCall(provider, prompt, {
+                    priority: 'low',
+                    maxTokens: 20,
+                    thinkingEffort: 'off',
+                    trackingLabel: 'scene-stakes-classify',
+                    timeoutMs: ENGINE_CALL_TIMEOUT_MS,
+                })
+                : null;
+        if (raw === null) return 'calm';
         const cleaned = raw.replace(/<think[\s\S]*?<\/think>/gi, '').trim();
         const parsed = JSON.parse(cleaned);
         const s = String(parsed.stakes ?? '').toLowerCase();
