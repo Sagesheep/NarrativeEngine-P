@@ -365,3 +365,63 @@ describe('loadMods — appVersion compatibility', () => {
         expect(loadMods(dir, undefined).faults).toEqual([]);
     });
 });
+
+describe('loadMods — compute mods', () => {
+    it('loads compute metadata and carries the sibling source as text', () => {
+        write('arc.mod.json', validMod({
+            id: 'arc',
+            compute: {
+                file: 'arc.compute.js',
+                hook: 'postTurn',
+                capabilities: ['write:updateContext', 'table:read:npcs'],
+            },
+        }));
+        write('arc.compute.js', 'export default async function () { return { ok: true }; }');
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+
+        expect(faults).toEqual([]);
+        expect(mods[0].compute).toEqual({
+            file: 'arc.compute.js',
+            hook: 'postTurn',
+            capabilities: ['write:updateContext', 'table:read:npcs'],
+        });
+        expect(mods[0].computeSource).toBe('export default async function () { return { ok: true }; }');
+    });
+
+    it('leaves data-only mods without compute metadata or source', () => {
+        write('data.mod.json', validMod());
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+
+        expect(faults).toEqual([]);
+        expect(mods[0].compute).toBeUndefined();
+        expect(mods[0].computeSource).toBeUndefined();
+    });
+
+    it.each([
+        ['a non-object compute block', 'bad', /compute must be an object/],
+        ['a missing source file', { hook: 'postTurn', capabilities: [] }, /compute\.file must be a non-empty string/],
+        ['a non-postTurn hook', { file: 'x.js', hook: 'beforeTurn', capabilities: [] }, /compute\.hook must be "postTurn"/],
+        ['a non-array capability list', { file: 'x.js', hook: 'postTurn', capabilities: 'write:updateContext' }, /compute\.capabilities must be an array/],
+        ['a malformed capability', { file: 'x.js', hook: 'postTurn', capabilities: ['write'] }, /must be write:<name>/],
+        ['an undeclared write', { file: 'x.js', hook: 'postTurn', capabilities: ['write:nope'] }, /unknown write "nope"/],
+        ['an unavailable table', { file: 'x.js', hook: 'postTurn', capabilities: ['table:write:divergence'] }, /unavailable write table "divergence"/],
+    ])('rejects %s', (_label, compute, expected) => {
+        write('x.mod.json', validMod({ compute }));
+
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(expected);
+    });
+
+    it.each(['../outside.js', 'nested/x.js', 'nested\\x.js', 'x..js'])('rejects a compute path that is not a plain filename: %s', (file) => {
+        write('x.mod.json', validMod({ compute: { file, hook: 'postTurn', capabilities: [] } }));
+
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/plain filename inside the mods directory/);
+    });
+
+    it('rejects a missing sibling compute source as a fault', () => {
+        write('x.mod.json', validMod({ compute: { file: 'missing.js', hook: 'postTurn', capabilities: [] } }));
+
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/compute\.file "missing\.js" could not be read/);
+    });
+});

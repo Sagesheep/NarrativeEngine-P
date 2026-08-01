@@ -45,6 +45,25 @@ const ID_REGEX = /^[a-zA-Z0-9_-]+$/;
 const WHEN_KEYS = ['npcPresent', 'location', 'inCombat', 'sceneTag'];
 const WHEN_STRING_KEYS = ['npcPresent', 'location', 'sceneTag'];
 
+const COMPUTE_WRITES = new Set([
+    'updateContext',
+    'updateNPC',
+    'addMessage',
+    'addEnemySuggestions',
+    'setDivergenceRegister',
+    'addNpcSuggestions',
+    'archiveNPC',
+    'restoreNPC',
+    'onDirectorBriefPhase',
+    'updatePlayerCharacter',
+    'setCharacterProfileData',
+    'setInventoryItems',
+    'setLocationLedger',
+    'addLocationSuggestions',
+]);
+const COMPUTE_TABLE_READS = new Set(['archive', 'divergence', 'enemies', 'locations', 'npcs']);
+const COMPUTE_TABLE_WRITES = new Set(['archive', 'locations', 'npcs']);
+
 /** v1 supports exactly two forms: `">=X.Y.Z"` (Y and Z optional) and `"*"`. */
 const APP_VERSION_REGEX = /^>=\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?$/;
 
@@ -151,6 +170,83 @@ function validateSuppresses(raw, at) {
     return [...raw];
 }
 
+function validateComputeCapability(value, index) {
+    const at = 'compute.capabilities[' + index + ']';
+    if (typeof value !== 'string' || value.trim() === '') {
+        reject(at + ' must be a non-empty capability string');
+    }
+
+    const writeMatch = /^write:([^:]+)$/.exec(value);
+    if (writeMatch) {
+        if (!COMPUTE_WRITES.has(writeMatch[1])) {
+            reject(at + ' names an unknown write "' + writeMatch[1] + '"');
+        }
+        return value;
+    }
+
+    const tableMatch = /^table:(read|write):([^:]+)$/.exec(value);
+    if (tableMatch) {
+        const operation = tableMatch[1];
+        const table = tableMatch[2];
+        const allowed = operation === 'read' ? COMPUTE_TABLE_READS : COMPUTE_TABLE_WRITES;
+        if (!allowed.has(table)) {
+            reject(at + ' names an unavailable ' + operation + ' table "' + table + '"');
+        }
+        return value;
+    }
+
+    reject(at + ' must be write:<name> or table:<read|write>:<name>');
+}
+
+function validateCompute(raw, modsDir) {
+    if (!isPlainObject(raw)) reject('compute must be an object');
+
+    requireNonEmptyString(raw.file, 'compute.file');
+    if (raw.file.includes('/') || raw.file.includes('\\') || raw.file.includes('..')) {
+        reject('compute.file must be a plain filename inside the mods directory');
+    }
+    if (raw.hook !== 'postTurn') {
+        reject('compute.hook must be "postTurn"');
+    }
+
+    const rawCapabilities = raw.capabilities === undefined ? [] : raw.capabilities;
+    if (!Array.isArray(rawCapabilities)) {
+        reject('compute.capabilities must be an array of capability strings');
+    }
+    const seen = new Set();
+    const capabilities = rawCapabilities.map((value, index) => {
+        const capability = validateComputeCapability(value, index);
+        if (seen.has(capability)) reject('duplicate compute capability "' + capability + '"');
+        seen.add(capability);
+        return capability;
+    });
+
+    const modsRoot = fs.realpathSync(modsDir);
+    const requestedPath = path.resolve(modsRoot, raw.file);
+    let sourcePath;
+    try {
+        sourcePath = fs.realpathSync(requestedPath);
+    } catch (err) {
+        reject('compute.file "' + raw.file + '" could not be read: ' + (err?.message ?? String(err)));
+    }
+    const relative = path.relative(modsRoot, sourcePath);
+    if (relative === '' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+        reject('compute.file must resolve to a file inside the mods directory');
+    }
+
+    let computeSource;
+    try {
+        computeSource = fs.readFileSync(sourcePath, 'utf-8');
+    } catch (err) {
+        reject('compute.file "' + raw.file + '" could not be read: ' + (err?.message ?? String(err)));
+    }
+
+    return {
+        compute: { file: raw.file, hook: 'postTurn', capabilities },
+        computeSource,
+    };
+}
+
 function validateContribution(raw, index, seenIds) {
     const at = `contributions[${index}]`;
     if (!isPlainObject(raw)) reject(`${at} must be an object`);
@@ -182,7 +278,7 @@ function validateContribution(raw, index, seenIds) {
     return contribution;
 }
 
-function validateMod(raw, file, appVersion) {
+function validateMod(raw, file, appVersion, modsDir) {
     if (!isPlainObject(raw)) reject('mod file must contain a JSON object');
 
     requireNonEmptyString(raw.id, 'id');
@@ -213,6 +309,7 @@ function validateMod(raw, file, appVersion) {
         file,
     };
     if (typeof raw.appVersion === 'string') mod.appVersion = raw.appVersion;
+    if (raw.compute !== undefined) Object.assign(mod, validateCompute(raw.compute, modsDir));
     return mod;
 }
 
@@ -257,7 +354,7 @@ export function loadMods(modsDir, appVersion) {
                 reject(`invalid JSON: ${err.message}`);
             }
 
-            const mod = validateMod(parsed, file, appVersion);
+            const mod = validateMod(parsed, file, appVersion, modsDir);
 
             const claimedBy = claimedIds.get(mod.id);
             if (claimedBy) reject(`duplicate mod id "${mod.id}" (already declared by ${claimedBy})`);

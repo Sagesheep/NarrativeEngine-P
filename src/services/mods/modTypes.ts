@@ -5,8 +5,8 @@
  * anything typed here has already been checked on disk, so the adapter can read it without
  * re-validating — but it still reads defensively, because these objects arrive over HTTP.
  *
- * v1 is DATA ONLY. No expressions, no code, no callbacks. That is decision D1 of the Project 2
- * plan and it is what makes third-party mods safe without a sandbox.
+ * Data contributions remain the original v1 surface. Compute mods are a separate, explicitly
+ * declared surface; their source is carried as text and runs only in the browser sandbox.
  */
 
 /**
@@ -69,13 +69,22 @@ export interface ModDefinition {
     appVersion?: string;
     description?: string;
     contributions: ModContribution[];
+    compute?: ModCompute;
 }
 
-/** A mod that passed validation. `description` is normalised to a string; `file` is added. */
+/** The code hook and capabilities declared by a compute mod. */
+export interface ModCompute {
+    file: string;
+    hook: 'postTurn';
+    capabilities: string[];
+}
+
 export interface ValidatedMod extends ModDefinition {
     description: string;
     /** Source filename inside the mods folder. Diagnostics and the extensions UI. */
     file: string;
+    /** The sibling compute file, carried as text; the server never evaluates it. */
+    computeSource?: string;
 }
 
 /** A file that was rejected, and why. Shown to the user rather than swallowed. */
