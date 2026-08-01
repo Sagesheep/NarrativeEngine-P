@@ -89,7 +89,7 @@ export async function gatherContext(
     const plannerPromise = timed('planner', gatherPlannerSceneIds(state, signal, facade));
 
     const semanticPromise = timed('semantic-candidates', activeCampaignId
-        ? gatherSemanticCandidates(state, signal)
+        ? gatherSemanticCandidates(state, signal, facade)
         : Promise.resolve({ semanticArchiveIds: undefined, semanticLoreIds: undefined, semanticRuleIds: undefined }));
 
     // The `next-scene` pre-assignment used to run here: a guess at the number the

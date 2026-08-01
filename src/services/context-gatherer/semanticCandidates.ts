@@ -6,23 +6,22 @@ import { llmCall } from '../../utils/llmCall';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import { tierAllows } from '../turn/aiTier';
+import { hasHostModelRole, type HostFacade, type ModelRequest, type ModelResponse } from '../turn/hostFacade';
 
 const CALLBACK_REGEX = /\b(remember|earlier|back when|before|previously|that .*(we|i) (did|met|fought|saw|found|got))\b/i;
 
-async function expandQuery(query: string, npcLedger: NPCEntry[], utilityEndpoint: import('../../types').EndpointConfig): Promise<string[]> {
+async function expandQuery(query: string, npcLedger: NPCEntry[], utilityEndpoint: import('../../types').EndpointConfig | undefined, modelCall?: (request: ModelRequest) => Promise<ModelResponse>): Promise<string[]> {
     try {
         const npcContext = npcLedger.slice(0, 10).map(n => n.name).join(', ');
         const prompt = `User query: "${query}"
 Known NPCs: ${npcContext}
 Generate 2 alternative phrasings that expand pronouns, add likely entity names from context, and use synonyms. Return ONLY a JSON array of 2 strings. No prose.`;
 
-        const raw = await llmCall(utilityEndpoint, prompt, {
-            temperature: 0.2,
-            priority: 'high',
-            maxTokens: 200,
-            trackingLabel: 'query-expansion',
-            timeoutMs: AI_CALL_TIMEOUT_MS,
-        });
+        const raw = modelCall
+            ? (await modelCall({ prompt, temperature: 0.2, priority: 'high', maxTokens: 200, trackingLabel: 'query-expansion', timeoutMs: AI_CALL_TIMEOUT_MS })).content
+            : utilityEndpoint
+                ? await llmCall(utilityEndpoint, prompt, { temperature: 0.2, priority: 'high', maxTokens: 200, trackingLabel: 'query-expansion', timeoutMs: AI_CALL_TIMEOUT_MS })
+                : '';
 
         const { value: parsed, parseOk } = extractJsonRobust<string[]>(raw, []);
         if (parseOk && Array.isArray(parsed) && parsed.length >= 2 && parsed.every((x: unknown) => typeof x === 'string')) {
@@ -42,9 +41,16 @@ export type SemanticCandidates = {
 
 export async function gatherSemanticCandidates(
     state: TurnState,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    facade?: HostFacade
 ): Promise<SemanticCandidates> {
-    const { input, npcLedger, loreChunks, archiveIndex, activeCampaignId } = state;
+    const data = facade?.data;
+    const config = facade?.config;
+    const input = data?.input ?? state.input;
+    const npcLedger = data?.npcLedger ?? state.npcLedger;
+    const loreChunks = data?.loreChunks ?? state.loreChunks;
+    const archiveIndex = data?.archiveIndex ?? state.archiveIndex;
+    const activeCampaignId = data?.activeCampaignId ?? state.activeCampaignId;
 
     let semanticArchiveIds: string[] | undefined;
     let semanticLoreIds: string[] | undefined;
@@ -57,7 +63,9 @@ export async function gatherSemanticCandidates(
     try {
         // Query expansion for callback phrases or short queries
         let queries = [input];
-        const utilityEndpoint = state.getUtilityEndpoint?.();
+        const utilityEndpoint = facade ? undefined : state.getUtilityEndpoint?.();
+        const utilityAvailable = facade ? hasHostModelRole(facade, 'utility') : Boolean(utilityEndpoint?.endpoint);
+        const modelCall = facade ? (request: ModelRequest) => facade.model.call('utility', request) : undefined;
         const isCallback = CALLBACK_REGEX.test(input);
         const isShort = input.trim().split(/\s+/).length < 8;
         // Expansion only feeds semantic retrieval over archive/lore/rules — if there's
@@ -66,9 +74,9 @@ export async function gatherSemanticCandidates(
         const hasRetrievableContent =
             archiveIndex.length > 0 ||
             loreChunks.length > 0 ||
-            (state.context?.rulesChunks?.length ?? 0) > 0;
-        if ((isCallback || isShort) && hasRetrievableContent && utilityEndpoint?.endpoint && tierAllows(state.settings.aiTier, 'expandQuery')) {
-            const expanded = await expandQuery(input, npcLedger, utilityEndpoint);
+            (data?.context?.rulesChunks?.length ?? state.context?.rulesChunks?.length ?? 0) > 0;
+        if ((isCallback || isShort) && hasRetrievableContent && utilityAvailable && tierAllows(config?.aiTier ?? state.settings.aiTier, 'expandQuery')) {
+            const expanded = await expandQuery(input, npcLedger, utilityEndpoint, modelCall);
             queries = expanded;
             if (expanded.length > 1) {
                 console.log(`[QueryExpansion] "${input}" → ${expanded.length} variants`);
