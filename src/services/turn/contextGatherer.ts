@@ -11,6 +11,7 @@ import { gatherSlottedRag, type SlottedRagSnippet } from '../archive-memory/slot
 import { beginGatherStage, endGatherStage, clearGatherStages } from './gatherProgress';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import type { LoreChunk } from '../../types';
+import type { HostFacade } from './hostFacade';
 
 // Friendly, user-facing labels for the live step indicator (keyed by internal stage id).
 const STAGE_LABELS: Record<string, string> = {
@@ -58,7 +59,8 @@ export async function gatherContext(
     state: TurnState,
     finalInput: string,
     deps: GatherDeps,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    facade?: HostFacade
 ): Promise<GatheredContext> {
     const { activeCampaignId } = state;
 
@@ -84,7 +86,7 @@ export async function gatherContext(
     };
 
     // ─── Kick off planner and semantic candidates in parallel ───
-    const plannerPromise = timed('planner', gatherPlannerSceneIds(state, signal));
+    const plannerPromise = timed('planner', gatherPlannerSceneIds(state, signal, facade));
 
     const semanticPromise = timed('semantic-candidates', activeCampaignId
         ? gatherSemanticCandidates(state, signal)

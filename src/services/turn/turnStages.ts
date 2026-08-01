@@ -185,6 +185,7 @@ export async function gatherTurnContext(
     state: TurnState,
     callbacks: TurnCallbacks,
     signal: AbortSignal,
+    facade?: HostFacade,
 ): Promise<void> {
     ctx.gathered = await gatherContext(state, ctx.finalInput, {
         chapters: state.chapters,
@@ -192,7 +193,7 @@ export async function gatherTurnContext(
         clearPinnedChapters: state.clearPinnedChapters,
         deepSearchThisTurn: !!state.deepSearchThisTurn,
         setLoadingStatus: callbacks.setLoadingStatus,
-    }, signal);
+    }, signal, facade);
 }
 
 // ── Stage 4: runIntroEngineStage ─────────────────────────────────────────

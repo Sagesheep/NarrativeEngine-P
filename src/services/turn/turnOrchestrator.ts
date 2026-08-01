@@ -174,7 +174,7 @@ export async function runTurn(
     resolveEngineRolls(ctx, state, callbacks);
     addUserTurnMessage(ctx, callbacks);
 
-    await gatherTurnContext(ctx, state, callbacks, abortController.signal);
+    await gatherTurnContext(ctx, state, callbacks, abortController.signal, facade);
     if (abortController.signal.aborted) return;
 
     await runIntroEngineStage(ctx, state, callbacks, facade);

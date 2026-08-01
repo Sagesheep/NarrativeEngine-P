@@ -6,6 +6,7 @@ import { runArchivePlanner } from '../archive-memory/archivePlanner';
 import { getDivergenceSceneIds, EMPTY_REGISTER, buildSceneMap } from '../campaign-state/divergenceRegister';
 import { tierAllows } from '../turn/aiTier';
 import type { SemanticCandidates } from './semanticCandidates';
+import { hasHostModelRole, type HostFacade } from '../turn/hostFacade';
 
 export type ArchiveRecallDeps = {
     chapters: ArchiveChapter[];
@@ -13,12 +14,21 @@ export type ArchiveRecallDeps = {
 
 export async function gatherPlannerSceneIds(
     state: TurnState,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    facade?: HostFacade,
 ): Promise<string[] | undefined> {
-    const plannerEndpoint = state.getUtilityEndpoint?.();
-    if (tierAllows(state.settings.aiTier, 'planner') && state.settings.enableArchivePlanner && plannerEndpoint?.endpoint) {
+    const plannerEndpoint = facade ? undefined : state.getUtilityEndpoint?.();
+    const plannerEnabled = facade?.config.enableArchivePlanner ?? state.settings.enableArchivePlanner;
+    const plannerAvailable = facade ? hasHostModelRole(facade, 'utility') : Boolean(plannerEndpoint?.endpoint);
+    if (tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'planner') && plannerEnabled && plannerAvailable) {
         try {
-            return await runArchivePlanner(plannerEndpoint, state.input, state.archiveIndex, signal);
+            return await runArchivePlanner(
+                plannerEndpoint,
+                facade?.data.input ?? state.input,
+                facade?.data.archiveIndex ?? state.archiveIndex,
+                signal,
+                facade ? (request: import('../turn/hostFacade').ModelRequest) => facade.model.call('utility', request) : undefined
+            );
         } catch {
             return undefined;
         }

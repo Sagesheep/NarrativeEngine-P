@@ -2,12 +2,14 @@ import type { EndpointConfig, ProviderConfig, ArchiveIndexEntry } from '../../ty
 import { llmCall } from '../../utils/llmCall';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
+import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
 
 export async function runArchivePlanner(
-    provider: EndpointConfig | ProviderConfig,
+    provider: EndpointConfig | ProviderConfig | undefined,
     finalInput: string,
     candidateScenes: ArchiveIndexEntry[],
     signal?: AbortSignal,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
 ): Promise<string[]> {
     try {
         const candidateList = candidateScenes
@@ -45,14 +47,11 @@ RULES:
 3. If no scenes are relevant, return an empty array [].
 4. Output a single JSON array of strings only. No markdown formatting, no prose, no reasoning tags, no backticks.`;
 
-        const raw = await llmCall(provider, prompt, {
-            temperature: 0.1,
-            priority: 'high',
-            maxTokens: 300,
-            signal,
-            trackingLabel: 'archive-planner',
-            timeoutMs: AI_CALL_TIMEOUT_MS,
-        });
+        const raw = modelCall
+            ? (await modelCall({ prompt, temperature: 0.1, priority: 'high', maxTokens: 300, signal, trackingLabel: 'archive-planner', timeoutMs: AI_CALL_TIMEOUT_MS })).content
+            : provider
+                ? await llmCall(provider, prompt, { temperature: 0.1, priority: 'high', maxTokens: 300, signal, trackingLabel: 'archive-planner', timeoutMs: AI_CALL_TIMEOUT_MS })
+                : '';
 
         const { value: parsed, parseOk } = extractJsonRobust<string[]>(raw, []);
         if (parseOk && Array.isArray(parsed) && parsed.every((x: unknown) => typeof x === 'string')) {
