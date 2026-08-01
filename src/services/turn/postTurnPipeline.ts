@@ -535,7 +535,7 @@ async function runArchiveTrack(
                         characterProfileData: newProfile,
                         characterProfileLastScene: sceneId,
                     });
-                    guardedSetCharacterProfileData(newProfile);
+                    (facade?.write.setCharacterProfileData ?? guardedSetCharacterProfileData)(newProfile);
                     console.log(`[Auto Bookkeeping] Profile sheet updated at scene #${sceneId}`);
                 }).catch(err => console.warn('[Auto Bookkeeping] Profile scan failed:', err));
             }
