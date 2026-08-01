@@ -116,6 +116,8 @@ type FacadeSettings = {
     lodSummaryChapters?: number;
 };
 
+const facadeModelAvailability = new WeakMap<object, ReadonlySet<ModelRole>>();
+
 const TABLE_ROUTES: Record<string, string> = {
     archive: 'archive/index',
     divergence: 'divergence',
@@ -179,8 +181,25 @@ function readFacadeData(state: TurnState): FacadeData {
     });
 }
 
+function hasConfiguredRole(state: TurnState, role: ModelRole): boolean {
+    switch (role) {
+        case 'story':
+            return Boolean(state.provider || typeof state.getFreshProvider === 'function');
+        case 'utility':
+            return typeof state.getUtilityEndpoint === 'function';
+        case 'auxiliary':
+            return Boolean(typeof state.getFreshAuxiliaryProvider === 'function' || typeof state.getFreshProvider === 'function' || state.provider);
+        case 'summariser':
+            return Boolean(typeof state.getRawSummariserProvider === 'function' || typeof state.getFreshProvider === 'function' || state.provider);
+        case 'raw-auxiliary':
+            return typeof state.getRawAuxiliaryProvider === 'function';
+        case 'raw-summariser':
+            return typeof state.getRawSummariserProvider === 'function';
+    }
+}
+
 function resolveEndpoint(state: TurnState, role: ModelRole): EndpointConfig | ProviderConfig | undefined {
-    const story = () => state.getFreshProvider() ?? state.provider;
+    const story = () => state.getFreshProvider?.() ?? state.provider;
     switch (role) {
         case 'story':
             return story();
@@ -264,7 +283,7 @@ export function buildHostFacade(
         options.getCallbacks?.() ?? callbacks,
         options,
     );
-    return Object.freeze({
+    const facade = Object.freeze({
         data,
         config,
         write,
@@ -274,6 +293,15 @@ export function buildHostFacade(
         refresh,
         log: (...args: unknown[]) => console.log(...args),
     });
+    const availableRoles: ModelRole[] = ['story', 'utility', 'auxiliary', 'summariser', 'raw-auxiliary', 'raw-summariser'];
+    facadeModelAvailability.set(facade, new Set<ModelRole>(
+        availableRoles.filter((role) => hasConfiguredRole(state, role)),
+    ));
+    return facade;
+}
+
+export function hasHostModelRole(facade: HostFacade, role: ModelRole): boolean {
+    return facadeModelAvailability.get(facade)?.has(role) === true;
 }
 
 export const createHostFacade = buildHostFacade;

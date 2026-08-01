@@ -1,4 +1,5 @@
 import type { EnemyEntry, EnemySuggestion, EndpointConfig, ProviderConfig } from '../../types';
+import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
 import { extractJson } from '../infrastructure/jsonExtract';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import { llmCall } from '../../utils/llmCall';
@@ -66,9 +67,10 @@ export function sanitizeEnemySuggestionResponse(
  * committed narrative. It never writes to the compendium itself.
  */
 export async function detectEnemySuggestions(
-    provider: EndpointConfig | ProviderConfig,
+    provider: EndpointConfig | ProviderConfig | undefined,
     narrative: string,
     enemies: EnemyEntry[],
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
 ): Promise<EnemySuggestionDraft[]> {
     const compactCompendium = enemies.map(enemy =>
         `${enemy.id} | ${enemy.name}${enemy.aliases ? ` | aliases: ${enemy.aliases}` : ''}`)
@@ -99,13 +101,11 @@ Return only JSON:
 Return {"suggestions":[]} when nothing is clear.`;
 
     try {
-        const raw = await llmCall(provider, prompt, {
-            priority: 'low',
-            maxTokens: 500,
-            temperature: 0.1,
-            trackingLabel: 'enemy-discovery',
-            timeoutMs: AI_CALL_TIMEOUT_MS,
-        });
+        const raw = modelCall
+            ? (await modelCall({ prompt, priority: 'low', maxTokens: 500, temperature: 0.1, trackingLabel: 'enemy-discovery', timeoutMs: AI_CALL_TIMEOUT_MS })).content
+            : provider
+                ? await llmCall(provider, prompt, { priority: 'low', maxTokens: 500, temperature: 0.1, trackingLabel: 'enemy-discovery', timeoutMs: AI_CALL_TIMEOUT_MS })
+                : '';
         return sanitizeEnemySuggestionResponse(JSON.parse(extractJson(raw)), enemies);
     } catch (error) {
         console.warn('[Enemy Discovery] Suggestion scan failed:', error);

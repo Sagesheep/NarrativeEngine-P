@@ -1,12 +1,13 @@
 import type { EndpointConfig, ProviderConfig, ChatMessage, NPCEntry } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
-import { sendMessageAndParseJson } from './shared';
+import { sendMessageAndParseJson, type JsonModelCall } from './shared';
 
 export async function backfillNPCDrives(
-    provider: EndpointConfig | ProviderConfig,
+    provider: EndpointConfig | ProviderConfig | undefined,
     history: ChatMessage[],
     npcsNeedingDrives: NPCEntry[],
-    updateNPCStore: (id: string, updates: Partial<NPCEntry>) => void
+    updateNPCStore: (id: string, updates: Partial<NPCEntry>) => void,
+    modelCall?: JsonModelCall
 ): Promise<void> {
     if (!npcsNeedingDrives.length) return;
 
@@ -44,7 +45,7 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.
         ];
 
         try {
-            const { parsed } = await sendMessageAndParseJson(provider, messages, `NPC Drives Backfill/${npc.name}`, 'npc-drives-backfill');
+            const { parsed } = await sendMessageAndParseJson(provider, messages, `NPC Drives Backfill/${npc.name}`, 'npc-drives-backfill', modelCall);
 
             const patch: Partial<NPCEntry> = {
                 drives: {

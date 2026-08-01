@@ -1,32 +1,28 @@
-import type { TurnState, TurnCallbacks } from '../turnOrchestrator';
 import { useAppStore } from '../../../store/useAppStore';
 import { scanPressure, buildPressurePatch, shouldArchiveNPC, findArchivedToRestore } from '../../npc/npcPressureTracker';
 import { toast } from '../../../components/Toast';
+import { buildHostFacade } from '../hostFacade';
 import type { PostTurnTrack, PostTurnTrackContext } from './types';
 
-// WO-P2-03 — moved verbatim from `postTurnPipeline.ts` (was `runPressureTrack`, L846-935).
-// Body, parameter list, guard placement and logging are byte-for-byte the original;
-// only the surrounding import paths changed.
-async function runPressureTrack(
-    state: TurnState,
-    callbacks: TurnCallbacks,
-    displayInput: string,
-    npcLedger: import('../../../types').NPCEntry[],
-    activeCampaignId: string,
-    lastAssistantContent: string
-): Promise<void> {
+function getFacade(ctx: PostTurnTrackContext) {
+    if (ctx.facade) return ctx.facade;
+    if (!ctx.state || !ctx.callbacks) throw new Error('[Pressure Track] missing host facade');
+    return buildHostFacade(ctx.state, ctx.callbacks);
+}
+
+async function runPressureTrack(ctx: PostTurnTrackContext): Promise<void> {
+    const facade = getFacade(ctx);
+    const npcLedger = ctx.facade ? facade.data.npcLedger : ctx.npcLedger;
     if (!npcLedger || npcLedger.length === 0) return;
 
-    const archiveIndex = state.archiveIndex;
+    const archiveIndex = facade.data.archiveIndex;
     const sceneNumber = archiveIndex.length > 0
         ? parseInt(archiveIndex[archiveIndex.length - 1].sceneId, 10) || 0
         : 0;
 
     const loreHeadersSet = new Set<string>();
-    if (state.loreChunks) {
-        for (const chunk of state.loreChunks) {
-            if (chunk.header) loreHeadersSet.add(chunk.header.toLowerCase());
-        }
+    for (const chunk of facade.data.loreChunks) {
+        if (chunk.header) loreHeadersSet.add(chunk.header.toLowerCase());
     }
     const activeNPCs = npcLedger.filter(npc => {
         if (npc.archived) return false;
@@ -37,13 +33,13 @@ async function runPressureTrack(
 
     if (activeNPCs.length === 0) return;
 
-    const updates = scanPressure(displayInput, activeNPCs);
+    const updates = scanPressure(ctx.displayInput, activeNPCs);
     if (updates.length === 0) return;
 
-    const guardedUpdateNPC = (id: string, patch: Parameters<typeof callbacks.updateNPC>[1]) => {
+    const guardedUpdateNPC = (id: string, patch: Parameters<typeof facade.write.updateNPC>[1]) => {
         const currentId = useAppStore.getState().activeCampaignId;
-        if (currentId !== activeCampaignId) return;
-        callbacks.updateNPC(id, patch);
+        if (currentId !== ctx.activeCampaignId) return;
+        facade.write.updateNPC(id, patch);
     };
 
     for (const update of updates) {
@@ -58,14 +54,13 @@ async function runPressureTrack(
         }
     }
 
-    // ── Auto-archive stale NPCs ──
-    const maxStaleTurns = state.settings.autoArchiveStaleNPCsTurns ?? 0;
+    const maxStaleTurns = facade.config.autoArchiveStaleNPCsTurns;
     const currentTurn = archiveIndex.length;
     if (maxStaleTurns > 0) {
         const guardedArchiveNPC = (id: string, turn: number, reason: string) => {
             const currentId = useAppStore.getState().activeCampaignId;
-            if (currentId !== activeCampaignId) return;
-            callbacks.archiveNPC(id, turn, reason);
+            if (currentId !== ctx.activeCampaignId) return;
+            facade.write.archiveNPC(id, turn, reason);
         };
 
         for (const npc of activeNPCs) {
@@ -77,14 +72,13 @@ async function runPressureTrack(
         }
     }
 
-    // ── Auto-restore archived NPCs mentioned in the response ──
     const archivedNPCs = npcLedger.filter(n => n.archived);
     if (archivedNPCs.length > 0) {
-        const toRestore = findArchivedToRestore(lastAssistantContent, archivedNPCs);
+        const toRestore = findArchivedToRestore(ctx.lastAssistantContent, archivedNPCs);
         const guardedRestoreNPC = (id: string) => {
             const currentId = useAppStore.getState().activeCampaignId;
-            if (currentId !== activeCampaignId) return;
-            callbacks.restoreNPC(id);
+            if (currentId !== ctx.activeCampaignId) return;
+            facade.write.restoreNPC(id);
         };
 
         for (const npcId of toRestore) {
@@ -98,19 +92,6 @@ async function runPressureTrack(
     }
 }
 
-/**
- * Zero-LLM social-pressure accrual: scores the player's turn against every live NPC, writes
- * the ignored/engaged deltas, auto-archives NPCs gone stale for too long, and auto-restores
- * archived ones the GM just named.
- *
- * Race-guards: `guardedUpdateNPC`, `guardedArchiveNPC` and `guardedRestoreNPC` — the three
- * inline campaign-id checks, moved with the body and still wrapping the same three write
- * paths.
- *
- * `shouldRun` mirrors the body's own opening guard (`!npcLedger || npcLedger.length === 0`).
- * The guard is deliberately left in the body too: the body is a verbatim move, and the
- * duplication means calling `run` directly is still safe.
- */
 export const pressureTrack: PostTurnTrack<PostTurnTrackContext> = {
     id: 'track.pressure',
     name: 'NPC Pressure Tracking',
@@ -119,12 +100,5 @@ export const pressureTrack: PostTurnTrack<PostTurnTrackContext> = {
     trigger: 'automatic',
     callsModel: false,
     shouldRun: (ctx) => !!ctx.npcLedger && ctx.npcLedger.length > 0,
-    run: (ctx) => runPressureTrack(
-        ctx.state,
-        ctx.callbacks,
-        ctx.displayInput,
-        ctx.npcLedger,
-        ctx.activeCampaignId,
-        ctx.lastAssistantContent,
-    ),
+    run: runPressureTrack,
 };

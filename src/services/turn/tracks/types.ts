@@ -1,5 +1,6 @@
 import type { ChatMessage, NPCEntry } from '../../../types';
 import type { TurnState, TurnCallbacks } from '../turnOrchestrator';
+import type { HostFacade } from '../hostFacade';
 
 /**
  * Project 2 / WO-P2-03 — the post-turn track contract.
@@ -78,8 +79,9 @@ export interface PostTurnTrack<Ctx> {
  * verbatim, with its original parameter list intact.
  */
 export interface PostTurnTrackContext {
-    state: TurnState;
-    callbacks: TurnCallbacks;
+    facade?: HostFacade;
+    state?: TurnState;
+    callbacks?: TurnCallbacks;
     displayInput: string;
     lastAssistantContent: string;
     allMsgs: ChatMessage[];

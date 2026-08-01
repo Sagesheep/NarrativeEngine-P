@@ -10,27 +10,34 @@ export const RETRY_SUFFIX = '\n\nIMPORTANT: Your previous response was not valid
 // existing `import { sanitizeSignatureKit } from './shared'` call sites working.
 export { sanitizeSignatureKit } from '../npc/signatureKit';
 
+export type JsonModelCall = (messages: OpenAIMessage[], contextLabel: string, trackingLabel?: string) => Promise<string>;
+
 export async function sendMessageAndParseJson(
-    provider: EndpointConfig | ProviderConfig,
+    provider: EndpointConfig | ProviderConfig | undefined,
     messages: OpenAIMessage[],
     contextLabel: string,
     trackingLabel?: string,
+    modelCall?: JsonModelCall,
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<{ parsed: any; rawStr: string }> {
     let fullJsonStr = '';
 
-    await sendMessage(
-        provider,
-        messages,
-        (chunk) => { fullJsonStr = chunk; },
-        () => { },
-        (err) => console.error(`[${contextLabel}] Stream error:`, err),
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        trackingLabel,
-    );
+    if (modelCall) {
+        fullJsonStr = await modelCall(messages, contextLabel, trackingLabel);
+    } else {
+        await sendMessage(
+            provider!,
+            messages,
+            (chunk) => { fullJsonStr = chunk; },
+            () => { },
+            (err) => console.error(`[${contextLabel}] Stream error:`, err),
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            trackingLabel,
+        );
+    }
 
     if (!fullJsonStr) throw new Error(`[${contextLabel}] Empty response from LLM`);
 
@@ -49,18 +56,22 @@ export async function sendMessageAndParseJson(
         ];
 
         let retryStr = '';
-        await sendMessage(
-            provider,
-            retryMessages,
-            (chunk) => { retryStr = chunk; },
-            () => { },
-            (err) => console.error(`[${contextLabel}] Retry stream error:`, err),
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            trackingLabel,
-        );
+        if (modelCall) {
+            retryStr = await modelCall(retryMessages, contextLabel, trackingLabel);
+        } else {
+            await sendMessage(
+                provider!,
+                retryMessages,
+                (chunk) => { retryStr = chunk; },
+                () => { },
+                (err) => console.error(`[${contextLabel}] Retry stream error:`, err),
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                trackingLabel,
+            );
+        }
 
         if (!retryStr) throw new Error(`[${contextLabel}] Empty retry response`);
 

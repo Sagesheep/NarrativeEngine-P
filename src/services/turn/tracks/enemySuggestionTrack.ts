@@ -1,4 +1,4 @@
-import type { TurnState, TurnCallbacks } from '../turnOrchestrator';
+import type { EndpointConfig } from '../../../types';
 import { useAppStore } from '../../../store/useAppStore';
 import { backgroundQueue } from '../../infrastructure/backgroundQueue';
 import { detectEnemySuggestions } from '../../enemy/enemySuggestions';
@@ -6,25 +6,9 @@ import {
     decideDiscoveryScan,
     type EnemyDiscoveryContext,
 } from '../../enemy/enemyDiscoveryController';
+import { buildHostFacade, hasHostModelRole, type HostFacade, type ModelRequest, type ModelRole } from '../hostFacade';
 import type { PostTurnTrack, PostTurnTrackContext } from './types';
 
-// WO-P2-03 — moved verbatim from `postTurnPipeline.ts` (was the enemy-discovery
-// single-flight state + `runEnemySuggestionTrack`, L937-1045). Body, parameter list,
-// guard placement and logging are byte-for-byte the original; only the surrounding
-// import paths changed. `clearEnemyDiscoveryState` is re-exported from
-// `postTurnPipeline.ts` so the campaign-switch caller's dynamic import still resolves.
-
-/**
- * Per-campaign enemy-discovery single-flight + cooldown state. At most one
- * discovery request may be pending or running per campaign; an eligible turn
- * that arrives while one is in flight is skipped (never queued as a backlog).
- * `lastScanScene` records the scene number of the last accepted scan so the
- * tier cooldown (Pro: 5, Max: 0, Lite: blocked) is enforced.
- *
- * Cleared on campaign switch via `clearEnemyDiscoveryState` (called from the
- * campaign-switch path so a stale in-flight flag from a closed campaign does
- * not block a reopened one).
- */
 const enemyDiscoveryState = new Map<string, { inFlight: boolean; lastScanScene: number }>();
 
 export function clearEnemyDiscoveryState(campaignId: string | null | undefined): void {
@@ -41,75 +25,85 @@ function getDiscoveryState(campaignId: string): { inFlight: boolean; lastScanSce
     return entry;
 }
 
-/**
- * Runs the conservative utility-model enemy scan after a committed turn.
- *
- * Tier + flag + cooldown + single-flight gating happens in `decideDiscoveryScan`
- * BEFORE the background task is queued, so an ineligible turn never enters the
- * queue (no discovery backlog). The background task re-verifies the active
- * campaign before writing suggestions (second guard), and the controller clears
- * the in-flight flag in a `finally` so a crashed scan never permanently blocks
- * the campaign.
- *
- * Provider precedence (utility → auxiliary → story-only-as-final-fallback) is
- * enforced by `resolveDiscoveryProvider`. The Story AI is only used when no
- * secondary endpoint exists, and that choice is made explicit in the decision.
- */
-async function runEnemySuggestionTrack(
-    state: TurnState,
-    callbacks: TurnCallbacks,
-    lastAssistantContent: string,
-    activeCampaignId: string,
-): Promise<void> {
-    if (!callbacks.addEnemySuggestions) return;
+function getFacade(ctx: PostTurnTrackContext): { facade: HostFacade; useBroker: boolean } {
+    if (ctx.facade) return { facade: ctx.facade, useBroker: true };
+    if (!ctx.state || !ctx.callbacks) throw new Error('[Enemy Discovery] missing host facade');
+    return { facade: buildHostFacade(ctx.state, ctx.callbacks), useBroker: false };
+}
 
+const sourceRole: Record<'utility' | 'auxiliary' | 'summariser' | 'story', ModelRole> = {
+    utility: 'utility',
+    auxiliary: 'raw-auxiliary',
+    summariser: 'raw-summariser',
+    story: 'story',
+};
+
+function placeholder(role: ModelRole): EndpointConfig {
+    return { endpoint: `facade:${role}`, apiKey: '', modelName: role };
+}
+
+async function runEnemySuggestionTrack(ctx: PostTurnTrackContext): Promise<void> {
+    const { facade, useBroker } = getFacade(ctx);
+    const state = ctx.state;
+    const activeCampaignId = ctx.activeCampaignId;
     const discoveryState = getDiscoveryState(activeCampaignId);
-    const sceneNumber = state.archiveIndex.length > 0
-        ? parseInt(state.archiveIndex[state.archiveIndex.length - 1].sceneId, 10) || 0
+    const archiveIndex = facade.data.archiveIndex;
+    const sceneNumber = archiveIndex.length > 0
+        ? parseInt(archiveIndex[archiveIndex.length - 1].sceneId, 10) || 0
         : 0;
+
+    if (!facade.write.addEnemySuggestions) return;
 
     const discoveryCtx: EnemyDiscoveryContext = {
         campaignId: activeCampaignId,
-        tier: state.settings.aiTier,
-        enabled: state.enemyCombatConfig?.enemyDiscoveryEnabled === true,
+        tier: facade.config.aiTier,
+        enabled: facade.data.enemyCombatConfig?.enemyDiscoveryEnabled === true,
         sceneNumber,
         lastScanScene: discoveryState.lastScanScene,
         inFlight: discoveryState.inFlight,
-        enemyCompendium: state.enemyCompendium ?? [],
-        providers: {
-            utilityProvider: state.getUtilityEndpoint?.(),
-            // Raw secondary endpoints — NOT getFreshAuxiliaryProvider, which
-            // silently returns the Story provider when the auxiliary endpoint
-            // has no model name. Discovery must never use the Story AI unless
-            // all secondary endpoints are absent or unusable, so we read the
-            // raw getRawAuxiliaryProvider/getRawSummariserProvider resolvers here.
-            auxiliaryProvider: state.getRawAuxiliaryProvider?.(),
-            summariserProvider: state.getRawSummariserProvider?.(),
-            storyProvider: state.getFreshProvider(),
-        },
+        enemyCompendium: facade.data.enemyCompendium,
+        providers: useBroker
+            ? {
+                utilityProvider: hasHostModelRole(facade, 'utility') ? placeholder('utility') : undefined,
+                auxiliaryProvider: hasHostModelRole(facade, 'raw-auxiliary') ? placeholder('raw-auxiliary') : undefined,
+                summariserProvider: hasHostModelRole(facade, 'raw-summariser') ? placeholder('raw-summariser') : undefined,
+                storyProvider: hasHostModelRole(facade, 'story') ? placeholder('story') : undefined,
+            }
+            : {
+                utilityProvider: state?.getUtilityEndpoint?.(),
+                auxiliaryProvider: state?.getRawAuxiliaryProvider?.(),
+                summariserProvider: state?.getRawSummariserProvider?.(),
+                storyProvider: state?.getFreshProvider(),
+            },
     };
 
     const decision = decideDiscoveryScan(discoveryCtx);
     if (decision.kind !== 'run') return;
 
-    // Mark in-flight immediately so a concurrent eligible turn skips (single-flight).
+    const modelRole = useBroker ? sourceRole[decision.providerSource] : undefined;
+    const modelCall = modelRole
+        ? (request: ModelRequest) => facade.model.call(modelRole, request)
+        : undefined;
     discoveryState.inFlight = true;
 
     backgroundQueue.push('Enemy-Discovery', async () => {
         try {
-            // Re-verify the active campaign before starting the queued request.
             if (useAppStore.getState().activeCampaignId !== activeCampaignId) {
                 console.warn('[Enemy Discovery] Skipping queued scan — campaign changed before start.');
                 return;
             }
-            const suggestions = await detectEnemySuggestions(decision.provider, lastAssistantContent, state.enemyCompendium ?? []);
+            const suggestions = await detectEnemySuggestions(
+                useBroker ? undefined : decision.provider,
+                ctx.lastAssistantContent,
+                facade.data.enemyCompendium,
+                modelCall,
+            );
             if (!suggestions.length) return;
-            // Re-verify the active campaign before writing suggestions.
             if (useAppStore.getState().activeCampaignId !== activeCampaignId) {
                 console.warn('[Enemy Discovery] Dropping suggestions because the active campaign changed.');
                 return;
             }
-            callbacks.addEnemySuggestions?.(suggestions, lastAssistantContent);
+            facade.write.addEnemySuggestions(suggestions, ctx.lastAssistantContent);
         } catch (error) {
             console.warn('[Enemy Discovery] Background scan failed:', error);
         } finally {
@@ -124,16 +118,6 @@ async function runEnemySuggestionTrack(
     }).catch(error => console.warn('[Enemy Discovery] Background scan failed:', error));
 }
 
-/**
- * Race-guards: the two inline `useAppStore.getState().activeCampaignId !== activeCampaignId`
- * re-verifications inside the queued closure (one before the LLM request, one before the
- * suggestion write) plus the third in the `finally` that gates the `lastScanScene` stamp.
- * All three moved with the body, in the same places.
- *
- * `shouldRun` mirrors the body's own opening guard (`!callbacks.addEnemySuggestions`). The
- * guard is deliberately left in the body too: the body is a verbatim move, and the
- * duplication means calling `run` directly is still safe.
- */
 export const enemySuggestionTrack: PostTurnTrack<PostTurnTrackContext> = {
     id: 'track.enemy-suggestion',
     name: 'Enemy Discovery',
@@ -141,11 +125,6 @@ export const enemySuggestionTrack: PostTurnTrack<PostTurnTrackContext> = {
     defaultEnabled: true,
     trigger: 'automatic',
     callsModel: true,
-    shouldRun: (ctx) => !!ctx.callbacks.addEnemySuggestions,
-    run: (ctx) => runEnemySuggestionTrack(
-        ctx.state,
-        ctx.callbacks,
-        ctx.lastAssistantContent,
-        ctx.activeCampaignId,
-    ),
+    shouldRun: (ctx) => !!ctx.callbacks?.addEnemySuggestions || !!ctx.facade,
+    run: runEnemySuggestionTrack,
 };

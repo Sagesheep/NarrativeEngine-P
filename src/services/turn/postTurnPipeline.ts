@@ -20,6 +20,7 @@ import { tierAllows } from './aiTier';
 // commit path deliberately does not (see `tracks/index.ts`).
 import { startPostTurnTracks } from './tracks';
 import type { PostTurnTrackContext } from './tracks/types';
+import { buildHostFacade } from './hostFacade';
 
 // WO-P2-03: the enemy-discovery single-flight map moved to `tracks/enemySuggestionTrack.ts`
 // along with the track body. Re-exported here so the campaign-switch caller
@@ -176,9 +177,11 @@ export async function runPostTurnPipeline(
     // tracks in registration order and returns their in-flight promises, so spreading
     // them here reproduces the original array literal exactly: same start order, same
     // single `allSettled`, same containment, archive still at index 0.
+    const facade = buildHostFacade(state, callbacks, {
+        updatePlayerCharacter: (patch) => useAppStore.getState().updatePlayerCharacter(patch),
+    });
     const trackCtx: PostTurnTrackContext = {
-        state,
-        callbacks,
+        facade,
         displayInput,
         lastAssistantContent,
         allMsgs,

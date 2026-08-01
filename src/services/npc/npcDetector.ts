@@ -1,4 +1,5 @@
 import type { NPCEntry, EndpointConfig, ProviderConfig } from '../../types';
+import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
 import { llmCall } from '../../utils/llmCall';
 import { extractJson } from '../chatEngine';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
@@ -209,9 +210,10 @@ export function classifyNPCNames(
 }
 
 export async function validateNPCCandidates(
-    provider: EndpointConfig | ProviderConfig,
+    provider: EndpointConfig | ProviderConfig | undefined,
     candidates: string[],
-    narrativeContext: string
+    narrativeContext: string,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>
 ): Promise<string[]> {
     if (candidates.length === 0) return candidates;
 
@@ -234,7 +236,11 @@ If none are character names, respond with [].
 Example: ["Captain Aldric", "Orin"]`;
 
     try {
-        const raw = await llmCall(provider, prompt, { priority: 'low', trackingLabel: 'npc-validate', timeoutMs: AI_CALL_TIMEOUT_MS });
+        const raw = modelCall
+            ? (await modelCall({ prompt, priority: 'low', trackingLabel: 'npc-validate', timeoutMs: AI_CALL_TIMEOUT_MS })).content
+            : provider
+                ? await llmCall(provider, prompt, { priority: 'low', trackingLabel: 'npc-validate', timeoutMs: AI_CALL_TIMEOUT_MS })
+                : '';
 
         if (raw) {
             const cleanStr = extractJson(raw);

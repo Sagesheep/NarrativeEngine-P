@@ -1,6 +1,6 @@
 import type { EndpointConfig, ProviderConfig, ChatMessage, NPCEntry, PersonalityHex, HexAxis, RelationGraph } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
-import { sendMessageAndParseJson, sanitizeSignatureKit } from './shared';
+import { sendMessageAndParseJson, sanitizeSignatureKit, type JsonModelCall } from './shared';
 import { relationBand, describeHex } from '../npc/agency/agencyBands';
 import { hexDelta } from '../npc/agency/agencyDrift';
 import { applyRelationTone, isRelationTone } from '../npc/relationMeter';
@@ -32,10 +32,11 @@ const HEX_AXES: readonly HexAxis[] = ['drive', 'diligence', 'boldness', 'warmth'
  * and always preserved.
  */
 export async function updateExistingNPCs(
-    provider: EndpointConfig | ProviderConfig,
+    provider: EndpointConfig | ProviderConfig | undefined,
     history: ChatMessage[],
     npcsToCheck: NPCEntry[],
-    updateNPCStore: (id: string, updates: Partial<NPCEntry>) => void
+    updateNPCStore: (id: string, updates: Partial<NPCEntry>) => void,
+    modelCall?: JsonModelCall
 ) {
     if (!npcsToCheck.length) return;
 
@@ -216,7 +217,7 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
     }];
 
     try {
-        const { parsed } = await sendMessageAndParseJson(provider, messages, 'NPC Updater', 'npc-update');
+        const { parsed } = await sendMessageAndParseJson(provider, messages, 'NPC Updater', 'npc-update', modelCall);
 
         const findTarget = (name: string) => npcsToCheck.find(n =>
             n.name?.toLowerCase() === name.toLowerCase() ||
