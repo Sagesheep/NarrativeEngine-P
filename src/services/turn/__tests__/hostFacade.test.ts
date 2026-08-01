@@ -127,6 +127,14 @@ describe('HostFacade', () => {
         expect(Object.keys(facade)).not.toContain('settings');
     });
 
+    it('enumerates the stable top-level facade surface', () => {
+        const facade = buildHostFacade(makeState(), makeCallbacks());
+        expect(Object.keys(facade)).toEqual([
+            'data', 'config', 'write', 'model', 'table', 'signal', 'refresh', 'log',
+        ]);
+        expect(Object.keys(facade)).toHaveLength(8);
+    });
+
     it('refresh returns a new frozen snapshot without mutating the old one', () => {
         let current = makeState('campaign-a');
         const facade = buildHostFacade(current, makeCallbacks(), { getState: () => current });
