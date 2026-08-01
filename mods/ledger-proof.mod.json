@@ -1,0 +1,21 @@
+{
+  "id": "ledger-proof",
+  "name": "Location Ledger (mod-declared proof)",
+  "version": "1.0.0",
+  "description": "WO-P5-06 — the TABLES GATE proof. Re-expresses the Location Ledger's STORAGE as a mod-declared table. Not a real mod; demonstrates that declare -> write -> read -> hydrate -> export -> uninstall -> import round-trips real location records with zero app code. The built-in Location Ledger stays exactly as it is; this mod's table lands at .mod-ledger-proof-locations.json (the mod- prefix guarantees no collision).",
+  "contributions": [
+    {
+      "id": "ledger-proof-placeholder",
+      "order": 990,
+      "budget": 1,
+      "text": "."
+    }
+  ],
+  "tables": [
+    {
+      "name": "locations",
+      "recordShape": "array",
+      "label": "Locations (mod)"
+    }
+  ]
+}
