@@ -107,8 +107,9 @@ export const en = {
     // The path stays out of the translatable string — a file path is not prose and must not be
     // localised, or a translator's copy of it stops resolving to a real file.
     'settings.extensions.guide.path': 'You can also read the full document at {{path}} in the app folder.',
-    'settings.extensions.faults.title': 'Rejected files',
-    'settings.extensions.faults.help': 'These files were not loaded, so they have no effect on play. Fix the reason shown and rescan.',
+    'settings.extensions.faults.title': 'Mod faults',
+    'settings.extensions.faults.help': 'These files could not run safely, so their changes were not applied. Fix the reason shown and rescan.',
+    'settings.extensions.faults.runtime': 'A runtime fault disables a mod for this turn; repeated failures disable it until the app reloads.',
 
     // ── Campaign hub ─────────────────────────────────────────────────────
     'hub.import.tooltip': 'Import Campaign',

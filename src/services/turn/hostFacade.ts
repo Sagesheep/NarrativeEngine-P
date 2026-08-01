@@ -21,9 +21,19 @@ import type {
     TimelineEvent,
 } from '../../types';
 import { llmCall, type LLMCallPriority } from '../../utils/llmCall';
+import { extractJson } from '../infrastructure/jsonExtract';
 import type { TurnCallbacks, TurnState } from './turnOrchestrator';
 
 export type ModelRole = 'story' | 'utility' | 'auxiliary' | 'summariser' | 'raw-auxiliary' | 'raw-summariser';
+export const MODEL_ROLES: readonly ModelRole[] = [
+    'story',
+    'utility',
+    'auxiliary',
+    'summariser',
+    'raw-auxiliary',
+    'raw-summariser',
+];
+export const MODEL_JSON_RETRY_SUFFIX = '\n\nIMPORTANT: Your previous response was not valid JSON. Respond with ONLY valid JSON. No markdown fences, no comments, no trailing commas, no extra text before or after the JSON.';
 
 export type ModelRequest = {
     prompt: string;
@@ -38,6 +48,31 @@ export type ModelRequest = {
 export type ModelResponse = {
     content: string;
 };
+/** Completed responses are sufficient for every measured consumer; incremental model.stream chunks have no consumer. */
+export type ModelJsonOptions = {
+    retries?: number;
+};
+export type ModelCall = (role: ModelRole, request: ModelRequest) => Promise<ModelResponse>;
+export async function callModelJson(
+    role: ModelRole,
+    request: ModelRequest,
+    call: ModelCall,
+    options: ModelJsonOptions = {},
+): Promise<unknown> {
+    const requestedRetries = typeof options.retries === 'number' && Number.isFinite(options.retries) ? Math.floor(options.retries) : 1;
+    const retries = Math.min(1, Math.max(0, requestedRetries));
+    let response = await call(role, request);
+    try {
+        return JSON.parse(extractJson(response.content));
+    } catch (firstError) {
+        if (retries === 0) throw firstError;
+        response = await call(role, {
+            ...request,
+            prompt: request.prompt + '\n\n' + response.content + MODEL_JSON_RETRY_SUFFIX,
+        });
+        return JSON.parse(extractJson(response.content));
+    }
+}
 
 export interface FacadeData {
     readonly archiveIndex: ArchiveIndexEntry[];
@@ -90,7 +125,11 @@ export interface HostFacade {
     readonly data: FacadeData;
     readonly config: FacadeConfig;
     readonly write: FacadeWrites;
-    readonly model: { call(role: ModelRole, req: ModelRequest): Promise<ModelResponse> };
+    readonly model: {
+        call(role: ModelRole, req: ModelRequest): Promise<ModelResponse>;
+        callJson(role: ModelRole, req: ModelRequest, options?: ModelJsonOptions): Promise<unknown>;
+        available(role: ModelRole): boolean;
+    };
     readonly table: { read(name: string): Promise<unknown>; write(name: string, rows: unknown): Promise<void> };
     readonly signal: AbortSignal;
     refresh(): HostFacade;
@@ -272,21 +311,25 @@ export function buildHostFacade(
         setLocationLedger: callbacks.setLocationLedger,
         addLocationSuggestions: callbacks.addLocationSuggestions,
     });
+    const call: ModelCall = async (role: ModelRole, request: ModelRequest): Promise<ModelResponse> => {
+        const endpoint = resolveEndpoint(state, role);
+        if (!endpoint) throw new Error('[sandbox] model role not configured: ' + role);
+        if (options.modelCall) return options.modelCall(role, request, endpoint);
+        const content = await llmCall(endpoint, request.prompt, {
+            signal: request.signal,
+            maxTokens: request.maxTokens,
+            temperature: request.temperature,
+            priority: request.priority,
+            trackingLabel: request.trackingLabel,
+            timeoutMs: request.timeoutMs,
+        });
+        return { content };
+    };
     const model = Object.freeze({
-        call: async (role: ModelRole, request: ModelRequest): Promise<ModelResponse> => {
-            const endpoint = resolveEndpoint(state, role);
-            if (options.modelCall) return options.modelCall(role, request, endpoint);
-            if (!endpoint) throw new Error(`[facade] no endpoint for model role: ${role}`);
-            const content = await llmCall(endpoint, request.prompt, {
-                signal: request.signal,
-                maxTokens: request.maxTokens,
-                temperature: request.temperature,
-                priority: request.priority,
-                trackingLabel: request.trackingLabel,
-                timeoutMs: request.timeoutMs,
-            });
-            return { content };
-        },
+        call,
+        callJson: (role: ModelRole, request: ModelRequest, jsonOptions?: ModelJsonOptions): Promise<unknown> =>
+            callModelJson(role, request, call, jsonOptions),
+        available: (role: ModelRole): boolean => hasConfiguredRole(state, role),
     });
     const table = Object.freeze(options.table ?? buildDefaultTableAdapter(state.activeCampaignId));
     const signal = options.signal ?? new AbortController().signal;
@@ -305,9 +348,8 @@ export function buildHostFacade(
         refresh,
         log: (...args: unknown[]) => console.log(...args),
     });
-    const availableRoles: ModelRole[] = ['story', 'utility', 'auxiliary', 'summariser', 'raw-auxiliary', 'raw-summariser'];
     facadeModelAvailability.set(facade, new Set<ModelRole>(
-        availableRoles.filter((role) => hasConfiguredRole(state, role)),
+        MODEL_ROLES.filter((role) => hasConfiguredRole(state, role)),
     ));
     return facade;
 }

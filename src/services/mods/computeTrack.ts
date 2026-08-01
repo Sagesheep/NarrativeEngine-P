@@ -1,14 +1,22 @@
 import type { ValidatedMod } from './modTypes';
 import { runSandbox, type SandboxHostOptions } from './sandbox/sandboxHost';
+import {
+    classifySandboxFault,
+    sandboxFaultPolicy,
+    type SandboxFaultPolicy,
+} from './sandbox/sandboxFaults';
+import { SANDBOX_DEADLINE_MS } from './sandbox/sandboxTypes';
 import type { PostTurnTrack, PostTurnTrackContext } from '../turn/tracks/types';
 
 export interface ComputeTrackOptions {
     /** Injectable Worker seam for tests; production uses the browser Worker factory. */
     sandboxOptions?: SandboxHostOptions;
+    /** Injectable fault policy for unit tests; production uses the reload-scoped singleton. */
+    sandboxPolicy?: SandboxFaultPolicy;
 }
 
 export function computeTrackId(modId: string): string {
-    return `mod.${modId}.compute`;
+    return 'mod.' + modId + '.compute';
 }
 
 /** Adapt one validated compute mod to the opaque post-turn track contract. */
@@ -17,21 +25,40 @@ export function modToComputeTrack(
     options: ComputeTrackOptions = {},
 ): PostTurnTrack<PostTurnTrackContext> {
     if (!mod.compute || typeof mod.computeSource !== 'string') {
-        throw new Error(`[mods] compute track requires source for mod: ${mod.id}`);
+        throw new Error('[mods] compute track requires source for mod: ' + mod.id);
     }
 
     const { compute, computeSource } = mod;
+    const policy = options.sandboxPolicy ?? sandboxFaultPolicy;
     return {
         id: computeTrackId(mod.id),
-        name: `${mod.name} compute`,
-        description: `Runs ${mod.name}'s postTurn compute hook in a browser Worker.`,
+        name: mod.name + ' compute',
+        description: 'Runs ' + mod.name + "'s postTurn compute hook in a browser Worker.",
         defaultEnabled: true,
         trigger: 'automatic',
-        callsModel: false,
-        shouldRun: (ctx) => Boolean(ctx.facade),
+        callsModel: compute.capabilities.some((capability) => capability.startsWith('model:')),
+        shouldRun: (ctx) => Boolean(ctx.facade) && policy.canRun(mod.id, ctx.allMsgs),
         run: async (ctx) => {
-            if (!ctx.facade) throw new Error(`[sandbox] no host facade for compute mod: ${mod.id}`);
-            await runSandbox(computeSource, ctx.facade, compute.capabilities, options.sandboxOptions);
+            if (!ctx.facade) throw new Error('[sandbox] no host facade for compute mod: ' + mod.id);
+            if (!policy.canRun(mod.id, ctx.allMsgs)) return;
+
+            try {
+                await runSandbox(computeSource, ctx.facade, compute.capabilities, options.sandboxOptions);
+                policy.recordSuccess(mod.id, ctx.allMsgs);
+            } catch (error) {
+                if (error instanceof Error && error.message === '[sandbox] run aborted') throw error;
+                const kind = classifySandboxFault(error);
+                policy.recordFault({
+                    modId: mod.id,
+                    modName: mod.name,
+                    file: mod.file,
+                    kind,
+                    message: error instanceof Error ? error.message : String(error),
+                    deadlineMs: options.sandboxOptions?.deadlineMs ?? SANDBOX_DEADLINE_MS,
+                    turnKey: ctx.allMsgs,
+                });
+                throw error;
+            }
         },
     };
 }

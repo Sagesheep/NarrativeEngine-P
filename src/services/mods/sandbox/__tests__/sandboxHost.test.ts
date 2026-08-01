@@ -2,9 +2,11 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { HostFacade } from '../../../turn/hostFacade';
+import { MODEL_JSON_RETRY_SUFFIX } from '../../../turn/hostFacade';
 import {
     MAX_INBOUND_MESSAGES,
     MAX_JOURNAL_ENTRIES,
+    MAX_MODEL_TOKENS_PER_CALL,
     type SandboxHostMessage,
     type SandboxWorkerLike,
     type SandboxWorkerMessage,
@@ -64,7 +66,7 @@ function makeFacade(overrides: Partial<HostFacade> = {}): HostFacade {
             setLocationLedger: vi.fn(),
             addLocationSuggestions: vi.fn(),
         },
-        model: { call: vi.fn() },
+        model: { call: vi.fn(), callJson: vi.fn(), available: vi.fn(() => true) },
         table: {
             read: vi.fn(async () => []),
             write: vi.fn(async () => undefined),
@@ -94,7 +96,9 @@ describe('worker prelude', () => {
         expect(workerSource).toContain("'indexedDB'");
         expect(workerSource).toContain("'caches'");
         expect(workerSource).toContain("'sendBeacon'");
-        expect(workerSource).toContain('[sandbox] model access arrives in 3.6');
+        expect(workerSource).toContain('callJson');
+        expect(workerSource).toContain('model');
+        expect(workerSource).not.toContain('model.stream');
         expect(workerSource).toContain(`__sandboxJournal.length >= ${MAX_JOURNAL_ENTRIES}`);
     });
 });
@@ -160,6 +164,72 @@ describe('runSandbox', () => {
         expect(updateContext).not.toHaveBeenCalled();
     });
 
+    it('A mod that performs several writes and then hangs forever applies zero writes at the deadline', async () => {
+        const updateContext = vi.fn();
+        const facade = makeFacade({ write: { ...makeFacade().write, updateContext } });
+        const worker = new FakeWorker();
+
+        await expect(runSandbox(source, facade, ['write:updateContext'], {
+            createWorker: () => worker,
+            deadlineMs: 5,
+        })).rejects.toThrow('deadline exceeded (5 ms)');
+
+        expect(updateContext).not.toHaveBeenCalled();
+    });
+
+    it('A mod that throws after several writes applies zero writes', async () => {
+        const updateContext = vi.fn();
+        const facade = makeFacade({ write: { ...makeFacade().write, updateContext } });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') current.emit({ type: 'error', message: 'mod threw after writes' });
+        });
+
+        await expect(runSandbox(source, facade, ['write:updateContext'], {
+            createWorker: () => worker,
+        })).rejects.toThrow('mod threw after writes');
+
+        expect(updateContext).not.toHaveBeenCalled();
+    });
+
+    it('A worker error after several writes applies zero writes', async () => {
+        const updateContext = vi.fn();
+        const facade = makeFacade({ write: { ...makeFacade().write, updateContext } });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') queueMicrotask(() => current.emitError('worker died after writes'));
+        });
+
+        await expect(runSandbox(source, facade, ['write:updateContext'], {
+            createWorker: () => worker,
+        })).rejects.toThrow('worker died after writes');
+
+        expect(updateContext).not.toHaveBeenCalled();
+    });
+
+    it('A journal rejection after several valid writes applies zero writes', async () => {
+        const updateContext = vi.fn();
+        const updateNPC = vi.fn();
+        const facade = makeFacade({ write: { ...makeFacade().write, updateContext, updateNPC } });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                current.emit({
+                    type: 'done',
+                    writes: [
+                        { name: 'updateContext', args: [{ scene: 'one' }] },
+                        { name: 'updateContext', args: [{ scene: 'two' }] },
+                        { name: 'updateNPC', args: ['n-1', { disposition: 'hostile' }] },
+                    ],
+                    result: null,
+                });
+            }
+        });
+
+        await expect(runSandbox(source, facade, ['write:updateContext'], {
+            createWorker: () => worker,
+        })).rejects.toThrow('undeclared write "updateNPC"');
+
+        expect(updateContext).not.toHaveBeenCalled();
+        expect(updateNPC).not.toHaveBeenCalled();
+    });
     it('handles table RPC and returns the reply to the worker', async () => {
         const tableRead = vi.fn(async () => [{ id: 'n-1' }]);
         const facade = makeFacade({ table: { read: tableRead, write: vi.fn(async () => undefined) } });
@@ -273,6 +343,159 @@ describe('runSandbox', () => {
         expect(() => applyJournal(facade, writes, ['write:updateContext']))
             .toThrow(`maximum ${MAX_JOURNAL_ENTRIES} entries exceeded`);
         expect(updateContext).not.toHaveBeenCalled();
+    });
+});
+
+
+describe('brokered model channel', () => {
+    it('sends only a credential-free snapshot and replies with a content-only model value', async () => {
+        const modelCall = vi.fn(async (_role: 'utility', request: { prompt: string; maxTokens?: number; signal?: AbortSignal }) => ({
+            content: request.prompt === 'hello' ? 'model-result' : 'unexpected',
+        }));
+        const facade = makeFacade({
+            model: {
+                call: modelCall,
+                callJson: vi.fn(),
+                available: vi.fn(() => true),
+            },
+        });
+        let replyValue: unknown;
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                const serialized = JSON.stringify(message);
+                expect(serialized).not.toMatch(/apiKey|endpoint|Authorization/i);
+                expect(Object.keys(message.snapshot)).toEqual(['data', 'config']);
+                expect(message.modelRoles).toContain('utility');
+                queueMicrotask(() => current.emit({
+                    type: 'rpc',
+                    id: 1,
+                    channel: 'model',
+                    method: 'call',
+                    args: ['utility', { prompt: 'hello', maxTokens: 999999 }],
+                }));
+            }
+            if (message.type === 'rpc-reply') {
+                replyValue = message.value;
+                queueMicrotask(() => current.emit({ type: 'done', writes: [], result: message.value }));
+            }
+        });
+
+        await expect(runSandbox('export default async function () {}', facade, ['model:utility'], {
+            createWorker: () => worker,
+        })).resolves.toEqual({ content: 'model-result' });
+
+        expect(Object.keys(replyValue as Record<string, unknown>)).toEqual(['content']);
+        expect(modelCall).toHaveBeenCalledTimes(1);
+        expect(modelCall.mock.calls[0][1].maxTokens).toBe(MAX_MODEL_TOKENS_PER_CALL);
+        expect(modelCall.mock.calls[0][1].signal?.aborted).toBe(true);
+    });
+
+    it('performs one host-side JSON retry, clamps retries, and counts both model calls', async () => {
+        const modelCall = vi.fn()
+            .mockResolvedValueOnce({ content: 'not json' })
+            .mockResolvedValueOnce({ content: '{"ok":true}' });
+        const facade = makeFacade({
+            model: {
+                call: modelCall,
+                callJson: vi.fn(),
+                available: vi.fn(() => true),
+            },
+        });
+        let reply: { value?: unknown } | undefined;
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                queueMicrotask(() => current.emit({
+                    type: 'rpc',
+                    id: 2,
+                    channel: 'model',
+                    method: 'callJson',
+                    args: ['utility', { prompt: 'json please', maxTokens: 9000 }, { retries: 99 }],
+                }));
+            }
+            if (message.type === 'rpc-reply') {
+                reply = message;
+                queueMicrotask(() => current.emit({ type: 'done', writes: [], result: message.value }));
+            }
+        });
+
+        await expect(runSandbox('export default async function () {}', facade, ['model:utility'], {
+            createWorker: () => worker,
+        })).resolves.toEqual({ content: { ok: true } });
+
+        expect(Object.keys(reply?.value as Record<string, unknown>)).toEqual(['content']);
+        expect(modelCall).toHaveBeenCalledTimes(2);
+        expect(modelCall.mock.calls[0][1].maxTokens).toBe(MAX_MODEL_TOKENS_PER_CALL);
+        expect(modelCall.mock.calls[1][1].prompt).toContain(MODEL_JSON_RETRY_SUFFIX);
+    });
+
+    it('scrubs provider credentials from a failed model RPC reply', async () => {
+        const facade = makeFacade({
+            model: {
+                call: vi.fn(async () => {
+                    throw new Error('https://provider.invalid/v1?apiKey=secret-key Authorization: Bearer secret-key');
+                }),
+                callJson: vi.fn(),
+                available: vi.fn(() => true),
+            },
+        });
+        let errorText = '';
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                queueMicrotask(() => current.emit({
+                    type: 'rpc',
+                    id: 3,
+                    channel: 'model',
+                    method: 'call',
+                    args: ['utility', { prompt: 'fail' }],
+                }));
+            }
+            if (message.type === 'rpc-reply') {
+                errorText = message.error ?? '';
+                queueMicrotask(() => current.emit({ type: 'done', writes: [], result: null }));
+            }
+        });
+
+        await expect(runSandbox('export default async function () {}', facade, ['model:utility'], {
+            createWorker: () => worker,
+        })).resolves.toBeNull();
+
+        expect(errorText).toBe('[sandbox] model call failed');
+        expect(errorText).not.toMatch(/provider|secret-key|apiKey|Authorization/i);
+    });
+
+    it('aborts an in-flight host model call when the worker deadline settles the run', async () => {
+        let aborted = false;
+        const facade = makeFacade({
+            model: {
+                call: vi.fn((_role, request) => new Promise<{ content: string }>((_resolve, reject) => {
+                    request.signal?.addEventListener('abort', () => {
+                        aborted = true;
+                        reject(new Error('fetch aborted'));
+                    }, { once: true });
+                })),
+                callJson: vi.fn(),
+                available: vi.fn(() => true),
+            },
+        });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                queueMicrotask(() => current.emit({
+                    type: 'rpc',
+                    id: 4,
+                    channel: 'model',
+                    method: 'call',
+                    args: ['utility', { prompt: 'hang' }],
+                }));
+            }
+        });
+
+        await expect(runSandbox('export default async function () {}', facade, ['model:utility'], {
+            createWorker: () => worker,
+            deadlineMs: 5,
+        })).rejects.toThrow('deadline exceeded (5 ms)');
+
+        expect(aborted).toBe(true);
+        expect(worker.terminated).toBe(true);
     });
 });
 

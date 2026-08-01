@@ -405,6 +405,7 @@ describe('loadMods — compute mods', () => {
         ['a non-postTurn hook', { file: 'x.js', hook: 'beforeTurn', capabilities: [] }, /compute\.hook must be "postTurn"/],
         ['a non-array capability list', { file: 'x.js', hook: 'postTurn', capabilities: 'write:updateContext' }, /compute\.capabilities must be an array/],
         ['a malformed capability', { file: 'x.js', hook: 'postTurn', capabilities: ['write'] }, /must be write:<name>/],
+        ['an unknown model role', { file: 'x.js', hook: 'postTurn', capabilities: ['model:unknown'] }, /unknown model role/],
         ['an undeclared write', { file: 'x.js', hook: 'postTurn', capabilities: ['write:nope'] }, /unknown write "nope"/],
         ['an unavailable table', { file: 'x.js', hook: 'postTurn', capabilities: ['table:write:divergence'] }, /unavailable write table "divergence"/],
     ])('rejects %s', (_label, compute, expected) => {

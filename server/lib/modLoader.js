@@ -63,6 +63,7 @@ const COMPUTE_WRITES = new Set([
 ]);
 const COMPUTE_TABLE_READS = new Set(['archive', 'divergence', 'enemies', 'locations', 'npcs']);
 const COMPUTE_TABLE_WRITES = new Set(['archive', 'locations', 'npcs']);
+const COMPUTE_MODEL_ROLES = new Set(['story', 'utility', 'auxiliary', 'summariser', 'raw-auxiliary', 'raw-summariser']);
 
 /** v1 supports exactly two forms: `">=X.Y.Z"` (Y and Z optional) and `"*"`. */
 const APP_VERSION_REGEX = /^>=\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?$/;
@@ -174,6 +175,14 @@ function validateComputeCapability(value, index) {
     const at = 'compute.capabilities[' + index + ']';
     if (typeof value !== 'string' || value.trim() === '') {
         reject(at + ' must be a non-empty capability string');
+    }
+
+    const modelMatch = /^model:([^:]+)$/.exec(value);
+    if (modelMatch) {
+        if (!COMPUTE_MODEL_ROLES.has(modelMatch[1])) {
+            reject(at + ' names an unknown model role "' + modelMatch[1] + '"');
+        }
+        return value;
     }
 
     const writeMatch = /^write:([^:]+)$/.exec(value);

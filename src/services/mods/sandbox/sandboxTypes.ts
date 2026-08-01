@@ -3,6 +3,10 @@ import type {
     FacadeData,
     FacadeWrites,
     HostFacadeTableAdapter,
+    ModelJsonOptions,
+    ModelRequest,
+    ModelResponse,
+    ModelRole,
 } from '../../turn/hostFacade';
 
 /**
@@ -22,6 +26,32 @@ export const SANDBOX_TEARDOWN_MS = 50;
 export const MAX_JOURNAL_ENTRIES = 500;
 /** Maximum number of inbound worker messages handled by the host in a single run. */
 export const MAX_INBOUND_MESSAGES = 1000;
+/** Maximum brokered model calls in one compute run; callJson retries count individually. */
+export const MAX_MODEL_CALLS_PER_RUN = 3;
+/** Maximum requested output tokens for one brokered model call. */
+export const MAX_MODEL_TOKENS_PER_CALL = 2048;
+/** Three consecutive faulted runs latch a mod until the app reloads. */
+export const SANDBOX_FAULT_STRIKES = 3;
+
+export type SandboxFaultKind =
+    | 'deadline'
+    | 'threw'
+    | 'worker-error'
+    | 'journal-rejected'
+    | 'flood'
+    | 'load';
+
+/** A host-classified sandbox failure that is safe to surface to the policy layer. */
+export class SandboxFaultError extends Error {
+    readonly kind: SandboxFaultKind;
+
+    constructor(kind: SandboxFaultKind, message: string) {
+        super(message);
+        this.name = 'SandboxFaultError';
+        this.kind = kind;
+    }
+}
+
 
 export interface SandboxSnapshot {
     readonly data: FacadeData;
@@ -38,6 +68,7 @@ export interface SandboxRunMessage {
     readonly type: 'run';
     readonly snapshot: SandboxSnapshot;
     readonly deadlineMs: number;
+    readonly modelRoles: readonly ModelRole[];
 }
 
 export interface SandboxAbortMessage {
@@ -64,13 +95,14 @@ export interface SandboxErrorMessage {
     readonly type: 'error';
     readonly message: string;
     readonly stack?: string;
+    readonly kind?: Exclude<SandboxFaultKind, 'load'>;
 }
 
 export interface SandboxRpcMessage {
     readonly type: 'rpc';
     readonly id: number;
-    readonly channel: 'table' | 'refresh';
-    readonly method?: 'read' | 'write';
+    readonly channel: 'table' | 'refresh' | 'model';
+    readonly method?: 'read' | 'write' | 'call' | 'callJson';
     readonly args: unknown[];
 }
 
@@ -97,13 +129,18 @@ export interface SandboxWorkerLike {
  * The context reconstructed inside a compute worker.
  *
  * `refresh()` is intentionally asynchronous here and returns a fresh snapshot rather than a
- * `HostFacade`: a synchronous facade cannot cross the worker boundary. `model` is absent in 3.4;
- * model access arrives in 3.6.
+ * `HostFacade`: a synchronous facade cannot cross the worker boundary.
+ * Model calls are brokered through the host and never carry an EndpointConfig into this context.
  */
 export interface SandboxContext {
     readonly data: FacadeData;
     readonly config: FacadeConfig;
     readonly write: FacadeWrites;
+    readonly model: {
+        call(role: ModelRole, req: ModelRequest): Promise<ModelResponse>;
+        callJson(role: ModelRole, req: ModelRequest, options?: ModelJsonOptions): Promise<unknown>;
+        available(role: ModelRole): boolean;
+    };
     readonly table: HostFacadeTableAdapter;
     readonly signal: AbortSignal;
     refresh(): Promise<SandboxSnapshot>;

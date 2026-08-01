@@ -213,6 +213,8 @@ window.__verifySandbox = async ({ sources }) => {
 
   const messageChannelSource = "export default async function () { self.postMessage({ type: 'rpc', method: 'table:read', requestId: 'verify-message-channel' }); return await new Promise(() => {}); }";
   const messageChannel = await __runWorker(messageChannelSource, {}, __deadlineMs, null);
+const credentialProbeSource = "export default async function (ctx) { const globalNames = Object.getOwnPropertyNames(globalThis); const credentialGlobals = globalNames.filter((name) => /^(?:apiKey|endpoint|authorization)$/i.test(name)); const serialized = JSON.stringify(ctx); return { credentialGlobals, credentialText: /apiKey|endpoint|authorization/i.test(serialized) }; }";
+  const credentialProbe = await __runWorker(credentialProbeSource, { data: { value: 42 }, config: {}, modelRoles: ['utility'] }, __deadlineMs, null);
 
   const cyclesStarted = performance.now();
   const cycleOutcomes = [];
@@ -223,6 +225,7 @@ window.__verifySandbox = async ({ sources }) => {
     batch,
     nestedWorker,
     messageChannel,
+    credentialProbe,
     cycles: {
       count: cycleOutcomes.length,
       wallClockMs: performance.now() - cyclesStarted,
@@ -326,14 +329,15 @@ async function main() {
   assert(result.batch['throws.js']?.status === 'rejected', `throws fixture escaped: ${JSON.stringify(result.batch['throws.js'])}`);
   assert(result.batch['infinite.js']?.status === 'deadline', `infinite fixture escaped: ${JSON.stringify(result.batch['infinite.js'])}`);
   assert(['deadline', 'rejected'].includes(result.batch['memoryhog.js']?.status), `memoryhog fixture escaped: ${JSON.stringify(result.batch['memoryhog.js'])}`);
-  assert(result.batch['escape-net.js']?.status === 'fulfilled', `network fixture failed: ${JSON.stringify(result.batch['escape-net.js'])}`);
-  assert(result.batch['escape-store.js']?.status === 'fulfilled', `store fixture failed: ${JSON.stringify(result.batch['escape-store.js'])}`);
+  assert(result.batch['escape-net.js']?.status === 'fulfilled' && result.batch['escape-net.js']?.value?.network === 'fetch-undefined', 'network fixture failed: ' + JSON.stringify(result.batch['escape-net.js']));
+  assert(result.batch['escape-store.js']?.status === 'fulfilled' && result.batch['escape-store.js']?.value?.visible?.length === 0 && result.batch['escape-store.js']?.value?.matchingGlobals?.length === 0, 'store fixture failed: ' + JSON.stringify(result.batch['escape-store.js']));
   assert(result.batch['heavy-payload.js']?.status === 'fulfilled', `payload fixture failed: ${JSON.stringify(result.batch['heavy-payload.js'])}`);
   assert(result.nestedWorker.value?.nested === 'blocked', `nested Worker was not blocked: ${JSON.stringify(result.nestedWorker)}`);
   assert(result.messageChannel.status === 'deadline' && result.messageChannel.elapsedMs <= deadlineMs + 50, `message-channel block escaped: ${JSON.stringify(result.messageChannel)}`);
+  assert(result.credentialProbe.status === 'fulfilled' && result.credentialProbe.value?.credentialGlobals?.length === 0 && result.credentialProbe.value?.credentialText === false, 'credential-bearing worker global escaped: ' + JSON.stringify(result.credentialProbe));
   assert(result.cycles.count === cycleCount, `cycle count mismatch: ${JSON.stringify(result.cycles)}`);
   assert(result.cycles.allFulfilled, `cycle failure: ${JSON.stringify(result.cycles)}`);
-  assert(result.cycles.createdWorkers === cycleCount + fixtureNames.length + 2, `worker count mismatch: ${JSON.stringify(result.cycles)}`);
+  assert(result.cycles.createdWorkers === cycleCount + fixtureNames.length + 3, `worker count mismatch: ${JSON.stringify(result.cycles)}`);
   assert(result.cycles.maxActiveWorkers === 1, `workers overlapped: ${JSON.stringify(result.cycles)}`);
   assert(result.cycles.activeWorkersAfter === 0, `workers leaked: ${JSON.stringify(result.cycles)}`);
 
@@ -343,6 +347,7 @@ async function main() {
   console.log(`fixtures=${JSON.stringify(Object.fromEntries(fixtureNames.map((name) => [name, result.batch[name].status])))}`);
   console.log(`nestedWorker=${JSON.stringify(result.nestedWorker)}`);
   console.log(`messageChannel=${JSON.stringify(result.messageChannel)}`);
+  console.log('credentialProbe=' + JSON.stringify(result.credentialProbe));
   console.log(`cycles=${JSON.stringify(result.cycles)}`);
   console.log('PASS');
 }

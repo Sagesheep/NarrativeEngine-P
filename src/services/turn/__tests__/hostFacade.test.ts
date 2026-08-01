@@ -127,6 +127,25 @@ describe('HostFacade', () => {
         expect(Object.keys(facade)).not.toContain('settings');
     });
 
+
+    it('runs the host-side JSON retry once and exposes role availability without credentials', async () => {
+        const prompts: string[] = [];
+        const facade = buildHostFacade(makeState(), makeCallbacks(), {
+            modelCall: async (_role, request) => {
+                prompts.push(request.prompt);
+                return { content: prompts.length === 1 ? 'not json' : '{"ok":true}' };
+            },
+        });
+
+        await expect(facade.model.callJson('utility', { prompt: 'return json' }, { retries: 99 }))
+            .resolves.toEqual({ ok: true });
+
+        expect(prompts).toHaveLength(2);
+        expect(prompts[1]).toContain('IMPORTANT: Your previous response was not valid JSON');
+        expect(facade.model.available('utility')).toBe(true);
+        expect(facade.model.available('raw-auxiliary')).toBe(true);
+    });
+
     it('enumerates the stable top-level facade surface', () => {
         const facade = buildHostFacade(makeState(), makeCallbacks());
         expect(Object.keys(facade)).toEqual([

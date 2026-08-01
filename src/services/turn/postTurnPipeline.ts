@@ -619,23 +619,20 @@ async function runArchiveTrack(
             // per-turn call is wasted most turns, so this gates on the same interval
             // used by the profile/inventory scans. Forked from npc-generation/update.ts
             // with a narrower whitelist (personalityHex/traits/relations/pcRelation
-            // are blocked — see §0). Cheap-first endpoint per §2.2 chain.
+            // are blocked — see §0). Host-facade story broker per §2.2 chain.
             const pc = state.getFreshContext().playerCharacter;
-            if (bkProvider && pc && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'npcUpdate')) {
-                const pcProvider = state.getFreshProvider();
-                if (pcProvider) {
-                    const guardedUpdatePlayerCharacter = makeGuarded(
-                        (patch: Partial<typeof pc>) => useAppStore.getState().updatePlayerCharacter(patch),
-                        activeCampaignId,
-                        'updatePlayerCharacter (PC-Drift)',
-                    );
-                    backgroundQueue.push(`PC-Drift:${pc.name}`, async () => {
-                        if (!assertStillActive(activeCampaignId, 'PC-Drift')) return;
-                        const { checkCharacterDrift } = await import('../character/pcUpdater');
-                        await checkCharacterDrift(pcProvider, state.getMessages(), pc, guardedUpdatePlayerCharacter);
-                        console.log(`[Auto Bookkeeping] PC drift check completed at scene #${sceneId}`);
-                    }).catch(err => console.warn('[PC Updater] Background drift check failed:', err));
-                }
+            if (facade && hasHostModelRole(facade, 'story') && pc && tierAllows(facade.config.aiTier ?? state.settings.aiTier, 'npcUpdate')) {
+                const guardedUpdatePlayerCharacter = makeGuarded(
+                    (patch: Partial<typeof pc>) => useAppStore.getState().updatePlayerCharacter(patch),
+                    activeCampaignId,
+                    'updatePlayerCharacter (PC-Drift)',
+                );
+                backgroundQueue.push('PC-Drift:' + pc.name, async () => {
+                    if (!assertStillActive(activeCampaignId, 'PC-Drift')) return;
+                    const { checkCharacterDrift } = await import('../character/pcUpdater');
+                    await checkCharacterDrift((request) => facade.model.callJson('story', request, { retries: 1 }), state.getMessages(), pc, guardedUpdatePlayerCharacter);
+                    console.log('[Auto Bookkeeping] PC drift check completed at scene #' + sceneId);
+                }).catch(err => console.warn('[PC Updater] Background drift check failed:', err));
             }
         }
     }

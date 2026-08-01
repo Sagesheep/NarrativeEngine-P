@@ -18,6 +18,7 @@ import type { ContributionModule } from '../../services/payload/contributions/re
 import { refreshMods } from '../../services/mods/modBootstrap';
 import { modToContributionModule } from '../../services/mods/modAdapter';
 import type { ModFault, ValidatedMod } from '../../services/mods/modTypes';
+import { sandboxFaultStore } from '../../services/mods/sandbox/sandboxFaults';
 
 /**
  * Project 2 / WO-P2-05 — the Extensions screen.
@@ -76,6 +77,7 @@ export function ExtensionsTab() {
 
     const [mods, setMods] = useState<ValidatedMod[]>([]);
     const [faults, setFaults] = useState<ModFault[]>([]);
+    const [runtimeFaults, setRuntimeFaults] = useState<ModFault[]>(() => [...sandboxFaultStore.getFaults()]);
     const [loading, setLoading] = useState(true);
     const [loadFailed, setLoadFailed] = useState(false);
     const [guideOpen, setGuideOpen] = useState(false);
@@ -110,6 +112,14 @@ export function ExtensionsTab() {
         return () => { cancelled = true; };
     }, [reloadToken]);
 
+    useEffect(() => sandboxFaultStore.subscribe(() => {
+        setRuntimeFaults([...sandboxFaultStore.getFaults()]);
+    }), []);
+
+    const allFaults = useMemo(() => {
+        const loadFiles = new Set(faults.map((fault) => fault.file));
+        return [...faults, ...runtimeFaults.filter((fault) => !loadFiles.has(fault.file))];
+    }, [faults, runtimeFaults]);
     // A factory, not a singleton (see `createFinalUserRegistry`) — built once per mount.
     const builtinRows = useMemo<ModuleRow[]>(
         () => createFinalUserRegistry()
@@ -319,7 +329,7 @@ export function ExtensionsTab() {
             </div>
 
             {/* ── Rejected files ───────────────────────────────────────────── */}
-            {faults.length > 0 && (
+            {allFaults.length > 0 && (
                 <div className="space-y-2">
                     <div>
                         <label className="chrome-label block text-[11px] text-danger uppercase tracking-wider font-bold mb-1 flex items-center gap-1.5">
@@ -328,9 +338,12 @@ export function ExtensionsTab() {
                         <p className="text-[9px] text-text-dim leading-tight max-w-[420px]">
                             {t('settings.extensions.faults.help')}
                         </p>
+                        <p className="text-[9px] text-text-dim leading-tight max-w-[420px] mt-1">
+                            {t('settings.extensions.faults.runtime')}
+                        </p>
                     </div>
                     <div className="space-y-2">
-                        {faults.map((fault) => (
+                        {allFaults.map((fault) => (
                             <div
                                 key={fault.file}
                                 className="bg-void p-3 border border-danger/40 rounded"

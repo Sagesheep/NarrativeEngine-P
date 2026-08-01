@@ -1,87 +1,6 @@
-import type { EndpointConfig, ProviderConfig, ChatMessage, NPCEntry, PlayerCharacter } from '../../types';
-import type { OpenAIMessage } from '../llm/llmService';
-import { sendMessage } from '../llm/llmService';
-import { extractJson } from '../infrastructure/jsonExtract';
+import type { ChatMessage, NPCEntry, PlayerCharacter } from '../../types';
+import type { ModelRequest } from '../turn/hostFacade';
 import { sanitizeSignatureKit } from '../npc/signatureKit';
-
-const RETRY_SUFFIX = '\n\nIMPORTANT: Your previous response was not valid JSON. Respond with ONLY valid JSON. No markdown fences, no comments, no trailing commas, no extra text before or after the JSON.';
-
-// ── §3.2 divergences from the NPC original ──────────────────────────────────────
-//
-// 1. It is not an NPC. The block is labeled `[PLAYER CHARACTER: …]` and the
-//    `Feeling toward PC:` line is dropped entirely (the PC's feeling toward
-//    themselves is meaningless). `relations` and `pcRelation` are NOT in the
-//    payload and NOT in the allowed-changes whitelist.
-//
-// 2. Narrower allowed-changes whitelist. The NPC updater lists
-//    `personalityHex` and `traits` as updatable (update.ts:114). For the PC
-//    that breaks §0 of WO-A2 — those fields are written ONLY by the quiz or
-//    the user's own hand. The whitelist below is STRUCTURAL: there is no code
-//    path here that writes a blocked field, so it cannot regress into one.
-//
-//   Allowed: signatureKit (merged via sanitizeSignatureKit), appearance, status,
-//            faction, wants.
-//   Blocked: personalityHex, traits, relations, pcRelation, drives, affinity,
-//            behavioralTriggers, hardBoundaries, softBoundaries, visualProfile.
-//
-// 3. Cadence. Not wired here — the caller (postTurnPipeline) gates this on
-//    the same `autoBookkeepingInterval` used by the bookkeeping scan, since
-//    kit changes are rare and a per-turn call is a wasted call most turns.
-
-async function sendAndParseJson(
-    provider: EndpointConfig | ProviderConfig,
-    messages: OpenAIMessage[],
-    contextLabel: string,
-    trackingLabel?: string,
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<{ parsed: any; rawStr: string }> {
-    let fullJsonStr = '';
-    await sendMessage(
-        provider,
-        messages,
-        (chunk) => { fullJsonStr = chunk; },
-        () => { },
-        (err) => console.error(`[${contextLabel}] Stream error:`, err),
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        trackingLabel,
-    );
-    if (!fullJsonStr) throw new Error(`[${contextLabel}] Empty response from LLM`);
-    const cleanStr = extractJson(fullJsonStr);
-    try {
-        return { parsed: JSON.parse(cleanStr), rawStr: cleanStr };
-    } catch (firstErr) {
-        console.warn(`[${contextLabel}] First parse failed, retrying with stricter prompt...`, firstErr);
-        const retryMessages: OpenAIMessage[] = [
-            ...messages,
-            { role: 'assistant', content: fullJsonStr },
-            { role: 'user', content: RETRY_SUFFIX },
-        ];
-        let retryStr = '';
-        await sendMessage(
-            provider,
-            retryMessages,
-            (chunk) => { retryStr = chunk; },
-            () => { },
-            (err) => console.error(`[${contextLabel}] Retry stream error:`, err),
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            trackingLabel,
-        );
-        if (!retryStr) throw new Error(`[${contextLabel}] Empty retry response`);
-        const retryClean = extractJson(retryStr);
-        try {
-            return { parsed: JSON.parse(retryClean), rawStr: retryClean };
-        } catch (retryErr) {
-            console.error(`[${contextLabel}] Retry parse also failed:`, retryErr);
-            throw retryErr;
-        }
-    }
-}
 
 export const ALLOWED_CHANGE_KEYS = new Set([
     'signatureKit',
@@ -121,7 +40,7 @@ export function stripBlockedKeys(changes: Partial<PlayerCharacter>): Partial<Pla
  * Named `checkCharacterDrift` (not `updatePlayerCharacter`) to avoid colliding
  * with the store action of the same name.
  *
- * @param provider    Cheap-first endpoint resolved by the caller (§2.2 chain).
+ * @param modelCall   Host-facade model broker; credentials stay in the host (section 2.2 chain).
  * @param history     Full chat history — the recent-context window is sliced
  *                    here, exactly like the NPC updater.
  * @param pc          The current `context.playerCharacter` record.
@@ -129,7 +48,7 @@ export function stripBlockedKeys(changes: Partial<PlayerCharacter>): Partial<Pla
  *                    `updatePlayerCharacter(patch)` (store action).
  */
 export async function checkCharacterDrift(
-    provider: EndpointConfig | ProviderConfig,
+    modelCall: (request: ModelRequest) => Promise<unknown>,
     history: ChatMessage[],
     pc: PlayerCharacter,
     applyPatch: (patch: Partial<PlayerCharacter>) => void,
@@ -222,10 +141,8 @@ ${data}
 
 RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
 
-    const messages: OpenAIMessage[] = [{ role: 'user', content: prompt }];
-
     try {
-        const { parsed } = await sendAndParseJson(provider, messages, 'PC Updater', 'pc-update');
+        const parsed = await modelCall({ prompt, trackingLabel: 'pc-update' }) as { changes?: unknown };
 
         if (!parsed || typeof parsed !== 'object' || !parsed.changes || typeof parsed.changes !== 'object') {
             console.log('[PC Updater] No changes field or empty response — nothing to apply.');

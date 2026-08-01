@@ -1,14 +1,17 @@
-import type { HostFacade, FacadeWrites } from '../../turn/hostFacade';
+import { callModelJson, MODEL_ROLES, type HostFacade, type FacadeWrites, type ModelRequest, type ModelRole } from '../../turn/hostFacade';
 import { buildWorkerSource } from './workerPrelude';
 import {
     MAX_INBOUND_MESSAGES,
     MAX_JOURNAL_ENTRIES,
+    MAX_MODEL_CALLS_PER_RUN,
+    MAX_MODEL_TOKENS_PER_CALL,
     SANDBOX_DEADLINE_MS,
     type SandboxDoneMessage,
     type SandboxJournalEntry,
     type SandboxRpcMessage,
     type SandboxHostMessage,
     type SandboxWorkerLike,
+    SandboxFaultError,
     type SandboxWorkerMessage,
 } from './sandboxTypes';
 
@@ -43,7 +46,10 @@ function asError(error: unknown): Error {
 }
 
 function workerError(message: string, stack?: string): Error {
-    const error = new Error(message);
+    const kind = /journal cap exceeded|maximum \d+ entries exceeded|inbound message cap exceeded|model call cap exceeded/i.test(message)
+        ? 'flood'
+        : 'threw';
+    const error = new SandboxFaultError(kind, message);
     if (stack) error.stack = stack;
     return error;
 }
@@ -60,6 +66,50 @@ function hasCapability(capabilities: readonly string[], capability: string): boo
     return capabilities.includes(capability);
 }
 
+function modelCapability(role: ModelRole): string {
+    return 'model:' + role;
+}
+
+function isModelRole(value: unknown): value is ModelRole {
+    return typeof value === 'string' && (MODEL_ROLES as readonly string[]).includes(value);
+}
+
+function clampModelRequest(value: unknown): ModelRequest {
+    if (!value || typeof value !== 'object' || typeof (value as { prompt?: unknown }).prompt !== 'string') {
+        throw new Error('[sandbox] model request requires a prompt');
+    }
+    const input = value as Record<string, unknown>;
+    const requestedTokens = typeof input.maxTokens === 'number' && Number.isFinite(input.maxTokens)
+        ? Math.floor(input.maxTokens)
+        : MAX_MODEL_TOKENS_PER_CALL;
+    const request: ModelRequest = {
+        prompt: input.prompt as string,
+        maxTokens: Math.max(1, Math.min(MAX_MODEL_TOKENS_PER_CALL, requestedTokens)),
+    };
+    if (typeof input.temperature === 'number' && Number.isFinite(input.temperature)) request.temperature = input.temperature;
+    if (input.priority === 'high' || input.priority === 'normal' || input.priority === 'low') request.priority = input.priority;
+    if (typeof input.trackingLabel === 'string') request.trackingLabel = input.trackingLabel;
+    if (typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs) && input.timeoutMs > 0) request.timeoutMs = input.timeoutMs;
+    return request;
+}
+
+function safeModelError(error: unknown): Error {
+    const message = asError(error).message;
+    if (message.startsWith('[sandbox]') && !/apiKey|endpoint|authorization|bearer|https?:\/\//i.test(message)) {
+        return new Error(message);
+    }
+    return new Error('[sandbox] model call failed');
+}
+
+type ModelBudget = { calls: number };
+
+function consumeModelCall(budget: ModelBudget): void {
+    if (budget.calls >= MAX_MODEL_CALLS_PER_RUN) {
+        throw new SandboxFaultError('flood', '[sandbox] model call cap exceeded (' + MAX_MODEL_CALLS_PER_RUN + ')');
+    }
+    budget.calls += 1;
+}
+
 function isWriteName(value: string): value is SandboxWriteName {
     return (WRITE_NAMES as readonly string[]).includes(value);
 }
@@ -69,20 +119,20 @@ export function validateJournal(
     writes: readonly SandboxJournalEntry[],
     capabilities: readonly string[],
 ): void {
-    if (!Array.isArray(writes)) throw new Error('[sandbox] journal rejected: writes must be an array');
+    if (!Array.isArray(writes)) throw new SandboxFaultError('journal-rejected', '[sandbox] journal rejected: writes must be an array');
     if (writes.length > MAX_JOURNAL_ENTRIES) {
-        throw new Error(`[sandbox] journal rejected: maximum ${MAX_JOURNAL_ENTRIES} entries exceeded`);
+        throw new SandboxFaultError('flood', `[sandbox] journal rejected: maximum ${MAX_JOURNAL_ENTRIES} entries exceeded`);
     }
 
     for (const entry of writes) {
         if (!entry || typeof entry.name !== 'string' || !Array.isArray(entry.args)) {
-            throw new Error('[sandbox] journal rejected: malformed entry');
+            throw new SandboxFaultError('journal-rejected', '[sandbox] journal rejected: malformed entry');
         }
         if (!isWriteName(entry.name)) {
-            throw new Error(`[sandbox] journal rejected: unknown write "${entry.name}"`);
+            throw new SandboxFaultError('journal-rejected', `[sandbox] journal rejected: unknown write "${entry.name}"`);
         }
         if (!hasCapability(capabilities, writeCapability(entry.name))) {
-            throw new Error(`[sandbox] journal rejected: undeclared write "${entry.name}"`);
+            throw new SandboxFaultError('journal-rejected', `[sandbox] journal rejected: undeclared write "${entry.name}"`);
         }
     }
 }
@@ -152,14 +202,57 @@ function handleTableRpc(
     return facade.table.write(table, message.args[1]);
 }
 
+async function handleModelRpc(
+    facade: HostFacade,
+    message: SandboxRpcMessage,
+    capabilities: readonly string[],
+    modelSignal: AbortSignal,
+    budget: ModelBudget,
+): Promise<{ content: unknown }> {
+    if (message.method !== 'call' && message.method !== 'callJson') {
+        throw new Error('[sandbox] model RPC requires call or callJson');
+    }
+    if (message.args.length < 2 || message.args.length > 3) {
+        throw new Error('[sandbox] model RPC requires role and request');
+    }
+    const rawRole = message.args[0];
+    if (!isModelRole(rawRole)) throw new Error('[sandbox] unknown model role: ' + String(rawRole));
+    const role = rawRole;
+    const capability = modelCapability(role);
+    if (!hasCapability(capabilities, capability)) {
+        throw new Error('[sandbox] capability denied: ' + capability);
+    }
+    if (!facade.model.available(role)) {
+        throw new Error('[sandbox] model role not configured: ' + role);
+    }
+    const request = clampModelRequest(message.args[1]);
+    const brokerCall = async (callRole: ModelRole, callRequest: ModelRequest) => {
+        consumeModelCall(budget);
+        try {
+            const response = await facade.model.call(callRole, { ...callRequest, signal: modelSignal });
+            return { content: String(response.content) };
+        } catch (error) {
+            throw safeModelError(error);
+        }
+    };
+    if (message.method === 'call') return brokerCall(role, request);
+    const rawOptions = message.args[2];
+    const options = rawOptions && typeof rawOptions === 'object' ? rawOptions as { retries?: number } : {};
+    const parsed = await callModelJson(role, request, brokerCall, options);
+    return { content: parsed };
+}
+
 function handleRpc(
     facade: HostFacade,
     message: SandboxRpcMessage,
     capabilities: readonly string[],
+    modelSignal: AbortSignal,
+    budget: ModelBudget,
 ): Promise<unknown> {
     if (message.channel === 'table') return handleTableRpc(facade, message, capabilities);
+    if (message.channel === 'model') return handleModelRpc(facade, message, capabilities, modelSignal, budget);
     if (message.channel !== 'refresh') {
-        return Promise.reject(new Error(`[sandbox] unknown RPC channel: ${String(message.channel)}`));
+        return Promise.reject(new Error('[sandbox] unknown RPC channel: ' + String(message.channel)));
     }
     if (message.method !== undefined || message.args.length !== 0) {
         return Promise.reject(new Error('[sandbox] refresh RPC takes no arguments'));
@@ -167,7 +260,6 @@ function handleRpc(
     const refreshed = facade.refresh();
     return Promise.resolve({ data: refreshed.data, config: refreshed.config });
 }
-
 function isDoneMessage(message: SandboxWorkerMessage): message is SandboxDoneMessage {
     return message.type === 'done';
 }
@@ -188,14 +280,22 @@ export async function runSandbox(
     }
 
     const workerFactory = options.createWorker ?? createBrowserWorker;
-    const worker = workerFactory(buildWorkerSource(modSource));
+    let worker: SandboxWorkerLike;
+    try {
+        worker = workerFactory(buildWorkerSource(modSource));
+    } catch (error) {
+        throw new SandboxFaultError('worker-error', asError(error).message);
+    }
 
     return await new Promise<unknown>((resolve, reject) => {
         let settled = false;
         let inboundMessages = 0;
         const pendingRpc = new Set<number>();
+        const modelAbort = new AbortController();
+        const modelBudget: ModelBudget = { calls: 0 };
 
         const cleanup = () => {
+            modelAbort.abort();
             clearTimeout(timer);
             facade.signal.removeEventListener('abort', onAbort);
             worker.onmessage = null;
@@ -242,7 +342,7 @@ export async function runSandbox(
             }
             pendingRpc.add(message.id);
             Promise.resolve()
-                .then(() => handleRpc(facade, message, capabilities))
+                .then(() => handleRpc(facade, message, capabilities, modelAbort.signal, modelBudget))
                 .then((value) => {
                     pendingRpc.delete(message.id);
                     if (settled) return;
@@ -256,7 +356,7 @@ export async function runSandbox(
                     pendingRpc.delete(message.id);
                     if (settled) return;
                     try {
-                        postErrorReply(worker, message.id, error);
+                        postErrorReply(worker, message.id, message.channel === 'model' ? safeModelError(error) : error);
                     } catch (postError) {
                         finish({ ok: false, error: postError });
                     }
@@ -302,14 +402,14 @@ export async function runSandbox(
 
         const onError = (event: ErrorEvent) => {
             event.preventDefault();
-            finish({ ok: false, error: new Error(event.message || '[sandbox] browser Worker error') });
+            finish({ ok: false, error: new SandboxFaultError('worker-error', event.message || '[sandbox] browser Worker error') });
         };
 
         worker.onmessage = onMessage;
         worker.onerror = onError;
 
         const timer = setTimeout(() => {
-            finishWithAbort(new Error(`[sandbox] deadline exceeded (${deadlineMs} ms)`));
+            finishWithAbort(new SandboxFaultError('deadline', `[sandbox] deadline exceeded (${deadlineMs} ms)`));
         }, Math.max(1, deadlineMs));
 
         facade.signal.addEventListener('abort', onAbort, { once: true });
@@ -323,6 +423,7 @@ export async function runSandbox(
                 type: 'run',
                 snapshot: { data: facade.data, config: facade.config },
                 deadlineMs,
+                modelRoles: MODEL_ROLES.filter((role) => facade.model.available(role)),
             };
             worker.postMessage(runMessage);
         } catch (error) {
