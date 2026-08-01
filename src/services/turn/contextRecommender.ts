@@ -13,6 +13,7 @@ import { llmCall } from '../../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import { buildInventoryIndex, buildProfileIndex } from './contextMinifier';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
+import type { ModelRequest, ModelResponse } from './hostFacade';
 
 export type RecommenderResult = {
     relevantNPCNames: string[];   // NPC names the model considers relevant
@@ -101,7 +102,7 @@ If nothing is relevant, return: {"npcs": [], "lore": [], "inventoryCategories": 
  * @throws on network/API errors — caller MUST catch and fall back to substring scan.
  */
 export async function recommendContext(
-    utilityEndpoint: EndpointConfig,
+    utilityEndpoint: EndpointConfig | undefined,
     npcLedger: NPCEntry[],
     loreChunks: LoreChunk[],
     messages: ChatMessage[],
@@ -110,7 +111,8 @@ export async function recommendContext(
     pinnedChapters?: ArchiveChapter[],
     inventoryItems?: InventoryItem[],
     characterProfile?: CharacterProfile,
-    timeoutMs?: number
+    timeoutMs?: number,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>
 ): Promise<RecommenderResult> {
     const npcRoster = buildNPCRoster(npcLedger);
     const loreIndex = buildLoreIndex(loreChunks);
@@ -124,17 +126,15 @@ export async function recommendContext(
 
     const userContent = `${RECOMMENDER_PROMPT}\n\n[NPC ROSTER — ${npcLedger.length} characters]\n${npcRoster}\n\n[LORE INDEX — ${loreChunks.filter(c => !c.alwaysInclude).length} entries]\n${loreIndex}\n${pinnedSection}[INVENTORY INDEX]\n${inventoryIndex}\n\n[PROFILE INDEX]\n${profileIndex}\n\n[RECENT CONVERSATION]\n${conversation}\n\nRespond with the JSON object now:`;
 
-    console.log(`[ContextRecommender] Sending recommendation request to ${utilityEndpoint.modelName}...`);
+    console.log(`[ContextRecommender] Sending recommendation request...`);
 
     // High priority — story AI cannot start until this returns. Tracked so it shows in
     // the UtilityCallStrip (otherwise this is an invisible blocking call during gather).
-    const rawContent = await llmCall(utilityEndpoint, userContent, {
-        temperature: 0.1, // Low temperature for consistent structured output
-        signal,
-        priority: 'high',
-        trackingLabel: 'context-recommender',
-        timeoutMs: timeoutMs ?? AI_CALL_TIMEOUT_MS,
-    });
+    const rawContent = modelCall
+        ? (await modelCall({ prompt: userContent, temperature: 0.1, signal, priority: 'high', trackingLabel: 'context-recommender', timeoutMs: timeoutMs ?? AI_CALL_TIMEOUT_MS })).content
+        : utilityEndpoint
+            ? await llmCall(utilityEndpoint, userContent, { temperature: 0.1, signal, priority: 'high', trackingLabel: 'context-recommender', timeoutMs: timeoutMs ?? AI_CALL_TIMEOUT_MS })
+            : '';
 
     // Parse the JSON response — handle thinker blocks and markdown wrapping
     type RecommenderRaw = { npcs?: unknown; lore?: unknown; inventoryCategories?: unknown; profileFields?: unknown };

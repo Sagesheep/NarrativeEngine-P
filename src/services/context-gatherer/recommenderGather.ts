@@ -2,6 +2,7 @@ import type { ArchiveChapter } from '../../types';
 import type { TurnState } from '../turn/turnOrchestrator';
 import { recommendContext } from '../turn/contextRecommender';
 import { tierAllows } from '../turn/aiTier';
+import { hasHostModelRole, type HostFacade } from '../turn/hostFacade';
 
 export type RecommenderResult = {
     recommendedNPCNames: string[] | undefined;
@@ -13,12 +14,19 @@ export async function gatherRecommender(
     state: TurnState,
     finalInput: string,
     pinnedChapters: ArchiveChapter[] | undefined,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    facade?: HostFacade
 ): Promise<RecommenderResult> {
-    const { npcLedger, loreChunks, messages, context } = state;
-    const utilityEndpoint = state.getUtilityEndpoint?.();
+    const data = facade?.data;
+    const config = facade?.config;
+    const npcLedger = data?.npcLedger ?? state.npcLedger;
+    const loreChunks = data?.loreChunks ?? state.loreChunks;
+    const messages = data?.messages ?? state.messages;
+    const context = data?.context ?? state.context;
+    const utilityEndpoint = facade ? undefined : state.getUtilityEndpoint?.();
+    const utilityAvailable = facade ? hasHostModelRole(facade, 'utility') : Boolean(utilityEndpoint?.endpoint);
 
-    if (!utilityEndpoint?.endpoint || !tierAllows(state.settings.aiTier, 'recommender')) {
+    if (!utilityAvailable || !tierAllows(config?.aiTier ?? state.settings.aiTier, 'recommender')) {
         return { recommendedNPCNames: undefined, inventoryCategories: undefined, profileFields: undefined };
     }
 
@@ -47,7 +55,9 @@ export async function gatherRecommender(
             signal,
             pinnedChapters,
             context.inventoryItems,
-            context.characterProfileData
+            context.characterProfileData,
+            undefined,
+            facade ? (request: import('../turn/hostFacade').ModelRequest) => facade.model.call('utility', request) : undefined
         );
         const { relevantNPCNames: recommendedNPCNames, inventoryCategories, profileFields } = result;
         console.log(`[ContextGatherer] Recommender returned: ${recommendedNPCNames?.length || 0} NPCs, ${result.relevantLoreIds.length} lore, ${inventoryCategories?.length || 0} inv cats, ${profileFields?.length || 0} profile fields`);

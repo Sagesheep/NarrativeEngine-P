@@ -113,7 +113,7 @@ export async function gatherContext(
     })());
 
     // ─── Recommender — independent ───
-    const recommenderPromise = timed('recommender', gatherRecommender(state, finalInput, pinnedChaptersForRecommender, signal));
+    const recommenderPromise = timed('recommender', gatherRecommender(state, finalInput, pinnedChaptersForRecommender, signal, facade));
 
     // ─── Lore & rules — depend on semantic candidates ───
     const loreRulesPromise = timed('lore-rules', (async () => {
