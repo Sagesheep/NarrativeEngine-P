@@ -6,6 +6,7 @@ import {
     entitiesPath, timelinePath, validateCampaignId,
 } from '../lib/fileStore.js';
 import { isCampaignMetaFile, getTransferableTables } from '../lib/tableRegistry.js';
+import { modTableSuffix, modTableName } from '../lib/modTableRegistry.js';
 import { embedText, buildArchiveText, buildLoreText } from '../lib/embedder.js';
 import { storeArchiveEmbedding, storeLoreEmbedding } from '../lib/vectorStore.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
@@ -228,6 +229,35 @@ export function createTransferRouter() {
             if (bundle[bundleKey] !== undefined) {
                 writeJson(path.join(CAMPAIGNS_DIR, `${newId}${fileSuffix}`), bundle[bundleKey]);
             }
+        }
+
+        // WO-P5-05 §5 — unknown bundle keys are PRESERVED, not dropped.
+        //
+        // A user who exports a campaign, uninstalls a mod, reinstalls it and
+        // imports must get their data back. Dropping unknown keys silently
+        // destroys data on a path users treat as a backup. So: after writing
+        // the known transferable tables, scan the bundle for keys that match
+        // the mod-table bundle key pattern (`mod.<modId>.<name>`) but are NOT
+        // in the registered set, and write them to disk using the computed
+        // suffix. The suffix is derived from the key, never from the bundle.
+        //
+        // This is safe because:
+        //   - The bundle key was produced by the export, which computed it
+        //     from a registered descriptor. The key IS the descriptor name.
+        //   - The suffix derivation is deterministic: `.mod-<modId>-<name>.json`.
+        //   - The `mod-` prefix guarantees no collision with a built-in suffix.
+        // A key that does not match the pattern is left untouched — we do not
+        // invent a suffix for an unknown key shape.
+        const knownKeys = new Set(getTransferableTables().map(t => t.bundleKey));
+        for (const key of Object.keys(bundle)) {
+            if (knownKeys.has(key)) continue;
+            if (bundle[key] === undefined) continue;
+            // Only round-trip keys that match the mod-table bundle key pattern.
+            const match = /^mod\.([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)$/.exec(key);
+            if (!match) continue;
+            const [, modId, tableName] = match;
+            const fileSuffix = modTableSuffix(modId, tableName);
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}${fileSuffix}`), bundle[key]);
         }
 
         // Background re-embedding
