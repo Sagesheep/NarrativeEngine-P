@@ -1,5 +1,6 @@
 import type { GameContext, CharacterIntroEntry, ChatMessage, EndpointConfig, ProviderConfig } from '../../types';
 import { llmCall } from '../../utils/llmCall';
+import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
 
 export type CharIntroResult = {
     tag: string;
@@ -15,7 +16,8 @@ function extractLocationFromResponse(response: string): string {
 
 async function resolveLocation(
     messages: ChatMessage[],
-    provider: EndpointConfig | ProviderConfig
+    provider: EndpointConfig | ProviderConfig | undefined,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
 ): Promise<string> {
     const recent = messages.slice(-10);
     const excerpt = recent.map(m => {
@@ -24,11 +26,12 @@ async function resolveLocation(
     }).join('\n\n');
 
     try {
-        const raw = await llmCall(provider, `${LOCATION_PROMPT}\n\n${excerpt}`, {
-            temperature: 0.1,
-            priority: 'high',
-            maxTokens: 60,
-        });
+        const prompt = `${LOCATION_PROMPT}\n\n${excerpt}`;
+        const raw = modelCall
+            ? (await modelCall({ prompt, temperature: 0.1, priority: 'high', maxTokens: 60 })).content
+            : provider
+                ? await llmCall(provider, prompt, { temperature: 0.1, priority: 'high', maxTokens: 60 })
+                : '';
         return extractLocationFromResponse(raw);
     } catch (err) {
         console.warn('[CharIntroEngine] Location AI call failed:', err);
@@ -82,7 +85,8 @@ export async function rollCharacterIntroEngine(
     context: GameContext,
     seenNpcNames: Set<string>,
     messages: ChatMessage[],
-    utilityProvider?: EndpointConfig | ProviderConfig
+    utilityProvider?: EndpointConfig | ProviderConfig,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
 ): Promise<CharIntroResult> {
     const config = context.npcIntroConfig;
     if (!config || config.characters.length === 0 || context.npcIntroEngineActive === false) {
@@ -105,8 +109,8 @@ export async function rollCharacterIntroEngine(
     const wanderingPool = candidates.filter(c => c.type === 'wandering');
     let locationPool = candidates.filter(c => c.type === 'location');
 
-    if (locationPool.length > 0 && utilityProvider) {
-        const aiLocation = await resolveLocation(messages, utilityProvider);
+    if (locationPool.length > 0 && (utilityProvider || modelCall)) {
+        const aiLocation = await resolveLocation(messages, utilityProvider, modelCall);
         if (aiLocation) {
             const aiLocLower = aiLocation.toLowerCase();
             locationPool = locationPool.filter(c =>
@@ -115,7 +119,7 @@ export async function rollCharacterIntroEngine(
         } else {
             locationPool = [];
         }
-    } else if (locationPool.length > 0 && !utilityProvider) {
+    } else if (locationPool.length > 0 && !utilityProvider && !modelCall) {
         locationPool = [];
     }
 

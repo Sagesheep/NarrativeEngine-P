@@ -38,6 +38,7 @@ import { runDirectorBrief, lastAssistantContent } from './directorBrief';
 import type { TurnContext } from './turnContext';
 import type { GatheredContext } from './contextGatherer';
 import type { TurnState, TurnCallbacks } from './turnOrchestrator';
+import type { HostFacade } from './hostFacade';
 
 const MAX_TOOL_CALLS_PER_TURN = 5;
 
@@ -201,24 +202,32 @@ export async function runIntroEngineStage(
     ctx: TurnContext,
     state: TurnState,
     callbacks: TurnCallbacks,
+    facade?: HostFacade,
 ): Promise<void> {
-    const { settings, context, messages, npcLedger, provider } = state;
-    if (!context.npcIntroEngineActive || !tierAllows(settings.aiTier, 'introEngine')) return;
+    const data = facade?.data;
+    const config = facade?.config;
+    const settings = state.settings;
+    const context = data?.context ?? state.context;
+    const messages = data?.messages ?? state.messages;
+    const npcLedger = data?.npcLedger ?? state.npcLedger;
+    const provider = facade ? undefined : state.provider;
+    if (!context.npcIntroEngineActive || !tierAllows(config?.aiTier ?? settings.aiTier, 'introEngine')) return;
     const seenNpcNames = new Set((npcLedger ?? []).map((n: NPCEntry) => n.name.toLowerCase()));
     try {
-        const auxProvider = state.getFreshAuxiliaryProvider?.() ?? provider;
+        const auxProvider = facade ? undefined : state.getFreshAuxiliaryProvider?.() ?? provider;
         const { rollCharacterIntroEngine } = await import('../npc-generation/charIntroEngine');
         const introResult = await rollCharacterIntroEngine(
             context,
             seenNpcNames,
             messages,
-            auxProvider
+            auxProvider,
+            facade ? (request: import('./hostFacade').ModelRequest) => facade.model.call('auxiliary', request) : undefined
         );
         if (introResult.tag) {
             ctx.finalInput = ctx.finalInput + '\n' + introResult.tag;
         }
         if (introResult.newDC !== context.npcIntroDC) {
-            callbacks.updateContext({ npcIntroDC: introResult.newDC });
+            (facade?.write.updateContext ?? callbacks.updateContext)({ npcIntroDC: introResult.newDC });
         }
     } catch (err) {
         console.warn('[CharIntroEngine] Failed to run intro engine:', err);

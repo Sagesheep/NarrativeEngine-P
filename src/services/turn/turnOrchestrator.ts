@@ -2,6 +2,7 @@ import { useAppStore } from '../../store/useAppStore';
 import type { AppSettings, GameContext, ChatMessage, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyCombatConfig, EnemySuggestion, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact } from '../../types';
 import type { OneShotEventId } from '../oneshot/oneShotEvents';
 import { createTurnContext } from './turnContext';
+import { buildHostFacade } from './hostFacade';
 import {
     resolveEngineRolls,
     addUserTurnMessage,
@@ -148,6 +149,8 @@ export async function runTurn(
 
     if (!provider) return;
 
+    const facade = buildHostFacade(state, callbacks, { signal: abortController.signal });
+
     // ── WO-P1-01: TurnContext data bus ───────────────────────────────────
     // The bus replaces (a) the `let finalInput += …` string-gluing, (b) the
     // ~14 loose vars destructured out of gatherContext, and (c) the
@@ -174,7 +177,7 @@ export async function runTurn(
     await gatherTurnContext(ctx, state, callbacks, abortController.signal);
     if (abortController.signal.aborted) return;
 
-    await runIntroEngineStage(ctx, state, callbacks);
+    await runIntroEngineStage(ctx, state, callbacks, facade);
     await runDirectorStage(ctx, state, callbacks, abortController);
 
     const genDeps = buildTurnPayload(ctx, state, callbacks);
