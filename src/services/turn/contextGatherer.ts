@@ -165,7 +165,7 @@ export async function gatherContext(
         rankedSceneIds: elevation.rankedSceneIds,
         elevatedSceneIds,
         chapters: deps.chapters,
-    });
+    }, facade);
 
     // ─── Pinned Chapter Injection ───
     archiveRecall = await injectPinnedChapters(

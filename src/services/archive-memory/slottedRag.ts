@@ -36,6 +36,7 @@
 
 import type { ArchiveChapter, ArchiveIndexEntry, NPCEntry } from '../../types';
 import type { TurnState } from '../turn/turnOrchestrator';
+import type { HostFacade } from '../turn/hostFacade';
 import { tierAllows } from '../turn/aiTier';
 
 export type SlottedRagSnippet = {
@@ -216,14 +217,16 @@ export function gatherSlottedRag(
         elevatedSceneIds: Set<string>;
         chapters: ArchiveChapter[];
     },
+    facade?: HostFacade,
 ): SlottedRagResult {
-    if (!tierAllows(state.settings.aiTier, 'lodSlottedRag')) return { snippets: [] };
+    if (!tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'lodSlottedRag')) return { snippets: [] };
 
-    const { archiveIndex, npcLedger, onStageNpcIds, settings } = state;
+    const archiveIndex = facade?.data.archiveIndex ?? state.archiveIndex;
+    const npcLedger = facade?.data.npcLedger ?? state.npcLedger;
+    const onStageNpcIds = facade?.data.onStageNpcIds ?? state.onStageNpcIds ?? [];
+    const maxPerScene = facade?.config.lodSlottedMaxPerScene ?? state.settings.lodSlottedMaxPerScene ?? 2;
     if (archiveIndex.length === 0) return { snippets: [] };
     if (deps.rankedSceneIds.length === 0) return { snippets: [] };
-
-    const maxPerScene = settings.lodSlottedMaxPerScene ?? 2;
 
     return buildSlottedRagSnippets({
         rankedSceneIds: deps.rankedSceneIds,
@@ -231,7 +234,7 @@ export function gatherSlottedRag(
         archiveIndex,
         chapters: deps.chapters,
         npcLedger,
-        onStageNpcIds: onStageNpcIds ?? [],
+        onStageNpcIds,
         maxPerScene,
     });
 }
