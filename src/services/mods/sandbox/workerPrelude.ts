@@ -1,0 +1,93 @@
+import { MAX_JOURNAL_ENTRIES } from './sandboxTypes';
+
+/**
+ * Build the classic-script source executed by one browser Worker for one compute run.
+ *
+ * This is defence in depth for buggy, hand-installed, local, single-user mods. It blocks the
+ * network and the most obvious escape/persistence primitives, but it is not a claim that a
+ * determined attacker with JavaScript execution cannot find an escape. Mod code never runs on
+ * the server, which is the machine holding the encrypted vault.
+ */
+export function buildWorkerSource(modSource: string): string {
+    const defaultSource = modSource.replace(/^\s*export\s+default\s+/, '');
+    return [
+        "'use strict';",
+        'const __sandboxDenyGlobal = (name) => {',
+        "  try { Object.defineProperty(globalThis, name, { value: undefined, writable: false, configurable: false }); } catch {}",
+        '};',
+        "['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'importScripts', 'Worker', 'SharedArrayBuffer', 'Atomics', 'indexedDB', 'caches'].forEach(__sandboxDenyGlobal);",
+        "try { Object.defineProperty(navigator, 'sendBeacon', { value: undefined, writable: false, configurable: false }); } catch {}",
+        'try { navigator.sendBeacon = undefined; } catch {}',
+        'const __sandboxFreeze = (value, seen = new WeakSet()) => {',
+        "  if (value && typeof value === 'object' && !seen.has(value)) {",
+        '    seen.add(value); Object.freeze(value); for (const child of Object.values(value)) __sandboxFreeze(child, seen);',
+        '  } return value;',
+        '};',
+        `globalThis.__sandboxMod = ${defaultSource};`,
+        'let __sandboxController;',
+        'let __sandboxRpcId = 0;',
+        'let __sandboxJournal = [];',
+        'const __sandboxRpcPending = new Map();',
+        'const __sandboxReply = (message) => {',
+        '  const pending = __sandboxRpcPending.get(message.id);',
+        '  if (!pending) return;',
+        '  __sandboxRpcPending.delete(message.id);',
+        '  if (message.ok) pending.resolve(message.value);',
+        '  else pending.reject(new Error(message.error || "sandbox RPC failed"));',
+        '};',
+        'const __sandboxRpc = (channel, method, args) => new Promise((resolve, reject) => {',
+        '  const id = ++__sandboxRpcId;',
+        '  __sandboxRpcPending.set(id, { resolve, reject });',
+        '  try { self.postMessage({ type: "rpc", id, channel, ...(method ? { method } : {}), args }); }',
+        '  catch (error) { __sandboxRpcPending.delete(id); reject(error); }',
+        '});',
+        'const __sandboxWrite = new Proxy({}, {',
+        '  get(_target, name) {',
+        '    if (typeof name !== "string") return undefined;',
+        '    return (...args) => {',
+        `      if (__sandboxJournal.length >= ${MAX_JOURNAL_ENTRIES}) throw new Error('[sandbox] journal cap exceeded');`,
+        '      __sandboxJournal.push({ name, args });',
+        '    };',
+        '  },',
+        '});',
+        'const __sandboxTable = Object.freeze({',
+        '  read: (name) => __sandboxRpc("table", "read", [name]),',
+        '  write: (name, rows) => __sandboxRpc("table", "write", [name, rows]),',
+        '});',
+        'const __sandboxContext = {',
+        '  get data() { return __sandboxSnapshot.data; },',
+        '  get config() { return __sandboxSnapshot.config; },',
+        '  write: __sandboxWrite,',
+        '  table: __sandboxTable,',
+        '  get signal() { return __sandboxController.signal; },',
+        '  refresh: () => __sandboxRpc("refresh", undefined, []),',
+        '  log: (...args) => { self.postMessage({ type: "log", args }); },',
+        '};',
+        "Object.defineProperty(__sandboxContext, 'model', { enumerable: false, get() { throw new Error('[sandbox] model access arrives in 3.6'); } });",
+        'Object.freeze(__sandboxContext);',
+        'let __sandboxSnapshot;',
+        'let __sandboxStarted = false;',
+        'self.onmessage = (event) => {',
+        '  const message = event.data;',
+        '  if (message && message.type === "rpc-reply") { __sandboxReply(message); return; }',
+        '  if (message && message.type === "abort") { __sandboxController?.abort(); return; }',
+        '  if (!message || message.type !== "run") return;',
+        '  if (__sandboxStarted) { self.postMessage({ type: "error", message: "[sandbox] worker run already started" }); return; }',
+        '  __sandboxStarted = true;',
+        '  __sandboxSnapshot = __sandboxFreeze(message.snapshot);',
+        '  __sandboxController = new AbortController();',
+        '  Promise.resolve().then(() => {',
+        '    if (typeof globalThis.__sandboxMod !== "function") throw new Error("[sandbox] compute source must export a default function");',
+        '    return globalThis.__sandboxMod(__sandboxContext);',
+        '  }).then((result) => {',
+        '    try { self.postMessage({ type: "done", writes: __sandboxJournal, result }); }',
+        '    catch (error) { self.postMessage({ type: "error", message: String(error), stack: error && error.stack ? String(error.stack) : "" }); }',
+        '  }).catch((error) => {',
+        '    self.postMessage({ type: "error", message: String(error), stack: error && error.stack ? String(error.stack) : "" });',
+        '  });',
+        '};',
+    ].join('\n');
+}
+
+export const workerPrelude = buildWorkerSource;
+
