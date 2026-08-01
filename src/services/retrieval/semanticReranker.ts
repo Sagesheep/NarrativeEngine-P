@@ -2,6 +2,7 @@ import type { EndpointConfig } from '../../types';
 import { llmCall } from '../../utils/llmCall';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
+import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
 
 export type RerankCandidate = {
     id: string;
@@ -12,8 +13,9 @@ export type RerankCandidate = {
 export async function rerankCandidates(
     query: string,
     candidates: RerankCandidate[],
-    utilityEndpoint: EndpointConfig,
-    opts?: { maxCandidates?: number; topN?: number; timeoutMs?: number }
+    utilityEndpoint: EndpointConfig | undefined,
+    opts?: { maxCandidates?: number; topN?: number; timeoutMs?: number },
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
 ): Promise<string[]> {
     const maxCandidates = opts?.maxCandidates ?? 30;
     const topN = opts?.topN ?? 12;
@@ -34,13 +36,11 @@ ${capped.map(c => `${c.id}: ${c.summary}`).join('\n')}
 Return ONLY a JSON array of the candidate ids most relevant to the query, in descending order of relevance. Max ${topN} ids. No prose, no markdown.`;
 
     try {
-        const raw = await llmCall(utilityEndpoint, prompt, {
-            temperature: 0.1,
-            priority: 'high',
-            maxTokens: 500,
-            trackingLabel: 'semantic-rerank',
-            timeoutMs: opts?.timeoutMs ?? AI_CALL_TIMEOUT_MS,
-        });
+        const raw = modelCall
+            ? (await modelCall({ prompt, temperature: 0.1, priority: 'high', maxTokens: 500, trackingLabel: 'semantic-rerank', timeoutMs: opts?.timeoutMs ?? AI_CALL_TIMEOUT_MS })).content
+            : utilityEndpoint
+                ? await llmCall(utilityEndpoint, prompt, { temperature: 0.1, priority: 'high', maxTokens: 500, trackingLabel: 'semantic-rerank', timeoutMs: opts?.timeoutMs ?? AI_CALL_TIMEOUT_MS })
+                : '';
 
         const { value: parsed, parseOk } = extractJsonRobust<string[]>(raw, []);
         if (!parseOk || !Array.isArray(parsed)) {

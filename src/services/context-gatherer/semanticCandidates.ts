@@ -131,7 +131,7 @@ export async function gatherSemanticCandidates(
                         type: 'scene' as const,
                     };
                 });
-                const rerankedIds = await rerankCandidates(input, sceneCandidates, utilityEndpoint, { maxCandidates: 30, topN: 12 });
+                const rerankedIds = await rerankCandidates(input, sceneCandidates, utilityEndpoint, { maxCandidates: 30, topN: 12 }, modelCall);
                 semanticArchiveIds = rerankedIds;
                 console.log(`[Reranker] Scene candidates: ${rerankedIds.length} after rerank`);
             }
@@ -145,7 +145,7 @@ export async function gatherSemanticCandidates(
                         type: 'lore' as const,
                     };
                 });
-                const rerankedLoreIds = await rerankCandidates(input, loreCandidates, utilityEndpoint, { maxCandidates: 25, topN: 10 });
+                const rerankedLoreIds = await rerankCandidates(input, loreCandidates, utilityEndpoint, { maxCandidates: 25, topN: 10 }, modelCall);
                 semanticLoreIds = rerankedLoreIds;
                 console.log(`[Reranker] Lore candidates: ${rerankedLoreIds.length} after rerank`);
             }
