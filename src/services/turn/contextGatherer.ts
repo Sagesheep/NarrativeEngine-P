@@ -128,7 +128,7 @@ export async function gatherContext(
     // (gatherSemanticCandidates does query expansion internally but does not
     // expose the expanded queries). Uses the raw user message as the single
     // query. Reported in the WO-11 report.
-    const elevationPromise = timed('dynamic-elevation', gatherDynamicElevation(state, { chapters: deps.chapters }, signal));
+    const elevationPromise = timed('dynamic-elevation', gatherDynamicElevation(state, { chapters: deps.chapters }, signal, facade));
 
     // Timeline events — from state, used directly
     const timelineEvents: TimelineEvent[] = state.timeline || [];

@@ -18,6 +18,7 @@
 
 import type { ArchiveChapter, ArchiveIndexEntry, ChatMessage, ArchiveScene } from '../../types';
 import type { TurnState } from '../turn/turnOrchestrator';
+import type { HostFacade } from '../turn/hostFacade';
 import { API_BASE as API } from '../../lib/apiBase';
 import { fetchArchiveScenes } from '../archiveMemory';
 import { renderLodChapters, type LodConfig } from '../payload/lodRenderer';
@@ -185,13 +186,21 @@ export async function gatherDynamicElevation(
     state: TurnState,
     deps: { chapters: ArchiveChapter[] },
     signal?: AbortSignal,
+    facade?: HostFacade,
 ): Promise<{ scenes: ElevatedScene[]; rankedSceneIds: string[] }> {
     const empty = { scenes: [] as ElevatedScene[], rankedSceneIds: [] as string[] };
 
-    if (!state.activeCampaignId) return empty;
-    if (!tierAllows(state.settings.aiTier, 'lodDynamicElevation')) return empty;
+    const data = facade?.data;
+    const config = facade?.config;
+    const campaignId = data?.activeCampaignId ?? state.activeCampaignId;
+    if (!campaignId) return empty;
+    if (!tierAllows(config?.aiTier ?? state.settings.aiTier, 'lodDynamicElevation')) return empty;
 
-    const { archiveIndex, onStageNpcIds, condenser, messages, settings, input } = state;
+    const archiveIndex = data?.archiveIndex ?? state.archiveIndex;
+    const onStageNpcIds = data?.onStageNpcIds ?? state.onStageNpcIds ?? [];
+    const condenser = data?.condenser ?? state.condenser;
+    const messages = data?.messages ?? state.messages;
+    const input = data?.input ?? state.input;
     const chapters = deps.chapters;
     if (chapters.length === 0 || archiveIndex.length === 0) return empty;
     if (condenser.condensedUpToIndex === undefined || condenser.condensedUpToIndex < 0) return empty;
@@ -199,20 +208,20 @@ export async function gatherDynamicElevation(
     const { scopeSceneIds, sceneIdToChapterId } = computeSynopsisScope({
         chapters,
         archiveIndex,
-        onStageNpcIds: onStageNpcIds ?? [],
+        onStageNpcIds,
         condensedUpToIndex: condenser.condensedUpToIndex,
         messages,
         config: {
-            summaryChapters: settings.lodSummaryChapters ?? 7,
-            importanceBonus: settings.lodImportanceBonus ?? 2,
+            summaryChapters: config?.lodSummaryChapters ?? state.settings.lodSummaryChapters ?? 7,
+            importanceBonus: config?.lodImportanceBonus ?? state.settings.lodImportanceBonus ?? 2,
         },
     });
 
     if (scopeSceneIds.length === 0) return empty;
 
-    const limit = settings.lodElevateScenes ?? 2;
+    const limit = config?.lodElevateScenes ?? state.settings.lodElevateScenes ?? 2;
     const result = await runDynamicElevation({
-        campaignId: state.activeCampaignId,
+        campaignId,
         queries: [input],
         scopeSceneIds,
         limit,
