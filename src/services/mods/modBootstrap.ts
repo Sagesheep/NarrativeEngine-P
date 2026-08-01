@@ -2,6 +2,8 @@ import { fetchMods } from './modClient';
 import { modToContributionModule } from './modAdapter';
 import type { ModFault, ValidatedMod } from './modTypes';
 import { setExtensionModules } from '../payload/contributions/extensions';
+import { postTurnTracks } from '../turn/tracks';
+import { modToComputeTrack } from './computeTrack';
 
 /**
  * Project 2 — loads installed mods and registers them as contribution modules.
@@ -17,6 +19,19 @@ let lastResult: { mods: readonly ValidatedMod[]; faults: readonly ModFault[] } =
     faults: [],
 };
 
+function registerComputeTracks(mods: readonly ValidatedMod[]): void {
+    for (const track of postTurnTracks.list()) {
+        if (track.id.startsWith('mod.') && track.id.endsWith('.compute')) {
+            postTurnTracks.unregister(track.id);
+        }
+    }
+    for (const mod of mods) {
+        if (mod.compute && typeof mod.computeSource === 'string') {
+            postTurnTracks.register(modToComputeTrack(mod));
+        }
+    }
+}
+
 /**
  * Fetch the installed mods and register them.
  *
@@ -31,6 +46,7 @@ export async function refreshMods(): Promise<{
     try {
         const { mods, faults } = await fetchMods();
         setExtensionModules(mods.map(modToContributionModule));
+        registerComputeTracks(mods);
         lastResult = { mods, faults };
     } catch (error) {
         lastResult = {

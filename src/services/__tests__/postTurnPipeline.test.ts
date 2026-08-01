@@ -2,6 +2,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { TurnState, TurnCallbacks } from '../turn/turnOrchestrator';
 import type { GameContext, ChatMessage } from '../../types';
+import type { ValidatedMod } from '../../services/mods/modTypes';
+import type { SandboxHostMessage, SandboxWorkerLike, SandboxWorkerMessage } from '../../services/mods/sandbox/sandboxTypes';
+import { modToComputeTrack } from '../../services/mods/computeTrack';
+import { postTurnTracks } from '../turn/tracks';
 
 vi.mock('../llm/apiClient', () => ({
     api: {
@@ -399,5 +403,53 @@ describe('runPostTurnPipeline', () => {
         await runPostTurnPipeline(state, makeCallbacks(), ASSISTANT_CONTENT, ALL_MSGS);
 
         expect(state.resetBookkeepingTurnCounter).not.toHaveBeenCalled();
+    });
+});
+
+describe('compute mod integration', () => {
+    it('runs a fixture compute mod in the real post-turn pipeline and applies its declared write', async () => {
+        mockApi.archive.append.mockResolvedValueOnce({ sceneId: '001' });
+        mockApi.chapters.list.mockResolvedValueOnce([]);
+
+        const worker: SandboxWorkerLike = {
+            onmessage: null,
+            onerror: null,
+            postMessage(message: SandboxHostMessage) {
+                if (message.type !== 'run') return;
+                queueMicrotask(() => worker.onmessage?.({
+                    data: {
+                        type: 'done',
+                        writes: [{ name: 'updateContext', args: [{ currentFeature: 'computed' }] }],
+                        result: { computed: true },
+                    },
+                } as MessageEvent<SandboxWorkerMessage>));
+            },
+            terminate: vi.fn(),
+        };
+
+        const mod = {
+            id: 'compute-fixture',
+            name: 'Compute Fixture',
+            version: '1.0.0',
+            description: '',
+            file: 'compute-fixture.mod.json',
+            contributions: [{ id: 'placeholder', order: 100, text: 'fixture' }],
+            compute: {
+                file: 'compute-fixture.compute.js',
+                hook: 'postTurn' as const,
+                capabilities: ['write:updateContext'],
+            },
+            computeSource: 'export default async function () { return { computed: true }; }',
+        } as ValidatedMod;
+        const track = modToComputeTrack(mod, { sandboxOptions: { createWorker: () => worker } });
+        postTurnTracks.register(track);
+
+        try {
+            const callbacks = makeCallbacks();
+            await runPostTurnPipeline(makeState(), callbacks, ASSISTANT_CONTENT, ALL_MSGS);
+            expect(callbacks.updateContext).toHaveBeenCalledWith({ currentFeature: 'computed' });
+        } finally {
+            postTurnTracks.unregister(track.id);
+        }
     });
 });
