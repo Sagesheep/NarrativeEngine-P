@@ -11,6 +11,7 @@
 
 import type { ArcRecord, DivergenceEntry } from '../../types';
 import type { TurnState, TurnCallbacks } from '../turn/turnOrchestrator';
+import type { HostFacade } from '../turn/hostFacade';
 import { uid } from '../../utils/uid';
 import { mergeSealEntries } from '../campaign-state/divergenceRegister';
 
@@ -32,12 +33,17 @@ export function runArcTick(
     callbacks: TurnCallbacks,
     displayInput: string,
     lastAssistantContent: string,
+    facade?: HostFacade,
 ): void {
-    if (!tierAllows(state.settings.aiTier, 'arcTick')) return;
-    const arcs = state.context.arcs;
+    if (!tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'arcTick')) return;
+    const context = facade?.data.context ?? state.context;
+    const writeCallbacks = facade
+        ? { ...callbacks, updateContext: facade.write.updateContext, setDivergenceRegister: facade.write.setDivergenceRegister, addMessage: facade.write.addMessage }
+        : callbacks;
+    const arcs = context.arcs;
     if (!arcs || arcs.length === 0) return;
 
-    const archiveIndex = state.archiveIndex;
+    const archiveIndex = facade?.data.archiveIndex ?? state.archiveIndex;
     const sceneId = archiveIndex.length > 0
         ? archiveIndex[archiveIndex.length - 1].sceneId
         : '000';
@@ -122,7 +128,7 @@ export function runArcTick(
     }
 
     if (arcsChanged) {
-        callbacks.updateContext({ arcs: nextArcs });
+        writeCallbacks.updateContext({ arcs: nextArcs });
     }
 
     // Fold the surface lines into context.arcDigest for the next GM call.
@@ -130,21 +136,21 @@ export function runArcTick(
         // Rebuild fresh from THIS tick's surface lines — never concat the prior digest
         // (stale rung lines were piling up across ticks). Dedupe as a safety net. (B1)
         const fresh = Array.from(new Set(digestLines)).join('\n');
-        callbacks.updateContext({ arcDigest: fresh });
+        writeCallbacks.updateContext({ arcDigest: fresh });
     }
 
     // Write avoidance facts to divergenceRegister (mergeSealEntries appends).
     if (divergenceFacts.length > 0) {
-        const liveRegister = state.divergenceRegister;
-        if (liveRegister && callbacks.setDivergenceRegister) {
+        const liveRegister = facade?.data.divergenceRegister ?? state.divergenceRegister;
+        if (liveRegister && writeCallbacks.setDivergenceRegister) {
             const merged = mergeSealEntries(liveRegister, divergenceFacts, sceneId);
-            callbacks.setDivergenceRegister(merged);
+            writeCallbacks.setDivergenceRegister(merged);
             console.log(`[ArcTick] ${divergenceFacts.length} arc divergence fact(s) written`);
         } else {
             // No live register / callback this turn — surface the facts as a system
             // marker so they aren't lost (rare; the seal seam usually has the register).
             for (const f of divergenceFacts) {
-                callbacks.addMessage({
+                writeCallbacks.addMessage({
                     id: uid(),
                     role: 'system',
                     name: 'arc-fact',

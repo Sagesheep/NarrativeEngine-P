@@ -306,7 +306,7 @@ export async function runPostTurnPipeline(
     try {
         if (tierAllows(state.settings.aiTier, 'arcTick')) {
             const { runArcTick } = await import('../arc/arcEngine');
-            runArcTick(state, callbacks, displayInput, lastAssistantContent);
+            runArcTick(state, callbacks, displayInput, lastAssistantContent, facade);
         }
     } catch (err) {
         console.warn('[ArcTick] Failed (non-fatal):', err);
