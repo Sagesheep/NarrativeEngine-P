@@ -20,7 +20,7 @@ import { tierAllows } from './aiTier';
 // commit path deliberately does not (see `tracks/index.ts`).
 import { startPostTurnTracks } from './tracks';
 import type { PostTurnTrackContext } from './tracks/types';
-import { buildHostFacade } from './hostFacade';
+import { buildHostFacade, hasHostModelRole, type HostFacade } from './hostFacade';
 
 // WO-P2-03: the enemy-discovery single-flight map moved to `tracks/enemySuggestionTrack.ts`
 // along with the track body. Re-exported here so the campaign-switch caller
@@ -190,7 +190,7 @@ export async function runPostTurnPipeline(
     };
 
     const results = await Promise.allSettled([
-        runArchiveTrack(state, callbacks, displayInput, lastAssistantContent, allMsgs, activeCampaignId, options?.verifyExistingScene === true),
+        runArchiveTrack(state, callbacks, displayInput, lastAssistantContent, allMsgs, activeCampaignId, options?.verifyExistingScene === true, facade),
         ...startPostTurnTracks(trackCtx, state.settings),
     ]);
 
@@ -355,6 +355,7 @@ async function runArchiveTrack(
     allMsgs: ChatMessage[],
     activeCampaignId: string,
     verifyExistingScene = false,
+    facade?: HostFacade,
 ): Promise<boolean> {
     // Durable-commit v1: a retry after a failed commit looks for the scene before
     // writing one, so a lost-response failure re-links instead of duplicating.
@@ -368,10 +369,11 @@ async function runArchiveTrack(
 
     if (!appendedSceneId) {
         let sceneImportance: number | undefined;
-        const importanceProvider = state.getFreshProvider();
-        if (importanceProvider && tierAllows(state.settings.aiTier, 'importanceRating')) {
+        const importanceProvider = facade ? undefined : state.getFreshProvider();
+        const importanceAvailable = facade ? hasHostModelRole(facade, 'story') : Boolean(importanceProvider);
+        if (importanceAvailable && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'importanceRating')) {
             try {
-                sceneImportance = await rateImportance(importanceProvider, displayInput, lastAssistantContent, allMsgs);
+                sceneImportance = await rateImportance(importanceProvider, displayInput, lastAssistantContent, allMsgs, facade ? (request: import('./hostFacade').ModelRequest) => facade.model.call('story', request) : undefined);
                 console.log(`[ImportanceRater] Scene rated: ${sceneImportance}/5`);
             } catch (err) {
                 console.warn('[ImportanceRater] Failed (non-fatal):', err);
