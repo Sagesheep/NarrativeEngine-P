@@ -15,7 +15,30 @@ import { normalizeEnemyEntries } from '../services/enemy/enemySchema';
 import { normalizeEnemyEncounters } from '../services/enemy/enemyEncounter';
 import { normalizeEnemyResolutions } from '../services/enemy/enemyResolution';
 import { loadLocationTable } from '../services/tables/locationTable';
+import { hydrateModTables } from '../services/mods/modTables';
+import { fetchMods } from '../services/mods/modClient';
 import { safeSceneNum } from '../utils/helpers';
+
+/**
+ * WO-P5-05 — fetch the installed mods and hydrate their declared tables.
+ *
+ * This is a separate helper so it can sit inside the hydrator's `Promise.all`
+ * fan-out without blocking the other 14 loads. It first fetches the mod list
+ * (to know which tables are declared), then fetches each table's data in
+ * parallel. NEVER THROWS: a fetch failure yields `{}` (no mod tables), so a
+ * mods endpoint that is down cannot break campaign hydration. With no mods
+ * installed this resolves to `{}` — byte-identical to the prior behaviour.
+ */
+async function hydrateModTablesFromServer(campaignId: string): Promise<Record<string, unknown>> {
+    try {
+        const { mods } = await fetchMods();
+        return await hydrateModTables(campaignId, mods);
+    } catch {
+        // Mods endpoint unreachable or malformed — no mod tables. The app
+        // continues; the Extensions screen will show the fault on next refresh.
+        return {};
+    }
+}
 
 function backfillSceneIds(chapters: ArchiveChapter[]): { chapters: ArchiveChapter[]; changed: boolean } {
     let changed = false;
@@ -175,7 +198,7 @@ export function rebuildSceneStamps(
 }
 
 export async function hydrateCampaign(campaignId: string) {
-    const [state, chunks, npcs, enemies, enemyInstances, enemyEncounters, enemyResolutions, enemyCombatConfig, locations, archiveIndex, timeline, chapters, entities, divReg] = await Promise.all([
+    const [state, chunks, npcs, enemies, enemyInstances, enemyEncounters, enemyResolutions, enemyCombatConfig, locations, archiveIndex, timeline, chapters, entities, divReg, modTables] = await Promise.all([
         loadCampaignState(campaignId),
         getLoreChunks(campaignId),
         getNPCLedger(campaignId),
@@ -190,6 +213,13 @@ export async function hydrateCampaign(campaignId: string) {
         loadChapters(campaignId),
         loadEntities(campaignId),
         loadDivergenceRegister(campaignId),
+        // WO-P5-05: hydrate declared mod tables in parallel. Fetches the mod
+        // list first (to know which tables are declared), then fetches each
+        // table's data. NEVER THROWS — a failed fetch yields the default, so
+        // a single bad mod table cannot break campaign hydration. With no
+        // mods installed this resolves to {} (empty map), byte-identical to
+        // the prior behaviour (the field was absent before; now it is `{}`).
+        hydrateModTablesFromServer(campaignId),
     ]);
 
     const rawContext: GameContext = { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) } as GameContext;
@@ -278,5 +308,6 @@ export async function hydrateCampaign(campaignId: string) {
         characterProfileData: finalContext.characterProfileData,
         playerCharacter: finalContext.playerCharacter ?? null,
         pinnedExcerpts: state?.pinnedExcerpts ?? [],
+        modTables: modTables ?? {},
     });
 }

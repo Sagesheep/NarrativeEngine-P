@@ -492,6 +492,14 @@ export type CampaignSlice = {
     setAutoBookkeepingInterval: (n: number) => void;
     resetBookkeepingTurnCounter: () => void;
     incrementBookkeepingTurnCounter: () => number;
+    // ── Mod tables (WO-P5-05) ───────────────────────────────────────────
+    // One namespaced map keyed by the descriptor's full name (`mod.<modId>.<name>`).
+    // Mod tables do NOT get individual top-level fields — the whole point is
+    // that no code is written per table. Panels (phase PANELS) make them
+    // pleasant to use; that is not this work order.
+    modTables: Record<string, unknown>;
+    setModTable: (name: string, data: unknown) => void;
+    getModTable: (name: string) => unknown;
 };
 
 // ── Combined state needed for cross-slice access ───────────────────────
@@ -1297,6 +1305,17 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         debouncedSaveCampaignState();
         return { context: newContext, playerCharacter: merged } as Partial<CampaignDeps>;
     }),
+
+    // ── Mod tables (WO-P5-05) ───────────────────────────────────────────
+    // One namespaced map, keyed by `mod.<modId>.<name>`. Hydration fills it
+    // (campaignHydrator calls hydrateModTables); setModTable updates a single
+    // entry and fire-and-forgets a save through the dynamic mod-table route.
+    modTables: {},
+    setModTable: (name, data) => set((s) => {
+        const modTables = { ...s.modTables, [name]: data };
+        return { modTables } as Partial<CampaignDeps>;
+    }),
+    getModTable: (name) => get().modTables[name],
 
     bookkeepingTurnCounter: 0,
     autoBookkeepingInterval: 5,
