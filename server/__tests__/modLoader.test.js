@@ -426,3 +426,178 @@ describe('loadMods — compute mods', () => {
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/compute\.file "missing\.js" could not be read/);
     });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WO-P5-05 — mod-declared data tables. Tests for Step 1 (validation only).
+//
+// The contract under test is §2 of the work order: the modder NEVER supplies a
+// path. A mod declares a table `name`; the app computes the file suffix. The
+// manifest has no `fileSuffix` field and must not accept one. No mod-supplied
+// functions either. Every attack string below must be a REJECTION with a
+// clear reason, never a crash.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('loadMods — tables validation (WO-P5-05 Step 1)', () => {
+    const withTables = (tables) => validMod({ tables });
+
+    it('accepts a mod with no tables field (the common case today)', () => {
+        write('x.mod.json', validMod());
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].tables).toEqual([]);
+    });
+
+    it('accepts an empty tables array', () => {
+        write('x.mod.json', withTables([]));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].tables).toEqual([]);
+    });
+
+    it('loads a valid table declaration with every field preserved', () => {
+        write('x.mod.json', withTables([
+            { name: 'powers', recordShape: 'array', label: 'Powers', reads: ['npcs'], writes: ['state'] },
+            { name: 'cfg', recordShape: 'single-object' },
+        ]));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].tables).toEqual([
+            { name: 'powers', recordShape: 'array', label: 'Powers', reads: ['npcs'], writes: ['state'] },
+            { name: 'cfg', recordShape: 'single-object' },
+        ]);
+    });
+
+    it('accepts a table with only the required fields', () => {
+        write('x.mod.json', withTables([{ name: 'things', recordShape: 'array' }]));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].tables).toEqual([{ name: 'things', recordShape: 'array' }]);
+    });
+
+    // ── §2 attack suite: every case is a REJECTION, never a crash ──────────
+    it.each([
+        // Attack 1: fileSuffix supplied as ".state.json" — would silently
+        // overwrite campaign state on every save. Blocked: suffix is derived,
+        // never supplied. The field is forbidden, full stop.
+        ['a fileSuffix field (".state.json" overwrite)', [{ name: 'powers', recordShape: 'array', fileSuffix: '.state.json' }], /fileSuffix is not allowed/],
+        // Attack 2: fileSuffix as a path traversal out of the campaigns dir.
+        ['a fileSuffix path traversal', [{ name: 'powers', recordShape: 'array', fileSuffix: '../../../../vault.json' }], /fileSuffix is not allowed/],
+        // Attack 3: a `path` field (same attack, alternate key name).
+        ['a path field', [{ name: 'powers', recordShape: 'array', path: '../evil.json' }], /path is not allowed/],
+        // Attack 4: a `filePath` field (same attack, third key name).
+        ['a filePath field', [{ name: 'powers', recordShape: 'array', filePath: '../evil.json' }], /filePath is not allowed/],
+        // Attack 5: a name with a dot — would forge the namespace if the app
+        // naively derived the suffix as `.${name}.json` (yielding `.state.json`
+        // for name "state"). ID_REGEX rejects the dot.
+        ['a dotted name (namespace forge)', [{ name: 'a.state', recordShape: 'array' }], /may contain only letters/],
+        // Attack 6: a name with a slash — path traversal via the name.
+        ['a slashed name (traversal)', [{ name: '../vault', recordShape: 'array' }], /may contain only letters/],
+        // Attack 7: a name with ".." — traversal via the name.
+        ['a dotdot name (traversal)', [{ name: '....', recordShape: 'array' }], /may contain only letters/],
+        // Attack 8: two tables in the same mod claiming the same name — the
+        // second would clobber the first's file on every save.
+        ['a duplicate table name', [{ name: 'powers', recordShape: 'array' }, { name: 'powers', recordShape: 'single-object' }], /declared more than once/],
+        // Attack 9: a mod-supplied serverSchema. §2: a mod table is data only;
+        // a schema touchpoint is a function the app would invoke, and letting
+        // mod code in here is the accident this plan exists to prevent. A mod
+        // file is JSON, so this arrives as an object/string, not a function —
+        // but the field is forbidden regardless of value type.
+        ['a serverSchema field', [{ name: 'powers', recordShape: 'array', serverSchema: {} }], /serverSchema is not allowed/],
+        // Attack 10: a mod-supplied clientSchema.
+        ['a clientSchema field', [{ name: 'powers', recordShape: 'array', clientSchema: 'normalize' }], /clientSchema is not allowed/],
+        // Attack 11: a mod-supplied hooks map.
+        ['a hooks map', [{ name: 'powers', recordShape: 'array', hooks: { onBeforeWrite: 'x' } }], /hooks is not allowed/],
+        // Attack 12: a mod-supplied onRemove side effect.
+        ['an onRemove field', [{ name: 'powers', recordShape: 'array', onRemove: 'cleanup' }], /onRemove is not allowed/],
+        // Attack 13: a name colliding with a built-in table name (`npcs`).
+        // The `mod-` prefix already makes this unreachable; the name regex
+        // alone does NOT block it (npcs is a valid id string). The assert-
+        // not-built-in check is Step 2; here we only verify the name is a
+        // valid id. A built-in collision is rejected at registration.
+        // (This case is accepted at Step 1; Step 2 rejects it.)
+    ])('rejects %s', (_label, tables, expected) => {
+        write('x.mod.json', withTables(tables));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(expected);
+    });
+
+    it('rejects a non-array tables field', () => {
+        write('x.mod.json', withTables({ name: 'powers' }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/tables must be an array/);
+    });
+
+    it('rejects a table entry that is not an object', () => {
+        write('x.mod.json', withTables(['just a string']));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/tables\[0\] must be an object/);
+    });
+
+    it.each([
+        ['missing', undefined],
+        ['a number', 7],
+        ['an empty string', '   '],
+        ['an object', {}],
+    ])('rejects a table name that is %s', (_label, name) => {
+        write('x.mod.json', withTables([{ name, recordShape: 'array' }]));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/tables\[0\]\.name must be a non-empty string/);
+    });
+
+    it.each([
+        ['missing', undefined],
+        ['a number', 7],
+        ['an invalid string', 'list'],
+        ['an object', {}],
+    ])('rejects a recordShape that is %s', (_label, recordShape) => {
+        write('x.mod.json', withTables([{ name: 'powers', recordShape }]));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/recordShape/);
+    });
+
+    it('rejects a non-string label', () => {
+        write('x.mod.json', withTables([{ name: 'powers', recordShape: 'array', label: 12 }]));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/label must be a string/);
+    });
+
+    it.each([
+        ['a non-array', 'npcs'],
+        ['an array with a number', [7]],
+        ['an array with an empty string', ['']],
+    ])('rejects reads given as %s', (_label, reads) => {
+        write('x.mod.json', withTables([{ name: 'powers', recordShape: 'array', reads }]));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/reads/);
+    });
+
+    it.each([
+        ['a non-array', 'npcs'],
+        ['an array with a number', [7]],
+        ['an array with an empty string', ['']],
+    ])('rejects writes given as %s', (_label, writes) => {
+        write('x.mod.json', withTables([{ name: 'powers', recordShape: 'array', writes }]));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/writes/);
+    });
+
+    it('rejects an unknown field on a table declaration', () => {
+        write('x.mod.json', withTables([{ name: 'powers', recordShape: 'array', future: 'oops' }]));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/unknown field "future"/);
+    });
+
+    it('keeps loading the good mods when one file has a bad table', () => {
+        write('a-good.mod.json', validMod({ id: 'good' }));
+        write('b-bad.mod.json', validMod({
+            id: 'bad',
+            tables: [{ name: 'powers', recordShape: 'array', fileSuffix: '.state.json' }],
+        }));
+        write('c-good.mod.json', validMod({ id: 'alsogood' }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(mods.map((m) => m.id)).toEqual(['good', 'alsogood']);
+        expect(faults.map((f) => f.file)).toEqual(['b-bad.mod.json']);
+        expect(faults[0].reason).toMatch(/fileSuffix is not allowed/);
+    });
+
+    it('rejects the whole file when a single table entry is bad', () => {
+        write('x.mod.json', validMod({
+            tables: [
+                { name: 'good', recordShape: 'array' },
+                { name: 'bad', recordShape: 'array', fileSuffix: '.x.json' },
+            ],
+        }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/tables\[1\]\.fileSuffix/);
+    });
+});

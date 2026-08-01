@@ -60,6 +60,41 @@ export interface ModContribution {
     suppresses?: string[];
 }
 
+/**
+ * A data table declared by a mod manifest. The app computes the file suffix,
+ * routes, hydration and transfer from this declaration — the modder writes
+ * no code (WO-P5-05).
+ *
+ * The modder NEVER supplies a path. There is no `fileSuffix` field here and
+ * there must never be one (WO-P5-05 §2). The app derives
+ * `.mod-<modId>-<name>.json` from `name` + the mod's `id`.
+ *
+ * `reads`/`writes` are declared relationships (plan §7). Nothing consumes them
+ * yet; they are included now because adding them later would be a breaking
+ * change to a manifest shape the app owes compatibility on.
+ */
+export interface ModTableDeclaration {
+    /** Required. ID_REGEX (`/^[a-zA-Z0-9_-]+$/`). Unique within the mod. */
+    name: string;
+    /** Required. `"array"` (JSON array of records) or `"single-object"` (one JSON object). */
+    recordShape: 'array' | 'single-object';
+    /** Optional. Human-readable label, for UI later. */
+    label?: string;
+    /** Optional. Declared read relationships (plan §7). Not consumed yet. */
+    reads?: string[];
+    /** Optional. Declared write relationships (plan §7). Not consumed yet. */
+    writes?: string[];
+}
+
+/** A validated table declaration. Same shape — the server has checked it. */
+export interface ValidatedModTable {
+    name: string;
+    recordShape: 'array' | 'single-object';
+    label?: string;
+    reads?: string[];
+    writes?: string[];
+}
+
 /** A `*.mod.json` file, as authored. */
 export interface ModDefinition {
     id: string;
@@ -70,6 +105,8 @@ export interface ModDefinition {
     description?: string;
     contributions: ModContribution[];
     compute?: ModCompute;
+    /** Optional. Data tables the app provisions with zero mod code (WO-P5-05). */
+    tables?: ModTableDeclaration[];
 }
 
 /** The code hook and capabilities declared by a compute mod. */
@@ -85,6 +122,8 @@ export interface ValidatedMod extends ModDefinition {
     file: string;
     /** The sibling compute file, carried as text; the server never evaluates it. */
     computeSource?: string;
+    /** Validated data tables (WO-P5-05). Same shape, server-checked. */
+    tables: ValidatedModTable[];
 }
 
 /** A file that was rejected, and why. Shown to the user rather than swallowed. */

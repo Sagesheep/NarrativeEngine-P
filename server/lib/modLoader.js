@@ -65,6 +65,12 @@ const COMPUTE_TABLE_READS = new Set(['archive', 'divergence', 'enemies', 'locati
 const COMPUTE_TABLE_WRITES = new Set(['archive', 'locations', 'npcs']);
 const COMPUTE_MODEL_ROLES = new Set(['story', 'utility', 'auxiliary', 'summariser', 'raw-auxiliary', 'raw-summariser']);
 
+/**
+ * WO-P5-05 §2: the only two record shapes a mod table may declare. The app
+ * uses this only to pick the right empty default (`[]` vs `null`).
+ */
+const TABLE_RECORD_SHAPES = new Set(['array', 'single-object']);
+
 /** v1 supports exactly two forms: `">=X.Y.Z"` (Y and Z optional) and `"*"`. */
 const APP_VERSION_REGEX = /^>=\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?$/;
 
@@ -287,6 +293,109 @@ function validateContribution(raw, index, seenIds) {
     return contribution;
 }
 
+/**
+ * WO-P5-05 — validate a mod's declared `tables` array. A mod table is
+ * DATA ONLY: a file on disk, a GET/PUT pair, hydration, export/import. No
+ * mod code runs (§2 "Also non-negotiable"); that is phase COMPUTE.
+ *
+ * The modder NEVER supplies a path. There is no `fileSuffix` field accepted
+ * and there must never be one (§2). The app derives `.mod-<modId>-<name>.json`
+ * from the table `name` + the mod's `id`. Three belt-and-braces defences are
+ * enforced here and again at registration:
+ *
+ *   1. `name` is validated against ID_REGEX (reused from line 159 of this
+ *      file): no dots (would forge the namespace), no slashes, no `..`.
+ *   2. The computed suffix is asserted not in the built-in set (Step 2).
+ *      The `mod-` prefix already makes that unreachable; we assert anyway.
+ *   3. The generic route serves only registered names; an unregistered name
+ *      is a 404 before any path is built (Step 3).
+ *
+ * This step builds NO descriptor — Step 2 does. A malformed `tables` entry
+ * rejects THIS mod, with a reason naming the mod, the table and the problem.
+ * Other mods keep loading. Rejection happens at load, never mid-turn.
+ */
+function validateTables(raw, modId) {
+    if (raw === undefined) return [];
+    if (!Array.isArray(raw)) reject('tables must be an array of table declarations');
+
+    const seen = new Set();
+    const tables = raw.map((entry, index) => {
+        const at = `tables[${index}]`;
+        if (!isPlainObject(entry)) reject(`${at} must be an object`);
+
+        requireNonEmptyString(entry.name, `${at}.name`);
+        // Defence #1: ID_REGEX rejects dots, slashes, "..", whitespace.
+        // A dot would forge the namespace (".state.json"); a slash or ".."
+        // would traverse out of the campaigns directory.
+        if (!ID_REGEX.test(entry.name)) {
+            reject(`${at}.name "${entry.name}" may contain only letters, digits, "_" and "-"`);
+        }
+        if (seen.has(entry.name)) reject(`${at}.name "${entry.name}" is declared more than once in mod "${modId}"`);
+        seen.add(entry.name);
+
+        requireNonEmptyString(entry.recordShape, `${at}.recordShape`);
+        if (!TABLE_RECORD_SHAPES.has(entry.recordShape)) {
+            reject(`${at}.recordShape "${entry.recordShape}" must be "array" or "single-object"`);
+        }
+
+        const table = { name: entry.name, recordShape: entry.recordShape };
+
+        if (entry.label !== undefined) {
+            if (typeof entry.label !== 'string') reject(`${at}.label must be a string`);
+            table.label = entry.label;
+        }
+
+        // reads/writes are declared relationships (plan §7). Nothing consumes
+        // them yet. Validated as string arrays so a typo is a fault, not a
+        // silent miss, once a later phase does consume them.
+        if (entry.reads !== undefined) {
+            table.reads = validateStringArray(entry.reads, `${at}.reads`);
+        }
+        if (entry.writes !== undefined) {
+            table.writes = validateStringArray(entry.writes, `${at}.writes`);
+        }
+
+        // §2: the manifest must NEVER accept a fileSuffix, a path, a schema,
+        // or a function. Any of these fields present is a fault, not a pass —
+        // a mod that supplies a path has just attempted to name any file in
+        // the campaigns directory, and a mod that supplies a function has
+        // just attempted to execute code outside the sandbox.
+        const forbidden = ['fileSuffix', 'filePath', 'path', 'serverSchema', 'clientSchema', 'hooks', 'onRemove'];
+        for (const key of forbidden) {
+            if (entry[key] !== undefined) {
+                reject(`${at}.${key} is not allowed — a mod table is data only; the app computes the ${key === 'fileSuffix' || key === 'filePath' || key === 'path' ? 'file suffix' : key}`);
+            }
+        }
+        // Any other unknown key is a fault too: the manifest shape is a
+        // permanent compatibility promise (WO-P5-05 §3), and an unknown key
+        // is either a typo or a future field we have not promised yet.
+        const allowed = new Set(['name', 'recordShape', 'label', 'reads', 'writes']);
+        for (const key of Object.keys(entry)) {
+            if (!allowed.has(key)) {
+                reject(`${at} has unknown field "${key}" — only name, recordShape, label, reads, writes are allowed`);
+            }
+        }
+
+        return table;
+    });
+
+    return tables;
+}
+
+/**
+ * Validate a `string[]` field on a table declaration (reads/writes). A
+ * non-array, or an array with a non-string or empty string, is a fault.
+ */
+function validateStringArray(value, at) {
+    if (!Array.isArray(value)) reject(`${at} must be an array of strings`);
+    for (const item of value) {
+        if (typeof item !== 'string' || item.trim() === '') {
+            reject(`${at} must contain only non-empty strings`);
+        }
+    }
+    return [...value];
+}
+
 function validateMod(raw, file, appVersion, modsDir) {
     if (!isPlainObject(raw)) reject('mod file must contain a JSON object');
 
@@ -309,12 +418,18 @@ function validateMod(raw, file, appVersion, modsDir) {
     const seenIds = new Set();
     const contributions = raw.contributions.map((c, i) => validateContribution(c, i, seenIds));
 
+    // WO-P5-05: validate declared data tables. Optional; absent = []. A
+    // malformed table entry rejects this mod (not others). No descriptor is
+    // built here — Step 2 derives suffixes and registers descriptors.
+    const tables = validateTables(raw.tables, raw.id);
+
     const mod = {
         id: raw.id,
         name: raw.name,
         version: raw.version,
         description: typeof raw.description === 'string' ? raw.description : '',
         contributions,
+        tables,
         file,
     };
     if (typeof raw.appVersion === 'string') mod.appVersion = raw.appVersion;
