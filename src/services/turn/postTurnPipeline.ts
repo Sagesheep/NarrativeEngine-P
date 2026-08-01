@@ -490,12 +490,17 @@ async function runArchiveTrack(
         state.resetBookkeepingTurnCounter();
 
         const bkProvider = state.getFreshProvider();
-        if (bkProvider) {
+        const bkAvailable = facade ? hasHostModelRole(facade, 'story') : Boolean(bkProvider);
+        if (bkAvailable) {
             const sceneId = appendedSceneId;
-            const inventoryItems = state.getFreshContext().inventoryItems || [];
-            const profileData = state.getFreshContext().characterProfileData || { name: '', race: '', class: '', level: 1, hp: { current: 20, max: 20 }, stats: {}, skills: [], abilities: [], traits: [], notes: '' };
+            const snapshotContext = facade?.data.context;
+            const freshContext = snapshotContext?.characterProfileActive ? snapshotContext : state.getFreshContext();
+            const inventoryItems = freshContext.inventoryItems || [];
+            const profileData = freshContext.characterProfileData || { name: '', race: '', class: '', level: 1, hp: { current: 20, max: 20 }, stats: {}, skills: [], abilities: [], traits: [], notes: '' };
+            const scanMessages = facade?.data.messages ?? state.getMessages();
+            const storyModelCall = facade ? (request: import('./hostFacade').ModelRequest) => facade.model.call('story', request) : undefined;
 
-            const guardedUpdateContext = makeGuarded(callbacks.updateContext, activeCampaignId, 'updateContext (bookkeeping scan)');
+            const guardedUpdateContext = makeGuarded(facade?.write.updateContext ?? callbacks.updateContext, activeCampaignId, 'updateContext (bookkeeping scan)');
             const guardedSetCharacterProfileData = makeGuarded(
                 callbacks.setCharacterProfileData,
                 activeCampaignId,
@@ -517,10 +522,10 @@ async function runArchiveTrack(
                 'addLocationSuggestions (Location-Scan)',
             );
 
-            if (tierAllows(state.settings.aiTier, 'profileScan')) {
+            if (tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'profileScan')) {
                 backgroundQueue.push('Profile-Scan', async () => {
                     if (!assertStillActive(activeCampaignId, 'Profile-Scan')) return;
-                    const newProfile = await scanCharacterProfile(bkProvider, state.getMessages(), profileData);
+                    const newProfile = await scanCharacterProfile(bkProvider, scanMessages, profileData, storyModelCall);
                     if (!assertStillActive(activeCampaignId, 'Profile-Scan')) return;
                     guardedUpdateContext({
                         characterProfileData: newProfile,
@@ -535,11 +540,11 @@ async function runArchiveTrack(
             // CharacterProfileState (identity + bounded activeTraits with supersession).
             // WO-J (5be8695): gate on characterProfileActive — skip the LLM call when the
             // toggle is off, since the result is never injected.
-            if (state.getFreshContext().characterProfileActive && tierAllows(state.settings.aiTier, 'profileScan')) {
-                const traitProfile = state.getFreshContext().characterProfile || { identity: {}, activeTraits: [] };
+            if (freshContext.characterProfileActive && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'profileScan')) {
+                const traitProfile = freshContext.characterProfile || { identity: {}, activeTraits: [] };
                 backgroundQueue.push('Trait-Scan', async () => {
                     if (!assertStillActive(activeCampaignId, 'Trait-Scan')) return;
-                    const newTraits = await scanCharacterTraits(bkProvider, state.getMessages(), traitProfile);
+                    const newTraits = await scanCharacterTraits(bkProvider, scanMessages, traitProfile, storyModelCall);
                     if (!assertStillActive(activeCampaignId, 'Trait-Scan')) return;
                     guardedUpdateContext({
                         characterProfile: newTraits,
@@ -548,7 +553,7 @@ async function runArchiveTrack(
                 }).catch(err => console.warn('[Auto Bookkeeping] Trait scan failed:', err));
             }
 
-            if (tierAllows(state.settings.aiTier, 'inventoryScan')) {
+            if (bkProvider && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'inventoryScan')) {
                 backgroundQueue.push('Inventory-Scan', async () => {
                     if (!assertStillActive(activeCampaignId, 'Inventory-Scan')) return;
                     const newItems = await scanInventory(bkProvider, state.getMessages(), inventoryItems);
@@ -569,7 +574,7 @@ async function runArchiveTrack(
             // connections into existing ledger entries + emits new-place suggestions for
             // player review. Never auto-adds entries. Pointer rides callbacks.updateContext
             // (currentPlaceId/currentFeature); ledger + suggestions ride the store setters.
-            if (tierAllows(state.settings.aiTier, 'locationScan')) {
+            if (bkProvider && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'locationScan')) {
                 backgroundQueue.push('Location-Scan', async () => {
                     if (!assertStillActive(activeCampaignId, 'Location-Scan')) return;
                     const before = callbacks.getFreshLocationState();
@@ -611,7 +616,7 @@ async function runArchiveTrack(
             // with a narrower whitelist (personalityHex/traits/relations/pcRelation
             // are blocked — see §0). Cheap-first endpoint per §2.2 chain.
             const pc = state.getFreshContext().playerCharacter;
-            if (pc && tierAllows(state.settings.aiTier, 'npcUpdate')) {
+            if (bkProvider && pc && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'npcUpdate')) {
                 const pcProvider = state.getFreshProvider();
                 if (pcProvider) {
                     const guardedUpdatePlayerCharacter = makeGuarded(

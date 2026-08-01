@@ -9,13 +9,15 @@
 import type { ChatMessage, ProviderConfig, EndpointConfig, CharacterProfile } from '../types';
 import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
+import type { ModelRequest, ModelResponse } from './turn/hostFacade';
 
 export type ProfileOp = Partial<CharacterProfile> & { op?: 'set' | 'add_to_list' | 'remove_from_list' | 'update_list_item' };
 
 export async function scanCharacterProfile(
-    provider: ProviderConfig | EndpointConfig,
+    provider: ProviderConfig | EndpointConfig | undefined,
     messages: ChatMessage[],
-    currentProfile: CharacterProfile
+    currentProfile: CharacterProfile,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>
 ): Promise<CharacterProfile> {
     const recentMessages = messages.slice(-15);
     if (recentMessages.length === 0) return currentProfile;
@@ -29,7 +31,11 @@ export async function scanCharacterProfile(
     const prompt = `You are an AI character profile manager for an RPG. Review the recent chat and character profile below.\nIdentify any changes to HP, MP, stats, skills, abilities, traits, name, race, class, or level.\n\n=== CURRENT PROFILE ===\n${profileJson}\n\n=== RECENT CHAT HISTORY ===\n${turns}\n\n=== INSTRUCTIONS ===\nReturn ONLY a valid JSON object containing changed fields and their new values. No other text.\nUse top-level keys matching the profile fields.\n\nTo increment/decrement a numeric value, return the NEW absolute value (not delta).\n\nExample response when HP drops by 5:\n{"hp":{"current":15,"max":20}}\n\nExample response when a new skill is gained:\n{"skills":["Stealth","Persuasion","Arcana","Lockpicking"]}\n\nExample response when nothing changes:\n{}\n\nOnly include keys that changed. Return {} if nothing changed.`;
 
     try {
-        const result = await llmCall(provider, prompt, { priority: 'low', trackingLabel: 'profile-scan', timeoutMs: AI_CALL_TIMEOUT_MS });
+        const result = modelCall
+            ? (await modelCall({ prompt, priority: 'low', trackingLabel: 'profile-scan', timeoutMs: AI_CALL_TIMEOUT_MS })).content
+            : provider
+                ? await llmCall(provider, prompt, { priority: 'low', trackingLabel: 'profile-scan', timeoutMs: AI_CALL_TIMEOUT_MS })
+                : '';
         let text = result;
         const md = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
         if (md) text = md[1];

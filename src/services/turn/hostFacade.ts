@@ -1,6 +1,10 @@
 import type {
     AiTier,
     ArchiveIndexEntry,
+    CharacterProfile,
+    InventoryItem,
+    LocationEntry,
+    LocationSuggestion,
     ChatMessage,
     CondenserState,
     DivergenceRegister,
@@ -76,6 +80,10 @@ export interface FacadeWrites {
     readonly restoreNPC: (id: string) => void;
     readonly onDirectorBriefPhase: (phase: 'running' | 'done') => void;
     readonly updatePlayerCharacter: (patch: Partial<PlayerCharacter>) => void;
+    readonly setCharacterProfileData: (profile: CharacterProfile) => void;
+    readonly setInventoryItems: (items: InventoryItem[]) => void;
+    readonly setLocationLedger: (locations: LocationEntry[]) => void;
+    readonly addLocationSuggestions: (suggestions: LocationSuggestion[]) => void;
 }
 
 export interface HostFacade {
@@ -259,6 +267,10 @@ export function buildHostFacade(
         restoreNPC: callbacks.restoreNPC,
         onDirectorBriefPhase: callbacks.onDirectorBriefPhase ?? (() => undefined),
         updatePlayerCharacter: options.updatePlayerCharacter ?? (() => undefined),
+        setCharacterProfileData: callbacks.setCharacterProfileData,
+        setInventoryItems: callbacks.setInventoryItems,
+        setLocationLedger: callbacks.setLocationLedger,
+        addLocationSuggestions: callbacks.addLocationSuggestions,
     });
     const model = Object.freeze({
         call: async (role: ModelRole, request: ModelRequest): Promise<ModelResponse> => {

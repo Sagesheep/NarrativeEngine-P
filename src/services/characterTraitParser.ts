@@ -21,6 +21,7 @@ import type { ChatMessage, ProviderConfig, EndpointConfig, CharacterProfileState
 import { uid } from '../utils/uid';
 import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
+import type { ModelRequest, ModelResponse } from './turn/hostFacade';
 
 const VALID_CATEGORIES: ReadonlySet<DivergenceCategory> = new Set([
     'locations', 'npc_events', 'promises_debts', 'world_state', 'party_facts', 'rules_lore', 'misc',
@@ -32,9 +33,10 @@ const VALID_TAGS: ReadonlySet<SceneEventType> = new Set([
 const TRAIT_CAP = 10;
 
 export async function scanCharacterTraits(
-    provider: ProviderConfig | EndpointConfig,
+    provider: ProviderConfig | EndpointConfig | undefined,
     messages: ChatMessage[],
     currentProfile: CharacterProfileState,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>
 ): Promise<CharacterProfileState> {
     const recentMessages = messages.slice(-15);
     if (recentMessages.length === 0) return currentProfile;
@@ -106,7 +108,11 @@ export async function scanCharacterTraits(
     ].join('\n');
 
     try {
-        const result = await llmCall(provider, prompt, { priority: 'low', maxTokens: 4096, trackingLabel: 'trait-scan', timeoutMs: AI_CALL_TIMEOUT_MS });
+        const result = modelCall
+            ? (await modelCall({ prompt, priority: 'low', maxTokens: 4096, trackingLabel: 'trait-scan', timeoutMs: AI_CALL_TIMEOUT_MS })).content
+            : provider
+                ? await llmCall(provider, prompt, { priority: 'low', maxTokens: 4096, trackingLabel: 'trait-scan', timeoutMs: AI_CALL_TIMEOUT_MS })
+                : '';
         let clean = result.replace(/<think[\s\S]*?<\/think>/gi, '');
         const mdMatch = clean.match(/```(?:json)?\s*([\s\S]*?)```/i);
         if (mdMatch) clean = mdMatch[1];
