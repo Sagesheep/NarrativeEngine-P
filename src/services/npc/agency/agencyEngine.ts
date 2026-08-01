@@ -14,7 +14,7 @@
 
 import type { NPCEntry, SceneStakes } from '../../../types';
 import type { TurnState, TurnCallbacks } from '../../turn/turnOrchestrator';
-import type { HostFacade } from '../../turn/hostFacade';
+import { hasHostModelRole, type HostFacade } from '../../turn/hostFacade';
 import { uid } from '../../../utils/uid';
 import { llmCall } from '../../../utils/llmCall';
 import { backgroundQueue } from '../../infrastructure/backgroundQueue';
@@ -72,7 +72,7 @@ export function runAgencyTick(
     const timeskipResult = detectTimeskip(displayInput);
     if (timeskipResult && !('ambiguous' in timeskipResult) && timeskipResult.weeks > 0) {
         if (tierAllows(aiTier, 'timeskipRun')) {
-            runTimeskipPath(state, callbacks, npcLedger, timeskipResult.weeks, currentTick, sceneStakes);
+            runTimeskipPath(state, callbacks, npcLedger, timeskipResult.weeks, currentTick, sceneStakes, facade);
             return;
         }
     }
@@ -283,8 +283,13 @@ function runTimeskipPath(
     weeks: number,
     currentTick: number,
     sceneStakes: SceneStakes,
+    facade?: HostFacade,
 ): void {
-    const pc = state.context.playerCharacter ?? npcLedger.find(n => n.isPC);
+    const context = facade?.data.context ?? state.context;
+    const writeCallbacks = facade
+        ? { ...callbacks, updateContext: facade.write.updateContext, updateNPC: facade.write.updateNPC }
+        : callbacks;
+    const pc = context.playerCharacter ?? npcLedger.find(n => n.isPC);
     const roster = buildProximityRoster(npcLedger, pc);
 
     // Upgrade wants→goals for all roster NPCs idempotently before simulation
@@ -300,9 +305,17 @@ function runTimeskipPath(
         return npc;
     });
 
-    // Desktop has no dedicated summarizer slot; the utility endpoint is the closest low-priority
-    // background LLM. Fall back to the main provider if no utility endpoint is configured.
-    const provider = state.getUtilityEndpoint?.() ?? state.getFreshProvider();
+    // Desktop has no dedicated summarizer slot; utility is preferred, then story.
+    const provider = facade ? undefined : state.getUtilityEndpoint?.() ?? state.getFreshProvider();
+    const modelRole = facade && hasHostModelRole(facade, 'utility')
+        ? 'utility' as const
+        : facade && hasHostModelRole(facade, 'story')
+            ? 'story' as const
+            : undefined;
+    const modelCall = modelRole
+        ? (request: { prompt: string; signal?: AbortSignal; maxTokens?: number; priority?: 'low'; trackingLabel?: string; timeoutMs?: number }) =>
+            facade!.model.call(modelRole, request).then(result => result.content)
+        : undefined;
 
     const result = runTimeskip({
         provider,
@@ -312,7 +325,7 @@ function runTimeskipPath(
         sceneStakes,
         advanceTick: (by: number) => {
             const newTick = currentTick + by;
-            callbacks.updateContext({ agencyTick: newTick });
+            writeCallbacks.updateContext({ agencyTick: newTick });
             return newTick;
         },
     });
@@ -321,7 +334,7 @@ function runTimeskipPath(
     for (const npc of result.updatedNPCs) {
         const changed = !!npc.previousSnapshot;
         if (npc.goalRecords && !changed) {
-            callbacks.updateNPC(npc.id, { goalRecords: npc.goalRecords });
+            writeCallbacks.updateNPC(npc.id, { goalRecords: npc.goalRecords });
         } else if (changed) {
             const patch: Partial<NPCEntry> = {};
             if (npc.goalRecords) patch.goalRecords = npc.goalRecords;
@@ -329,19 +342,19 @@ function runTimeskipPath(
             if (npc.skillRung !== undefined) patch.skillRung = npc.skillRung;
             if (npc.previousSnapshot) patch.previousSnapshot = npc.previousSnapshot;
             if (npc.shiftTurnCount !== undefined) patch.shiftTurnCount = npc.shiftTurnCount;
-            callbacks.updateNPC(npc.id, patch);
+            writeCallbacks.updateNPC(npc.id, patch);
         }
     }
 
-    callbacks.updateContext({ agencyTick: currentTick + result.ticksConsumed });
+    writeCallbacks.updateContext({ agencyTick: currentTick + result.ticksConsumed });
 
     // Build and store the digest (player-visible deltas, folded into next GM call, +0)
     if (result.deltas.length > 0) {
         const digestText = buildDigest(result.deltas, 'player');
         if (digestText) {
-            const existing = state.context.agencyDigest ?? '';
+            const existing = context.agencyDigest ?? '';
             const combined = existing ? existing + '\n' + digestText : digestText;
-            callbacks.updateContext({ agencyDigest: combined });
+            writeCallbacks.updateContext({ agencyDigest: combined });
         }
 
         const debugText = buildDigest(result.deltas, 'debug');
@@ -351,7 +364,7 @@ function runTimeskipPath(
     }
 
     // Timeskip narration: +1 LLM call (the ONLY additional LLM cost).
-    if (result.narration && provider) {
+    if (result.narration && (provider || modelCall)) {
         backgroundQueue.push('Timeskip-Narration', async () => {
             try {
                 const narrationPrompt = joinPromptSections(
@@ -368,7 +381,9 @@ function runTimeskipPath(
                     INPUT_DELIMITER,
                     `OFF-SCREEN DEVELOPMENTS:\n${result.narration}`,
                 );
-                const narrationText = await llmCall(provider, narrationPrompt, { priority: 'low', maxTokens: 300, thinkingEffort: 'off' });
+                const narrationText = modelCall
+                    ? await modelCall({ prompt: narrationPrompt, priority: 'low', maxTokens: 300, trackingLabel: 'timeskip-narration', timeoutMs: 120000 })
+                    : await llmCall(provider!, narrationPrompt, { priority: 'low', maxTokens: 300, thinkingEffort: 'off' });
                 if (narrationText && narrationText.trim()) {
                     callbacks.addMessage({
                         id: uid(),
