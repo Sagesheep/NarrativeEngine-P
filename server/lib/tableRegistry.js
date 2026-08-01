@@ -233,6 +233,66 @@ export function mountGenericTableRoutes(registry = serverTableRegistry) {
 }
 
 /**
+ * WO-P5-05 Step 3 — the dynamic mod-table route pair.
+ *
+ * Built-in tables get a per-descriptor route mounted at startup
+ * (`mountGenericTableRoutes`). Mod tables are different: they are installed
+ * and uninstalled without a server restart, so their routes must be looked
+ * up in the registry AT REQUEST TIME, not baked in at mount time.
+ *
+ * This mounts a single dynamic GET/PUT pair under `/api/campaigns/:id/mod-tables/:table`.
+ * The `:table` parameter is the full namespaced name (`mod.<modId>.<name>`).
+ * The handler checks the registry and returns 404 BEFORE any path is built if
+ * the table is not registered — §2 defence #3: "a request for a table that
+ * is not in the registry is a 404 before any path is built. Never interpolate
+ * a URL parameter into a filename."
+ *
+ * The `mod-tables` prefix in the path keeps mod table routes in their own
+ * namespace, so they can never shadow a built-in route. A mod table named
+ * `mod.compendium.powers` is served at
+ * `/api/campaigns/:id/mod-tables/mod.compendium.powers`.
+ */
+export function mountModTableRoutes(registry = serverTableRegistry) {
+    const router = Router();
+
+    router.get('/api/campaigns/:id/mod-tables/:table', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        // Defence #3: look up the registry BEFORE building any path. An
+        // unregistered name is a 404 here — no file is touched.
+        const descriptor = registry.get(req.params.table);
+        if (!descriptor || !descriptor.serverRoutes || descriptor.serverRoutes.present !== true) {
+            return res.status(404).json({ error: `Unknown mod table "${req.params.table}"` });
+        }
+        const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}${descriptor.fileSuffix}`);
+        const fallback = descriptor.recordShape === 'array' ? [] : null;
+        res.json(readJson(filePath, fallback));
+    }));
+
+    router.put('/api/campaigns/:id/mod-tables/:table', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        const descriptor = registry.get(req.params.table);
+        if (!descriptor || !descriptor.serverRoutes || descriptor.serverRoutes.present !== true) {
+            return res.status(404).json({ error: `Unknown mod table "${req.params.table}"` });
+        }
+        ensureDirs();
+        const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}${descriptor.fileSuffix}`);
+        let body = req.body;
+        const onBeforeWrite = descriptor.hooks?.onBeforeWrite;
+        if (typeof onBeforeWrite === 'function') {
+            body = onBeforeWrite({ campaignId: req.params.id, filePath, body });
+        }
+        writeJson(filePath, body);
+        res.json({ ok: true });
+        const onAfterWrite = descriptor.hooks?.onAfterWrite;
+        if (typeof onAfterWrite === 'function') {
+            onAfterWrite({ campaignId: req.params.id, filePath, body });
+        }
+    }));
+
+    return router;
+}
+
+/**
  * WO-P5-03 §5 Step 2.3: iterate descriptors that declare `transfer` for the
  * export/import bundle. Tables that do not declare `transfer` stay out (§6).
  *

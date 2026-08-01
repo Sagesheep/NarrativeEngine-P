@@ -20,7 +20,7 @@ import { createEmbeddingRouter } from './server/routes/embedding.js';
 import { createTtsRouter } from './server/routes/tts.js';
 import { createSceneImagesRouter } from './server/routes/sceneImages.js';
 import { createModsRouter } from './server/routes/mods.js';
-import { mountGenericTableRoutes, serverTableRegistry } from './server/lib/tableRegistry.js';
+import { mountGenericTableRoutes, mountModTableRoutes, serverTableRegistry } from './server/lib/tableRegistry.js';
 import { registerLocationTable } from './server/lib/locationTable.js';
 import { initDb } from './server/lib/vectorStore.js';
 import { warmup as warmupEmbedder } from './server/lib/embedder.js';
@@ -104,6 +104,14 @@ app.use('/api/mods', createModsRouter({ modsDir: MODS_DIR, appVersion: APP_VERSI
 // chapters.js, timeline.js, facts.js, overworld.js, divergence.js, or
 // campaigns.js. With no descriptors registered (today) this mounts nothing.
 app.use(mountGenericTableRoutes());
+
+// Mod table routes (WO-P5-05 Step 3). A single dynamic GET/PUT pair that looks
+// up the registry at request time, so mod tables installed after server start
+// are reachable without a restart. Unregistered name → 404 before any path is
+// built (§2 defence #3). Mounted in its own /mod-tables/ namespace so it can
+// never shadow a built-in route. With no mod tables registered, every request
+// is a 404 — no file is touched.
+app.use(mountModTableRoutes());
 
 // ─── Central Error Handler ───
 app.use((err, _req, res, _next) => {
