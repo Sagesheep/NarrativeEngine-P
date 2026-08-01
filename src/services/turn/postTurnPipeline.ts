@@ -553,17 +553,17 @@ async function runArchiveTrack(
                 }).catch(err => console.warn('[Auto Bookkeeping] Trait scan failed:', err));
             }
 
-            if (bkProvider && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'inventoryScan')) {
+            if (bkAvailable && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'inventoryScan')) {
                 backgroundQueue.push('Inventory-Scan', async () => {
                     if (!assertStillActive(activeCampaignId, 'Inventory-Scan')) return;
-                    const newItems = await scanInventory(bkProvider, state.getMessages(), inventoryItems);
+                    const newItems = await scanInventory(facade ? undefined : bkProvider, scanMessages, inventoryItems, storyModelCall);
                     if (!assertStillActive(activeCampaignId, 'Inventory-Scan')) return;
                     guardedUpdateContext({
                         inventory: newItems.map(it => `- ${it.qty > 1 ? `${it.qty}x ` : ''}${it.name}`).join('\n'),
                         inventoryItems: newItems,
                         inventoryLastScene: sceneId,
                     });
-                    guardedSetInventoryItems(newItems);
+                    (facade?.write.setInventoryItems ?? guardedSetInventoryItems)(newItems);
                     console.log(`[Auto Bookkeeping] Inventory updated at scene #${sceneId}`);
                 }).catch(err => console.warn('[Auto Bookkeeping] Inventory scan failed:', err));
             }
