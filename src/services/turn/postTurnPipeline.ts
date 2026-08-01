@@ -529,7 +529,7 @@ async function runArchiveTrack(
             if (tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'profileScan')) {
                 backgroundQueue.push('Profile-Scan', async () => {
                     if (!assertStillActive(activeCampaignId, 'Profile-Scan')) return;
-                    const newProfile = await scanCharacterProfile(bkProvider, scanMessages, profileData, storyModelCall);
+                    const newProfile = await scanCharacterProfile(facade ? undefined : bkProvider, scanMessages, profileData, storyModelCall);
                     if (!assertStillActive(activeCampaignId, 'Profile-Scan')) return;
                     guardedUpdateContext({
                         characterProfileData: newProfile,
@@ -548,7 +548,7 @@ async function runArchiveTrack(
                 const traitProfile = freshContext.characterProfile || { identity: {}, activeTraits: [] };
                 backgroundQueue.push('Trait-Scan', async () => {
                     if (!assertStillActive(activeCampaignId, 'Trait-Scan')) return;
-                    const newTraits = await scanCharacterTraits(bkProvider, scanMessages, traitProfile, storyModelCall);
+                    const newTraits = await scanCharacterTraits(facade ? undefined : bkProvider, scanMessages, traitProfile, storyModelCall);
                     if (!assertStillActive(activeCampaignId, 'Trait-Scan')) return;
                     guardedUpdateContext({
                         characterProfile: newTraits,
