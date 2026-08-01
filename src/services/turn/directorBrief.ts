@@ -300,6 +300,13 @@ export interface DirectorBriefInput {
     getAuxiliaryProvider?: () => EndpointConfig | undefined;
     /** Optional abort signal from the turn's AbortController. */
     signal?: AbortSignal;
+    /** Facade-brokered model call used by the production turn path. */
+    modelCall?: (prompt: string, options: {
+        signal?: AbortSignal;
+        priority: 'low';
+        trackingLabel: string;
+        timeoutMs: number;
+    }) => Promise<string>;
 }
 
 /**
@@ -343,7 +350,7 @@ export async function runDirectorBrief(input: DirectorBriefInput): Promise<strin
     // fail the turn, including programmer-error paths in parsing.
     try {
         const provider = resolveDirectorProvider(input.provider, input.getAuxiliaryProvider);
-        if (!provider) {
+        if (!provider && !input.modelCall) {
             // No provider resolved — fall back gracefully (no Brief, turn continues).
             // Not cached: a later call in the same turn (e.g. after the user picks a
             // preset) should retry.
@@ -360,14 +367,21 @@ export async function runDirectorBrief(input: DirectorBriefInput): Promise<strin
             recentEvents,
         });
 
-        const raw = await llmCall(provider, prompt, {
-            signal: input.signal,
-            priority: 'low',
-            // WO-04b §3: no thinkingEffort option — let llmCall inherit the
-            // chosen endpoint's configured `thinkingEffort` (llmCall.ts:95).
-            trackingLabel: TRACKING_LABEL,
-            timeoutMs: DIRECTOR_BRIEF_TIMEOUT_MS,
-        });
+        const raw = input.modelCall
+            ? await input.modelCall(prompt, {
+                signal: input.signal,
+                priority: 'low',
+                trackingLabel: TRACKING_LABEL,
+                timeoutMs: DIRECTOR_BRIEF_TIMEOUT_MS,
+            })
+            : await llmCall(provider!, prompt, {
+                signal: input.signal,
+                priority: 'low',
+                // WO-04b §3: no thinkingEffort option — let llmCall inherit the
+                // chosen endpoint's configured `thinkingEffort` (llmCall.ts:95).
+                trackingLabel: TRACKING_LABEL,
+                timeoutMs: DIRECTOR_BRIEF_TIMEOUT_MS,
+            });
 
         // Parsing rides inside the same try/catch (WO-04c §1): a thrown parser
         // exception enters the catch below, logs once (unless the outer signal

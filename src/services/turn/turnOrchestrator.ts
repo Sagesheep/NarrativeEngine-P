@@ -178,7 +178,7 @@ export async function runTurn(
     if (abortController.signal.aborted) return;
 
     await runIntroEngineStage(ctx, state, callbacks, facade);
-    await runDirectorStage(ctx, state, callbacks, abortController);
+    await runDirectorStage(ctx, state, callbacks, abortController, facade);
 
     const genDeps = buildTurnPayload(ctx, state, callbacks);
     await runGenerationStage(ctx, state, callbacks, abortController, genDeps);

@@ -38,7 +38,7 @@ import { runDirectorBrief, lastAssistantContent } from './directorBrief';
 import type { TurnContext } from './turnContext';
 import type { GatheredContext } from './contextGatherer';
 import type { TurnState, TurnCallbacks } from './turnOrchestrator';
-import type { HostFacade } from './hostFacade';
+import { hasHostModelRole, type HostFacade } from './hostFacade';
 
 const MAX_TOOL_CALLS_PER_TURN = 5;
 
@@ -242,8 +242,11 @@ export async function runDirectorStage(
     state: TurnState,
     callbacks: TurnCallbacks,
     abortController: AbortController,
+    facade?: HostFacade,
 ): Promise<void> {
-    const { settings, npcLedger, provider } = state;
+    const settings = facade?.config ?? state.settings;
+    const npcLedger = facade?.data.npcLedger ?? state.npcLedger;
+    const provider = state.provider;
 
     callbacks.setPipelinePhase?.('building-prompt');
     callbacks.setLoadingStatus?.('Architecting AI Prompt...');
@@ -268,10 +271,10 @@ export async function runDirectorStage(
     // it never perturbs the cached prefix (payloadBuilder enforces this). All tiers get the
     // nudge — no tier gate per WO-03 §3.
     const watchdogDossier = buildWatchdogDossier({
-        messages: state.messages,
+        messages: facade?.data.messages ?? state.messages,
         npcLedger,
-        onStageNpcIds: state.onStageNpcIds ?? [],
-        playerCharacter: state.context.playerCharacter ?? null,
+        onStageNpcIds: facade?.data.onStageNpcIds ?? state.onStageNpcIds ?? [],
+        playerCharacter: (facade?.data.context ?? state.context).playerCharacter ?? null,
     });
     const watchdogNudge = watchdogDossier.nudgeText ?? undefined;
 
@@ -302,14 +305,17 @@ export async function runDirectorStage(
             directorBrief = await runDirectorBrief({
                 provider,
                 dossierText: watchdogDossier.dossierText,
-                lastAssistant: lastAssistantContent(state.messages),
+                lastAssistant: lastAssistantContent(facade?.data.messages ?? state.messages),
                 userMessage: ctx.finalInput,
                 npcLedger,
-                onStageNpcIds: state.onStageNpcIds,
-                timeline: state.timeline,
-                campaignId: state.activeCampaignId,
-                getAuxiliaryProvider: state.getFreshAuxiliaryProvider,
+                onStageNpcIds: facade?.data.onStageNpcIds ?? state.onStageNpcIds,
+                timeline: facade?.data.timeline ?? state.timeline,
+                campaignId: facade?.data.activeCampaignId ?? state.activeCampaignId,
+                getAuxiliaryProvider: facade ? undefined : state.getFreshAuxiliaryProvider,
                 signal: directorSignal,
+                modelCall: facade && hasHostModelRole(facade, 'auxiliary')
+                    ? (prompt, request) => facade.model.call('auxiliary', { prompt, ...request }).then(result => result.content)
+                    : undefined,
             });
         } catch (err) {
             // Defensive: runDirectorBrief is expected to never throw (it catches
