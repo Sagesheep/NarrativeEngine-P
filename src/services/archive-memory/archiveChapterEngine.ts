@@ -2,6 +2,7 @@ import type { ArchiveChapter, ArchiveIndexEntry, ChatMessage, NPCEntry, ArchiveS
 import { extractContextActivations, expandActivationsWithFacts, retrieveArchiveMemory, fetchArchiveScenes } from '../archiveMemory';
 import { getChatUrl, buildChatHeaders, buildChatBody, extractContent, getApiFormat } from '../../utils/llmApiHelper';
 import { llmFetch } from '../llm/llmFetch';
+import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
 
 import { CHAPTER_SCENE_SOFT_CAP } from '../../types';
 
@@ -238,7 +239,8 @@ async function validateChapterRelevance(
     chapter: ArchiveChapter,
     userMessage: string,
     recentContext: string,
-    provider: EndpointConfig | ProviderConfig
+    provider: EndpointConfig | ProviderConfig | undefined,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
 ): Promise<boolean> {
     const prompt = [
         'You are a TTRPG story continuity checker. Given the current situation and a chapter summary, is this chapter relevant?',
@@ -264,31 +266,26 @@ async function validateChapterRelevance(
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
-        const url = getChatUrl(provider);
-        const headers = buildChatHeaders(provider);
-        const format = getApiFormat(provider);
-
-        // Gemini auth: append ?key= to URL
-        let fetchUrl = url;
-        if (format === 'gemini' && provider.apiKey) {
-            const sep = fetchUrl.includes('?') ? '&' : '?';
-            fetchUrl = `${fetchUrl}${sep}key=${provider.apiKey}`;
-        }
-
-        const fetchBody = buildChatBody(provider, [{ role: 'user', content: prompt }], { stream: false, max_tokens: 10 });
-
-        const res = await llmFetch(fetchUrl, {
-            method: 'POST',
-            headers,
-            signal: controller.signal,
-            body: JSON.stringify(fetchBody),
-        });
-
-        clearTimeout(timeoutId);
-        if (!res.ok) return true;
-
-        const data = await res.json();
-        const answer = extractContent(data, provider).trim().toUpperCase();
+        const raw = modelCall
+            ? (await modelCall({ prompt, signal: controller.signal, maxTokens: 10, trackingLabel: 'archive-funnel', timeoutMs: 5000 })).content
+            : provider
+                ? await (async () => {
+                    const url = getChatUrl(provider);
+                    const headers = buildChatHeaders(provider);
+                    const format = getApiFormat(provider);
+                    let fetchUrl = url;
+                    if (format === 'gemini' && provider.apiKey) {
+                        const sep = fetchUrl.includes('?') ? '&' : '?';
+                        fetchUrl = `${fetchUrl}${sep}key=${provider.apiKey}`;
+                    }
+                    const fetchBody = buildChatBody(provider, [{ role: 'user', content: prompt }], { stream: false, max_tokens: 10 });
+                    const res = await llmFetch(fetchUrl, { method: 'POST', headers, signal: controller.signal, body: JSON.stringify(fetchBody) });
+                    if (!res.ok) return 'YES';
+                    const data = await res.json();
+                    return extractContent(data, provider);
+                })()
+                : '';
+        const answer = raw.trim().toUpperCase();
         return answer.startsWith('YES');
     } catch {
         clearTimeout(timeoutId);
@@ -305,10 +302,11 @@ export async function iterativeChapterFilter(
     rankedChapters: ArchiveChapter[],
     userMessage: string,
     recentMessages: ChatMessage[],
-    utilityProvider?: EndpointConfig | ProviderConfig
+    utilityProvider?: EndpointConfig | ProviderConfig,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
 ): Promise<ArchiveChapter[]> {
     // If no utility AI configured, accept top 3 by 3D score (graceful degradation)
-    if (!utilityProvider) {
+    if (!utilityProvider && !modelCall) {
         return rankedChapters.slice(0, MAX_CONFIRMED_CHAPTERS);
     }
 
@@ -321,7 +319,7 @@ export async function iterativeChapterFilter(
         if (iterations >= MAX_LLM_ITERATIONS) break;
 
         const isRelevant = await validateChapterRelevance(
-            chapter, userMessage, recentContext, utilityProvider
+            chapter, userMessage, recentContext, utilityProvider, modelCall
         );
         iterations++;
 
@@ -355,7 +353,8 @@ export async function recallWithChapterFunnel(
     utilityProvider?: EndpointConfig | ProviderConfig,
     campaignId?: string,
     tokenBudget = 3000,
-    excludeSceneIds?: Set<string>
+    excludeSceneIds?: Set<string>,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
 ): Promise<ArchiveScene[]> {
     // ─── Phase 1: Chapter-level 3D scoring ───
     const ranked = rankChapters(chapters, userMessage, recentMessages, npcLedger, semanticFacts);
@@ -368,7 +367,7 @@ export async function recallWithChapterFunnel(
 
     // ─── Phase 2: Iterative LLM validation ───
     const confirmed = await iterativeChapterFilter(
-        ranked, userMessage, recentMessages, utilityProvider
+        ranked, userMessage, recentMessages, utilityProvider, modelCall
     );
 
     // ─── Phase 3: Build scene ranges ───

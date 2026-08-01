@@ -109,7 +109,7 @@ export async function gatherContext(
     // ─── Archive recall — depends on semantic candidates + planner ───
     const archiveRecallPromise = timed('archive-recall', (async () => {
         const [semanticCandidates, plannerSceneIds] = await Promise.all([semanticPromise, plannerPromise]);
-        return gatherArchiveRecall(state, { chapters: deps.chapters }, semanticCandidates, plannerSceneIds, excludeSceneIds, signal);
+        return gatherArchiveRecall(state, { chapters: deps.chapters }, semanticCandidates, plannerSceneIds, excludeSceneIds, signal, facade);
     })());
 
     // ─── Recommender — independent ───
