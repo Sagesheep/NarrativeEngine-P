@@ -14,6 +14,7 @@
 
 import type { NPCEntry, SceneStakes } from '../../../types';
 import type { TurnState, TurnCallbacks } from '../../turn/turnOrchestrator';
+import type { HostFacade } from '../../turn/hostFacade';
 import { uid } from '../../../utils/uid';
 import { llmCall } from '../../../utils/llmCall';
 import { backgroundQueue } from '../../infrastructure/backgroundQueue';
@@ -54,27 +55,33 @@ export function runAgencyTick(
     callbacks: TurnCallbacks,
     npcLedger: NPCEntry[],
     displayInput: string,
+    facade?: HostFacade,
 ): void {
     if (!npcLedger || npcLedger.length === 0) return;
 
-    const sceneStakes: SceneStakes = state.context.lastSceneStakes ?? 'calm';
-    const currentTick = state.context.agencyTick ?? 0;
-    const currentDc = state.context.agencyHeartbeatDC ?? HEARTBEAT_DC.initial;
+    const writeCallbacks = facade
+        ? { ...callbacks, updateContext: facade.write.updateContext, updateNPC: facade.write.updateNPC }
+        : callbacks;
+    const context = facade?.data.context ?? state.context;
+    const aiTier = facade?.config.aiTier ?? state.settings.aiTier;
+    const sceneStakes: SceneStakes = context.lastSceneStakes ?? 'calm';
+    const currentTick = context.agencyTick ?? 0;
+    const currentDc = context.agencyHeartbeatDC ?? HEARTBEAT_DC.initial;
 
     // ── Timeskip detection (§9.7 Piece D, +1 LLM) ──
     const timeskipResult = detectTimeskip(displayInput);
     if (timeskipResult && !('ambiguous' in timeskipResult) && timeskipResult.weeks > 0) {
-        if (tierAllows(state.settings.aiTier, 'timeskipRun')) {
+        if (tierAllows(aiTier, 'timeskipRun')) {
             runTimeskipPath(state, callbacks, npcLedger, timeskipResult.weeks, currentTick, sceneStakes);
             return;
         }
     }
 
     // ── Heartbeat trickle (§5/§9.3#1, +0 LLM) ──
-    if (!tierAllows(state.settings.aiTier, 'heartbeatTick')) return;
+    if (!tierAllows(aiTier, 'heartbeatTick')) return;
 
     const heartbeat = rollHeartbeat({ dc: currentDc });
-    callbacks.updateContext({ agencyHeartbeatDC: heartbeat.nextDc });
+    writeCallbacks.updateContext({ agencyHeartbeatDC: heartbeat.nextDc });
 
     if (!heartbeat.fired) return;
 
@@ -95,7 +102,7 @@ export function runAgencyTick(
         const goals = upgradeWantsToGoals(updatedNpc, now);
         if (goals.length > 0) {
             updatedNpc.goalRecords = goals;
-            callbacks.updateNPC(updatedNpc.id, { goalRecords: goals });
+            writeCallbacks.updateNPC(updatedNpc.id, { goalRecords: goals });
         }
     }
 
@@ -124,7 +131,7 @@ export function runAgencyTick(
             const aGoalRecords = (updatedNpc.goalRecords ?? []).map(g =>
                 g.text === goal.text && g.horizon === goal.horizon ? aResolvedGoal : g
             );
-            callbacks.updateNPC(updatedNpc.id, { goalRecords: aGoalRecords });
+            writeCallbacks.updateNPC(updatedNpc.id, { goalRecords: aGoalRecords });
 
             // Partner (NPC b)
             const updatedPartner = { ...partner };
@@ -134,9 +141,9 @@ export function runAgencyTick(
             const bGoalRecords = (updatedPartner.goalRecords ?? []).map(g =>
                 g.text === partnerGoal.text && g.horizon === partnerGoal.horizon ? bResolvedGoal : g
             );
-            callbacks.updateNPC(updatedPartner.id, { goalRecords: bGoalRecords });
+            writeCallbacks.updateNPC(updatedPartner.id, { goalRecords: bGoalRecords });
 
-            callbacks.updateContext({ agencyTick: now });
+            writeCallbacks.updateContext({ agencyTick: now });
 
             const tangleDeltas = buildTangleDeltas(
                 updatedNpc, goal, outcome.aBand,
@@ -148,7 +155,7 @@ export function runAgencyTick(
             const newDigest = buildDigest(tangleDeltas, 'player');
             if (newDigest) {
                 const combined = existingDigest ? existingDigest + '\n' + newDigest : newDigest;
-                callbacks.updateContext({ agencyDigest: combined });
+                writeCallbacks.updateContext({ agencyDigest: combined });
             }
             const debugDigest = buildDigest(tangleDeltas, 'debug');
             if (debugDigest) {
@@ -170,7 +177,7 @@ export function runAgencyTick(
                 ? resolvedGoal
                 : g
         );
-        callbacks.updateNPC(updatedNpc.id, { goalRecords });
+        writeCallbacks.updateNPC(updatedNpc.id, { goalRecords });
 
         // WO-05 §D + WO-06 §1 — engine-resolve nudge (hex drift) AND rung-ladder tier-cross
         const nudge = applyGoalOutcomeNudge(updatedNpc, goal, band);
@@ -195,12 +202,12 @@ export function runAgencyTick(
                 skillRung: updatedNpc.skillRung,
             };
             patch.shiftTurnCount = 0;
-            callbacks.updateNPC(updatedNpc.id, patch);
+            writeCallbacks.updateNPC(updatedNpc.id, patch);
             if (nudge.shiftLine) console.log(`[AgencyTick] hex nudge npc=${updatedNpc.id} ${nudge.shiftLine}`);
             if (tierCross && tierCross.rungShiftLine) console.log(`[AgencyTick] rung cross npc=${updatedNpc.id} ${tierCross.rungShiftLine}`);
         }
 
-        callbacks.updateContext({ agencyTick: now });
+        writeCallbacks.updateContext({ agencyTick: now });
 
         const visibility = visibilityFromBand(band, goal.horizon);
         const delta: TickDelta = {
@@ -217,7 +224,7 @@ export function runAgencyTick(
         const newDigest = buildDigest([delta], 'player');
         if (newDigest) {
             const combined = existingDigest ? existingDigest + '\n' + newDigest : newDigest;
-            callbacks.updateContext({ agencyDigest: combined });
+            writeCallbacks.updateContext({ agencyDigest: combined });
         }
 
         const debugDigest = buildDigest([delta], 'debug');
@@ -225,15 +232,15 @@ export function runAgencyTick(
             console.log(`[AgencyTick] heartbeat tick=${now} npc=${updatedNpc.id} band=${band} vis=${visibility}\n${debugDigest}`);
         }
     } else if (tickChoice.kind === 'color') {
-        callbacks.updateContext({ agencyTick: now });
+        writeCallbacks.updateContext({ agencyTick: now });
         console.log(`[AgencyTick] heartbeat tick=${now} npc=${updatedNpc.id} kind=color (novelty whiplash — no goal delta)`);
     } else if (tickChoice.kind === 'need') {
-        callbacks.updateContext({ agencyTick: now });
+        writeCallbacks.updateContext({ agencyTick: now });
         console.log(`[AgencyTick] heartbeat tick=${now} npc=${updatedNpc.id} kind=need (all goals blocked)`);
     }
 
     // WO-07 Piece D: activity bump on every non-idle, non-blocked tick.
-    callbacks.updateNPC(updatedNpc.id, activityBumpPatch(updatedNpc, now));
+    writeCallbacks.updateNPC(updatedNpc.id, activityBumpPatch(updatedNpc, now));
 }
 
 /**

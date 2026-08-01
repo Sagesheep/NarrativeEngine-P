@@ -256,7 +256,7 @@ export async function runPostTurnPipeline(
     // short-want lifecycle).
     try {
         const { runAgencyTick, bumpOnStageActivity } = await import('../npc/agency/agencyEngine');
-        bumpOnStageActivity(state, callbacks, npcLedger);
+        bumpOnStageActivity(state, facade ? { ...callbacks, updateNPC: facade.write.updateNPC } : callbacks, facade?.data.npcLedger ?? npcLedger);
         if (tierAllows(state.settings.aiTier, 'heartbeatTick')) {
             // Guard only addMessage — it's the only callback invoked from a
             // backgroundQueue.push closure inside runAgencyTick (Timeskip-Narration,
@@ -267,7 +267,7 @@ export async function runPostTurnPipeline(
                 ...callbacks,
                 addMessage: makeGuarded(callbacks.addMessage, activeCampaignId, 'addMessage (Timeskip-Narration)'),
             };
-            runAgencyTick(state, agencyCallbacks, npcLedger, displayInput);
+            runAgencyTick(state, agencyCallbacks, facade?.data.npcLedger ?? npcLedger, displayInput, facade);
         }
     } catch (err) {
         console.warn('[AgencyTick] Failed (non-fatal):', err);
