@@ -37,6 +37,12 @@ const fixtureNames = [
     'escape-net.js',
     'throws.js',
     'hang.js',
+    // WO-P5-18 §2.2 — the regression guard for the comment-aware
+    // `export default` rewrite. The fixture's header comment contains
+    // the phrase "export default" multiple times; an unanchored rewrite
+    // matches the comment, leaves the real export intact, the entry point
+    // never runs, and the harness times out waiting for this fixture.
+    'comment-export.js',
 ];
 
 // R3: the exact CSP the ScreenFrame component injects. Duplicated here
@@ -173,8 +179,59 @@ async function removeProfile(profilePath) {
 // its .toString() is safe to embed in the page's outer template literal
 // — a template literal inside the function body would have its ${...}
 // interpolated by the OUTER literal at Node time, breaking the page.
+//
+// WO-P5-18 §2.2: the export-default rewrite is comment-aware here too.
+// The previous `/^\s*export\s+default\s+/` regex was anchored to the start
+// (missing comments-before-export) — the unanchored form it replaced
+// matched inside comments. The scanner below walks the source tracking
+// lexer state (line/block comments, string/template literals) and
+// replaces only the first CODE `export default`. Mirrors
+// `rewriteExportDefault` in src/components/settings-modal/screenFrameBuild.ts;
+// the comment-export.js fixture pins both.
+function rewriteExportDefaultForNode(source) {
+    var target = 'export default';
+    var i = 0;
+    var len = source.length;
+    while (i < len) {
+        var ch = source[i];
+        var next = source[i + 1];
+        if (ch === '/' && next === '/') {
+            var nl = source.indexOf('\n', i + 2);
+            if (nl === -1) return source;
+            i = nl + 1;
+            continue;
+        }
+        if (ch === '/' && next === '*') {
+            var close = source.indexOf('*/', i + 2);
+            if (close === -1) return source;
+            i = close + 2;
+            continue;
+        }
+        if (ch === "'" || ch === '"' || ch === '`') {
+            var quote = ch;
+            i += 1;
+            while (i < len) {
+                var c = source[i];
+                if (c === '\\') { i += 2; continue; }
+                if (c === quote) { i += 1; break; }
+                i += 1;
+            }
+            continue;
+        }
+        if (source.startsWith(target, i)) {
+            var after = source[i + target.length];
+            if (after === ' ' || after === '\t' || after === '\n' || after === '\r') {
+                return source.slice(0, i) + 'globalThis.__screenMod = ' + source.slice(i + target.length + 1);
+            }
+            i += 1;
+            continue;
+        }
+        i += 1;
+    }
+    return source;
+}
 function buildScreenSrcDoc(source, csp) {
-    var moduleBody = String(source).replace(/^\s*export\s+default\s+/, 'globalThis.__screenMod = ');
+    var moduleBody = rewriteExportDefaultForNode(String(source));
     return [
         '<!doctype html>',
         '<html>',
