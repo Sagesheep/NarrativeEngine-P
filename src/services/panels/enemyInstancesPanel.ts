@@ -33,6 +33,11 @@ import type { EnemyInstance } from '../../types';
  *
  * Sorting is by `createdAt` descending, matching the bespoke component's
  * `useMemo(() => [...enemyInstances].sort((a, b) => b.createdAt - a.createdAt))`.
+ * The descriptor's `sort` field cannot express a direction (the renderer sorts
+ * ascending only — see ListPanelRendererCore.tsx:242), so `sort` is omitted
+ * here and the host wrapper pre-sorts the rows before handing them to the
+ * generic renderer. This is a real gap in the descriptor's expressiveness;
+ * see 09_PANEL_PROOF.md.
  */
 export const enemyInstancesPanel: PanelDescriptor<EnemyInstance, unknown> = {
     id: 'enemy-instances',
@@ -52,7 +57,6 @@ export const enemyInstancesPanel: PanelDescriptor<EnemyInstance, unknown> = {
     ],
     crud: { create: true, read: true, update: true, delete: true },
     reads: ['enemyCompendium'],
-    sort: 'createdAt',
 };
 
 /** The opaque panel id, exported for the host wrapper and tests. */
