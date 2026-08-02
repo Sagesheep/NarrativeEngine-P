@@ -51,6 +51,11 @@ export type {
     PanelValidationResult, PanelHooks, PanelDescriptor, PanelRegistry,
     PanelTouchpoint,
 } from './panels/panelDescriptor';
+export { runPanelHook, evaluatePanelComputed } from './panels/panelHooks';
+export type {
+    PanelHookKind, PanelHookInvocation, PanelHookFault, PanelHookResult,
+    PanelHookRunOptions, PanelComputedFault, PanelComputedResult, PanelComputedOptions,
+} from './panels/panelHooks';
 
 export {
     ENEMY_TEXT_FIELDS, ENEMY_LIST_FIELDS, ENEMY_ENTRY_FIELDS,
