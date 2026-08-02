@@ -89,6 +89,66 @@ function compareValues(left: unknown, right: unknown): number {
 }
 
 /**
+ * WO-P5-16 G2 — derive one empty row from a descriptor's `fields`.
+ *
+ * Each control has exactly one empty value, derived from the control kind
+ * (not declared on the descriptor — there is no `newRow` field, by design:
+ * a second way to say what a field holds is a second thing to keep in step):
+ *   - text/textarea/readonly/image/select → ''
+ *   - number → min ?? 0 (matches the G1 clamp's empty fallback)
+ *   - checkbox → false
+ *   - tags/array → []
+ *   - nested-object → {}
+ *   - computed → '' (computed fields are re-evaluated by the sandbox; the
+ *     host renderer seeds a neutral value)
+ *
+ * Nested paths (`a.b.c`) are written into the empty row so a Create on a
+ * descriptor with `templateSnapshot.name` produces
+ * `{ templateSnapshot: { name: '' } }`, not a flat `{ 'a.b.c': '' }`.
+ */
+function emptyRow<TRow extends PanelRow>(descriptor: PanelDescriptor<TRow>): TRow {
+    const row: PanelRow = {};
+    for (const field of descriptor.fields) {
+        let value: unknown;
+        switch (field.control) {
+            case 'number':
+                value = typeof field.min === 'number' && Number.isFinite(field.min) ? field.min : 0;
+                break;
+            case 'checkbox':
+                value = false;
+                break;
+            case 'tags':
+            case 'array':
+                value = [];
+                break;
+            case 'nested-object':
+                value = {};
+                break;
+            default:
+                // text, textarea, readonly, image, select, computed → ''
+                value = '';
+        }
+        // Walk the path in so nested keys produce nested objects.
+        const segments = field.key.split('.');
+        if (segments.length === 1) {
+            row[segments[0]] = value;
+        } else {
+            let cursor = row;
+            for (let i = 0; i < segments.length - 1; i++) {
+                const seg = segments[i];
+                const existing = cursor[seg];
+                cursor[seg] = existing !== null && typeof existing === 'object' && !Array.isArray(existing)
+                    ? { ...(existing as Record<string, unknown>) }
+                    : {};
+                cursor = cursor[seg] as Record<string, unknown>;
+            }
+            cursor[segments[segments.length - 1]] = value;
+        }
+    }
+    return row as TRow;
+}
+
+/**
  * WO-P5-16 G1 — clamp a `number` field input to its declared bounds.
  *
  * The bespoke `enemy-instances` panel clamps with `Math.max(0, Number(v) || 0)`
@@ -229,6 +289,7 @@ function ListRow<TRow extends PanelRow>({
     editable,
     onChange,
     onSelect,
+    onDelete,
 }: {
     descriptor: PanelDescriptor<TRow>;
     row: TRow;
@@ -236,6 +297,7 @@ function ListRow<TRow extends PanelRow>({
     editable: boolean;
     onChange: (row: TRow) => void;
     onSelect?: () => void;
+    onDelete?: () => void;
 }) {
     return (
         <div data-panel-row={rowIndex} onClick={onSelect}>
@@ -250,6 +312,21 @@ function ListRow<TRow extends PanelRow>({
                     />
                 </label>
             ))}
+            {onDelete ? (
+                <button
+                    type="button"
+                    data-panel-delete={rowIndex}
+                    aria-label={`Delete row ${rowIndex + 1}`}
+                    onClick={(event) => {
+                        // Stop the row-level `onSelect` from firing — the
+                        // delete button is a nested control, not a row click.
+                        event.stopPropagation();
+                        onDelete();
+                    }}
+                >
+                    Delete
+                </button>
+            ) : null}
         </div>
     );
 }
@@ -298,9 +375,29 @@ function ListRenderer<TRow extends PanelRow>({
         onRowsChange(nextRows);
     };
 
+    // WO-P5-16 G2 — create and delete affordances live in the renderer when
+    // `crud.create` / `crud.delete` are declared. A mod has no host wrapper,
+    // so without these a mod's panel could render a list it could not extend
+    // or trim. The new row is derived from `fields` (see `emptyRow`); there is
+    // no `newRow` field on the descriptor. The renderer still never branches
+    // on which panel it renders — it reads `crud` like any other declaration.
+    const createRow = () => {
+        if (!onRowsChange) return;
+        onRowsChange([...rows, emptyRow(descriptor)]);
+    };
+    const deleteRow = (visibleIndex: number) => {
+        if (!onRowsChange) return;
+        const original = visibleRows[visibleIndex];
+        const sourceIndex = rows.indexOf(original);
+        if (sourceIndex < 0) return;
+        const nextRows = [...rows];
+        nextRows.splice(sourceIndex, 1);
+        onRowsChange(nextRows);
+    };
+
     return (
         <section data-panel-layout="list">
-            {(descriptor.search || descriptor.filter || descriptor.sort) && (
+            {(descriptor.search || descriptor.filter || descriptor.sort || descriptor.crud.create) && (
                 <div data-panel-toolbar>
                     {descriptor.search ? (
                         <input
@@ -322,6 +419,16 @@ function ListRenderer<TRow extends PanelRow>({
                         const sortDir = typeof spec === 'object' && spec.direction ? spec.direction : 'asc';
                         return <span data-panel-sort={sortField} data-panel-sort-direction={sortDir}>Sorted by {sortField}</span>;
                     })() : null}
+                    {descriptor.crud.create ? (
+                        <button
+                            type="button"
+                            data-panel-create
+                            aria-label="Create row"
+                            onClick={createRow}
+                        >
+                            Create
+                        </button>
+                    ) : null}
                 </div>
             )}
             <div data-panel-list>
@@ -334,6 +441,7 @@ function ListRenderer<TRow extends PanelRow>({
                         editable={descriptor.crud.update === true}
                         onChange={(nextRow) => updateRow(index, nextRow)}
                         onSelect={onSelectRow ? () => onSelectRow(row, index) : undefined}
+                        onDelete={descriptor.crud.delete === true ? () => deleteRow(index) : undefined}
                     />
                 ))}
             </div>

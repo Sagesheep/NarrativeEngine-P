@@ -15,6 +15,53 @@ function displayValue(value: unknown): string {
     }
 }
 
+/**
+ * WO-P5-16 G2 — derive one empty row from a descriptor's `fields`. Mirrors
+ * the same helper in `ListPanelRendererCore.tsx`; duplicated rather than
+ * imported because the core file is a React module and this detail renderer
+ * needs the pure derivation only. Each control seeds one empty value; see
+ * the core file for the per-control table.
+ */
+function emptyRow<TRow extends PanelRow>(descriptor: PanelDescriptor<TRow>): TRow {
+    const row: PanelRow = {};
+    for (const field of descriptor.fields) {
+        let value: unknown;
+        switch (field.control) {
+            case 'number':
+                value = typeof field.min === 'number' && Number.isFinite(field.min) ? field.min : 0;
+                break;
+            case 'checkbox':
+                value = false;
+                break;
+            case 'tags':
+            case 'array':
+                value = [];
+                break;
+            case 'nested-object':
+                value = {};
+                break;
+            default:
+                value = '';
+        }
+        const segments = field.key.split('.');
+        if (segments.length === 1) {
+            row[segments[0]] = value;
+        } else {
+            let cursor = row;
+            for (let i = 0; i < segments.length - 1; i++) {
+                const seg = segments[i];
+                const existing = cursor[seg];
+                cursor[seg] = existing !== null && typeof existing === 'object' && !Array.isArray(existing)
+                    ? { ...(existing as Record<string, unknown>) }
+                    : {};
+                cursor = cursor[seg] as Record<string, unknown>;
+            }
+            cursor[segments[segments.length - 1]] = value;
+        }
+    }
+    return row as TRow;
+}
+
 export function ListDetailRenderer<TRow extends PanelRow>({
     descriptor,
     rows,
@@ -33,11 +80,60 @@ export function ListDetailRenderer<TRow extends PanelRow>({
         onRowsChange(nextAllRows);
     };
 
-    const detailDescriptor: PanelDescriptor<TRow> = { ...descriptor, layout: 'list' };
+    // WO-P5-16 G2 — create appends an empty row (derived from fields); delete
+    // removes the selected row. Both call onRowsChange, the same channel
+    // update uses. The renderer never branches on which panel it renders.
+    const createRow = () => {
+        if (!onRowsChange) return;
+        onRowsChange([...rows, emptyRow(descriptor)]);
+    };
+    const deleteSelected = () => {
+        if (!onRowsChange || selectedRow === undefined) return;
+        const nextRows = [...rows];
+        nextRows.splice(selectedIndex, 1);
+        onRowsChange(nextRows);
+        // Keep the selection clamped to a valid index after the removal.
+        setSelectedIndex((prev) => Math.max(0, Math.min(prev, nextRows.length - 1)));
+    };
+
+    // The detail pane renders the selected row through the list renderer,
+    // but create/delete belong to the list pane (the rows), not the detail
+    // pane (one row). Strip them so the nested ListPanelRenderer does not
+    // re-render Create/Delete buttons inside the detail editor. The detail
+    // pane keeps `update` so the row's fields stay editable.
+    const detailDescriptor: PanelDescriptor<TRow> = {
+        ...descriptor,
+        layout: 'list',
+        crud: { ...descriptor.crud, create: false, delete: false },
+    };
 
     return (
         <section data-panel-layout="list-detail">
             <div data-panel-detail-list>
+                {(descriptor.crud.create === true || descriptor.crud.delete === true) && (
+                    <div data-panel-detail-toolbar>
+                        {descriptor.crud.create === true ? (
+                            <button
+                                type="button"
+                                data-panel-create
+                                aria-label="Create row"
+                                onClick={createRow}
+                            >
+                                Create
+                            </button>
+                        ) : null}
+                        {descriptor.crud.delete === true && selectedRow !== undefined ? (
+                            <button
+                                type="button"
+                                data-panel-delete={selectedIndex}
+                                aria-label={`Delete row ${selectedIndex + 1}`}
+                                onClick={deleteSelected}
+                            >
+                                Delete
+                            </button>
+                        ) : null}
+                    </div>
+                )}
                 {rows.map((row, index) => (
                     <button
                         type="button"
