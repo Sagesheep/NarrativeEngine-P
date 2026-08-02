@@ -396,3 +396,78 @@ deepest gaps are the `tags`/`array` delimiter semantics and the
 `crud`-is-a-flag-not-an-affordance split. Both are real, both are the kind of
 thing `08_PANELS.md` §8 said would be found, and both are named here with
 file:line evidence.
+
+---
+
+## 11. Architect verification — 2026-08-02
+
+Re-run and re-derived independently, not taken from the report.
+
+**Verified true:**
+
+| Claim | Verification |
+|---|---|
+| Characterisation tests unedited after Step 1 | `git diff 9861818 HEAD` on the test file → **empty** |
+| Step 3 not committed, bespoke restored | `git diff 42c01ee HEAD --stat` → 3 files, **779 insertions, 0 deletions**; `EnemyInstancesView.tsx` untouched, still 146 lines |
+| Suite green at the stated numbers | `npm run test:run` → **192 files, 2766 tests passed** |
+| §3's premise is false | `EnemyInstancesView.tsx:35-38` sorts **all** `enemyInstances`; `selectedTemplateId` reaches only `:43`, `:44`, `:61`, `:63` |
+| `sort` has no direction | `panelDescriptor.ts:121` is `sort?: string`; `SortSpec.direction` exists at `:78-81` but the descriptor does not use `SortSpec` |
+| `tags` is comma-only | `ListPanelRendererCore.tsx:158` — `.split(',')` |
+| `array` is JSON-only | `ListPanelRendererCore.tsx:145` — `parseJsonValue` |
+
+### 11.1 Correction — the split is **12 pass / 6 fail**, not 11/7
+
+The report says "7 of 18 fail" in three places (§0, §3, §10). Its own evidence says otherwise: §5.1
+names **six** failing tests and §5.4 lists **twelve** passing ones. 12 + 6 = 18, which closes exactly;
+11 + 7 = 18 only by leaving one test unnamed in both lists.
+
+Enumerated against the file (18 `it(` blocks), the six failures are lines **128, 203, 228, 256, 302,
+310**. §10's classification "3 behaviour + 3 pixel + 1 wrapper" should read **3 behaviour + 2 pixel +
+1 wrapper**.
+
+**This does not change the verdict.** The three behaviour changes alone trip §7. But 4.3 is built from
+these numbers, so they are corrected here rather than carried forward.
+
+### 11.2 Correction — the §3 error is **mine alone**, and is not in `08_PANELS.md`
+
+§7 and §9 attribute *"shows only the instances belonging to that template"* to both the work order and
+`08_PANELS.md`. **`08_PANELS.md` does not contain the string `enemy` anywhere** — zero matches. The
+error exists only in `WORKORDER-P5-15` §3, written by the architect. The contract is clean; a wrong
+premise was invented in the work order and then, on being repeated, acquired a second source.
+
+> **The lesson: I named a "most likely stop" from an assumption about a 146-line file I had not read
+> closely enough.** The prediction was confident, specific, and wrong. The executor did the one thing
+> that catches this — wrote the oracle *first* and let it speak. Had Step 1 come after the conversion,
+> the wrong premise would have shaped the test.
+
+### 11.3 ⚠️ A seventh gap the report under-called — the numeric clamp has no counterpart
+
+§5.4 explains that `currentHp` coercion "survived", with reasoning that does not parse (it states the
+generic control emits both `-7` and `0` for the same input). The measured position:
+
+- Bespoke: `numberValue = (v) => Math.max(0, Number(v) || 0)` — `EnemyInstancesView.tsx:56`.
+- Generic: `onChange(Number(event.target.value))` — `ListPanelRendererCore.tsx:186`. **No clamp, no
+  `|| 0` fallback.**
+
+The test at `:167` types `-7abc` into a `type="number"` input, which yields `''`, so both paths reach
+`0` and the test passes. **It passes by coincidence.** Type `-5` — a value the input accepts — and the
+bespoke stores `0` while the generic stores `-5`.
+
+**So `custom-validation`, one of the four irregularity kinds this panel was selected to exercise, is
+neither covered by the descriptor nor caught by the oracle.** That is the most dangerous class of gap
+found here: the others change what a user sees, this one silently writes a value the old panel forbade.
+
+**For 4.3: a per-field constraint (`min`/`max`, or a `coerce` on the field) is now the strongest
+candidate for the one thing the descriptor is missing** — and the census must be re-read for how many
+of the 9 `number` fields clamp.
+
+### 11.4 Ruling — 4.2 is complete as a proof, failed as a conversion
+
+The definition of done asks that the panel render from a descriptor. It does not. **That is an
+acceptable outcome and the sub-phase is closed on it**, because `00_PLAN.md` §5 set the bar as
+*"state what was lost, not pretend nothing was"* — and the deliverable 4.3 needs is the failure list,
+which exists, is long, and is evidenced to file:line.
+
+**The honesty list is not short.** Seven descriptor gaps (six reported, one added above), three
+behaviour changes, and a false premise in my own work order. A clean pass here would have been the
+suspicious result.
