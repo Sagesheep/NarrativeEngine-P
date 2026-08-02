@@ -2,13 +2,13 @@
   "id": "arc",
   "name": "Arc Engine",
   "version": "1.0.0",
-  "description": "WO-P5-12 Step 1 — Arc Engine state table. Declares the mod.arc.arcs table that holds the campaign's ArcRecords. The Arc Engine logic stays host-side in this step (src/services/arc/); only the data has moved. Existing campaigns with context.arcs populated are migrated on hydrate — a user's live arcs must not vanish.",
+  "description": "WO-P5-12 — THE COMPUTE GATE. The Arc Engine (System 2 / Oracle Function) shipped as an installed mod. Its state lives in a mod-declared table (mod.arc.arcs); its tick runs as a post-turn compute track inside the track registry; its surface line is a prompt contribution. Uninstall it and the app still runs — Arc's prompt contribution simply is not there. The host-side ArcInjectorButton and chapter-tab rendering stay in the app until PANELS/SCREENS (this is the COMPUTE gate, not the project gate).",
   "contributions": [
     {
-      "id": "arc-table-placeholder",
-      "order": 990,
-      "budget": 1,
-      "text": "."
+      "id": "arc-surface",
+      "order": 820,
+      "budget": 200,
+      "text": "{{arcSurface}}"
     }
   ],
   "tables": [
@@ -17,5 +17,15 @@
       "recordShape": "array",
       "label": "Arcs"
     }
-  ]
+  ],
+  "compute": {
+    "file": "arc.compute.js",
+    "hook": "postTurn",
+    "capabilities": [
+      "table:read:mod.arc.arcs",
+      "table:write:mod.arc.arcs",
+      "write:updateContext",
+      "write:addMessage"
+    ]
+  }
 }

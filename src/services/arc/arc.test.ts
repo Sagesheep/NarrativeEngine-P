@@ -7,6 +7,20 @@ import type {
     EndpointConfig,
 } from '../../types';
 import { bandFromMargin } from '../npc/agency/agencyDice';
+// WO-P5-12 §7 Step 3 — the pure Arc helpers moved from src/services/arc/ into
+// the compute mod (mods/arc.compute.js). The test imports them from the mod
+// so the oracle asserts the MOD's behaviour, not the (deleted) in-tree copy.
+// Constants stay host-side (arcSpawn.ts needs them); spawnArc stays host-side
+// (the ArcInjectorButton path, §2b). Every expectation below is byte-identical
+// to the in-tree version — only the import paths changed.
+import {
+    rollArcTick,
+    rollArcOutcome,
+    advanceRung,
+    arcSurfaceLine,
+    scanArcStance,
+    arcWorldState,
+} from '../../../mods/arc.compute.js';
 import {
     ARC_TICK_DC,
     ARC_BAND_RUNG_DELTA,
@@ -17,10 +31,6 @@ import {
     TYPE_COOLDOWN_SEAMS,
     ARC_LIVE_RECENCY,
 } from './arcConstants';
-import { rollArcTick, rollArcOutcome, advanceRung } from './arcDice';
-import { arcSurfaceLine } from './arcSurface';
-import { scanArcStance } from './arcStance';
-import { arcWorldState } from './arcWorldState';
 
 vi.mock('../../utils/llmCall', () => ({
     llmCall: vi.fn()

@@ -4,7 +4,6 @@ import type { PostTurnTrackContext } from './types';
 import { npcTrack } from './npcTrack';
 import { enemySuggestionTrack } from './enemySuggestionTrack';
 import { pressureTrack } from './pressureTrack';
-import { arcTickTrack } from './arcTickTrack';
 
 /**
  * Project 2 / WO-P2-03 — the built-in post-turn track registry.
@@ -27,11 +26,12 @@ export const postTurnTracks = createPostTurnTrackRegistry<PostTurnTrackContext>(
 postTurnTracks.register(npcTrack);
 postTurnTracks.register(enemySuggestionTrack);
 postTurnTracks.register(pressureTrack);
-// WO-P5-12 §7 Step 2 — the Arc Engine tick as a compute track. Previously
-// inline in postTurnPipeline.ts with its own hand-written try/catch outside the
-// allSettled group; now inherits the track registry's containment. Still
-// shipped in-tree; Step 3 extracts it to mods/arc.compute.js.
-postTurnTracks.register(arcTickTrack);
+// WO-P5-12 §7 Step 3 — the Arc Engine tick is now an installed compute mod
+// (`mods/arc.mod.json` + `mods/arc.compute.js`). `modBootstrap.ts` registers
+// `mod.arc.compute` when the mod is installed, and unregisters it when the
+// mod is removed. No in-tree arc track; the mod IS the track. This is the
+// COMPUTE gate: delete `mods/arc.mod.json` and `mods/arc.compute.js` and the
+// app runs without Arc — no orphan, no fault (Step 4 proves it).
 
 /**
  * Start every enabled track, in registration order, and hand the in-flight promises back to

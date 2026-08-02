@@ -9,7 +9,18 @@ import { MAX_JOURNAL_ENTRIES } from './sandboxTypes';
  * the server, which is the machine holding the encrypted vault.
  */
 export function buildWorkerSource(modSource: string): string {
-    const defaultSource = modSource.replace(/^\s*export\s+default\s+/, '');
+    // Strip ES module syntax so the mod source runs as a classic script in the
+    // Worker. The mod source is a valid ES module (it may have `export default`
+    // and named `export` declarations so tests can import the pure helpers); the
+    // Worker is a classic script, so both forms are stripped here.
+    //   - `export default async function ...` → `async function ...` (the
+    //     prelude assigns it to `__sandboxMod` below).
+    //   - `export function foo` / `export const bar` → `function foo` /
+    //     `const bar` (named exports become top-level bindings inside the
+    //     worker; the worker never re-exports them, they are just in scope).
+    const defaultSource = modSource
+        .replace(/^\s*export\s+default\s+/, '')
+        .replace(/^(\s*)export\s+(function|const|let|var|class)\s/gm, '$1$2 ');
     return [
         "'use strict';",
         'const __sandboxDenyGlobal = (name) => {',
