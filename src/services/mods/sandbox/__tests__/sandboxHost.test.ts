@@ -231,6 +231,109 @@ describe('runSandbox', () => {
         expect(updateNPC).not.toHaveBeenCalled();
     });
 
+    // WO-P5-14 §4 step 2 — the four zero-partial-write tests above only ever
+    // exercised ctx.write.* (store), which is why the table-write hole sat
+    // under a green suite. The four tests below extend them to a mod that
+    // writes A TABLE and then hangs / throws / dies / trips validation. Zero
+    // table writes applied in every case — §7.3 holds for both paths now.
+
+    it('A mod that writes a table then hangs forever applies zero table writes at the deadline', async () => {
+        const tableWrite = vi.fn(async () => undefined);
+        const facade = makeFacade({ table: { read: vi.fn(async () => []), write: tableWrite } });
+        const worker = new FakeWorker();
+
+        await expect(runSandbox(source, facade, ['table:write:npcs'], {
+            createWorker: () => worker,
+            deadlineMs: 5,
+        })).rejects.toThrow('deadline exceeded (5 ms)');
+
+        expect(tableWrite).not.toHaveBeenCalled();
+    });
+
+    it('A mod that writes a table then throws applies zero table writes', async () => {
+        const tableWrite = vi.fn(async () => undefined);
+        const facade = makeFacade({ table: { read: vi.fn(async () => []), write: tableWrite } });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') current.emit({ type: 'error', message: 'mod threw after table write' });
+        });
+
+        await expect(runSandbox(source, facade, ['table:write:npcs'], {
+            createWorker: () => worker,
+        })).rejects.toThrow('mod threw after table write');
+
+        expect(tableWrite).not.toHaveBeenCalled();
+    });
+
+    it('A worker error after a table write applies zero table writes', async () => {
+        const tableWrite = vi.fn(async () => undefined);
+        const facade = makeFacade({ table: { read: vi.fn(async () => []), write: tableWrite } });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') queueMicrotask(() => current.emitError('worker died after table write'));
+        });
+
+        await expect(runSandbox(source, facade, ['table:write:npcs'], {
+            createWorker: () => worker,
+        })).rejects.toThrow('worker died after table write');
+
+        expect(tableWrite).not.toHaveBeenCalled();
+    });
+
+    it('A journal rejection after a valid table write applies zero table writes', async () => {
+        const tableWrite = vi.fn(async () => undefined);
+        const updateContext = vi.fn();
+        const facade = makeFacade({
+            write: { ...makeFacade().write, updateContext },
+            table: { read: vi.fn(async () => []), write: tableWrite },
+        });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                current.emit({
+                    type: 'done',
+                    writes: [
+                        { kind: 'table', name: 'npcs', rows: [{ id: 'n-1' }] },
+                        { kind: 'table', name: 'undeclared-table', rows: [{ id: 'x' }] },
+                    ],
+                    result: null,
+                });
+            }
+        });
+
+        await expect(runSandbox(source, facade, ['table:write:npcs'], {
+            createWorker: () => worker,
+        })).rejects.toThrow('undeclared table write "undeclared-table"');
+
+        expect(tableWrite).not.toHaveBeenCalled();
+        expect(updateContext).not.toHaveBeenCalled();
+    });
+
+    it('A journal rejection: an undeclared table write rejects store entries too', async () => {
+        const tableWrite = vi.fn(async () => undefined);
+        const updateContext = vi.fn();
+        const facade = makeFacade({
+            write: { ...makeFacade().write, updateContext },
+            table: { read: vi.fn(async () => []), write: tableWrite },
+        });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                current.emit({
+                    type: 'done',
+                    writes: [
+                        { kind: 'store', name: 'updateContext', args: [{ scene: 'one' }] },
+                        { kind: 'table', name: 'undeclared-table', rows: [{ id: 'x' }] },
+                    ],
+                    result: null,
+                });
+            }
+        });
+
+        await expect(runSandbox(source, facade, ['write:updateContext'], {
+            createWorker: () => worker,
+        })).rejects.toThrow('undeclared table write "undeclared-table"');
+
+        expect(updateContext).not.toHaveBeenCalled();
+        expect(tableWrite).not.toHaveBeenCalled();
+    });
+
     it('applies a journalled table write on clean return only', async () => {
         const tableWrite = vi.fn(async () => undefined);
         const facade = makeFacade({ table: { read: vi.fn(async () => []), write: tableWrite } });
