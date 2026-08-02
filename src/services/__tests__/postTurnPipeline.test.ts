@@ -419,7 +419,7 @@ describe('compute mod integration', () => {
                 queueMicrotask(() => worker.onmessage?.({
                     data: {
                         type: 'done',
-                        writes: [{ name: 'updateContext', args: [{ currentFeature: 'computed' }] }],
+                        writes: [{ kind: 'store', name: 'updateContext', args: [{ currentFeature: 'computed' }] }],
                         result: { computed: true },
                     },
                 } as MessageEvent<SandboxWorkerMessage>));

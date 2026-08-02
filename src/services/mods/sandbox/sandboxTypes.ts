@@ -2,7 +2,6 @@ import type {
     FacadeConfig,
     FacadeData,
     FacadeWrites,
-    HostFacadeTableAdapter,
     ModelJsonOptions,
     ModelRequest,
     ModelResponse,
@@ -22,7 +21,7 @@ import type {
 export const SANDBOX_DEADLINE_MS = 5000;
 /** Tolerance band for worker teardown after termination begins. */
 export const SANDBOX_TEARDOWN_MS = 50;
-/** Maximum number of synchronous writes a single clean run may journal. */
+/** Maximum number of journalled writes (store + table) a single clean run may carry. */
 export const MAX_JOURNAL_ENTRIES = 500;
 /** Maximum number of inbound worker messages handled by the host in a single run. */
 export const MAX_INBOUND_MESSAGES = 1000;
@@ -58,11 +57,24 @@ export interface SandboxSnapshot {
     readonly config: FacadeConfig;
 }
 
-/** A deliberately untrusted journal entry received from a worker. */
-export interface SandboxJournalEntry {
-    readonly name: string;
-    readonly args: unknown[];
-}
+/**
+ * A deliberately untrusted journal entry received from a worker.
+ *
+ * The journal is a tagged union of store and table entries. Both kinds are
+ * appended in issue order and applied atomically on clean return only, so a
+ * mod that writes the store, then a table, then the store again has those
+ * three applied in that order (WO-P5-14, closing the §7.3 defect).
+ *
+ * v1 limitation, documented here so it is found as a decision rather than a
+ * bug: a mod that writes a table and then reads the same table in the same
+ * run sees the OLD value, because the write is still pending in the journal.
+ * The alternative is a read-overlay shadowing pending writes, which is real
+ * machinery for a pattern no measured feature uses (a compute mod holds its
+ * working data in a local variable and writes once at the end, as Arc does).
+ */
+export type SandboxJournalEntry =
+    | { readonly kind: 'store'; readonly name: string; readonly args: unknown[] }
+    | { readonly kind: 'table'; readonly name: string; readonly rows: unknown };
 
 export interface SandboxRunMessage {
     readonly type: 'run';
@@ -102,7 +114,7 @@ export interface SandboxRpcMessage {
     readonly type: 'rpc';
     readonly id: number;
     readonly channel: 'table' | 'refresh' | 'model';
-    readonly method?: 'read' | 'write' | 'call' | 'callJson';
+    readonly method?: 'read' | 'call' | 'callJson';
     readonly args: unknown[];
 }
 
@@ -126,6 +138,25 @@ export interface SandboxWorkerLike {
 }
 
 /**
+ * The table adapter the mod sees inside the worker.
+ *
+ * `read` is an immediate RPC: it crosses the worker boundary and returns the
+ * committed value. `write` is journalled and returns immediately (void); the
+ * host applies it on clean return only, atomically with store writes
+ * (WO-P5-14, closing the 06_FACADE.md §7.3 defect).
+ *
+ * v1 limitation: a mod that writes a table then reads the same table in the
+ * same run sees the OLD value, because the write is still pending. Reads do
+ * not shadow pending writes — the pattern no measured feature uses. A
+ * compute mod holds its working data in a local variable and writes once at
+ * the end, as Arc does.
+ */
+export interface SandboxTableAdapter {
+    read(name: string): Promise<unknown>;
+    write(name: string, rows: unknown): void;
+}
+
+/**
  * The context reconstructed inside a compute worker.
  *
  * `refresh()` is intentionally asynchronous here and returns a fresh snapshot rather than a
@@ -141,7 +172,7 @@ export interface SandboxContext {
         callJson(role: ModelRole, req: ModelRequest, options?: ModelJsonOptions): Promise<unknown>;
         available(role: ModelRole): boolean;
     };
-    readonly table: HostFacadeTableAdapter;
+    readonly table: SandboxTableAdapter;
     readonly signal: AbortSignal;
     refresh(): Promise<SandboxSnapshot>;
     log(...args: unknown[]): void;

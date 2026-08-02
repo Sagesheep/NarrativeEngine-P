@@ -114,7 +114,7 @@ function isWriteName(value: string): value is SandboxWriteName {
     return (WRITE_NAMES as readonly string[]).includes(value);
 }
 
-/** Validate every journal entry before any host write is invoked. */
+/** Validate every journal entry before any host write is invoked. All-or-nothing. */
 export function validateJournal(
     writes: readonly SandboxJournalEntry[],
     capabilities: readonly string[],
@@ -125,19 +125,35 @@ export function validateJournal(
     }
 
     for (const entry of writes) {
-        if (!entry || typeof entry.name !== 'string' || !Array.isArray(entry.args)) {
+        if (!entry || typeof entry.kind !== 'string') {
             throw new SandboxFaultError('journal-rejected', '[sandbox] journal rejected: malformed entry');
         }
-        if (!isWriteName(entry.name)) {
-            throw new SandboxFaultError('journal-rejected', `[sandbox] journal rejected: unknown write "${entry.name}"`);
-        }
-        if (!hasCapability(capabilities, writeCapability(entry.name))) {
-            throw new SandboxFaultError('journal-rejected', `[sandbox] journal rejected: undeclared write "${entry.name}"`);
+        if (entry.kind === 'store') {
+            const storeEntry = entry as { kind: 'store'; name: string; args: unknown[] };
+            if (typeof storeEntry.name !== 'string' || !Array.isArray(storeEntry.args)) {
+                throw new SandboxFaultError('journal-rejected', '[sandbox] journal rejected: malformed store entry');
+            }
+            if (!isWriteName(storeEntry.name)) {
+                throw new SandboxFaultError('journal-rejected', `[sandbox] journal rejected: unknown write "${storeEntry.name}"`);
+            }
+            if (!hasCapability(capabilities, writeCapability(storeEntry.name))) {
+                throw new SandboxFaultError('journal-rejected', `[sandbox] journal rejected: undeclared write "${storeEntry.name}"`);
+            }
+        } else if (entry.kind === 'table') {
+            const tableEntry = entry as { kind: 'table'; name: string; rows: unknown };
+            if (typeof tableEntry.name !== 'string' || tableEntry.name.trim() === '') {
+                throw new SandboxFaultError('journal-rejected', '[sandbox] journal rejected: malformed table entry');
+            }
+            if (!hasCapability(capabilities, tableCapability('write', tableEntry.name))) {
+                throw new SandboxFaultError('journal-rejected', `[sandbox] journal rejected: undeclared table write "${tableEntry.name}"`);
+            }
+        } else {
+            throw new SandboxFaultError('journal-rejected', `[sandbox] journal rejected: unknown entry kind "${String((entry as { kind: string }).kind)}"`);
         }
     }
 }
 
-/** Apply a previously validated journal in registration order. */
+/** Apply a previously validated journal in issue order, atomically. */
 export function applyJournal(
     facade: HostFacade,
     writes: readonly SandboxJournalEntry[],
@@ -145,8 +161,14 @@ export function applyJournal(
 ): void {
     validateJournal(writes, capabilities);
     for (const entry of writes) {
-        const method = facade.write[entry.name as keyof FacadeWrites] as unknown as (...args: unknown[]) => void;
-        method(...entry.args);
+        if (entry.kind === 'store') {
+            const storeEntry = entry as { kind: 'store'; name: string; args: unknown[] };
+            const method = facade.write[storeEntry.name as keyof FacadeWrites] as unknown as (...args: unknown[]) => void;
+            method(...storeEntry.args);
+        } else {
+            const tableEntry = entry as { kind: 'table'; name: string; rows: unknown };
+            facade.table.write(tableEntry.name, tableEntry.rows);
+        }
     }
 }
 
@@ -175,8 +197,11 @@ function handleTableRpc(
     message: SandboxRpcMessage,
     capabilities: readonly string[],
 ): Promise<unknown> {
-    if (message.method !== 'read' && message.method !== 'write') {
-        return Promise.reject(new Error('[sandbox] table RPC requires read or write'));
+    // Only `read` is an immediate RPC. `write` is journalled by the worker
+    // prelude and applied atomically on clean return (WO-P5-14); a `write`
+    // RPC from a worker is a stale or crafted source and is rejected.
+    if (message.method !== 'read') {
+        return Promise.reject(new Error('[sandbox] table RPC supports only read; write is journalled'));
     }
 
     const table = message.args[0];
@@ -184,22 +209,15 @@ function handleTableRpc(
         return Promise.reject(new Error('[sandbox] table RPC requires a table name'));
     }
 
-    const capability = tableCapability(message.method, table);
+    const capability = tableCapability('read', table);
     if (!hasCapability(capabilities, capability)) {
         return Promise.reject(new Error(`[sandbox] capability denied: ${capability}`));
     }
 
-    if (message.method === 'read') {
-        if (message.args.length !== 1) {
-            return Promise.reject(new Error('[sandbox] table read requires exactly one argument'));
-        }
-        return facade.table.read(table);
+    if (message.args.length !== 1) {
+        return Promise.reject(new Error('[sandbox] table read requires exactly one argument'));
     }
-
-    if (message.args.length !== 2) {
-        return Promise.reject(new Error('[sandbox] table write requires exactly two arguments'));
-    }
-    return facade.table.write(table, message.args[1]);
+    return facade.table.read(table);
 }
 
 async function handleModelRpc(

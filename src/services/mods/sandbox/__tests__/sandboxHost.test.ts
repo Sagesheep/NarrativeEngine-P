@@ -111,7 +111,7 @@ describe('runSandbox', () => {
             if (message.type === 'run') {
                 current.emit({
                     type: 'done',
-                    writes: [{ name: 'updateContext', args: [{ scene: 'new' }] }],
+                    writes: [{ kind: 'store', name: 'updateContext', args: [{ scene: 'new' }] }],
                     result: { ok: true },
                 });
             }
@@ -135,8 +135,8 @@ describe('runSandbox', () => {
                 current.emit({
                     type: 'done',
                     writes: [
-                        { name: 'updateContext', args: [{ scene: 'new' }] },
-                        { name: 'updateNPC', args: ['n-1', { disposition: 'hostile' }] },
+                        { kind: 'store', name: 'updateContext', args: [{ scene: 'new' }] },
+                        { kind: 'store', name: 'updateNPC', args: ['n-1', { disposition: 'hostile' }] },
                     ],
                     result: null,
                 });
@@ -214,9 +214,9 @@ describe('runSandbox', () => {
                 current.emit({
                     type: 'done',
                     writes: [
-                        { name: 'updateContext', args: [{ scene: 'one' }] },
-                        { name: 'updateContext', args: [{ scene: 'two' }] },
-                        { name: 'updateNPC', args: ['n-1', { disposition: 'hostile' }] },
+                        { kind: 'store', name: 'updateContext', args: [{ scene: 'one' }] },
+                        { kind: 'store', name: 'updateContext', args: [{ scene: 'two' }] },
+                        { kind: 'store', name: 'updateNPC', args: ['n-1', { disposition: 'hostile' }] },
                     ],
                     result: null,
                 });
@@ -230,6 +230,105 @@ describe('runSandbox', () => {
         expect(updateContext).not.toHaveBeenCalled();
         expect(updateNPC).not.toHaveBeenCalled();
     });
+
+    it('applies a journalled table write on clean return only', async () => {
+        const tableWrite = vi.fn(async () => undefined);
+        const facade = makeFacade({ table: { read: vi.fn(async () => []), write: tableWrite } });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                current.emit({
+                    type: 'done',
+                    writes: [{ kind: 'table', name: 'npcs', rows: [{ id: 'n-1' }] }],
+                    result: null,
+                });
+            }
+        });
+
+        await expect(runSandbox(source, facade, ['table:write:npcs'], {
+            createWorker: () => worker,
+        })).resolves.toBeNull();
+
+        expect(tableWrite).toHaveBeenCalledWith('npcs', [{ id: 'n-1' }]);
+    });
+
+    it('preserves issue order across store and table entries', async () => {
+        const updateContext = vi.fn();
+        const tableWrite = vi.fn(async () => undefined);
+        const facade = makeFacade({
+            write: { ...makeFacade().write, updateContext },
+            table: { read: vi.fn(async () => []), write: tableWrite },
+        });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                current.emit({
+                    type: 'done',
+                    writes: [
+                        { kind: 'store', name: 'updateContext', args: [{ scene: 'one' }] },
+                        { kind: 'table', name: 'npcs', rows: [{ id: 'n-1' }] },
+                        { kind: 'store', name: 'updateContext', args: [{ scene: 'two' }] },
+                    ],
+                    result: null,
+                });
+            }
+        });
+
+        await expect(runSandbox(source, facade, ['write:updateContext', 'table:write:npcs'], {
+            createWorker: () => worker,
+        })).resolves.toBeNull();
+
+        expect(updateContext).toHaveBeenCalledTimes(2);
+        expect(tableWrite).toHaveBeenCalledTimes(1);
+        expect(updateContext.mock.invocationCallOrder[0]).toBeLessThan(tableWrite.mock.invocationCallOrder[0]);
+        expect(tableWrite.mock.invocationCallOrder[0]).toBeLessThan(updateContext.mock.invocationCallOrder[1]);
+    });
+
+    it('an undeclared table write rejects the whole journal, store entries included', async () => {
+        const updateContext = vi.fn();
+        const tableWrite = vi.fn(async () => undefined);
+        const facade = makeFacade({
+            write: { ...makeFacade().write, updateContext },
+            table: { read: vi.fn(async () => []), write: tableWrite },
+        });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                current.emit({
+                    type: 'done',
+                    writes: [
+                        { kind: 'store', name: 'updateContext', args: [{ scene: 'one' }] },
+                        { kind: 'table', name: 'unknown-table', rows: [{ id: 'x' }] },
+                    ],
+                    result: null,
+                });
+            }
+        });
+
+        await expect(runSandbox(source, facade, ['write:updateContext'], {
+            createWorker: () => worker,
+        })).rejects.toThrow('undeclared table write "unknown-table"');
+
+        expect(updateContext).not.toHaveBeenCalled();
+        expect(tableWrite).not.toHaveBeenCalled();
+    });
+
+    it('rejects a stale table write RPC from a crafted worker', async () => {
+        const tableWrite = vi.fn(async () => undefined);
+        const facade = makeFacade({ table: { read: vi.fn(async () => []), write: tableWrite } });
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                queueMicrotask(() => current.emit({ type: 'rpc', id: 1, channel: 'table', method: 'read', args: ['npcs'] }));
+            }
+            if (message.type === 'rpc-reply') {
+                queueMicrotask(() => current.emit({ type: 'done', writes: [], result: null }));
+            }
+        });
+
+        await expect(runSandbox(source, facade, ['table:read:npcs', 'table:write:npcs'], {
+            createWorker: () => worker,
+        })).resolves.toBeNull();
+
+        expect(tableWrite).not.toHaveBeenCalled();
+    });
+
     it('handles table RPC and returns the reply to the worker', async () => {
         const tableRead = vi.fn(async () => [{ id: 'n-1' }]);
         const facade = makeFacade({ table: { read: tableRead, write: vi.fn(async () => undefined) } });
@@ -336,6 +435,7 @@ describe('runSandbox', () => {
         const updateContext = vi.fn();
         const facade = makeFacade({ write: { ...makeFacade().write, updateContext } });
         const writes = Array.from({ length: MAX_JOURNAL_ENTRIES + 1 }, () => ({
+            kind: 'store' as const,
             name: 'updateContext',
             args: [{}],
         }));
