@@ -10,6 +10,8 @@ interface RenderField {
     placeholder?: string;
     options?: PanelOption[];
     control: PanelControl;
+    min?: number;
+    max?: number;
 }
 
 export interface PanelRendererProps<TRow extends PanelRow = PanelRow> {
@@ -84,6 +86,36 @@ function compareValues(left: unknown, right: unknown): number {
     if (left === undefined || left === null) return -1;
     if (right === undefined || right === null) return 1;
     return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
+}
+
+/**
+ * WO-P5-16 G1 — clamp a `number` field input to its declared bounds.
+ *
+ * The bespoke `enemy-instances` panel clamps with `Math.max(0, Number(v) || 0)`
+ * (`EnemyInstancesView.tsx:56`). The 4.1 generic control emitted the raw
+ * `Number(event.target.value)` with no clamp, no `|| 0` fallback
+ * (`ListPanelRendererCore.tsx:186`). 4.2's characterisation oracle types
+ * `-7abc`, which a `type="number"` input flattens to `''`, so `Number('')` is
+ * `0` on BOTH paths and the test passed by coincidence (09_PANEL_PROOF.md
+ * §11.3). Typing `-5` — a value the input actually accepts — exposed the gap:
+ * the bespoke stored `0`, the generic stored `-5`.
+ *
+ * The clamp is: NaN/empty → `min ?? 0`; then `Math.max(min, Math.min(max, value))`
+ * with `min`/`max` honoured only when declared finite, so a descriptor with no
+ * bounds preserves the legacy behaviour for non-NaN values (a typed `42` is
+ * `42`), while an empty box yields the bespoke's `0`. The clamp is a pure
+ * function of the field and the input; the renderer never branches on which
+ * panel it renders.
+ */
+function clampNumberValue(value: unknown, field: RenderField): number {
+    const raw = typeof value === 'number' ? value : Number(value);
+    const lower = typeof field.min === 'number' && Number.isFinite(field.min) ? field.min : 0;
+    if (!Number.isFinite(raw)) return lower;
+    let clamped = Math.max(lower, raw);
+    if (typeof field.max === 'number' && Number.isFinite(field.max)) {
+        clamped = Math.min(field.max, clamped);
+    }
+    return clamped;
 }
 
 function FieldControl({
@@ -183,7 +215,9 @@ function FieldControl({
             type={inputType}
             value={value === undefined || value === null ? '' : String(value)}
             placeholder={field.placeholder}
-            onChange={(event) => onChange(inputType === 'number' ? Number(event.target.value) : event.target.value)}
+            onChange={(event) => onChange(
+                inputType === 'number' ? clampNumberValue(event.target.value, field) : event.target.value,
+            )}
         />
     );
 }
@@ -240,10 +274,16 @@ function ListRenderer<TRow extends PanelRow>({
             result = result.filter((row) => displayValue(readPath(row, descriptor.filter!.field)) === filterValue);
         }
         if (descriptor.sort) {
-            result.sort((left, right) => compareValues(
-                readPath(left, descriptor.sort!),
-                readPath(right, descriptor.sort!),
-            ));
+            // WO-P5-16 G3 — a bare string stays ascending (the 4.1 default);
+            // a `{ field, direction: 'desc' }` spec reverses. The renderer
+            // never branches on which panel it renders; it reads the spec.
+            const spec = descriptor.sort;
+            const sortField = typeof spec === 'string' ? spec : spec.field;
+            const descending = typeof spec === 'object' && spec.direction === 'desc';
+            result.sort((left, right) => {
+                const cmp = compareValues(readPath(left, sortField), readPath(right, sortField));
+                return descending ? -cmp : cmp;
+            });
         }
         return result;
     }, [descriptor, filterValue, query, rows]);
@@ -276,7 +316,12 @@ function ListRenderer<TRow extends PanelRow>({
                             {descriptor.filter.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
                     ) : null}
-                    {descriptor.sort ? <span data-panel-sort={descriptor.sort}>Sorted by {descriptor.sort}</span> : null}
+                    {descriptor.sort ? (() => {
+                        const spec = descriptor.sort;
+                        const sortField = typeof spec === 'string' ? spec : spec.field;
+                        const sortDir = typeof spec === 'object' && spec.direction ? spec.direction : 'asc';
+                        return <span data-panel-sort={sortField} data-panel-sort-direction={sortDir}>Sorted by {sortField}</span>;
+                    })() : null}
                 </div>
             )}
             <div data-panel-list>

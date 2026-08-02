@@ -50,6 +50,16 @@ interface PanelFieldBase {
 
 export interface PanelInputField extends PanelFieldBase {
     control: PanelInputControl;
+    /**
+     * WO-P5-16 G1 — a `number` field may declare inclusive bounds. The
+     * renderer clamps the input to `[min, max]`; an empty/NaN input yields
+     * `min` (or `0` when no `min` is declared), matching the bespoke
+     * `Math.max(0, Number(v) || 0)` clamp that 4.2's characterisation oracle
+     * missed (it typed `-7abc`, which a `type="number"` input flattens to `''`,
+     * so both paths reached 0 by coincidence — see 09_PANEL_PROOF.md §11.3).
+     */
+    min?: number;
+    max?: number;
 }
 
 export interface PanelComputedField<TRow = Record<string, unknown>, TContext = unknown> extends PanelFieldBase {
@@ -118,7 +128,14 @@ export interface PanelDescriptor<TRow = Record<string, unknown>, TContext = unkn
     fields: PanelField<TRow, TContext>[];
     crud: Partial<Record<PanelCrudOperation, boolean>>;
     search?: boolean;
-    sort?: string;
+    /**
+     * WO-P5-16 G3 — `sort` accepts a bare string (ascending, the 4.1 default)
+     * or a `{ field, direction }` spec. A bare string keeps every 4.1
+     * descriptor unchanged; the renderer applies `direction: 'desc'` by
+     * reversing the ascending comparison, mirroring the bespoke
+     * `enemy-instances` sort (`b.createdAt - a.createdAt`).
+     */
+    sort?: string | SortSpec;
     filter?: PanelFilter;
     hooks?: PanelHooks<TRow, TContext>;
     reads?: string[];
