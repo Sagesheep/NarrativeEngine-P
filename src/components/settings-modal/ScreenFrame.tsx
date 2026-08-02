@@ -1,139 +1,218 @@
 /**
- * WO-P5-17 Step 2 — the isolated frame host for a mod screen.
+ * WO-P5-17 / WO-P5-18 isolated screen frame host.
  *
- * A screen is a mod's OWN UI code, rendering where it cannot touch the app
- * (10_PANEL_LIMITS.md §10.2; WORKORDER-P5-17 §1). The frame is an
- * `<iframe srcdoc=…>` with `sandbox="allow-scripts"` (R1). The
- * same-origin capability is FORBIDDEN and test-enforced — the two
- * together void the sandbox entirely, because a frame with both can reach
- * its own `<iframe>` element in the parent and delete the `sandbox`
- * attribute. Omitting it puts the frame in a unique opaque origin: no
- * parent DOM, no cookies, no `localStorage`, no IndexedDB, no same-origin
- * fetch.
- *
- *   R3 — a `<meta http-equiv="Content-Security-Policy">` in the srcdoc
- *        document: `default-src 'none'; script-src 'unsafe-inline';
- *        style-src 'unsafe-inline'; img-src data:`. `script-src
- *        'unsafe-inline'` is deliberate — the mod's code is inlined into
- *        srcdoc so it must be permitted to run; what matters is
- *        `default-src 'none'` leaves it NO NETWORK of any kind (no fetch,
- *        no XHR, no WebSocket, no font, no image except `data:`). The frame
- *        can compute and draw. It cannot phone anywhere.
- *   R4 — one frame per screen, created on mount, destroyed on unmount. No
- *        pooling, no reuse. A destroyed frame's scripts are gone with it.
- *   R6 — no host API in 5.1. The frame receives nothing and sends nothing.
- *        There is no `postMessage` channel from the parent to the frame.
- *        The frame's own `postMessage` calls (fault reports) are received
- *        here only to surface a fault on the Extensions list (Step 3); they
- *        carry no data and grant no capability. The frame cannot reach the
- *        parent DOM (R1: opaque origin), cannot store anything (no
- *        same-origin capability), and cannot phone anywhere (R3:
- *        `default-src 'none'`).
- *
- * The mod source ships as TEXT (R2 — the server never evaluates it; it is
- * carried on `ValidatedMod.screenSources[]`). The host wraps it into a
- * complete HTML document with the CSP meta and a script that converts the
- * `export default` form into an assignment the srcdoc document can run,
- * then invokes the default export. The transform lives in
- * `screenFrameBuild.ts` (split out so this file exports only the
- * component).
+ * The frame has an opaque origin and receives only the four declared API
+ * capabilities through a request/response postMessage channel. The host
+ * authenticates every inbound message by both contentWindow identity and a
+ * nonce minted for this mount.
  */
-import { useEffect, useRef, useState } from 'react';
-import type { ScreenFaultKind } from '../../services/mods/screenFaults';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ValidatedModTable } from '../../services/mods/modTypes';
 import {
-    SCREEN_SANDBOX_ATTRIBUTE,
-    SCREEN_FRAME_CSP,
-    buildScreenSrcDoc,
-} from './screenFrameBuild';
+    isScreenApiRequest,
+    isStructuredCloneSafe,
+    MAX_INBOUND_MESSAGES,
+    MIN_SCREEN_HEIGHT_PX,
+    MAX_SCREEN_HEIGHT_PX,
+    SCREEN_THEME,
+    tableAcceptsValue,
+    tableDefault,
+    type ScreenTableReadResult,
+} from '../../services/mods/screenApiTypes';
+import type { ScreenFaultKind } from '../../services/mods/screenFaults';
+import { SCREEN_SANDBOX_ATTRIBUTE, SCREEN_FRAME_CSP, buildScreenSrcDoc } from './screenFrameBuild';
 
 export interface ScreenFrameProps {
-    /** The mod id that declared the screen — for diagnostics and fault reporting. */
     modId: string;
-    /** The screen declaration (id, file, label). */
     screen: { id: string; file: string; label?: string };
-    /** The screen source text, as loaded by the server (R2 — never evaluated server-side). */
     source: string;
-    /**
-     * Optional. Called when the frame fails to load or throws at runtime
-     * (R5 — Step 3 wires this to the Extensions fault list). The host
-     * keeps running regardless; this is for surfacing, not recovery.
-     */
+    tables?: readonly ValidatedModTable[];
+    onTableRead?: (table: string) => ScreenTableReadResult | Promise<ScreenTableReadResult>;
+    onTableWrite?: (table: string, value: unknown) => void | Promise<void>;
     onFault?: (fault: { modId: string; screenId: string; kind: ScreenFaultKind; message: string }) => void;
 }
 
-/**
- * The isolated frame host. Mounts one `<iframe srcdoc=… sandbox="allow-scripts">`
- * per screen, destroys it on unmount (R4 — no pooling, no reuse).
- *
- * A 5.1 screen is USELESS ON PURPOSE (R6): it receives nothing and sends
- * nothing. There is no `postMessage` channel from the parent to the frame.
- * The frame's own `postMessage` calls (fault reports) are received here
- * only to surface a fault on the Extensions list (Step 3); they carry no
- * data and grant no capability.
- */
-export function ScreenFrame({ modId, screen, source, onFault }: ScreenFrameProps) {
+const SCREEN_FAULT_KINDS: readonly ScreenFaultKind[] = ['load', 'threw', 'crashed', 'denied', 'flood', 'malformed'];
+
+function isScreenFaultKind(value: unknown): value is ScreenFaultKind {
+    return typeof value === 'string' && SCREEN_FAULT_KINDS.includes(value as ScreenFaultKind);
+}
+
+function mintScreenNonce(): string {
+    const values = new Uint32Array(4);
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+        crypto.getRandomValues(values);
+        return Array.from(values, (value) => value.toString(16).padStart(8, '0')).join('');
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function ScreenFrame({
+    modId,
+    screen,
+    source,
+    tables = [],
+    onTableRead,
+    onTableWrite,
+    onFault,
+}: ScreenFrameProps) {
     const iframeRef = useRef<HTMLIFrameElement | null>(null);
+    const nonceRef = useRef(mintScreenNonce());
+    const inboundMessagesRef = useRef(0);
+    const initSentRef = useRef(false);
+    const faultedRef = useRef(false);
     const [faulted, setFaulted] = useState(false);
-    // The latest onFault callback, synced in an effect (not during render,
-    // per react-hooks/refs). The fault listener reads this so a re-render
-    // with a new callback doesn't re-subscribe to `message`.
+    const [height, setHeight] = useState(MIN_SCREEN_HEIGHT_PX);
     const onFaultRef = useRef(onFault);
+    const srcdoc = useMemo(() => buildScreenSrcDoc(source, SCREEN_FRAME_CSP), [source]);
+
     useEffect(() => {
         onFaultRef.current = onFault;
     }, [onFault]);
 
-    // R4: the srcdoc is built ONCE per mount from the source text. A
-    // re-render with the same source produces the same srcdoc string; the
-    // iframe is not recreated. On unmount, React removes the element and
-    // the frame's scripts are gone with it. There is no pooling and no
-    // reuse across screens — each ScreenFrame instance is one frame, one
-    // lifecycle.
-    const srcdoc = buildScreenSrcDoc(source, SCREEN_FRAME_CSP);
-
-    // The fault listener receives the frame's own postMessage calls
-    // (R5 — Step 3 surfaces these on the Extensions list). It checks the
-    // `origin` of every message: an opaque-origin iframe has the sentinel
-    // `"null"` origin, and we only act on messages carrying our
-    // `__screenFault` marker. Any other message — including a
-    // same-origin one from our own app — is ignored. This is NOT a host
-    // API (R6): the channel carries fault signals only, no data, and the
-    // frame cannot use it to request anything of the host.
-    useEffect(() => {
-        function handler(event: MessageEvent) {
-            if (event.origin !== 'null') return;
-            const data = event.data as { __screenFault?: boolean; kind?: ScreenFaultKind; message?: string } | null;
-            if (!data || data.__screenFault !== true) return;
-            setFaulted(true);
-            onFaultRef.current?.({
-                modId,
-                screenId: screen.id,
-                kind: data.kind ?? 'threw',
-                message: data.message ?? 'screen threw without a message',
-            });
-        }
-        window.addEventListener('message', handler);
-        return () => window.removeEventListener('message', handler);
+    const reportFault = useCallback((kind: ScreenFaultKind, message: string) => {
+        if (faultedRef.current) return;
+        faultedRef.current = true;
+        setFaulted(true);
+        onFaultRef.current?.({ modId, screenId: screen.id, kind, message });
     }, [modId, screen.id]);
 
-    // R4: a load error is a fault the host keeps running through. The
-    // frame's `onError` fires for resource failures (a srcdoc document
-    // has none in 5.1, but a future screen that references a network
-    // resource would trip it under R3's `default-src 'none'`).
+    const sendInit = useCallback(() => {
+        const target = iframeRef.current?.contentWindow;
+        if (!target || initSentRef.current || faultedRef.current) return;
+        initSentRef.current = true;
+        target.postMessage({
+            __screenInit: true,
+            nonce: nonceRef.current,
+            theme: SCREEN_THEME,
+        }, '*');
+    }, []);
+
     useEffect(() => {
         const iframe = iframeRef.current;
         if (!iframe) return;
-        function onError() {
-            setFaulted(true);
-            onFaultRef.current?.({
-                modId,
-                screenId: screen.id,
-                kind: 'load',
-                message: `screen "${screen.id}" failed to load`,
-            });
+        const frameWindow = iframe.contentWindow;
+
+        const sendResponse = (target: Window, id: number, ok: boolean, result?: unknown, error?: string) => {
+            const response = { __screenResponse: true, id, nonce: nonceRef.current, ok, result, error };
+            try {
+                target.postMessage(response, '*');
+            } catch {
+                reportFault('malformed', 'response was not structured-clone-safe');
+            }
+        };
+
+        const handleRequest = async (event: MessageEvent, data: Record<string, unknown>) => {
+            const target = event.source as Window | null;
+            if (!target || typeof target.postMessage !== 'function') return;
+            if (!isScreenApiRequest(data)) {
+                reportFault('malformed', 'request envelope is malformed');
+                return;
+            }
+            if (data.nonce !== nonceRef.current) {
+                sendResponse(target, data.id, false, undefined, 'denied: invalid screen nonce');
+                reportFault('denied', 'invalid screen nonce');
+                return;
+            }
+
+            const table = data.table === undefined ? undefined : tables.find((candidate) => candidate.name === data.table);
+            if (data.capability === 'table.read') {
+                if (!table) {
+                    sendResponse(target, data.id, false, undefined, `denied: table "${String(data.table)}" is not declared by this mod`);
+                    reportFault('denied', `table "${String(data.table)}" is not declared by this mod`);
+                    return;
+                }
+                try {
+                    const raw = await onTableRead?.(table.name);
+                    const result = raw === undefined ? tableDefault(table) : raw;
+                    if (!isStructuredCloneSafe(result)) {
+                        sendResponse(target, data.id, false, undefined, 'malformed: table data is not serializable');
+                        reportFault('malformed', 'table data is not structured-clone-safe');
+                        return;
+                    }
+                    sendResponse(target, data.id, true, result);
+                } catch (error) {
+                    sendResponse(target, data.id, false, undefined, `table.read failed: ${String(error)}`);
+                }
+                return;
+            }
+
+            if (data.capability === 'table.write') {
+                if (!table) {
+                    sendResponse(target, data.id, false, undefined, `denied: table "${String(data.table)}" is not declared by this mod`);
+                    reportFault('denied', `table "${String(data.table)}" is not declared by this mod`);
+                    return;
+                }
+                if (!tableAcceptsValue(table, data.value)) {
+                    sendResponse(target, data.id, false, undefined, `malformed: table "${table.name}" expects a ${table.recordShape}`);
+                    reportFault('malformed', `table "${table.name}" expects a ${table.recordShape}`);
+                    return;
+                }
+                try {
+                    await onTableWrite?.(table.name, data.value);
+                    sendResponse(target, data.id, true, { written: true });
+                } catch (error) {
+                    sendResponse(target, data.id, false, undefined, `table.write failed: ${String(error)}`);
+                }
+                return;
+            }
+
+            if (data.capability === 'theme') {
+                sendResponse(target, data.id, true, SCREEN_THEME);
+                return;
+            }
+
+            if (data.capability === 'resize') {
+                if (typeof data.height !== 'number' || !Number.isFinite(data.height)) {
+                    sendResponse(target, data.id, false, undefined, 'malformed: resize requires a finite height');
+                    reportFault('malformed', 'resize requires a finite height');
+                    return;
+                }
+                const nextHeight = Math.min(MAX_SCREEN_HEIGHT_PX, Math.max(MIN_SCREEN_HEIGHT_PX, Math.round(data.height)));
+                setHeight(nextHeight);
+                sendResponse(target, data.id, true, { height: nextHeight });
+                return;
+            }
+
+            sendResponse(target, data.id, false, undefined, `denied: unknown capability "${data.capability}"`);
+            reportFault('denied', `unknown capability "${data.capability}"`);
+        };
+
+        function handleMessage(event: MessageEvent) {
+            if (event.source !== frameWindow) return;
+            inboundMessagesRef.current += 1;
+            if (inboundMessagesRef.current > MAX_INBOUND_MESSAGES) {
+                reportFault('flood', `inbound message cap ${MAX_INBOUND_MESSAGES} exceeded`);
+                return;
+            }
+            const data = event.data;
+            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                reportFault('malformed', 'inbound message is not an object');
+                return;
+            }
+            const record = data as Record<string, unknown>;
+            if (record.__screenFault === true) {
+                if (record.nonce !== nonceRef.current) return;
+                reportFault(
+                    isScreenFaultKind(record.kind) ? record.kind : 'malformed',
+                    typeof record.message === 'string' ? record.message : 'screen fault had no message',
+                );
+                return;
+            }
+            void handleRequest(event, record);
         }
+
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, [onTableRead, onTableWrite, reportFault, tables]);
+
+    useEffect(() => {
+        const iframe = iframeRef.current;
+        if (!iframe) return;
+        const onError = () => reportFault('load', `screen "${screen.id}" failed to load`);
         iframe.addEventListener('error', onError);
         return () => iframe.removeEventListener('error', onError);
-    }, [modId, screen.id]);
+    }, [reportFault, screen.id]);
 
     if (faulted) {
         return (
@@ -159,10 +238,11 @@ export function ScreenFrame({ modId, screen, source, onFault }: ScreenFrameProps
             title={`${modId}.${screen.id}`}
             srcDoc={srcdoc}
             sandbox={SCREEN_SANDBOX_ATTRIBUTE}
+            onLoad={sendInit}
             data-screen-frame={modId}
             data-screen-id={screen.id}
             className="w-full bg-void border border-border rounded"
-            style={{ minHeight: '120px' }}
+            style={{ height: `${height}px`, minHeight: `${MIN_SCREEN_HEIGHT_PX}px` }}
         />
     );
 }

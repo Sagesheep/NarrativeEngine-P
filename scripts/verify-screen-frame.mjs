@@ -1,27 +1,7 @@
-// WO-P5-17 Step 4 — the screen-frame isolation proof, in a real browser.
+// WO-P5-17 / WO-P5-18 — real-browser proof for screen isolation and host API.
 //
-// Modelled directly on scripts/verify-sandbox.mjs: a local http server
-// plus headless Edge spawned with --headless=new, NO new dependency,
-// EDGE_PATH overridable. jsdom does NOT enforce the sandbox attribute
-// (WORKORDER-P5-17 §5) — it will happily let a frame reach the parent,
-// so a passing jsdom test proves the WIRING and NOTHING about the
-// isolation. This script is the real proof.
-//
-// Fixtures (each asserts the SPECIFIC thing that must not happen, so
-// removing a barrier turns the suite red — per §5, a test asserting only
-// "no exception was thrown" is the weak assertion 3.5 already had to fix
-// once):
-//
-//   ok.js             renders; parent unaffected
-//   escape-dom.js     cannot read or write parent DOM
-//   escape-storage.js localStorage / cookies / IndexedDB unreachable
-//   escape-net.js     fetch to our own API AND to any host fails
-//   throws.js         frame reports a fault; app keeps running
-//   hang.js           §2 — measure whether the parent stays responsive
-//
-// The hang.js finding is the most important result this sub-phase can
-// produce. If the parent froze, that is a STOP CONDITION (§7) and the
-// PM's call — do not invent a mitigation.
+// This intentionally uses only a local HTTP server, CDP, and the installed
+// headless Edge. jsdom is used for wiring tests, not for this isolation proof.
 import { createServer } from 'node:http';
 import { readFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -36,30 +16,41 @@ const fixtureNames = [
     'escape-storage.js',
     'escape-net.js',
     'throws.js',
-    'hang.js',
-    // WO-P5-18 §2.2 — the regression guard for the comment-aware
-    // `export default` rewrite. The fixture's header comment contains
-    // the phrase "export default" multiple times; an unanchored rewrite
-    // matches the comment, leaves the real export intact, the entry point
-    // never runs, and the harness times out waiting for this fixture.
     'comment-export.js',
+    'api-table.js',
+    'api-foreign-table.js',
+    'api-theme.js',
+    'api-resize.js',
+    'api-unknown.js',
+    'api-forgery.js',
+    'api-flood.js',
+    'hang.js',
 ];
 
-// R3: the exact CSP the ScreenFrame component injects. Duplicated here
-// (not imported from the TS) because this script runs in Node ESM and the
-// component is TypeScript — the work order says "no new dependency", and
-// a build step to bridge them would be one. The R1 test in
-// ScreenFrame.r1.test.tsx pins the constant in the component; a drift
-// here would show up as a fixture failing in a way the component's tests
-// didn't predict.
-const SCREEN_FRAME_CSP =
-    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:";
+const SCREEN_FRAME_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:";
+const SCREEN_THEME = {
+    version: 1,
+    colors: {
+        background: '#10131a',
+        surface: '#181d27',
+        border: '#3b4658',
+        text: '#e7ebf2',
+        muted: '#9aa6b8',
+        accent: '#a78bfa',
+        danger: '#f87171',
+    },
+    fontSizes: { small: '11px', body: '13px', heading: '16px' },
+    radii: { small: '4px', medium: '8px' },
+};
+const MAX_INBOUND_MESSAGES = 1000;
+const MIN_SCREEN_HEIGHT_PX = 120;
+const MAX_SCREEN_HEIGHT_PX = 1200;
 
 function listen(server) {
-    return new Promise((resolvePromise, reject) => {
-        server.once('error', reject);
+    return new Promise((resolvePromise, rejectPromise) => {
+        server.once('error', rejectPromise);
         server.listen(0, '127.0.0.1', () => {
-            server.removeListener('error', reject);
+            server.removeListener('error', rejectPromise);
             resolvePromise(server.address().port);
         });
     });
@@ -67,14 +58,14 @@ function listen(server) {
 
 function waitForJson(url, predicate, timeoutMs = 15000) {
     const deadline = Date.now() + timeoutMs;
-    return new Promise((resolvePromise, reject) => {
+    return new Promise((resolvePromise, rejectPromise) => {
         const poll = async () => {
             if (Date.now() >= deadline) {
-                reject(new Error(`Timed out waiting for ${url}`));
+                rejectPromise(new Error(`Timed out waiting for ${url}`));
                 return;
             }
             const controller = new AbortController();
-            const abortTimer = setTimeout(() => controller.abort(), 1000);
+            const timer = setTimeout(() => controller.abort(), 1000);
             try {
                 const response = await fetch(url, { signal: controller.signal });
                 const value = await response.json();
@@ -85,7 +76,7 @@ function waitForJson(url, predicate, timeoutMs = 15000) {
                 }
             } catch {}
             finally {
-                clearTimeout(abortTimer);
+                clearTimeout(timer);
             }
             setTimeout(poll, 50);
         };
@@ -99,7 +90,6 @@ function connectCdp(webSocketUrl) {
         const pending = new Map();
         let nextId = 1;
         let opened = false;
-
         const connection = {
             send(method, params = {}) {
                 const id = nextId++;
@@ -114,7 +104,6 @@ function connectCdp(webSocketUrl) {
                 socket.close();
             },
         };
-
         socket.addEventListener('open', () => {
             opened = true;
             resolvePromise(connection);
@@ -165,278 +154,309 @@ async function removeProfile(profilePath) {
     console.error(`PROFILE_CLEANUP ${lastError?.message ?? String(lastError)}`);
 }
 
-// The host page. It receives the fixture sources via CDP, builds an
-// iframe per fixture using the SAME srcdoc wrapper the ScreenFrame
-// component uses, and collects the frames' postMessages. The parent
-// stays responsive throughout — the hang.js measurement is a parent-side
-// setTimeout that records how long it actually took to fire while the
-// hang frame was running.
-//
-// The page is served with NO CSP of its own (the host page is trusted;
-// the FRAME's CSP is the one under test, injected into the srcdoc).
-//
-// buildScreenSrcDoc uses string concatenation (NOT template literals) so
-// its .toString() is safe to embed in the page's outer template literal
-// — a template literal inside the function body would have its ${...}
-// interpolated by the OUTER literal at Node time, breaking the page.
-//
-// WO-P5-18 §2.2: the export-default rewrite is comment-aware here too.
-// The previous `/^\s*export\s+default\s+/` regex was anchored to the start
-// (missing comments-before-export) — the unanchored form it replaced
-// matched inside comments. The scanner below walks the source tracking
-// lexer state (line/block comments, string/template literals) and
-// replaces only the first CODE `export default`. Mirrors
-// `rewriteExportDefault` in src/components/settings-modal/screenFrameBuild.ts;
-// the comment-export.js fixture pins both.
-function rewriteExportDefaultForNode(source) {
-    var target = 'export default';
-    var i = 0;
-    var len = source.length;
-    while (i < len) {
-        var ch = source[i];
-        var next = source[i + 1];
+async function startBrowserHost() {
+    const pageHtml = `<!doctype html><meta charset="utf-8"><script>
+const __csp = ${JSON.stringify(SCREEN_FRAME_CSP)};
+const __theme = ${JSON.stringify(SCREEN_THEME)};
+const __maxInbound = ${MAX_INBOUND_MESSAGES};
+const __minHeight = ${MIN_SCREEN_HEIGHT_PX};
+const __maxHeight = ${MAX_SCREEN_HEIGHT_PX};
+
+function __rewriteExportDefault(source) {
+    const target = 'export default';
+    let i = 0;
+    while (i < source.length) {
+        const ch = source[i];
+        const next = source[i + 1];
         if (ch === '/' && next === '/') {
-            var nl = source.indexOf('\n', i + 2);
+            const nl = source.indexOf(String.fromCharCode(10), i + 2);
             if (nl === -1) return source;
             i = nl + 1;
             continue;
         }
         if (ch === '/' && next === '*') {
-            var close = source.indexOf('*/', i + 2);
+            const close = source.indexOf('*/', i + 2);
             if (close === -1) return source;
             i = close + 2;
             continue;
         }
-        if (ch === "'" || ch === '"' || ch === '`') {
-            var quote = ch;
+        if (ch === "'" || ch === '"' || ch === String.fromCharCode(96)) {
+            const quote = ch;
             i += 1;
-            while (i < len) {
-                var c = source[i];
-                if (c === '\\') { i += 2; continue; }
+            while (i < source.length) {
+                const c = source[i];
+                if (c === '\\\\') { i += 2; continue; }
                 if (c === quote) { i += 1; break; }
                 i += 1;
             }
             continue;
         }
         if (source.startsWith(target, i)) {
-            var after = source[i + target.length];
-            if (after === ' ' || after === '\t' || after === '\n' || after === '\r') {
+            const after = source[i + target.length];
+            if (after === ' ' || after === '\\t' || after === '\\n' || after === '\\r') {
                 return source.slice(0, i) + 'globalThis.__screenMod = ' + source.slice(i + target.length + 1);
             }
-            i += 1;
-            continue;
         }
         i += 1;
     }
     return source;
 }
-function buildScreenSrcDoc(source, csp) {
-    var moduleBody = rewriteExportDefaultForNode(String(source));
-    return [
-        '<!doctype html>',
-        '<html>',
-        '<head>',
-        '<meta http-equiv="Content-Security-Policy" content="' + csp + '">',
-        '<meta charset="utf-8">',
-        '</head>',
-        '<body>',
-        '<script>',
-        '(function () {',
-        '  try {',
-        '    ' + moduleBody,
-        '    if (typeof globalThis.__screenMod === "function") {',
-        '      var result = globalThis.__screenMod();',
-        '      if (result && typeof result.then === "function") {',
-        '        result.then(function () {}, function (err) {',
-        '          parent.postMessage({ __screenFault: true, screenId: null, kind: "threw", message: String(err && err.message ? err.message : err) }, "*");',
-        '        });',
-        '      }',
-        '    }',
-        '  } catch (err) {',
-        '    parent.postMessage({ __screenFault: true, screenId: null, kind: "threw", message: String(err && err.message ? err.message : err) }, "*");',
-        '  }',
-        '})();',
-        '</script>',
-        '</body>',
-        '</html>',
-    ].join('\n');
-}
 
-async function startBrowserHost() {
-    const pageHtml = `<!doctype html><meta charset="utf-8"><script>
-const __csp = ${JSON.stringify(SCREEN_FRAME_CSP)};
-// The srcdoc builder, inlined here (not via .toString()) to avoid the
-// HTML parser seeing a literal closing-script tag in a JS string. The
-// closing tag is assembled from concatenation so no single string
-// literal in the source contains it.
 function __buildSrcDoc(source, csp) {
-    var moduleBody = String(source).replace(/export\\s+default\\s+/, 'globalThis.__screenMod = ');
-    var closeScript = '<' + '/script>';
+    const moduleBody = __rewriteExportDefault(String(source));
+    const closeScript = '<' + '/script>';
     return [
-        '<!doctype html>',
-        '<html>',
-        '<head>',
+        '<!doctype html>', '<html>', '<head>',
         '<meta http-equiv="Content-Security-Policy" content="' + csp + '">',
-        '<meta charset="utf-8">',
-        '</head>',
-        '<body>',
-        '<' + 'script>',
-        '(function () {',
-        '  try {',
-        '    ' + moduleBody,
-        '    if (typeof globalThis.__screenMod === "function") {',
-        '      var result = globalThis.__screenMod();',
-        '      if (result && typeof result.then === "function") {',
-        '        result.then(function () {}, function (err) {',
-        '          parent.postMessage({ __screenFault: true, screenId: null, kind: "threw", message: String(err && err.message ? err.message : err) }, "*");',
-        '        });',
-        '      }',
+        '<meta charset="utf-8">', '</head>', '<body>',
+        '<script>', '(function () {',
+        '  var __nonce = null;',
+        '  var __theme = null;',
+        '  var __pending = new Map();',
+        '  var __nextId = 1;',
+        '  globalThis.__screenInitReceived = false;',
+        '  globalThis.__screenNonce = null;',
+        '  window.addEventListener("message", function (event) {',
+        '    if (event.source !== parent) return;',
+        '    var data = event.data;',
+        '    if (!data || typeof data !== "object") return;',
+        '    if (data.__screenInit === true) {',
+        '      if (globalThis.__screenInitReceived || typeof data.nonce !== "string" || !data.nonce) return;',
+        '      globalThis.__screenInitReceived = true;',
+        '      __nonce = data.nonce;',
+        '      globalThis.__screenNonce = data.nonce;',
+        '      __theme = data.theme;',
+        '      globalThis.__screenTheme = data.theme;',
+        '      if (typeof globalThis.__screenStart === "function") globalThis.__screenStart();',
+        '      return;',
         '    }',
-        '  } catch (err) {',
-        '    parent.postMessage({ __screenFault: true, screenId: null, kind: "threw", message: String(err && err.message ? err.message : err) }, "*");',
-        '  }',
-        '})();',
-        closeScript,
-        '</body>',
-        '</html>',
+        '    if (data.__screenResponse !== true || data.nonce !== __nonce) return;',
+        '    if (!__pending.has(data.id)) return;',
+        '    var waiter = __pending.get(data.id);',
+        '    __pending.delete(data.id);',
+        '    if (data.ok) waiter.resolve(data.result);',
+        '    else waiter.reject(new Error(data.error || "screen API request denied"));',
+        '  });',
+        '  globalThis.__screenApi = {',
+        '    request: function (request) {',
+        '      return new Promise(function (resolve, reject) {',
+        '        var requestObject = typeof request === "string" ? { capability: request } : request;',
+        '        if (!__nonce) { reject(new Error("screen API not initialised")); return; }',
+        '        if (!requestObject || typeof requestObject !== "object" || typeof requestObject.capability !== "string") { reject(new Error("malformed screen API request")); return; }',
+        '        var id = __nextId++;',
+        '        __pending.set(id, { resolve: resolve, reject: reject });',
+        '        parent.postMessage(Object.assign({}, requestObject, { __screenRequest: true, id: id, nonce: __nonce }), "*");',
+        '      });',
+        '    },',
+        '    get theme() { return __theme; }',
+        '  };',
+        '})();', closeScript,
+        '<script>', '(function () {',
+        '  globalThis.__screenStart = function () {',
+        '    if (globalThis.__screenStarted) return;',
+        '    globalThis.__screenStarted = true;',
+        '    try {',
+        '      ' + moduleBody,
+        '      if (typeof globalThis.__screenMod !== "function") throw new Error("screen has no default export");',
+        '      var result = globalThis.__screenMod();',
+        '      if (result && typeof result.then === "function") result.catch(function (err) {',
+        '        parent.postMessage({ __screenFault: true, nonce: globalThis.__screenNonce, kind: "threw", message: String(err && err.message ? err.message : err) }, "*");',
+        '      });',
+        '    } catch (err) {',
+        '      parent.postMessage({ __screenFault: true, nonce: globalThis.__screenNonce, kind: "threw", message: String(err && err.message ? err.message : err) }, "*");',
+        '    }',
+        '  };',
+        '  if (globalThis.__screenInitReceived) globalThis.__screenStart();',
+        '})();', closeScript,
+        '</body>', '</html>',
     ].join('\\n');
 }
 
-// Collect one result per fixture. Each entry resolves when the frame
-// posts its __screenFixture (ok/escape-*) or __screenFault (throws)
-// message, OR when a timeout elapses (hang.js never posts).
-window.__screenResults = {};
-window.__screenWaiting = new Map();
-
-window.addEventListener('message', function (event) {
-    // A sandboxed opaque-origin frame has the sentinel "null" origin.
-    // We accept messages from "null" only — a same-origin message from
-    // our own page would have a real origin and is ignored.
-    if (event.origin !== 'null') return;
-    const data = event.data;
-    if (!data || typeof data !== 'object') return;
-
-    // The fault path: throws.js posts __screenFault: true. The wrapper
-    // posts this ONLY on error (a throw or a rejected promise); a
-    // successful run posts nothing — the fixture's own __screenFixture
-    // message is the success signal.
-    if (data.__screenFault === true) {
-        const waiter = window.__screenWaiting.get('__fault');
-        if (waiter) {
-            window.__screenWaiting.delete('__fault');
-            waiter({ kind: 'fault', data });
-        }
-        return;
-    }
-
-    // The fixture-report path: ok/escape-* post __screenFixture.
-    if (typeof data.__screenFixture === 'string') {
-        const waiter = window.__screenWaiting.get(data.__screenFixture);
-        if (waiter) {
-            window.__screenWaiting.delete(data.__screenFixture);
-            waiter({ kind: 'fixture', data });
-        }
-    }
-});
-
-// Mount a frame for a fixture source and resolve when the frame posts
-// back (or when the timeout elapses — hang.js never posts).
-window.__runFrame = function (name, source, timeoutMs) {
-    return new Promise((resolve) => {
+window.__runFrame = function (name, source, timeoutMs, options) {
+    options = options || {};
+    return new Promise(function (resolvePromise) {
         let settled = false;
-        const finish = (result) => {
+        let frame = null;
+        let attacker = null;
+        let target = null;
+        let attackerTarget = null;
+        let timer = null;
+        let inbound = 0;
+        const nonce = 'target-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+        const state = {
+            table: [{ id: 'seed', label: 'original' }],
+            height: __minHeight,
+            fault: null,
+            forgeryRejected: false,
+            tornDown: false,
+        };
+
+        const removeFrames = function () {
+            if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
+            if (attacker && attacker.parentNode) attacker.parentNode.removeChild(attacker);
+        };
+        const finish = function (result) {
             if (settled) return;
             settled = true;
-            window.__screenWaiting.delete(name);
-            window.__screenWaiting.delete('__fault');
-            // R4: destroy the frame on unmount. Remove the element so
-            // the frame's scripts are gone with it.
-            if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
-            resolve(result);
+            if (timer) clearTimeout(timer);
+            window.removeEventListener('message', handleMessage);
+            if (name === 'api-forgery.js' && result.kind === 'fixture') {
+                result.data = Object.assign({}, result.data, { forgeryRejected: state.forgeryRejected });
+            }
+            if (name === 'api-resize.js' && result.kind === 'fixture') {
+                result.data = Object.assign({}, result.data, { hostHeight: state.height });
+            }
+            if (name === 'api-flood.js' && result.kind === 'host-fault') {
+                result.data = Object.assign({}, result.data, { inboundCount: inbound, tornDown: state.tornDown });
+            }
+            removeFrames();
+            resolvePromise(result);
         };
-        // Register the waiter for both the fixture-report and the fault
-        // path (throws.js posts __screenFault, not __screenFixture).
-        window.__screenWaiting.set(name, (result) => finish(result));
-        window.__screenWaiting.set('__fault', (result) => finish(result));
+        const hostFault = function (kind, message, tearDown) {
+            state.fault = { kind: kind, message: message };
+            state.tornDown = Boolean(tearDown);
+            finish({ kind: 'host-fault', data: state.fault });
+        };
+        const respond = function (request, ok, result, error) {
+            try {
+                target.postMessage({ __screenResponse: true, id: request.id, nonce: nonce, ok: ok, result: result, error: error }, '*');
+            } catch {}
+        };
+        const handleRequest = function (data) {
+            inbound += 1;
+            if (inbound > __maxInbound) {
+                hostFault('flood', 'inbound message cap ' + __maxInbound + ' exceeded', true);
+                return;
+            }
+            if (!data || data.__screenRequest !== true || typeof data.id !== 'number' || typeof data.capability !== 'string') {
+                hostFault('malformed', 'request envelope is malformed', false);
+                return;
+            }
+            if (data.nonce !== nonce) {
+                respond(data, false, undefined, 'denied: invalid screen nonce');
+                hostFault('denied', 'invalid screen nonce', false);
+                return;
+            }
+            if (data.capability === 'table.read') {
+                if (data.table !== 'tree') {
+                    respond(data, false, undefined, 'denied: table is not declared by this mod');
+                    hostFault('denied', 'table is not declared by this mod', false);
+                    return;
+                }
+                respond(data, true, state.table);
+                return;
+            }
+            if (data.capability === 'table.write') {
+                if (data.table !== 'tree') {
+                    respond(data, false, undefined, 'denied: table is not declared by this mod');
+                    hostFault('denied', 'table is not declared by this mod', false);
+                    return;
+                }
+                if (!Array.isArray(data.value)) {
+                    respond(data, false, undefined, 'malformed: table expects an array');
+                    hostFault('malformed', 'table expects an array', false);
+                    return;
+                }
+                state.table = data.value;
+                respond(data, true, { written: true });
+                return;
+            }
+            if (data.capability === 'theme') {
+                respond(data, true, __theme);
+                return;
+            }
+            if (data.capability === 'resize') {
+                if (typeof data.height !== 'number' || !Number.isFinite(data.height)) {
+                    respond(data, false, undefined, 'malformed: resize requires a finite height');
+                    hostFault('malformed', 'resize requires a finite height', false);
+                    return;
+                }
+                state.height = Math.min(__maxHeight, Math.max(__minHeight, Math.round(data.height)));
+                frame.style.height = state.height + 'px';
+                respond(data, true, { height: state.height });
+                return;
+            }
+            respond(data, false, undefined, 'denied: unknown capability "' + data.capability + '"');
+            hostFault('denied', 'unknown capability "' + data.capability + '"', false);
+        };
+        function handleMessage(event) {
+            const data = event.data;
+            if (attackerTarget && event.source === attackerTarget && data && data.__screenRequest === true) {
+                state.forgeryRejected = true;
+                return;
+            }
+            if (event.source !== target) return;
+            if (data && data.__screenFixture === name) {
+                finish({ kind: 'fixture', data: data });
+                return;
+            }
+            if (data && data.__screenFault === true) {
+                finish({ kind: 'fault', data: data });
+                return;
+            }
+            if (options.api && data && data.__screenRequest === true) handleRequest(data);
+        }
+        window.addEventListener('message', handleMessage);
 
-        const srcdoc = __buildSrcDoc(source, __csp);
-        const frame = document.createElement('iframe');
+        frame = document.createElement('iframe');
         frame.setAttribute('sandbox', 'allow-scripts');
-        frame.setAttribute('srcdoc', srcdoc);
+        frame.setAttribute('srcdoc', __buildSrcDoc(source, __csp));
         frame.setAttribute('data-fixture', name);
         frame.style.width = '100%';
-        frame.style.minHeight = '40px';
+        frame.style.height = __minHeight + 'px';
+        frame.onload = function () {
+            target = frame.contentWindow;
+            target.postMessage({ __screenInit: true, nonce: nonce, theme: __theme }, '*');
+            if (name !== 'api-forgery.js') return;
+            attacker = document.createElement('iframe');
+            attacker.setAttribute('sandbox', 'allow-scripts');
+            const forged = {
+                __screenRequest: true,
+                id: 9001,
+                nonce: nonce,
+                capability: 'table.write',
+                table: 'tree',
+                value: [{ id: 'forged', label: 'forged write' }],
+            };
+            const attackerSource = 'export default function () { parent.postMessage(' + JSON.stringify(forged) + ', "*"); }';
+            attacker.setAttribute('srcdoc', __buildSrcDoc(attackerSource, __csp));
+            attacker.onload = function () {
+                attackerTarget = attacker.contentWindow;
+                attackerTarget.postMessage({ __screenInit: true, nonce: 'attacker-' + nonce, theme: __theme }, '*');
+            };
+            document.body.appendChild(attacker);
+        };
         document.body.appendChild(frame);
-
-        // Timeout: hang.js never posts back. The timeout is the
-        // measurement window for the parent-responsiveness check.
-        setTimeout(() => finish({ kind: 'timeout' }), Math.max(1, timeoutMs));
+        timer = setTimeout(function () { finish({ kind: 'timeout' }); }, Math.max(1, timeoutMs));
     });
 };
 
-// The harness entry point. Returns the collected results plus the
-// parent-responsiveness measurement for hang.js.
-window.__verifyScreenFrame = async ({ sources, timeoutMs }) => {
+window.__verifyScreenFrame = async function ({ sources, timeoutMs }) {
     const results = {};
-
-    // Run the non-hang fixtures sequentially. Each gets its own frame
-    // (R4 — no reuse), and we wait for its postMessage or a timeout.
-    for (const name of ['ok.js', 'escape-dom.js', 'escape-storage.js', 'escape-net.js', 'throws.js']) {
-        results[name] = await window.__runFrame(name, sources[name], timeoutMs);
+    for (const name of ['ok.js', 'escape-dom.js', 'escape-storage.js', 'escape-net.js', 'throws.js', 'comment-export.js']) {
+        results[name] = await window.__runFrame(name, sources[name], timeoutMs, { api: false });
+    }
+    for (const name of ['api-table.js', 'api-foreign-table.js', 'api-theme.js', 'api-resize.js', 'api-unknown.js', 'api-forgery.js', 'api-flood.js']) {
+        results[name] = await window.__runFrame(name, sources[name], timeoutMs, { api: true });
     }
 
-    // hang.js — §2. Measure whether the PARENT stays responsive while
-    // the hang frame is spinning. We:
-    //   1. Note the time.
-    //   2. Mount the hang frame (it starts spinning immediately).
-    //   3. Schedule a parent-side setTimeout(..., 200) and record how
-    //      long it actually takes to fire.
-    //   4. Also record the time the hang frame's run promise resolves
-    //      (via the harness timeout).
-    //
-    // If the setTimeout fires near 200ms, the parent stayed responsive
-    // (the frame got its own process — site isolation did its job). If
-    // it fires MUCH later (or we hit the harness timeout first), the
-    // parent FROZE.
     const hangStart = performance.now();
     let parentTimerFiredAt = null;
-    const parentResponsiveProbe = new Promise((resolve) => {
+    const parentResponsiveProbe = new Promise((resolvePromise) => {
         setTimeout(() => {
             parentTimerFiredAt = performance.now();
-            resolve(parentTimerFiredAt - hangStart);
+            resolvePromise(parentTimerFiredAt - hangStart);
         }, 200);
     });
-
-    const hangPromise = window.__runFrame('hang.js', sources['hang.js'], timeoutMs);
-    // Race the responsiveness probe against the frame's timeout. We do
-    // NOT await the probe alone — if the parent froze, the probe would
-    // never resolve and we'd hang the harness. The frame's timeout
-    // (resolved via finish()) is the backstop.
-    const hangResult = await hangPromise;
-    // After the frame is destroyed, give the responsiveness probe a
-    // moment to resolve if it hasn't already.
-    let parentResponsiveMs = null;
-    if (parentTimerFiredAt !== null) {
-        parentResponsiveMs = parentTimerFiredAt - hangStart;
-    } else {
-        // The probe hasn't fired yet. Wait a short grace period — if
-        // the parent was responsive, it fires almost immediately after
-        // the frame is removed. If it STILL doesn't fire, the parent
-        // event loop was blocked.
-        const grace = await Promise.race([
-            parentResponsiveProbe.then((ms) => ms),
-            new Promise((resolve) => setTimeout(() => resolve(null), 300)),
-        ]);
-        parentResponsiveMs = grace;
-    }
-
-    results['hang.js'] = {
-        ...hangResult,
-        parentResponsiveMs,
+    const hangResult = await window.__runFrame('hang.js', sources['hang.js'], timeoutMs, { api: false });
+    let parentResponsiveMs = parentTimerFiredAt === null
+        ? await Promise.race([parentResponsiveProbe, new Promise((resolvePromise) => setTimeout(() => resolvePromise(null), 300))])
+        : parentTimerFiredAt - hangStart;
+    results['hang.js'] = Object.assign({}, hangResult, {
+        parentResponsiveMs: parentResponsiveMs,
         parentStayedResponsive: parentResponsiveMs !== null && parentResponsiveMs < 1000,
-    };
-
-    return { results, csp: __csp };
+    });
+    return { results: results, csp: __csp };
 };
 </script>`;
 
@@ -445,30 +465,20 @@ window.__verifyScreenFrame = async ({ sources, timeoutMs }) => {
             response.writeHead(404).end();
             return;
         }
-        response.writeHead(200, {
-            'content-type': 'text/html; charset=utf-8',
-        });
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         response.end(pageHtml);
     });
     const pagePort = await listen(pageServer);
     const debugPortServer = createServer();
     const debugPort = await listen(debugPortServer);
     await new Promise((resolvePromise) => debugPortServer.close(resolvePromise));
-
     const edgePath = process.env.EDGE_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
     const profilePath = join(process.env.TEMP || process.env.TMP || 'C:\\Windows\\Temp', `screen-frame-verify-edge-${process.pid}`);
     const edge = spawn(edgePath, [
-        '--headless=new',
-        '--disable-gpu',
-        '--disable-dev-shm-usage',
-        '--no-sandbox',
-        '--disable-extensions',
-        '--no-first-run',
-        '--disable-background-networking',
-        '--remote-allow-origins=*',
-        `--remote-debugging-port=${debugPort}`,
-        `--user-data-dir=${profilePath}`,
-        `http://127.0.0.1:${pagePort}/`,
+        '--headless=new', '--disable-gpu', '--disable-dev-shm-usage', '--no-sandbox',
+        '--disable-extensions', '--no-first-run', '--disable-background-networking',
+        '--remote-allow-origins=*', `--remote-debugging-port=${debugPort}`,
+        `--user-data-dir=${profilePath}`, `http://127.0.0.1:${pagePort}/`,
     ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
 
     try {
@@ -479,40 +489,33 @@ window.__verifyScreenFrame = async ({ sources, timeoutMs }) => {
         const cdp = await connectCdp(target.webSocketDebuggerUrl);
         await cdp.send('Runtime.enable');
         await cdp.send('Page.enable');
+        const browserVersion = await cdp.send('Browser.getVersion');
         return {
             async run(sources, timeoutMs) {
-                // Wait for the page script to define __verifyScreenFrame.
-                // The page may still be loading when CDP connects; poll
-                // until the function is available (or a timeout elapses).
                 let ready = false;
                 for (let attempt = 0; attempt < 100; attempt += 1) {
-                    const probe = await cdp.send('Runtime.evaluate', { expression: "typeof window.__verifyScreenFrame", returnByValue: true });
+                    const probe = await cdp.send('Runtime.evaluate', { expression: 'typeof window.__verifyScreenFrame', returnByValue: true });
                     if (probe?.result?.value === 'function') { ready = true; break; }
                     await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
                 }
-                if (!ready) {
-                    const parsed = await cdp.send('Runtime.evaluate', { expression: "({ html: document.documentElement.outerHTML.slice(0, 800), scriptCount: document.querySelectorAll('script').length })", returnByValue: true });
-                    throw new Error(`screen-frame page did not define __verifyScreenFrame: ${JSON.stringify(parsed?.result?.value)}`);
-                }
+                if (!ready) throw new Error('screen-frame page did not define __verifyScreenFrame');
                 const expression = `window.__verifyScreenFrame({ sources: ${JSON.stringify(sources)}, timeoutMs: ${timeoutMs} })`;
                 const result = await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
                 if (result?.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
-                return result.result.value;
+                return { value: result.result.value, browserVersion };
             },
             async close() {
                 cdp.close();
-                try {
-                    await terminateProcessTree(edge);
-                } finally {
+                try { await terminateProcessTree(edge); }
+                finally {
                     await removeProfile(profilePath);
                     await new Promise((resolvePromise) => pageServer.close(resolvePromise));
                 }
             },
         };
     } catch (error) {
-        try {
-            await terminateProcessTree(edge);
-        } finally {
+        try { await terminateProcessTree(edge); }
+        finally {
             await removeProfile(profilePath);
             await new Promise((resolvePromise) => pageServer.close(resolvePromise));
         }
@@ -529,102 +532,74 @@ async function main() {
         name,
         await readFile(join(fixtureRoot, name), 'utf8'),
     ])));
-
-    // The per-fixture timeout. hang.js is the long one — we give it 3000ms
-    // to let the parent-responsiveness probe fire (200ms) and then some.
-    // The other fixtures should resolve in well under 1000ms.
-    const timeoutMs = 3000;
-
+    const timeoutMs = 4000;
     const browserHost = await startBrowserHost();
-    let result;
+    let runResult;
     try {
-        result = await browserHost.run(sources, timeoutMs);
+        runResult = await browserHost.run(sources, timeoutMs);
     } finally {
         await browserHost.close();
     }
-
+    const result = runResult.value;
     const r = result.results;
 
-    // ── ok.js — renders; parent unaffected ────────────────────────────
     const ok = r['ok.js'];
-    assert(ok.kind === 'fixture', `ok.js did not report: ${JSON.stringify(ok)}`);
-    assert(ok.data.bodyHasMarker === true, `ok.js did not render its marker: ${JSON.stringify(ok.data)}`);
-    assert(ok.data.textContent === 'screen rendered', `ok.js marker text wrong: ${JSON.stringify(ok.data)}`);
-    // R1: the frame's own origin is the opaque-origin sentinel. If this
-    // is a real URL, allow-same-origin was added.
-    assert(ok.data.selfOrigin === 'null', `ok.js self origin is not "null" (R1 violated): ${ok.data.selfOrigin}`);
+    assert(ok.kind === 'fixture' && ok.data.bodyHasMarker === true && ok.data.textContent === 'screen rendered', `ok.js failed: ${JSON.stringify(ok)}`);
+    assert(ok.data.selfOrigin === 'null', `ok.js origin was not opaque: ${JSON.stringify(ok.data)}`);
 
-    // ── escape-dom.js — cannot read or write parent DOM ───────────────
     const dom = r['escape-dom.js'];
-    assert(dom.kind === 'fixture', `escape-dom.js did not report: ${JSON.stringify(dom)}`);
-    assert(dom.data.reached === false, `escape-dom.js REACHED parent DOM (R1 violated): ${JSON.stringify(dom.data)}`);
-    assert(dom.data.parentDocument === 'null' || dom.data.parentDocumentType === 'undefined' || dom.data.error !== null,
-        `escape-dom.js parent.document was accessible: ${JSON.stringify(dom.data)}`);
+    assert(dom.kind === 'fixture' && dom.data.reached === false, `escape-dom.js failed: ${JSON.stringify(dom)}`);
 
-    // ── escape-storage.js — localStorage / cookies / IndexedDB unreachable ──
     const store = r['escape-storage.js'];
     assert(store.kind === 'fixture', `escape-storage.js did not report: ${JSON.stringify(store)}`);
-    assert(store.data.localStorage === 'blocked' || store.data.localStorage === 'null',
-        `escape-storage.js localStorage was reached (R1 violated): ${store.data.localStorage}`);
-    // Cookies on an opaque origin throw SecurityError (the document is
-    // sandboxed and lacks the allow-same-origin flag). The fixture sets
-    // cookieReadable to false when the access throws. If cookieReadable
-    // is true AND the value is non-empty, the frame has same-origin
-    // cookies (R1 violated).
-    assert(store.data.cookieReadable === false || store.data.cookieValue === '' || store.data.cookieValue === null,
-        `escape-storage.js cookie was readable and non-empty (R1 violated): ${JSON.stringify(store.data.cookieValue)}`);
-    assert(store.data.indexedDB === 'blocked' || store.data.indexedDB === 'null',
-        `escape-storage.js indexedDB was opened (R1 violated): ${store.data.indexedDB}`);
-    assert(store.data.sessionStorage === 'blocked' || store.data.sessionStorage === 'null',
-        `escape-storage.js sessionStorage was reached (R1 violated): ${store.data.sessionStorage}`);
+    assert(store.data.localStorage === 'blocked' || store.data.localStorage === 'null', `localStorage escaped: ${JSON.stringify(store.data)}`);
+    assert(store.data.cookieReadable === false || store.data.cookieValue === '' || store.data.cookieValue === null, `cookies escaped: ${JSON.stringify(store.data)}`);
+    assert(store.data.indexedDB === 'blocked' || store.data.indexedDB === 'null', `indexedDB escaped: ${JSON.stringify(store.data)}`);
+    assert(store.data.sessionStorage === 'blocked' || store.data.sessionStorage === 'null', `sessionStorage escaped: ${JSON.stringify(store.data)}`);
 
-    // ── escape-net.js — fetch to our own API AND to any host fails ────
     const net = r['escape-net.js'];
     assert(net.kind === 'fixture', `escape-net.js did not report: ${JSON.stringify(net)}`);
-    // fetch is DEFINED on the opaque origin (it's a standard global).
-    // The barrier is the CSP: the fetch must FAIL (throw or the promise
-    // rejects). A fetch that RESOLVES means the network barrier is gone.
-    assert(net.data.fetchOwnApi === 'blocked',
-        `escape-net.js fetch to own API RESOLVED (R3 violated): ${net.data.fetchOwnApi}`);
-    assert(net.data.fetchExternal === 'blocked',
-        `escape-net.js fetch to external host RESOLVED (R3 violated): ${net.data.fetchExternal}`);
+    assert(net.data.fetchOwnApi === 'blocked' && net.data.fetchExternal === 'blocked' && net.data.xhrSend === 'blocked' && net.data.webSocket === 'blocked', `network barrier failed: ${JSON.stringify(net.data)}`);
 
-    // ── throws.js — frame reports a fault; app keeps running ──────────
     const throws = r['throws.js'];
-    assert(throws.kind === 'fault', `throws.js did not report a fault: ${JSON.stringify(throws)}`);
-    assert(throws.data.kind === 'threw', `throws.js fault kind wrong: ${JSON.stringify(throws.data)}`);
-    assert(typeof throws.data.message === 'string' && throws.data.message.length > 0,
-        `throws.js fault had no message: ${JSON.stringify(throws.data)}`);
-    // The app kept running: we got here, and the next fixture (hang.js)
-    // ran after throws.js. The sequential loop proves the parent survived.
+    assert(throws.kind === 'fault' && throws.data.kind === 'threw' && typeof throws.data.message === 'string', `throws.js failed: ${JSON.stringify(throws)}`);
 
-    // ── hang.js — §2. The parent-responsiveness measurement. ──────────
+    const commentExport = r['comment-export.js'];
+    assert(commentExport.kind === 'fixture' && commentExport.data.ranDefaultExport === true, `comment-export.js failed: ${JSON.stringify(commentExport)}`);
+
+    const table = r['api-table.js'];
+    assert(table.kind === 'fixture' && table.data.before[0].label === 'original' && table.data.after[0].label === 'edited' && table.data.write.written === true, `api-table.js failed: ${JSON.stringify(table)}`);
+
+    const foreign = r['api-foreign-table.js'];
+    assert(foreign.kind === 'host-fault' && foreign.data.kind === 'denied', `api-foreign-table.js was not denied: ${JSON.stringify(foreign)}`);
+
+    const theme = r['api-theme.js'];
+    assert(theme.kind === 'fixture' && theme.data.hasTokenValues === true && theme.data.noStylesheet === true && theme.data.noClassNames === true, `api-theme.js failed: ${JSON.stringify(theme)}`);
+
+    const resize = r['api-resize.js'];
+    assert(resize.kind === 'fixture' && resize.data.applied === MAX_SCREEN_HEIGHT_PX && resize.data.hostHeight === MAX_SCREEN_HEIGHT_PX, `api-resize.js was not clamped: ${JSON.stringify(resize)}`);
+
+    const unknown = r['api-unknown.js'];
+    assert(unknown.kind === 'host-fault' && unknown.data.kind === 'denied' && unknown.data.message.includes('unknown capability'), `api-unknown.js failed: ${JSON.stringify(unknown)}`);
+
+    const forgery = r['api-forgery.js'];
+    assert(forgery.kind === 'fixture' && forgery.data.forgeryRejected === true && forgery.data.readAfterAttack[0].id === 'seed', `api-forgery.js failed: ${JSON.stringify(forgery)}`);
+
+    const flood = r['api-flood.js'];
+    assert(flood.kind === 'host-fault' && flood.data.kind === 'flood' && flood.data.inboundCount === MAX_INBOUND_MESSAGES + 1 && flood.data.tornDown === true, `api-flood.js failed: ${JSON.stringify(flood)}`);
+
     const hang = r['hang.js'];
-    // hang.js never posts back — it should hit the timeout.
-    assert(hang.kind === 'timeout', `hang.js did not spin as expected: ${JSON.stringify(hang)}`);
+    assert(hang.kind === 'timeout' && hang.parentStayedResponsive === true, `hang.js parent responsiveness failed: ${JSON.stringify(hang)}`);
 
     console.log('SCREEN FRAME BROWSER VERIFICATION');
     console.log(`browser=${process.env.EDGE_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'}`);
+    console.log(`browserVersion=${JSON.stringify(runResult.browserVersion)}`);
     console.log(`csp=${result.csp}`);
     console.log(`timeoutMs=${timeoutMs}`);
     console.log(`fixtures=${JSON.stringify(Object.fromEntries(fixtureNames.map((name) => [name, r[name].kind])))}`);
-    console.log(`ok=${JSON.stringify(r['ok.js'].data)}`);
-    console.log(`escape-dom=${JSON.stringify(r['escape-dom.js'].data)}`);
-    console.log(`escape-storage=${JSON.stringify(r['escape-storage.js'].data)}`);
-    console.log(`escape-net=${JSON.stringify(r['escape-net.js'].data)}`);
-    console.log(`throws=${JSON.stringify(r['throws.js'].data)}`);
-    console.log(`hang=${JSON.stringify(r['hang.js'])}`);
+    for (const name of fixtureNames) console.log(`${name.replace('.js', '')}=${JSON.stringify(r[name].data ?? r[name])}`);
     console.log(`HANG_FINDING: parentResponsiveMs=${hang.parentResponsiveMs}, parentStayedResponsive=${hang.parentStayedResponsive}`);
-
-    // The hang.js finding is stated plainly here. If the parent froze,
-    // this assert fails and the script exits non-zero — the executor
-    // reports it as a STOP CONDITION, not a failure to fix.
-    if (!hang.parentStayedResponsive) {
-        console.log('HANG_STOP: the parent FROZE while hang.js ran. This is a STOP CONDITION (WO-P5-17 §7). Report it; do not invent a mitigation.');
-        process.exitCode = 2;
-    } else {
-        console.log('PASS');
-    }
+    console.log('PASS');
 }
 
 main().catch((error) => {

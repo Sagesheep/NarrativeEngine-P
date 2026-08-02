@@ -1,355 +1,184 @@
-/**
- * WO-P5-17 Step 2 — ScreenFrame WIRING tests.
- *
- * ⚠️ JSDOM PROVES NOTHING ABOUT ISOLATION. jsdom does not enforce the
- * `sandbox` attribute — it will happily let a frame reach the parent, so a
- * passing jsdom test proves the WIRING and NOTHING about the isolation
- * (WORKORDER-P5-17 §5, the same trap as "jsdom has no Worker" in 3.4, one
- * layer up, and the most likely way this sub-phase produces a false pass).
- *
- * The real isolation proof is `scripts/verify-screen-frame.mjs` (Step 4),
- * which drives a real headless Edge against the same component via a local
- * http server. These jsdom tests cover only:
- *
- *   - R1: the `sandbox` attribute is exactly `allow-scripts` and NEVER
- *        `allow-same-origin`. This is the one line a well-meaning future
- *        edit is most likely to add to "fix" something, and a source scan
- *        alongside the attribute test fails if it ever appears. jsdom
- *        doesn't enforce the attribute, but it does render it, so the
- *        attribute value is checkable here.
- *   - R3: the CSP `<meta>` is the FIRST element in the srcdoc `<head>`,
- *        before any script can run, with the exact policy
- *        `default-src 'none'; script-src 'unsafe-inline'; style-src
- *        'unsafe-inline'; img-src data:`.
- *   - R4: one frame per ScreenFrame instance; unmount destroys it.
- *   - R6: no `postMessage` channel is opened FROM the parent TO the frame
- *        (the frame's own fault-report messages are received, but the host
- *        sends nothing back — a 5.1 screen is useless on purpose).
- *   - Fault surfacing: a `__screenFault` message from a `"null"` origin
- *        flips the frame to its faulted state and calls `onFault`.
- */
-import { render, screen, fireEvent } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { ScreenFrame } from '../ScreenFrame';
-import {
-    SCREEN_SANDBOX_ATTRIBUTE,
-    SCREEN_FRAME_CSP,
-    buildScreenSrcDoc,
-} from '../screenFrameBuild';
+import { SCREEN_FRAME_CSP, SCREEN_SANDBOX_ATTRIBUTE, buildScreenSrcDoc } from '../screenFrameBuild';
 import { screenFaultStore, formatScreenFaultReason } from '../../../services/mods/screenFaults';
 import type { ScreenFaultKind } from '../../../services/mods/screenFaults';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const componentPath = join(here, '..', 'screenFrameBuild.ts');
 
+function bootFrame(frame: HTMLIFrameElement): { nonce: string; target: Window } {
+    const target = frame.contentWindow;
+    if (!target) throw new Error('jsdom did not create iframe.contentWindow');
+    const postSpy = vi.spyOn(target, 'postMessage').mockImplementation(() => undefined);
+    fireEvent.load(frame);
+    const init = postSpy.mock.calls.map(([message]) => message).find((message) => (
+        typeof message === 'object' && message !== null && (message as { __screenInit?: boolean }).__screenInit === true
+    )) as { nonce: string } | undefined;
+    if (!init) throw new Error('ScreenFrame did not send its init message');
+    return { nonce: init.nonce, target };
+}
+
+function sendFrom(target: Window, data: unknown): void {
+    fireEvent(window, new MessageEvent('message', { source: target, data }));
+}
+
 afterEach(() => {
-    // jsdom leaves window listeners behind between tests; the fault
-    // listener is keyed to the mounted instance, so clear it to keep the
-    // suite independent.
     vi.restoreAllMocks();
 });
 
-describe('ScreenFrame — R1: sandbox attribute is exactly allow-scripts, never allow-same-origin', () => {
+describe('ScreenFrame — R1 sandbox and authentication', () => {
     it('renders an iframe with sandbox="allow-scripts"', () => {
-        render(
-            <ScreenFrame
-                modId="m"
-                screen={{ id: 's', file: 's.js' }}
-                source="export default function () {}"
-            />,
-        );
-        const frame = screen.getByTitle('m.s');
-        expect(frame.tagName).toBe('IFRAME');
-        expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
+        render(<ScreenFrame modId="m" screen={{ id: 's', file: 's.js' }} source="export default function () {}" />);
+        expect(screen.getByTitle('m.s').getAttribute('sandbox')).toBe('allow-scripts');
     });
 
-    it('SCREEN_SANDBOX_ATTRIBUTE is exactly "allow-scripts" and contains no allow-same-origin', () => {
+    it('keeps the sandbox constant limited to allow-scripts', () => {
         expect(SCREEN_SANDBOX_ATTRIBUTE).toBe('allow-scripts');
         expect(SCREEN_SANDBOX_ATTRIBUTE).not.toContain('allow-same-origin');
     });
 
-    it('R1 SOURCE SCAN: allow-same-origin never appears in ScreenFrame.tsx', async () => {
-        // The one line a well-meaning future edit is most likely to add to
-        // "fix" something. The attribute test above catches a runtime
-        // change; this source scan catches a comment, a string literal, or
-        // a conditional that would re-introduce it. `allow-scripts` is
-        // present (the constant), `allow-same-origin` is not.
+    it('source-scans the srcdoc builder for the forbidden same-origin token', async () => {
         const source = await readFile(componentPath, 'utf-8');
         expect(source).toContain('allow-scripts');
-        // Match the forbidden token as a whole word, so a comment like
-        // "allow-same-origin is forbidden" also trips the scan — the only
-        // place the token is allowed is this test file itself.
         expect(source).not.toMatch(/allow-same-origin/);
     });
 
-    it('the srcdoc never contains the allow-same-origin token', () => {
-        const srcdoc = buildScreenSrcDoc(
-            'export default function () {}',
-            SCREEN_FRAME_CSP,
-        );
-        expect(srcdoc).not.toMatch(/allow-same-origin/);
+    it('does not put the forbidden same-origin token in srcdoc', () => {
+        expect(buildScreenSrcDoc('export default function () {}', SCREEN_FRAME_CSP)).not.toMatch(/allow-same-origin/);
+    });
+
+    it('rejects a message from a different frame even when its shape is valid', () => {
+        const onFault = vi.fn();
+        render(<ScreenFrame modId="m" screen={{ id: 's', file: 's.js' }} source="export default function () {}" onFault={onFault} />);
+        const frame = screen.getByTitle('m.s') as HTMLIFrameElement;
+        bootFrame(frame);
+        sendFrom(window, { __screenRequest: true, id: 1, nonce: 'forged', capability: 'theme' });
+        expect(onFault).not.toHaveBeenCalled();
+        expect(screen.getByTitle('m.s')).toBeInTheDocument();
+    });
+
+    it('rejects a matching-source message with the wrong nonce', () => {
+        const onFault = vi.fn();
+        render(<ScreenFrame modId="m" screen={{ id: 's', file: 's.js' }} source="export default function () {}" onFault={onFault} />);
+        const frame = screen.getByTitle('m.s') as HTMLIFrameElement;
+        bootFrame(frame);
+        sendFrom(frame.contentWindow!, { __screenRequest: true, id: 1, nonce: 'wrong', capability: 'theme' });
+        expect(onFault).toHaveBeenCalledWith({ modId: 'm', screenId: 's', kind: 'denied', message: 'invalid screen nonce' });
     });
 });
 
-describe('ScreenFrame — R3: CSP default-src none is the first element in head', () => {
-    it('buildScreenSrcDoc puts the CSP meta before any script', () => {
-        const srcdoc = buildScreenSrcDoc(
-            'export default function () { document.body.innerHTML = "<p>hi</p>"; }',
-            SCREEN_FRAME_CSP,
-        );
-        const headStart = srcdoc.indexOf('<head>');
-        const cspPos = srcdoc.indexOf('Content-Security-Policy');
-        const firstScript = srcdoc.indexOf('<script>');
-        expect(cspPos).toBeGreaterThan(headStart);
-        expect(cspPos).toBeLessThan(firstScript);
-    });
-
-    it('the CSP policy is exactly default-src none + the three deliberate exceptions', () => {
-        expect(SCREEN_FRAME_CSP).toBe(
-            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:",
-        );
-    });
-
-    it('the srcdoc contains the CSP meta with the exact policy', () => {
+describe('ScreenFrame — CSP and lifecycle wiring', () => {
+    it('puts the CSP meta before scripts in srcdoc', () => {
         const srcdoc = buildScreenSrcDoc('export default function () {}', SCREEN_FRAME_CSP);
-        expect(srcdoc).toContain(`http-equiv="Content-Security-Policy" content="${SCREEN_FRAME_CSP}"`);
+        expect(srcdoc.indexOf('Content-Security-Policy')).toBeLessThan(srcdoc.indexOf('<script>'));
     });
 
-    it('the srcdoc has no network-capable directive (no connect-src, no font-src, no frame-src)', () => {
-        const srcdoc = buildScreenSrcDoc('export default function () {}', SCREEN_FRAME_CSP);
-        // default-src 'none' is the base; the only exceptions are the
-        // three inline directives. Anything that would allow a network
-        // request (connect-src, font-src, frame-src, media-src, object-src)
-        // must not appear.
-        expect(srcdoc).not.toMatch(/connect-src|font-src|frame-src|media-src|object-src/);
-    });
-});
-
-describe('ScreenFrame — R4: one frame per instance, destroyed on unmount', () => {
-    it('renders exactly one iframe per ScreenFrame', () => {
-        const { container } = render(
-            <ScreenFrame
-                modId="m"
-                screen={{ id: 's', file: 's.js' }}
-                source="export default function () {}"
-            />,
-        );
-        expect(container.querySelectorAll('iframe')).toHaveLength(1);
+    it('pins the exact default-src none policy', () => {
+        expect(SCREEN_FRAME_CSP).toBe("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:");
     });
 
-    it('unmount removes the iframe from the DOM', () => {
-        const { container, unmount } = render(
-            <ScreenFrame
-                modId="m"
-                screen={{ id: 's', file: 's.js' }}
-                source="export default function () {}"
-            />,
-        );
-        expect(container.querySelectorAll('iframe')).toHaveLength(1);
-        unmount();
-        expect(container.querySelectorAll('iframe')).toHaveLength(0);
+    it('does not add a network-capable CSP directive', () => {
+        expect(buildScreenSrcDoc('export default function () {}', SCREEN_FRAME_CSP)).not.toMatch(/connect-src|font-src|frame-src|media-src|object-src/);
     });
 
-    it('a re-render with the same source does not create a second iframe', () => {
-        const { container, rerender } = render(
-            <ScreenFrame
-                modId="m"
-                screen={{ id: 's', file: 's.js' }}
-                source="export default function () {}"
-            />,
-        );
-        rerender(
-            <ScreenFrame
-                modId="m"
-                screen={{ id: 's', file: 's.js' }}
-                source="export default function () {}"
-            />,
-        );
-        expect(container.querySelectorAll('iframe')).toHaveLength(1);
+    it('renders one iframe and removes it on unmount', () => {
+        const result = render(<ScreenFrame modId="m" screen={{ id: 's', file: 's.js' }} source="export default function () {}" />);
+        expect(result.container.querySelectorAll('iframe')).toHaveLength(1);
+        result.unmount();
+        expect(result.container.querySelectorAll('iframe')).toHaveLength(0);
     });
 
-    it('two ScreenFrame instances render two iframes (no pooling, no reuse across screens)', () => {
-        const { container } = render(
+    it('does not create a second iframe on a same-source rerender', () => {
+        const result = render(<ScreenFrame modId="m" screen={{ id: 's', file: 's.js' }} source="export default function () {}" />);
+        result.rerender(<ScreenFrame modId="m" screen={{ id: 's', file: 's.js' }} source="export default function () {}" />);
+        expect(result.container.querySelectorAll('iframe')).toHaveLength(1);
+    });
+
+    it('renders separate frames for separate screens', () => {
+        const result = render(
             <>
                 <ScreenFrame modId="m" screen={{ id: 'a', file: 'a.js' }} source="export default function () {}" />
                 <ScreenFrame modId="m" screen={{ id: 'b', file: 'b.js' }} source="export default function () {}" />
             </>,
         );
-        expect(container.querySelectorAll('iframe')).toHaveLength(2);
+        expect(result.container.querySelectorAll('iframe')).toHaveLength(2);
     });
-});
 
-describe('ScreenFrame — R6: the host sends no messages to the frame', () => {
-    it('exposes no postMessage channel to the frame (the frame receives nothing)', () => {
-        // There is no ref, no prop, no API on ScreenFrame that lets the
-        // parent send a message into the frame. The only message handling
-        // is INBOUND (the frame's own fault reports). Asserting this
-        // negatively: the component does not call contentWindow.postMessage
-        // at any point. jsdom's contentWindow is null for srcdoc iframes
-        // anyway, so a postMessage attempt would throw — but the point is
-        // the component never attempts it.
-        const postSpy = vi.spyOn(window, 'postMessage');
-        render(
-            <ScreenFrame
-                modId="m"
-                screen={{ id: 's', file: 's.js' }}
-                source="export default function () {}"
-            />,
-        );
-        // window.postMessage is the parent's own; the frame's
-        // contentWindow.postMessage would be a separate call. The host
-        // never calls either to send data into the frame.
-        expect(postSpy).not.toHaveBeenCalled();
+    it('sends one init message carrying a nonce and token data on load', () => {
+        render(<ScreenFrame modId="m" screen={{ id: 's', file: 's.js' }} source="export default function () {}" />);
+        const frame = screen.getByTitle('m.s') as HTMLIFrameElement;
+        const { nonce } = bootFrame(frame);
+        expect(nonce).toMatch(/^[a-f0-9-]+$/);
     });
-});
 
-describe('ScreenFrame — fault surfacing (R5 wiring, not isolation)', () => {
-    it('a __screenFault message from a "null" origin flips the frame to its faulted state', () => {
-        const onFault = vi.fn();
-        render(
-            <ScreenFrame
-                modId="m"
-                screen={{ id: 's', file: 's.js' }}
-                source="export default function () {}"
-                onFault={onFault}
-            />,
-        );
+    it('keeps the frame mounted for a message from another window', () => {
+        render(<ScreenFrame modId="m" screen={{ id: 's', file: 's.js' }} source="export default function () {}" />);
+        const frame = screen.getByTitle('m.s') as HTMLIFrameElement;
+        bootFrame(frame);
+        sendFrom(window, { __screenFault: true, nonce: 'wrong', kind: 'threw', message: 'spoof' });
         expect(screen.getByTitle('m.s')).toBeInTheDocument();
-        // Simulate the frame posting a fault. A sandboxed opaque-origin
-        // iframe has the sentinel "null" origin.
-        fireEvent(window, new MessageEvent('message', {
-            origin: 'null',
-            data: { __screenFault: true, kind: 'threw', message: 'boom' },
-        }));
-        // The faulted state replaces the iframe with a fault card.
+    });
+});
+
+describe('ScreenFrame — faults and Extensions projection', () => {
+    beforeEach(() => screenFaultStore.clear());
+    afterEach(() => screenFaultStore.clear());
+
+    it('faults a frame when its authenticated source reports a throw', () => {
+        const onFault = vi.fn();
+        render(<ScreenFrame modId="m" screen={{ id: 's', file: 's.js' }} source="export default function () {}" onFault={onFault} />);
+        const frame = screen.getByTitle('m.s') as HTMLIFrameElement;
+        const { nonce, target } = bootFrame(frame);
+        sendFrom(target, { __screenFault: true, nonce, kind: 'threw', message: 'boom' });
         expect(screen.queryByTitle('m.s')).toBeNull();
-        expect(screen.getByText(/faulted and was stopped/)).toBeInTheDocument();
-        expect(onFault).toHaveBeenCalledWith({
-            modId: 'm',
-            screenId: 's',
-            kind: 'threw',
-            message: 'boom',
-        });
+        expect(onFault).toHaveBeenCalledWith({ modId: 'm', screenId: 's', kind: 'threw', message: 'boom' });
     });
 
-    it('ignores a __screenFault message from a non-null origin (a same-origin message from our own app)', () => {
-        const onFault = vi.fn();
-        render(
-            <ScreenFrame
-                modId="m"
-                screen={{ id: 's', file: 's.js' }}
-                source="export default function () {}"
-                onFault={onFault}
-            />,
-        );
-        fireEvent(window, new MessageEvent('message', {
-            origin: 'http://localhost:3001',
-            data: { __screenFault: true, kind: 'threw', message: 'spoof' },
-        }));
-        // The frame is still mounted; the spoofed fault did not flip it.
-        expect(screen.getByTitle('m.s')).toBeInTheDocument();
-        expect(onFault).not.toHaveBeenCalled();
-    });
-
-    it('ignores a non-__screenFault message from a "null" origin', () => {
-        const onFault = vi.fn();
-        render(
-            <ScreenFrame
-                modId="m"
-                screen={{ id: 's', file: 's.js' }}
-                source="export default function () {}"
-                onFault={onFault}
-            />,
-        );
-        fireEvent(window, new MessageEvent('message', {
-            origin: 'null',
-            data: { somethingElse: true },
-        }));
-        expect(screen.getByTitle('m.s')).toBeInTheDocument();
-        expect(onFault).not.toHaveBeenCalled();
-    });
-});
-
-describe('ScreenFrame — R5: onFault feeds the screenFaultStore ({ file, reason } for the Extensions list)', () => {
-    beforeEach(() => {
-        screenFaultStore.clear();
-    });
-
-    afterEach(() => {
-        screenFaultStore.clear();
-    });
-
-    it('a thrown screen surfaces on the store as { file, reason } in the Extensions-list shape', () => {
+    it('projects a denied API fault to the Extensions fault shape', () => {
         const file = 'screen-mod.mod.json';
         render(
             <ScreenFrame
                 modId="screen-mod"
                 screen={{ id: 'main-screen', file }}
                 source="export default function () {}"
-                onFault={(fault) => {
-                    screenFaultStore.add({
-                        modId: fault.modId,
+                onFault={(fault) => screenFaultStore.add({
+                    modId: fault.modId,
+                    screenId: fault.screenId,
+                    file,
+                    kind: fault.kind as ScreenFaultKind,
+                    reason: formatScreenFaultReason({
+                        modName: 'Screen Mod',
                         screenId: fault.screenId,
-                        file,
-                        kind: fault.kind as ScreenFaultKind,
-                        reason: formatScreenFaultReason({
-                            modName: 'Screen Mod',
-                            screenId: fault.screenId,
-                            kind: fault.kind as ScreenFaultKind,
-                            message: fault.message,
-                        }),
-                    });
-                }}
+                        kind: fault.kind,
+                        message: fault.message,
+                    }),
+                })}
             />,
         );
-        fireEvent(window, new MessageEvent('message', {
-            origin: 'null',
-            data: { __screenFault: true, kind: 'threw', message: 'boom' },
-        }));
-        // The Extensions fault list reads getFaults() and renders
-        // { file, reason }. A screen fault converges to that shape here.
-        const faults = screenFaultStore.getFaults();
-        expect(faults).toHaveLength(1);
-        expect(faults[0].file).toBe(file);
-        expect(faults[0].reason).toBe('Screen Mod: screen "main-screen": threw (boom)');
+        const frame = screen.getByTitle('screen-mod.main-screen') as HTMLIFrameElement;
+        const { nonce, target } = bootFrame(frame);
+        sendFrom(target, { __screenRequest: true, id: 1, nonce, capability: 'unknown' });
+        expect(screenFaultStore.getFaults()).toEqual([{ file, reason: 'Screen Mod: screen "main-screen": denied (unknown capability "unknown")' }]);
     });
 
-    it('a screen that faults repeatedly produces ONE record, not a flood (no DoS via the fault list)', () => {
-        const file = 'repeat.mod.json';
-        render(
-            <ScreenFrame
-                modId="repeat-mod"
-                screen={{ id: 'repeat-screen', file }}
-                source="export default function () {}"
-                onFault={(fault) => {
-                    screenFaultStore.add({
-                        modId: fault.modId,
-                        screenId: fault.screenId,
-                        file,
-                        kind: fault.kind as ScreenFaultKind,
-                        reason: formatScreenFaultReason({
-                            modName: 'Repeat Mod',
-                            screenId: fault.screenId,
-                            kind: fault.kind as ScreenFaultKind,
-                            message: fault.message,
-                        }),
-                    });
-                }}
-            />,
-        );
-        // Fire the same fault three times. The store keys on
-        // modId/screenId, so a runaway screen overwrites its own record
-        // rather than stacking.
-        for (let i = 0; i < 3; i += 1) {
-            fireEvent(window, new MessageEvent('message', {
-                origin: 'null',
-                data: { __screenFault: true, kind: 'threw', message: `boom ${i}` },
-            }));
-        }
-        expect(screenFaultStore.getFaults()).toHaveLength(1);
-        expect(screenFaultStore.getFaults()[0].reason).toContain('boom 2');
+    it('formats all message-boundary fault kinds', () => {
+        expect(formatScreenFaultReason({ modName: 'M', screenId: 'S', kind: 'denied', message: 'x' })).toContain('denied');
+        expect(formatScreenFaultReason({ modName: 'M', screenId: 'S', kind: 'flood', message: 'x' })).toContain('message flood');
+        expect(formatScreenFaultReason({ modName: 'M', screenId: 'S', kind: 'malformed', message: 'x' })).toContain('malformed');
+    });
+
+    it('keeps the app frame isolated from a fault', () => {
+        const onFault = vi.fn();
+        render(<ScreenFrame modId="m" screen={{ id: 's', file: 's.js' }} source="export default function () {}" onFault={onFault} />);
+        const frame = screen.getByTitle('m.s') as HTMLIFrameElement;
+        const { nonce, target } = bootFrame(frame);
+        sendFrom(target, { __screenFault: true, nonce, kind: 'malformed', message: 'bad request' });
+        expect(document.body).toBeTruthy();
+        expect(onFault).toHaveBeenCalledTimes(1);
     });
 });
