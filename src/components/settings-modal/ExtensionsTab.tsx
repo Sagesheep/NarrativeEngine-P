@@ -19,6 +19,7 @@ import { refreshMods } from '../../services/mods/modBootstrap';
 import { modToContributionModule } from '../../services/mods/modAdapter';
 import type { ModFault, ValidatedMod } from '../../services/mods/modTypes';
 import { sandboxFaultStore } from '../../services/mods/sandbox/sandboxFaults';
+import { screenFaultStore } from '../../services/mods/screenFaults';
 import { ModPanels } from './ModPanels';
 
 /**
@@ -78,7 +79,10 @@ export function ExtensionsTab() {
 
     const [mods, setMods] = useState<ValidatedMod[]>([]);
     const [faults, setFaults] = useState<ModFault[]>([]);
-    const [runtimeFaults, setRuntimeFaults] = useState<ModFault[]>(() => [...sandboxFaultStore.getFaults()]);
+    const [runtimeFaults, setRuntimeFaults] = useState<ModFault[]>(() => [
+        ...sandboxFaultStore.getFaults(),
+        ...screenFaultStore.getFaults(),
+    ]);
     const [loading, setLoading] = useState(true);
     const [loadFailed, setLoadFailed] = useState(false);
     const [guideOpen, setGuideOpen] = useState(false);
@@ -114,12 +118,27 @@ export function ExtensionsTab() {
     }, [reloadToken]);
 
     useEffect(() => sandboxFaultStore.subscribe(() => {
-        setRuntimeFaults([...sandboxFaultStore.getFaults()]);
+        setRuntimeFaults([...sandboxFaultStore.getFaults(), ...screenFaultStore.getFaults()]);
+    }), []);
+
+    useEffect(() => screenFaultStore.subscribe(() => {
+        setRuntimeFaults([...sandboxFaultStore.getFaults(), ...screenFaultStore.getFaults()]);
     }), []);
 
     const allFaults = useMemo(() => {
         const loadFiles = new Set(faults.map((fault) => fault.file));
-        return [...faults, ...runtimeFaults.filter((fault) => !loadFiles.has(fault.file))];
+        // Dedup by file: a load-time fault and a runtime fault for the same
+        // file would otherwise render twice. Load-time faults win (they are
+        // the more actionable — the file itself is bad).
+        const seen = new Set(loadFiles);
+        const merged: ModFault[] = [...faults];
+        for (const fault of runtimeFaults) {
+            if (!seen.has(fault.file)) {
+                seen.add(fault.file);
+                merged.push(fault);
+            }
+        }
+        return merged;
     }, [faults, runtimeFaults]);
     // A factory, not a singleton (see `createFinalUserRegistry`) — built once per mount.
     const builtinRows = useMemo<ModuleRow[]>(

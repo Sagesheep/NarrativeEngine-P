@@ -29,7 +29,7 @@
  *        flips the frame to its faulted state and calls `onFault`.
  */
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -39,6 +39,8 @@ import {
     SCREEN_FRAME_CSP,
     buildScreenSrcDoc,
 } from '../screenFrameBuild';
+import { screenFaultStore, formatScreenFaultReason } from '../../../services/mods/screenFaults';
+import type { ScreenFaultKind } from '../../../services/mods/screenFaults';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const componentPath = join(here, '..', 'screenFrameBuild.ts');
@@ -268,5 +270,86 @@ describe('ScreenFrame — fault surfacing (R5 wiring, not isolation)', () => {
         }));
         expect(screen.getByTitle('m.s')).toBeInTheDocument();
         expect(onFault).not.toHaveBeenCalled();
+    });
+});
+
+describe('ScreenFrame — R5: onFault feeds the screenFaultStore ({ file, reason } for the Extensions list)', () => {
+    beforeEach(() => {
+        screenFaultStore.clear();
+    });
+
+    afterEach(() => {
+        screenFaultStore.clear();
+    });
+
+    it('a thrown screen surfaces on the store as { file, reason } in the Extensions-list shape', () => {
+        const file = 'screen-mod.mod.json';
+        render(
+            <ScreenFrame
+                modId="screen-mod"
+                screen={{ id: 'main-screen', file }}
+                source="export default function () {}"
+                onFault={(fault) => {
+                    screenFaultStore.add({
+                        modId: fault.modId,
+                        screenId: fault.screenId,
+                        file,
+                        kind: fault.kind as ScreenFaultKind,
+                        reason: formatScreenFaultReason({
+                            modName: 'Screen Mod',
+                            screenId: fault.screenId,
+                            kind: fault.kind as ScreenFaultKind,
+                            message: fault.message,
+                        }),
+                    });
+                }}
+            />,
+        );
+        fireEvent(window, new MessageEvent('message', {
+            origin: 'null',
+            data: { __screenFault: true, kind: 'threw', message: 'boom' },
+        }));
+        // The Extensions fault list reads getFaults() and renders
+        // { file, reason }. A screen fault converges to that shape here.
+        const faults = screenFaultStore.getFaults();
+        expect(faults).toHaveLength(1);
+        expect(faults[0].file).toBe(file);
+        expect(faults[0].reason).toBe('Screen Mod: screen "main-screen": threw (boom)');
+    });
+
+    it('a screen that faults repeatedly produces ONE record, not a flood (no DoS via the fault list)', () => {
+        const file = 'repeat.mod.json';
+        render(
+            <ScreenFrame
+                modId="repeat-mod"
+                screen={{ id: 'repeat-screen', file }}
+                source="export default function () {}"
+                onFault={(fault) => {
+                    screenFaultStore.add({
+                        modId: fault.modId,
+                        screenId: fault.screenId,
+                        file,
+                        kind: fault.kind as ScreenFaultKind,
+                        reason: formatScreenFaultReason({
+                            modName: 'Repeat Mod',
+                            screenId: fault.screenId,
+                            kind: fault.kind as ScreenFaultKind,
+                            message: fault.message,
+                        }),
+                    });
+                }}
+            />,
+        );
+        // Fire the same fault three times. The store keys on
+        // modId/screenId, so a runaway screen overwrites its own record
+        // rather than stacking.
+        for (let i = 0; i < 3; i += 1) {
+            fireEvent(window, new MessageEvent('message', {
+                origin: 'null',
+                data: { __screenFault: true, kind: 'threw', message: `boom ${i}` },
+            }));
+        }
+        expect(screenFaultStore.getFaults()).toHaveLength(1);
+        expect(screenFaultStore.getFaults()[0].reason).toContain('boom 2');
     });
 });
