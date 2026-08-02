@@ -19,6 +19,7 @@ import { refreshMods } from '../../services/mods/modBootstrap';
 import { modToContributionModule } from '../../services/mods/modAdapter';
 import type { ModFault, ValidatedMod } from '../../services/mods/modTypes';
 import { sandboxFaultStore } from '../../services/mods/sandbox/sandboxFaults';
+import { ModPanels } from './ModPanels';
 
 /**
  * Project 2 / WO-P2-05 — the Extensions screen.
@@ -327,6 +328,18 @@ export function ExtensionsTab() {
                     </div>
                 )}
             </div>
+
+            {/* ── Mod panels (WO-P5-16) ─────────────────────────────────── */}
+            {/*
+              * A mod that declares `panels[]` renders one panel per declaration,
+              * nested under the mod that declared it (R4: launch is always
+              * `nested`). The host resolves `bindsTo` against the store's
+              * `modTables` map; the generic `PanelRenderer` receives rows and
+              * a descriptor and cannot tell a mod panel from a host panel
+              * (§4 — the renderer must not learn who owns the panel). Edits
+              * round-trip to disk through `setModTable`'s fire-and-forget PUT.
+              */}
+            {!loading && !loadFailed && <ModPanels mods={mods} />}
 
             {/* ── Rejected files ───────────────────────────────────────────── */}
             {allFaults.length > 0 && (
