@@ -9,6 +9,8 @@
  * declared surface; their source is carried as text and runs only in the browser sandbox.
  */
 
+import type { PanelInputControl } from '@narrative/engine';
+
 /**
  * Facts about the current scene that mod conditions and templates may read.
  *
@@ -95,6 +97,107 @@ export interface ValidatedModTable {
     writes?: string[];
 }
 
+/**
+ * WO-P5-16 — a mod-declared panel field. The serializable subset of
+ * `PanelField` from `@narrative/engine`: every control EXCEPT `computed`
+ * (R3 — mod panels declare no logic in v1; `computed` would require a
+ * function, and a `*.mod.json` file cannot supply one). `min`/`max` come
+ * from G1; `options` from `select`; all other fields are plain strings.
+ */
+export interface ModPanelField {
+    /** Store-field path relative to a row of the bound table. */
+    key: string;
+    /** Optional human-readable label. The renderer never infers behavior from it. */
+    label?: string;
+    /** Optional help text for a host renderer. */
+    description?: string;
+    /** Input hint used by text-like controls. */
+    placeholder?: string;
+    /** Options used by a select control. Required when `control === 'select'`. */
+    options?: ModPanelOption[];
+    control: Exclude<PanelInputControl, 'computed'>;
+    /** WO-P5-16 G1 — inclusive bounds for a `number` control. */
+    min?: number;
+    max?: number;
+}
+
+export interface ModPanelOption {
+    value: string;
+    label: string;
+}
+
+/**
+ * The sort spec a mod may declare. Mirrors `SortSpec` from
+ * `@narrative/engine` so the manifest stays a plain-JSON shape (no TS-only
+ * type re-exported across the wire).
+ */
+export interface ModPanelSort {
+    field: string;
+    direction?: 'asc' | 'desc';
+}
+
+/**
+ * WO-P5-16 — a panel declared in a `*.mod.json` manifest.
+ *
+ * A mod panel is a DECLARATION, never code (08_PANELS.md §1). The manifest
+ * shape is the serializable subset of `PanelDescriptor`:
+ *   - `bindsTo` names one of the mod's OWN declared `tables[].name` (R1),
+ *     never a host store field.
+ *   - `reads`, if present, names only the mod's own tables (R2).
+ *   - `hooks` is REJECTED at load time (R3) — v1 defers panel logic; a mod's
+ *     first panel is a CRUD editor over its own table and needs none of it.
+ *   - `launch` is always `'nested'` (R4) — a mod panel lands inside the
+ *     Extensions tab, under the mod that declared it. Prime navigation
+ *     (header buttons, top-level tabs) is the app's.
+ *   - `layout` follows `recordShape` (R5): `single-object` -> `'form'`;
+ *     `array` -> `'list'` or `'list-detail'`. Any other pairing is a
+ *     load-time rejection.
+ *
+ * There is no `writes` field: a mod panel writes only to `bindsTo`, via the
+ * CRUD affordances the renderer renders from `crud` (G2). Cross-table
+ * writes are a hook kind, which R3 defers.
+ *
+ * There is no `id` collision with the host: the host resolves `bindsTo`
+ * against the store, the mod path against the mod's table, and the renderer
+ * cannot tell the two apart (§4).
+ */
+export interface ModPanelDeclaration {
+    /** Required. ID_REGEX (`/^[a-zA-Z0-9_-]+$/`). Unique within the mod. */
+    id: string;
+    /** Required. Must be one of this mod's declared `tables[].name` (R1). */
+    bindsTo: string;
+    /** Required. Always `'nested'` for a mod panel (R4). */
+    launch: 'nested';
+    /** Required. Must follow the bound table's `recordShape` (R5). */
+    layout: 'list' | 'list-detail' | 'form';
+    /** Required. The serializable field set; `computed` is excluded (R3). */
+    fields: ModPanelField[];
+    /** CRUD capabilities. Omitted operations are not available. No `reorder` (08_PANELS.md §4.3). */
+    crud: Partial<Record<'create' | 'read' | 'update' | 'delete' | 'bulk', boolean>>;
+    /** Optional. Bare string = ascending (4.1 default); `{ field, direction }` for desc (G3). */
+    sort?: string | ModPanelSort;
+    /** Optional. Each name must be one of this mod's own tables (R2). */
+    reads?: string[];
+    /** Optional. A declared search toggle; the renderer renders a search box when true. */
+    search?: boolean;
+    /** Optional. A declared filter on a field with a static option list. */
+    filter?: { field: string; options: ModPanelOption[]; label?: string };
+}
+
+/** A validated panel declaration. Same shape — the server has checked it. */
+export interface ValidatedModPanel {
+    id: string;
+    bindsTo: string;
+    launch: 'nested';
+    layout: 'list' | 'list-detail' | 'form';
+    fields: ModPanelField[];
+    crud: Partial<Record<'create' | 'read' | 'update' | 'delete' | 'bulk', boolean>>;
+    sort?: string | ModPanelSort;
+    reads?: string[];
+    search?: boolean;
+    filter?: { field: string; options: ModPanelOption[]; label?: string };
+}
+
 /** A `*.mod.json` file, as authored. */
 export interface ModDefinition {
     id: string;
@@ -107,6 +210,8 @@ export interface ModDefinition {
     compute?: ModCompute;
     /** Optional. Data tables the app provisions with zero mod code (WO-P5-05). */
     tables?: ModTableDeclaration[];
+    /** Optional. Declared panels over this mod's own tables (WO-P5-16). */
+    panels?: ModPanelDeclaration[];
 }
 
 /** The code hook and capabilities declared by a compute mod. */
@@ -124,6 +229,8 @@ export interface ValidatedMod extends ModDefinition {
     computeSource?: string;
     /** Validated data tables (WO-P5-05). Same shape, server-checked. */
     tables: ValidatedModTable[];
+    /** Validated panel declarations (WO-P5-16). Same shape, server-checked. */
+    panels: ValidatedModPanel[];
 }
 
 /** A file that was rejected, and why. Shown to the user rather than swallowed. */
