@@ -4,6 +4,7 @@ import type { PostTurnTrackContext } from './types';
 import { npcTrack } from './npcTrack';
 import { enemySuggestionTrack } from './enemySuggestionTrack';
 import { pressureTrack } from './pressureTrack';
+import { arcTickTrack } from './arcTickTrack';
 
 /**
  * Project 2 / WO-P2-03 — the built-in post-turn track registry.
@@ -26,6 +27,11 @@ export const postTurnTracks = createPostTurnTrackRegistry<PostTurnTrackContext>(
 postTurnTracks.register(npcTrack);
 postTurnTracks.register(enemySuggestionTrack);
 postTurnTracks.register(pressureTrack);
+// WO-P5-12 §7 Step 2 — the Arc Engine tick as a compute track. Previously
+// inline in postTurnPipeline.ts with its own hand-written try/catch outside the
+// allSettled group; now inherits the track registry's containment. Still
+// shipped in-tree; Step 3 extracts it to mods/arc.compute.js.
+postTurnTracks.register(arcTickTrack);
 
 /**
  * Start every enabled track, in registration order, and hand the in-flight promises back to

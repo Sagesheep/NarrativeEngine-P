@@ -1,5 +1,4 @@
 import type { ChatMessage, NPCEntry, EndpointConfig, ProviderConfig } from '../../types';
-import type { ArcRecord } from '../../types/arc';
 import type { TurnState, TurnCallbacks } from './turnOrchestrator';
 import { useAppStore } from '../../store/useAppStore';
 import { api } from '../llm/apiClient';
@@ -17,7 +16,6 @@ import { toast } from '../../components/Toast';
 import { mergeLifecycleEntries, EMPTY_REGISTER } from '../campaign-state/divergenceRegister';
 import { saveDivergenceRegister } from '../../store/campaignStore';
 import { tierAllows } from './aiTier';
-import { uid } from '../../utils/uid';
 // WO-P2-03 — post-turn track registry. The optional scans live in `tracks/`; the archive
 // commit path deliberately does not (see `tracks/index.ts`).
 import { startPostTurnTracks } from './tracks';
@@ -300,64 +298,13 @@ export async function runPostTurnPipeline(
         console.warn('[RepressionBooking] Failed (non-fatal):', err);
     }
 
-    // ── Arc Engine Tick (Phase 3 port) — sibling of the agency tick ──
-    // Rolls tempo per active arc, advances the ladder, runs stance scan against on-stage NPCs,
-    // builds the arcSurfaceLine, and folds it into context.arcDigest for the next GM call.
-    // Gated by aiTier in Phase 4. Zero LLM (the only LLM call is the spawn, fired manually
-    // via the ArcInjectorButton).
-    //
-    // WO-P5-12 §3 (THE TRAP): Arc's state lives in a mod-declared table
-    // (`mod.arc.arcs`), NOT on `context.arcs`. The tick is a pure function
-    // (`runArcTick` reads arcs in, returns writes out); the caller persists
-    // each write to its destination. `arcDigest` stays on `context` — it is a
-    // prompt contribution (§3), not engine state.
-    try {
-        if (tierAllows(state.settings.aiTier, 'arcTick')) {
-            const { runArcTick, applyArcDivergenceFacts } = await import('../arc/arcEngine');
-            const arcs = (useAppStore.getState().getModTable('mod.arc.arcs') as ArcRecord[] | undefined) ?? [];
-            const result = runArcTick(
-                arcs,
-                state.archiveIndex,
-                state.settings.aiTier,
-                displayInput,
-                lastAssistantContent,
-            );
-            if (result.arcs) {
-                useAppStore.getState().setModTable('mod.arc.arcs', result.arcs);
-            }
-            if (result.arcDigest !== null) {
-                callbacks.updateContext({ arcDigest: result.arcDigest });
-            }
-            if (result.divergenceFacts.length > 0) {
-                const sceneId = state.archiveIndex.length > 0
-                    ? state.archiveIndex[state.archiveIndex.length - 1].sceneId
-                    : '000';
-                const merged = applyArcDivergenceFacts(
-                    facade?.data.divergenceRegister ?? state.divergenceRegister,
-                    result.divergenceFacts,
-                    sceneId,
-                );
-                if (merged && callbacks.setDivergenceRegister) {
-                    callbacks.setDivergenceRegister(merged);
-                    console.log(`[ArcTick] ${result.divergenceFacts.length} arc divergence fact(s) written`);
-                } else {
-                    // No live register / callback this turn — surface the facts as a system
-                    // marker so they aren't lost (rare; the seal seam usually has the register).
-                    for (const f of result.divergenceFacts) {
-                        callbacks.addMessage({
-                            id: uid(),
-                            role: 'system',
-                            name: 'arc-fact',
-                            content: `[World moved] ${f.text}`,
-                            timestamp: Date.now(),
-                        });
-                    }
-                }
-            }
-        }
-    } catch (err) {
-        console.warn('[ArcTick] Failed (non-fatal):', err);
-    }
+    // ── Arc Engine Tick ──
+    // WO-P5-12 §7 Step 2: moved into the track registry (`tracks/arcTickTrack.ts`),
+    // inheriting the `allSettled` containment WO-P5-10 hardened. The inline
+    // try/catch that used to wrap it here is deleted — a small, concrete measure
+    // of the architecture paying for itself (WO-P5-12 §5). The track reads arcs
+    // from the store's `mod.arc.arcs` table (Step 1) and persists its writes
+    // through the host facade.
 
     return { archived };
 }
