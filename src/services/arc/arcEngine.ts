@@ -6,12 +6,17 @@
 //     entered, so the local stub below is a redundant inner guard, not a hole. The stub
 //     stays because removing it would be a behaviour change this work order promises
 //     none (WORKORDER-P5-01 §3).
-//   - `mergeSealEntries` + `DivergenceEntry` are imported from desktop's divergenceRegister
-//     module (signature matches mobile's).
+//
+// WO-P5-12 §3 (THE TRAP): Arc's state must NOT live on `context.arcs`. It lives in a
+// mod-declared table (`mod.arc.arcs`). `runArcTick` is now a PURE function: it takes the
+// current arcs as input and returns the writes (next arcs, digest, divergence facts)
+// as output. The caller persists them — to the mod table for arcs, to `context.arcDigest`
+// for the digest (a prompt contribution, §3), and to the divergence register for facts
+// (`applyArcDivergenceFacts`). A pure tick is also what makes the Step 3 extraction to
+// `arc.compute.js` clean: the mod's `postTurn` hook becomes
+// "read table → run tick → write table + updateContext".
 
-import type { ArcRecord, DivergenceEntry } from '../../types';
-import type { TurnState, TurnCallbacks } from '../turn/turnOrchestrator';
-import type { HostFacade } from '../turn/hostFacade';
+import type { ArcRecord, DivergenceEntry, DivergenceRegister } from '../../types';
 import { uid } from '../../utils/uid';
 import { mergeSealEntries } from '../campaign-state/divergenceRegister';
 
@@ -28,22 +33,39 @@ function tierAllows(tier: unknown, feature: string): boolean {
     return true;
 }
 
+/** The writes a tick produces. The caller persists each to its destination. */
+export interface ArcTickResult {
+    /** Next arcs (null if unchanged — caller may skip the write). */
+    arcs: ArcRecord[] | null;
+    /** Fresh arcDigest string for the next GM call (null if no surface lines). */
+    arcDigest: string | null;
+    /** Avoidance/consequence facts to merge into the divergence register. */
+    divergenceFacts: DivergenceEntry[];
+}
+
+/**
+ * Run the Arc Engine tick. PURE: no store reads, no writes, no side effects.
+ *
+ * @param arcs        the campaign's current ArcRecords (read from the mod table by the caller)
+ * @param archiveIndex tail entry used to derive the sceneId for `lastTickScene` / facts
+ * @param aiTier      the tier scalar (redundant inner guard — the caller already gates)
+ * @param displayInput  the player's turn input (for stance scan)
+ * @param lastAssistantContent  the GM's last reply (for stance scan)
+ */
 export function runArcTick(
-    state: TurnState,
-    callbacks: TurnCallbacks,
+    arcs: ArcRecord[],
+    archiveIndex: { sceneId: string }[],
+    aiTier: unknown,
     displayInput: string,
     lastAssistantContent: string,
-    facade?: HostFacade,
-): void {
-    if (!tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'arcTick')) return;
-    const context = facade?.data.context ?? state.context;
-    const writeCallbacks = facade
-        ? { ...callbacks, updateContext: facade.write.updateContext, setDivergenceRegister: facade.write.setDivergenceRegister, addMessage: facade.write.addMessage }
-        : callbacks;
-    const arcs = context.arcs;
-    if (!arcs || arcs.length === 0) return;
+): ArcTickResult {
+    if (!tierAllows(aiTier, 'arcTick')) {
+        return { arcs: null, arcDigest: null, divergenceFacts: [] };
+    }
+    if (!arcs || arcs.length === 0) {
+        return { arcs: null, arcDigest: null, divergenceFacts: [] };
+    }
 
-    const archiveIndex = facade?.data.archiveIndex ?? state.archiveIndex;
     const sceneId = archiveIndex.length > 0
         ? archiveIndex[archiveIndex.length - 1].sceneId
         : '000';
@@ -51,7 +73,9 @@ export function runArcTick(
     // Stance scan — deterministic, +0. Returns only arcs whose stance is determinable
     // this turn; we merge those onto the working copies and persist them.
     const activeArcs = arcs.filter(a => a.status === 'active');
-    if (activeArcs.length === 0) return;
+    if (activeArcs.length === 0) {
+        return { arcs: null, arcDigest: null, divergenceFacts: [] };
+    }
 
     const stanceUpdates = scanArcStance(displayInput, lastAssistantContent, activeArcs);
     const stanceById = new Map(stanceUpdates.map(u => [u.arcId, u.stance]));
@@ -127,37 +151,32 @@ export function runArcTick(
         nextArcs.push(working);
     }
 
-    if (arcsChanged) {
-        writeCallbacks.updateContext({ arcs: nextArcs });
-    }
-
     // Fold the surface lines into context.arcDigest for the next GM call.
+    let arcDigest: string | null = null;
     if (digestLines.length > 0) {
         // Rebuild fresh from THIS tick's surface lines — never concat the prior digest
         // (stale rung lines were piling up across ticks). Dedupe as a safety net. (B1)
-        const fresh = Array.from(new Set(digestLines)).join('\n');
-        writeCallbacks.updateContext({ arcDigest: fresh });
+        arcDigest = Array.from(new Set(digestLines)).join('\n');
     }
 
-    // Write avoidance facts to divergenceRegister (mergeSealEntries appends).
-    if (divergenceFacts.length > 0) {
-        const liveRegister = facade?.data.divergenceRegister ?? state.divergenceRegister;
-        if (liveRegister && writeCallbacks.setDivergenceRegister) {
-            const merged = mergeSealEntries(liveRegister, divergenceFacts, sceneId);
-            writeCallbacks.setDivergenceRegister(merged);
-            console.log(`[ArcTick] ${divergenceFacts.length} arc divergence fact(s) written`);
-        } else {
-            // No live register / callback this turn — surface the facts as a system
-            // marker so they aren't lost (rare; the seal seam usually has the register).
-            for (const f of divergenceFacts) {
-                writeCallbacks.addMessage({
-                    id: uid(),
-                    role: 'system',
-                    name: 'arc-fact',
-                    content: `[World moved] ${f.text}`,
-                    timestamp: Date.now(),
-                });
-            }
-        }
-    }
+    return {
+        arcs: arcsChanged ? nextArcs : null,
+        arcDigest,
+        divergenceFacts,
+    };
+}
+
+/**
+ * Apply a tick's divergence facts to the live register. Returns the merged register
+ * (for `setDivergenceRegister`), or `null` if the caller should fall back to surfacing
+ * the facts as system messages (no live register available this turn).
+ */
+export function applyArcDivergenceFacts(
+    register: DivergenceRegister | undefined,
+    facts: DivergenceEntry[],
+    sceneId: string,
+): DivergenceRegister | null {
+    if (facts.length === 0) return null;
+    if (!register) return null;
+    return mergeSealEntries(register, facts, sceneId);
 }

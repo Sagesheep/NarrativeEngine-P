@@ -1,4 +1,5 @@
 import type { ChatMessage, NPCEntry, EndpointConfig, ProviderConfig } from '../../types';
+import type { ArcRecord } from '../../types/arc';
 import type { TurnState, TurnCallbacks } from './turnOrchestrator';
 import { useAppStore } from '../../store/useAppStore';
 import { api } from '../llm/apiClient';
@@ -16,6 +17,7 @@ import { toast } from '../../components/Toast';
 import { mergeLifecycleEntries, EMPTY_REGISTER } from '../campaign-state/divergenceRegister';
 import { saveDivergenceRegister } from '../../store/campaignStore';
 import { tierAllows } from './aiTier';
+import { uid } from '../../utils/uid';
 // WO-P2-03 — post-turn track registry. The optional scans live in `tracks/`; the archive
 // commit path deliberately does not (see `tracks/index.ts`).
 import { startPostTurnTracks } from './tracks';
@@ -303,10 +305,55 @@ export async function runPostTurnPipeline(
     // builds the arcSurfaceLine, and folds it into context.arcDigest for the next GM call.
     // Gated by aiTier in Phase 4. Zero LLM (the only LLM call is the spawn, fired manually
     // via the ArcInjectorButton).
+    //
+    // WO-P5-12 §3 (THE TRAP): Arc's state lives in a mod-declared table
+    // (`mod.arc.arcs`), NOT on `context.arcs`. The tick is a pure function
+    // (`runArcTick` reads arcs in, returns writes out); the caller persists
+    // each write to its destination. `arcDigest` stays on `context` — it is a
+    // prompt contribution (§3), not engine state.
     try {
         if (tierAllows(state.settings.aiTier, 'arcTick')) {
-            const { runArcTick } = await import('../arc/arcEngine');
-            runArcTick(state, callbacks, displayInput, lastAssistantContent, facade);
+            const { runArcTick, applyArcDivergenceFacts } = await import('../arc/arcEngine');
+            const arcs = (useAppStore.getState().getModTable('mod.arc.arcs') as ArcRecord[] | undefined) ?? [];
+            const result = runArcTick(
+                arcs,
+                state.archiveIndex,
+                state.settings.aiTier,
+                displayInput,
+                lastAssistantContent,
+            );
+            if (result.arcs) {
+                useAppStore.getState().setModTable('mod.arc.arcs', result.arcs);
+            }
+            if (result.arcDigest !== null) {
+                callbacks.updateContext({ arcDigest: result.arcDigest });
+            }
+            if (result.divergenceFacts.length > 0) {
+                const sceneId = state.archiveIndex.length > 0
+                    ? state.archiveIndex[state.archiveIndex.length - 1].sceneId
+                    : '000';
+                const merged = applyArcDivergenceFacts(
+                    facade?.data.divergenceRegister ?? state.divergenceRegister,
+                    result.divergenceFacts,
+                    sceneId,
+                );
+                if (merged && callbacks.setDivergenceRegister) {
+                    callbacks.setDivergenceRegister(merged);
+                    console.log(`[ArcTick] ${result.divergenceFacts.length} arc divergence fact(s) written`);
+                } else {
+                    // No live register / callback this turn — surface the facts as a system
+                    // marker so they aren't lost (rare; the seal seam usually has the register).
+                    for (const f of result.divergenceFacts) {
+                        callbacks.addMessage({
+                            id: uid(),
+                            role: 'system',
+                            name: 'arc-fact',
+                            content: `[World moved] ${f.text}`,
+                            timestamp: Date.now(),
+                        });
+                    }
+                }
+            }
         }
     } catch (err) {
         console.warn('[ArcTick] Failed (non-fatal):', err);

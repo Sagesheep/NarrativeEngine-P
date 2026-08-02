@@ -1309,10 +1309,27 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     // ── Mod tables (WO-P5-05) ───────────────────────────────────────────
     // One namespaced map, keyed by `mod.<modId>.<name>`. Hydration fills it
     // (campaignHydrator calls hydrateModTables); setModTable updates a single
-    // entry and fire-and-forgets a save through the dynamic mod-table route.
+    // entry AND fire-and-forgets a save through the dynamic mod-table route
+    // (`/api/campaigns/:id/mod-tables/:table`). WO-P5-05 §4 promised
+    // `storeAccessor: { write: true }` — without this fire-and-forget, the
+    // generic mod-table machinery hydrated on load but never persisted on
+    // write, so a mod that wrote its table through the store would silently
+    // lose data on the next reload. Fixed here because Arc's state (WO-P5-12)
+    // is the first consumer that round-trips real records through this path.
     modTables: {},
     setModTable: (name, data) => set((s) => {
         const modTables = { ...s.modTables, [name]: data };
+        const campaignId = s.activeCampaignId;
+        if (campaignId) {
+            // Fire-and-forget; mirror the existing save accessors' contract
+            // (saveLocationLedger/saveNPCLedger/etc. — none await in the
+            // setter). A failed save logs but does not throw into the store.
+            fetch(`${API}/campaigns/${campaignId}/mod-tables/${name}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            }).catch((e) => console.warn(`[modTables] save failed for ${name}:`, e));
+        }
         return { modTables } as Partial<CampaignDeps>;
     }),
     getModTable: (name) => get().modTables[name],

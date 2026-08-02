@@ -15,9 +15,72 @@ import { normalizeEnemyEntries } from '../services/enemy/enemySchema';
 import { normalizeEnemyEncounters } from '../services/enemy/enemyEncounter';
 import { normalizeEnemyResolutions } from '../services/enemy/enemyResolution';
 import { loadLocationTable } from '../services/tables/locationTable';
-import { hydrateModTables } from '../services/mods/modTables';
+import { hydrateModTables, saveModTable } from '../services/mods/modTables';
 import { fetchMods } from '../services/mods/modClient';
 import { safeSceneNum } from '../utils/helpers';
+import type { ArcRecord } from '../types/arc';
+
+/**
+ * WO-P5-12 §7 Step 1 — migrate Arc's state from `context.arcs` to the
+ * `mod.arc.arcs` mod-declared table.
+ *
+ * Existing campaigns have `context.arcs` populated (it lived on `GameContext`,
+ * `gamecontext.ts:209`). The Arc mod (`mods/arc.mod.json`) declares an `arcs`
+ * table; this migration MOVES the records into that table on hydrate, so a
+ * user's live arcs do not vanish. Data loss is a STOP condition (WO-P5-12 §8),
+ * so this migration is conservative in three ways:
+ *
+ *   1. It only fires when the arc mod is INSTALLED — i.e. when
+ *      `modTables['mod.arc.arcs']` is present in the hydrated map. If the mod
+ *      is absent, `context.arcs` is left untouched (no migration, no loss).
+ *   2. It only fires when `context.arcs` is non-empty AND the mod table is
+ *      empty (or `[]`). If the mod table already has arcs (e.g. a re-hydrate
+ *      after a prior migration), `context.arcs` is left untouched.
+ *   3. It persists the mod table (fire-and-forget) AND persists the cleared
+ *      campaign state, so neither half of the migration is lost on reload.
+ *      A failure to persist the mod table logs but does NOT clear
+ *      `context.arcs` — a half-written migration would lose arcs.
+ *
+ * Returns the (possibly migrated) `modTables` and `finalContext` so the caller
+ * can spread them into `useAppStore.setState`.
+ */
+async function migrateArcsToModTable(
+    campaignId: string,
+    finalContext: GameContext,
+    modTables: Record<string, unknown>,
+): Promise<{ context: GameContext; modTables: Record<string, unknown>; migrated: boolean }> {
+    const ARC_TABLE_KEY = 'mod.arc.arcs';
+    if (!(ARC_TABLE_KEY in modTables)) {
+        // Arc mod not installed — leave context.arcs untouched.
+        return { context: finalContext, modTables, migrated: false };
+    }
+    const legacyArcs = (finalContext as GameContext & { arcs?: ArcRecord[] }).arcs;
+    if (!legacyArcs || legacyArcs.length === 0) {
+        // No arcs to migrate — leave context.arcs untouched.
+        return { context: finalContext, modTables, migrated: false };
+    }
+    const existing = modTables[ARC_TABLE_KEY];
+    if (Array.isArray(existing) && existing.length > 0) {
+        // Mod table already populated — do not clobber it; leave context.arcs
+        // untouched (the user may have re-installed after a prior migration).
+        return { context: finalContext, modTables, migrated: false };
+    }
+
+    // Persist the arcs into the mod table FIRST. Only if this succeeds do we
+    // clear context.arcs — a half-written migration would lose arcs (§8 STOP).
+    try {
+        await saveModTable(campaignId, { name: 'arcs', recordShape: 'array' }, 'arc', legacyArcs);
+    } catch (e) {
+        console.warn('[Hydrator] Arc migration: failed to write mod.arc.arcs; leaving context.arcs intact:', e);
+        return { context: finalContext, modTables, migrated: false };
+    }
+
+    console.log(`[Hydrator] Arc migration: moved ${legacyArcs.length} arc(s) from context.arcs → mod.arc.arcs`);
+    const migratedContext: GameContext = { ...finalContext, arcs: undefined } as GameContext;
+    delete (migratedContext as Record<string, unknown>).arcs;
+    const migratedModTables: Record<string, unknown> = { ...modTables, [ARC_TABLE_KEY]: legacyArcs };
+    return { context: migratedContext, modTables: migratedModTables, migrated: true };
+}
 
 /**
  * WO-P5-05 — fetch the installed mods and hydrate their declared tables.
@@ -250,7 +313,7 @@ export async function hydrateCampaign(campaignId: string) {
     // campaigns. If migration strips a row, persist the trimmed ledger back to
     // disk so the legacy row doesn't复活 on next hydrate.
     const pcMigration = migratePCIntoContext(migratedContext, npcs ?? []);
-    const finalContext = pcMigration.context;
+    let finalContext = pcMigration.context;
     const finalNpcLedger = pcMigration.npcLedger;
     if (pcMigration.migrated) {
         console.log('[Hydrator] Migrated legacy isPC row from npcLedger into context.playerCharacter');
@@ -285,6 +348,26 @@ export async function hydrateCampaign(campaignId: string) {
         }
     }
 
+    // WO-P5-12 §7 Step 1 — migrate Arc's state from `context.arcs` to the
+    // `mod.arc.arcs` mod-declared table. Conservative: only fires when the arc
+    // mod is installed and context.arcs is non-empty and the mod table is empty.
+    // The migration persists the mod table FIRST and only clears context.arcs on
+    // success — a half-written migration would lose arcs (§8 STOP condition).
+    let hydratedModTables = modTables ?? {};
+    try {
+        const arcMigration = await migrateArcsToModTable(campaignId, finalContext, hydratedModTables);
+        finalContext = arcMigration.context;
+        hydratedModTables = arcMigration.modTables;
+        if (arcMigration.migrated) {
+            // Persist the cleared campaign state so context.arcs does not复活 on next hydrate.
+            try { await saveCampaignState(campaignId, { context: finalContext, messages: finalMessages, condenser: state?.condenser ?? DEFAULT_CONDENSER, pinnedExcerpts: state?.pinnedExcerpts ?? [] }); } catch (e) {
+                console.warn('[Hydrator] Failed to persist state after Arc migration:', e);
+            }
+        }
+    } catch (e) {
+        console.warn('[Hydrator] Arc migration failed (non-fatal); context.arcs left intact:', e);
+    }
+
     useAppStore.setState({
         context: finalContext,
         messages: finalMessages,
@@ -308,6 +391,6 @@ export async function hydrateCampaign(campaignId: string) {
         characterProfileData: finalContext.characterProfileData,
         playerCharacter: finalContext.playerCharacter ?? null,
         pinnedExcerpts: state?.pinnedExcerpts ?? [],
-        modTables: modTables ?? {},
+        modTables: hydratedModTables,
     });
 }

@@ -1,0 +1,21 @@
+{
+  "id": "arc",
+  "name": "Arc Engine",
+  "version": "1.0.0",
+  "description": "WO-P5-12 Step 1 — Arc Engine state table. Declares the mod.arc.arcs table that holds the campaign's ArcRecords. The Arc Engine logic stays host-side in this step (src/services/arc/); only the data has moved. Existing campaigns with context.arcs populated are migrated on hydrate — a user's live arcs must not vanish.",
+  "contributions": [
+    {
+      "id": "arc-table-placeholder",
+      "order": 990,
+      "budget": 1,
+      "text": "."
+    }
+  ],
+  "tables": [
+    {
+      "name": "arcs",
+      "recordShape": "array",
+      "label": "Arcs"
+    }
+  ]
+}

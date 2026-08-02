@@ -5,6 +5,7 @@ import { spawnArc, pickArcSpawnInput } from '../services/arc';
 import { computeOpenThreads } from '../services/arc/openThreads';
 import { toast } from './Toast';
 import type { NPCPressure } from '../types';
+import type { ArcRecord } from '../types/arc';
 
 type Phase = 'idle' | 'loading' | 'success' | 'error';
 
@@ -84,7 +85,7 @@ export function ArcInjectorButton({ onDone }: { onDone?: () => void } = {}) {
             }
 
             const spawnInput = pickArcSpawnInput({
-                arcs: state.context.arcs ?? [],
+                arcs: (state.getModTable('mod.arc.arcs') as ArcRecord[] | undefined) ?? [],
                 openThreads,
                 pressure,
                 npcLedger,
@@ -108,8 +109,8 @@ export function ArcInjectorButton({ onDone }: { onDone?: () => void } = {}) {
                 return;
             }
 
-            const currentArcs = state.context.arcs ?? [];
-            state.updateContext({ arcs: [...currentArcs, arc] });
+            const currentArcs = (state.getModTable('mod.arc.arcs') as ArcRecord[] | undefined) ?? [];
+            state.setModTable('mod.arc.arcs', [...currentArcs, arc]);
             const activeCount = currentArcs.filter(a => a.status === 'active').length + 1;
             toast.success(`Arc injected — ${activeCount} now simmering. It will surface as the story unfolds.`);
             setPhase('success');
