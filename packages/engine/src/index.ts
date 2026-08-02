@@ -42,6 +42,16 @@ export type {
     TableDescriptor, TableRegistry,
 } from './tables/tableDescriptor';
 
+export { createPanelRegistry } from './panels/panelDescriptor';
+export type {
+    PanelLayout, PanelLaunch, PanelCrudOperation,
+    PanelInputControl, PanelControl, PanelOption,
+    PanelComputed, PanelInputField, PanelComputedField, PanelField, FieldSpec,
+    SearchSpec, FilterSpec, SortSpec, PanelFilter,
+    PanelValidationResult, PanelHooks, PanelDescriptor, PanelRegistry,
+    PanelTouchpoint,
+} from './panels/panelDescriptor';
+
 export {
     ENEMY_TEXT_FIELDS, ENEMY_LIST_FIELDS, ENEMY_ENTRY_FIELDS,
     ENCOUNTER_STATUSES, ENCOUNTER_OUTCOMES, INSTANCE_DISPOSITIONS,
