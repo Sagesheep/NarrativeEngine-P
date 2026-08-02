@@ -21,6 +21,7 @@ import type { ModFault, ValidatedMod } from '../../services/mods/modTypes';
 import { sandboxFaultStore } from '../../services/mods/sandbox/sandboxFaults';
 import { screenFaultStore } from '../../services/mods/screenFaults';
 import { ModPanels } from './ModPanels';
+import { ModScreens } from './ModScreens';
 
 /**
  * Project 2 / WO-P2-05 — the Extensions screen.
@@ -359,6 +360,21 @@ export function ExtensionsTab() {
               * round-trip to disk through `setModTable`'s fire-and-forget PUT.
               */}
             {!loading && !loadFailed && <ModPanels mods={mods} />}
+
+            {/* ── Mod screens (WO-P5-17) ─────────────────────────────────── */}
+            {/*
+              * A mod that declares `screens[]` renders one isolated frame
+              * per screen, nested under the mod that declared it (R4 of
+              * WO-P5-16: mod UI lives in Extensions). The frame is
+              * `sandbox="allow-scripts"` with no same-origin capability
+              * (R1); the screen source ships as text and the server never
+              * evaluates it (R2); the CSP `default-src 'none'` leaves the
+              * frame no network (R3); one frame per screen, destroyed on
+              * unmount (R4); a fault surfaces on the fault list below
+              * (R5); no host API in 5.1 — the frame receives nothing and
+              * sends nothing (R6). A 5.1 screen is useless on purpose.
+              */}
+            {!loading && !loadFailed && <ModScreens mods={mods} />}
 
             {/* ── Rejected files ───────────────────────────────────────────── */}
             {allFaults.length > 0 && (

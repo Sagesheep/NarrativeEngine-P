@@ -1,0 +1,21 @@
+{
+  "id": "screens-gate",
+  "name": "Screens Gate",
+  "version": "1.0.0",
+  "description": "WO-P5-17 — THE SCREENS GATE. A real installed mod that declares a screen. The screen renders in an isolated frame (sandbox=\"allow-scripts\", no allow-same-origin — R1) with no access to the app's DOM, storage, or network. The screen source ships as text and the server never evaluates it (R2). A 5.1 screen is useless on purpose — it draws from its own code and stops (R6). Delete this file and the app still runs.",
+  "contributions": [
+    {
+      "id": "screens-gate-placeholder",
+      "order": 990,
+      "budget": 1,
+      "text": "."
+    }
+  ],
+  "screens": [
+    {
+      "id": "gate-screen",
+      "file": "screens-gate.js",
+      "label": "Gate Screen"
+    }
+  ]
+}
