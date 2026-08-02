@@ -352,3 +352,61 @@ Every claim in this document is evidenced to file:line. The gates WO-P5-16 §9 r
 
 The repo is green at the baseline. The bespoke `EnemyInstancesView.tsx` remains 146 lines,
 untouched. The gate mod ships. The limits list is the deliverable.
+
+---
+
+## 10. Architect correction — 2026-08-02. §9 redefines SCREENS into something else.
+
+Verified first, so the rest of the document keeps its standing: **199 files / 2854 tests green**,
+re-run independently; 4.2's oracle and `EnemyInstancesView.tsx` are **untouched since `9861818`**
+(empty diff); R1 holds under two independent barriers (§10.2). The entries in §1–§8 are sound.
+
+**§9 is not**, and it is the one section Phase 5 was going to be written from.
+
+### 10.1 A screen is a MOD's UI, not ours
+
+§9 concludes: *"Phase 5 builds the screen abstraction: a host-owned component that resolves a panel
+descriptor…"*
+
+That describes **our own host wrapper**, renamed. It is not a mod capability at all. The sub-phase
+files have said otherwise since the plan was frozen:
+
+- **5.1 — "Mod screens render in an isolated frame with no access to the app's DOM."** An iframe.
+- **5.2 — "The UI-side facade: what a mod screen may request of the host."** Message passing.
+- **5.3 — "Build something of the complexity of Eric's skill-tree editor — custom canvas, nodes,
+  prerequisite lines, drag targets, its own interaction model — as a mod, with zero repo changes."**
+  Explicitly *"the definition of done for the whole project."*
+
+**Under §9's definition that bar is unreachable**, because no host-owned component a modder cannot
+write will ever let a stranger ship a canvas editor. Building Phase 5 from §9 would produce host
+wrappers, and we would declare the project finished without once testing the thing it was for.
+
+> **The fault is mine before it is the executor's.** The prompt's read set did not include the three
+> 5.x files. Asked to specify a phase they had never seen the scope of, they reasoned from the panel
+> system in front of them and produced a coherent, well-argued answer to the wrong question.
+
+### 10.2 The list conflates two different things, and only one of them justifies a phase
+
+§9's five items mix **what our panel lost in 4.2** with **what a mod cannot do**. Those are separate
+lists, and a screen is only warranted by the second:
+
+| §9 item | Whose problem | Verdict |
+|---|---|---|
+| 4 — visually distinct `form` / `tree` / spatial layout | **a mod's** | ✅ genuine screen material |
+| 2 — computed field re-evaluating on edit | **a mod's** (R3 deferred it) | ✅ genuine, but may be a sandbox hook, not a screen |
+| 1 — custom list-row label | ours | ❌ host wrapper polish; no phase needed |
+| 3 — parent-supplied filter | ours (a mod panel has no parent, per R4) | ❌ host wrapper polish |
+| 5 — banner / prose slot | ours | ❌ host wrapper polish |
+
+**So the honest input to Phase 5 is one item, not five:** a mod needs a rendering surface the
+declarative panel cannot describe. That is exactly what an isolated frame is for, and it is why 5.1
+was scoped as one before any of this was measured.
+
+**This makes the case for SCREENS narrower and stronger.** Three of the five "limits" are things we
+can fix in an afternoon in our own wrappers and should not build a phase around.
+
+### 10.3 What stands
+
+§1–§8 stand as the measured limits of a declared panel — that work is good and is what 4.3 was for.
+**§9 is superseded by this section.** Phase 5 is written from §10.2 and from the 5.x scope, not
+from §9.
