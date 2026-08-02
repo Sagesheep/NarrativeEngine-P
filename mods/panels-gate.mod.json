@@ -1,0 +1,71 @@
+{
+  "id": "panels-gate",
+  "name": "Panels Gate",
+  "version": "1.0.0",
+  "description": "WO-P5-16 — THE PANELS GATE. A real installed mod that declares a table AND a panel over it. The panel renders in the Extensions tab (launch: nested, R4) and edits the mod's own table (bindsTo: notes, R1) — never the host store. An edit round-trips to disk through the store's setModTable fire-and-forget PUT (the same path the Arc mod uses for mod.arc.arcs). Create and delete work from the rendered panel with no host wrapper anywhere (G2). Delete this file and the app still runs — asserted by tests, the same discipline as arcUninstall.test.ts.",
+  "contributions": [
+    {
+      "id": "panels-gate-placeholder",
+      "order": 990,
+      "budget": 1,
+      "text": "."
+    }
+  ],
+  "tables": [
+    {
+      "name": "notes",
+      "recordShape": "array",
+      "label": "Notes"
+    }
+  ],
+  "panels": [
+    {
+      "id": "notes-panel",
+      "bindsTo": "notes",
+      "launch": "nested",
+      "layout": "list-detail",
+      "fields": [
+        {
+          "key": "title",
+          "label": "Title",
+          "control": "text",
+          "placeholder": "Note title"
+        },
+        {
+          "key": "body",
+          "label": "Body",
+          "control": "textarea",
+          "placeholder": "Note body"
+        },
+        {
+          "key": "priority",
+          "label": "Priority",
+          "control": "number",
+          "min": 0,
+          "max": 5
+        },
+        {
+          "key": "tags",
+          "label": "Tags",
+          "control": "tags"
+        },
+        {
+          "key": "done",
+          "label": "Done",
+          "control": "checkbox"
+        }
+      ],
+      "crud": {
+        "create": true,
+        "read": true,
+        "update": true,
+        "delete": true
+      },
+      "sort": {
+        "field": "priority",
+        "direction": "desc"
+      },
+      "search": true
+    }
+  ]
+}
