@@ -49,7 +49,13 @@ export const SCREEN_FRAME_CSP =
  * run, so the policy is in force when the mod code executes.
  */
 export function buildScreenSrcDoc(source: string, csp: string): string {
-    const moduleBody = source.replace(/^\s*export\s+default\s+/, 'globalThis.__screenMod = ');
+    // Replace `export default` with a global assignment. The regex is NOT
+    // anchored to the start of the string — a fixture may have comments
+    // before the `export default` line, and `^` would miss those. The
+    // `m` flag makes `^` match line starts, but we want to find `export
+    // default` wherever it appears (after comments, after imports in a
+    // future module). The first match wins.
+    const moduleBody = source.replace(/export\s+default\s+/, 'globalThis.__screenMod = ');
     return [
         '<!doctype html>',
         '<html>',
@@ -65,9 +71,7 @@ export function buildScreenSrcDoc(source: string, csp: string): string {
         '    if (typeof globalThis.__screenMod === "function") {',
         '      var result = globalThis.__screenMod();',
         '      if (result && typeof result.then === "function") {',
-        '        result.then(function () {',
-        '          parent.postMessage({ __screenFault: false, screenId: null }, "*");',
-        '        }, function (err) {',
+        '        result.then(function () {}, function (err) {',
         '          parent.postMessage({ __screenFault: true, screenId: null, kind: "threw", message: String(err && err.message ? err.message : err) }, "*");',
         '        });',
         '      }',
