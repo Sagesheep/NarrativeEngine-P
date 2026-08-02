@@ -649,6 +649,109 @@ function validatePanels(raw, modId, tables) {
 }
 
 /**
+ * WO-P5-17 — validate a mod's declared `screens` array. A screen is a mod's
+ * OWN UI code, rendering in an isolated `<iframe srcdoc=…>` where it cannot
+ * touch the app (10_PANEL_LIMITS.md §10.2; WORKORDER-P5-17 §1). Isolation is
+ * the entire deliverable; the rulings R1–R6 are decided and load-time-
+ * enforced here, in the same shape as `validatePanels`/`validateTables`:
+ * allow-listed keys, ID_REGEX on ids, reject with a ModFault rather than
+ * fail silently.
+ *
+ *   R2 — `file` is a sibling source file, read with `readFileSync(...,
+ *        'utf-8')` and carried as text on the returned mod, exactly as
+ *        `computeSource` is at modLoader.js:252-261. THE SERVER NEVER
+ *        EVALUATES IT. The server holds the vault; mod code never runs on
+ *        the machine with the keys.
+ *   R6 — there is no `capabilities` field and no message channel. A 5.1
+ *        screen receives nothing and sends nothing — useless on purpose.
+ *
+ * Fields: `id` (ID_REGEX), `file` (the sibling source, same resolution rules
+ * as `compute.file`), `label`. No `launch` — R4 of WO-P5-16 already ruled
+ * that mod UI lives nested in Extensions, and a screen does not change
+ * that. No `capabilities` — there is no API to grant yet (R6).
+ *
+ * Returns `{ screens, sources }` — `sources[i]` is the text of
+ * `screens[i].file`, so the host pairs declaration with source by index.
+ */
+function validateScreens(raw, modId, modsDir) {
+    if (raw === undefined) return { screens: [], sources: [] };
+    if (!Array.isArray(raw)) reject('screens must be an array of screen declarations');
+
+    const modsRoot = fs.realpathSync(modsDir);
+    const seen = new Set();
+    const screens = [];
+    const sources = [];
+
+    raw.forEach((entry, index) => {
+        const at = `screens[${index}]`;
+        if (!isPlainObject(entry)) reject(`${at} must be an object`);
+
+        requireNonEmptyString(entry.id, `${at}.id`);
+        if (!ID_REGEX.test(entry.id)) {
+            reject(`${at}.id "${entry.id}" may contain only letters, digits, "_" and "-"`);
+        }
+        if (seen.has(entry.id)) reject(`${at}.id "${entry.id}" is declared more than once in mod "${modId}"`);
+        seen.add(entry.id);
+
+        // R2: same resolution rules as `compute.file` (modLoader.js:220-222).
+        // A plain filename inside the mods directory — no traversal, no
+        // absolute paths, no parent. The server reads it as text; it never
+        // evaluates it.
+        requireNonEmptyString(entry.file, `${at}.file`);
+        if (entry.file.includes('/') || entry.file.includes('\\') || entry.file.includes('..')) {
+            reject(`${at}.file must be a plain filename inside the mods directory`);
+        }
+
+        const requestedPath = path.resolve(modsRoot, entry.file);
+        let sourcePath;
+        try {
+            sourcePath = fs.realpathSync(requestedPath);
+        } catch (err) {
+            reject(`${at}.file "${entry.file}" could not be read: ` + (err?.message ?? String(err)));
+        }
+        const relative = path.relative(modsRoot, sourcePath);
+        if (relative === '' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+            reject(`${at}.file must resolve to a file inside the mods directory`);
+        }
+
+        let sourceText;
+        try {
+            sourceText = fs.readFileSync(sourcePath, 'utf-8');
+        } catch (err) {
+            reject(`${at}.file "${entry.file}" could not be read: ` + (err?.message ?? String(err)));
+        }
+
+        const screen = { id: entry.id, file: entry.file };
+        if (entry.label !== undefined) {
+            if (typeof entry.label !== 'string') reject(`${at}.label must be a string`);
+            screen.label = entry.label;
+        }
+
+        // R6: no capabilities, no message channel, no host API in 5.1. The
+        // frame receives nothing and sends nothing. Any of these fields is
+        // a fault, not a pass — a mod that declares a channel is asking for
+        // 5.2, and adding it now would be a stop condition, not initiative.
+        const forbidden = ['capabilities', 'channel', 'postMessage', 'api', 'launch', 'hooks', 'compute'];
+        for (const key of forbidden) {
+            if (entry[key] !== undefined) {
+                reject(`${at}.${key} is not allowed on a mod screen — v1 ships isolation only; a host API is a later sub-phase`);
+            }
+        }
+        const allowed = new Set(['id', 'file', 'label']);
+        for (const key of Object.keys(entry)) {
+            if (!allowed.has(key)) {
+                reject(`${at} has unknown field "${key}" — only ${[...allowed].join(', ')} are allowed`);
+            }
+        }
+
+        screens.push(screen);
+        sources.push(sourceText);
+    });
+
+    return { screens, sources };
+}
+
+/**
  * Validate a `string[]` field on a table declaration (reads/writes). A
  * non-array, or an array with a non-string or empty string, is a fault.
  */
@@ -696,6 +799,13 @@ function validateMod(raw, file, appVersion, modsDir) {
     // mod (not others).
     const panels = validatePanels(raw.panels, raw.id, tables);
 
+    // WO-P5-17: validate declared screens. Optional; absent = {[],[]}. R2
+    // source loading and R6 (no host API) are enforced here as load-time
+    // rejections, in the same shape as validatePanels/validateTables. A
+    // malformed screen rejects this mod (not others). The source ships as
+    // TEXT — the server never evaluates it (R2).
+    const { screens, sources: screenSources } = validateScreens(raw.screens, raw.id, modsDir);
+
     const mod = {
         id: raw.id,
         name: raw.name,
@@ -704,6 +814,8 @@ function validateMod(raw, file, appVersion, modsDir) {
         contributions,
         tables,
         panels,
+        screens,
+        screenSources,
         file,
     };
     if (typeof raw.appVersion === 'string') mod.appVersion = raw.appVersion;

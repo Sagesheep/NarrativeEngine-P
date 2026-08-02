@@ -137,6 +137,45 @@ export interface ModPanelSort {
 }
 
 /**
+ * WO-P5-17 — a screen declared in a `*.mod.json` manifest.
+ *
+ * A screen is a mod's OWN UI code, rendering where it cannot touch the app
+ * (10_PANEL_LIMITS.md §10.2; WORKORDER-P5-17 §1). The frame is an
+ * `<iframe srcdoc=…>` with `sandbox="allow-scripts"`; `allow-same-origin` is
+ * FORBIDDEN and test-enforced (R1).
+ *
+ *   R2 — `file` is a sibling source file, read as text and carried on
+ *        `ValidatedMod.screenSource[]` in the same position as the screen
+ *        declaration. The server NEVER evaluates it (the same rule as
+ *        `computeSource`). The server holds the vault; mod code never runs
+ *        on the machine with the keys.
+ *   R4 — one frame per screen, created on mount, destroyed on unmount. No
+ *        pooling, no reuse (the manifest carries one declaration per
+ *        screen; the host maps that to one frame).
+ *   R6 — no host API in 5.1. There is no `capabilities` field and no
+ *        message channel declared here. A 5.1 screen is useless on purpose.
+ *
+ * There is no `launch` field — R4 of WO-P5-16 already ruled that mod UI
+ * lives nested in Extensions, and a screen does not change that. There are
+ * no `capabilities` — there is no API to grant yet (R6).
+ */
+export interface ModScreenDeclaration {
+    /** Required. ID_REGEX (`/^[a-zA-Z0-9_-]+$/`). Unique within the mod. */
+    id: string;
+    /** Required. A plain filename inside the mods directory (same rules as `compute.file`). */
+    file: string;
+    /** Optional. Human-readable label, for the host chrome above the frame. */
+    label?: string;
+}
+
+/** A validated screen declaration. Same shape, server-checked, plus the loaded source text (R2). */
+export interface ValidatedModScreen {
+    id: string;
+    file: string;
+    label?: string;
+}
+
+/**
  * WO-P5-16 — a panel declared in a `*.mod.json` manifest.
  *
  * A mod panel is a DECLARATION, never code (08_PANELS.md §1). The manifest
@@ -212,6 +251,8 @@ export interface ModDefinition {
     tables?: ModTableDeclaration[];
     /** Optional. Declared panels over this mod's own tables (WO-P5-16). */
     panels?: ModPanelDeclaration[];
+    /** Optional. Declared screens — a mod's own UI in an isolated frame (WO-P5-17). */
+    screens?: ModScreenDeclaration[];
 }
 
 /** The code hook and capabilities declared by a compute mod. */
@@ -231,6 +272,16 @@ export interface ValidatedMod extends ModDefinition {
     tables: ValidatedModTable[];
     /** Validated panel declarations (WO-P5-16). Same shape, server-checked. */
     panels: ValidatedModPanel[];
+    /**
+     * Validated screen declarations (WO-P5-17). Same shape, server-checked.
+     * The screen source text is carried in `screenSources` in the SAME ORDER
+     * as `screens`, so the host pairs declaration `i` with source `i`. The
+     * server never evaluates the source (R2) — it ships as text and runs
+     * only in the browser frame.
+     */
+    screens: ValidatedModScreen[];
+    /** The sibling screen source files, as text, in `screens[]` order (R2). */
+    screenSources: string[];
 }
 
 /** A file that was rejected, and why. Shown to the user rather than swallowed. */
