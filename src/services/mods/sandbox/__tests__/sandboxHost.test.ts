@@ -432,6 +432,44 @@ describe('runSandbox', () => {
         expect(tableWrite).not.toHaveBeenCalled();
     });
 
+    // WO-P5-14 §3 — a documented v1 limitation, asserted here so the day
+    // someone wants a read-overlay they find a deliberate decision rather
+    // than a bug. A mod that writes a table then reads the same table in the
+    // same run sees the OLD (committed) value, because the write is still
+    // pending in the journal. Reads do not shadow pending writes — the
+    // pattern no measured feature uses (a compute mod holds its working data
+    // in a local variable and writes once at the end, as Arc does).
+    it('read-after-write within a run returns the committed (old) value, not the pending write', async () => {
+        const committedRows = [{ id: 'old' }];
+        const tableRead = vi.fn(async () => committedRows);
+        const tableWrite = vi.fn(async () => undefined);
+        const facade = makeFacade({ table: { read: tableRead, write: tableWrite } });
+        let readReply: unknown;
+        const worker = new FakeWorker((current, message) => {
+            if (message.type === 'run') {
+                queueMicrotask(() => current.emit({ type: 'rpc', id: 1, channel: 'table', method: 'read', args: ['npcs'] }));
+            }
+            if (message.type === 'rpc-reply') {
+                readReply = message.value;
+                queueMicrotask(() => current.emit({
+                    type: 'done',
+                    writes: [{ kind: 'table', name: 'npcs', rows: [{ id: 'new' }] }],
+                    result: message.value,
+                }));
+            }
+        });
+
+        await expect(runSandbox(source, facade, ['table:read:npcs', 'table:write:npcs'], {
+            createWorker: () => worker,
+        })).resolves.toEqual(committedRows);
+
+        // The mod saw the committed (old) value, not the pending write.
+        expect(readReply).toEqual(committedRows);
+        expect(tableRead).toHaveBeenCalledWith('npcs');
+        // The write is applied on clean return, but the read already saw the old value.
+        expect(tableWrite).toHaveBeenCalledWith('npcs', [{ id: 'new' }]);
+    });
+
     it('handles table RPC and returns the reply to the worker', async () => {
         const tableRead = vi.fn(async () => [{ id: 'n-1' }]);
         const facade = makeFacade({ table: { read: tableRead, write: vi.fn(async () => undefined) } });
