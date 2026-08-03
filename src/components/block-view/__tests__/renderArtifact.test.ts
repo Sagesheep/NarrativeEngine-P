@@ -93,7 +93,7 @@ ${section('Post-turn tracks', 'Background work that runs after the scene commits
         writeFileSync(outPath, html);
         expect(html.length).toBeGreaterThan(1000);
         expect(tier.length).toBe(27);
-        expect(contributions.length).toBe(8);
+        expect(contributions.length).toBe(9);
         expect(tracks.length).toBe(3);
     });
 });

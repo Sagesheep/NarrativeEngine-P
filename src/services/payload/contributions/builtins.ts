@@ -139,7 +139,8 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
         (input) => ({
             id: BUILTIN_IDS.enemyCompendium,
             order: 150,
-            text: input.enemyBlock,
+            // Legacy direct callers may omit the new optional block; leave the module inactive.
+            text: input.enemyBlock ?? '',
         }),
     ),
 
