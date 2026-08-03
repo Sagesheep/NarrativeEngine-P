@@ -20,6 +20,7 @@ import { modToContributionModule } from '../../services/mods/modAdapter';
 import type { ModFault, ValidatedMod } from '../../services/mods/modTypes';
 import { sandboxFaultStore } from '../../services/mods/sandbox/sandboxFaults';
 import { screenFaultStore } from '../../services/mods/screenFaults';
+import { lifecycleFaultStore } from '../../services/mods/lifecycle/lifecycleFaults';
 import { ModPanels } from './ModPanels';
 import { ModScreens } from './ModScreens';
 
@@ -83,6 +84,7 @@ export function ExtensionsTab() {
     const [runtimeFaults, setRuntimeFaults] = useState<ModFault[]>(() => [
         ...sandboxFaultStore.getFaults(),
         ...screenFaultStore.getFaults(),
+        ...lifecycleFaultStore.getFaults(),
     ]);
     const [loading, setLoading] = useState(true);
     const [loadFailed, setLoadFailed] = useState(false);
@@ -119,11 +121,27 @@ export function ExtensionsTab() {
     }, [reloadToken]);
 
     useEffect(() => sandboxFaultStore.subscribe(() => {
-        setRuntimeFaults([...sandboxFaultStore.getFaults(), ...screenFaultStore.getFaults()]);
+        setRuntimeFaults([
+            ...sandboxFaultStore.getFaults(),
+            ...screenFaultStore.getFaults(),
+            ...lifecycleFaultStore.getFaults(),
+        ]);
     }), []);
 
     useEffect(() => screenFaultStore.subscribe(() => {
-        setRuntimeFaults([...sandboxFaultStore.getFaults(), ...screenFaultStore.getFaults()]);
+        setRuntimeFaults([
+            ...sandboxFaultStore.getFaults(),
+            ...screenFaultStore.getFaults(),
+            ...lifecycleFaultStore.getFaults(),
+        ]);
+    }), []);
+
+    useEffect(() => lifecycleFaultStore.subscribe(() => {
+        setRuntimeFaults([
+            ...sandboxFaultStore.getFaults(),
+            ...screenFaultStore.getFaults(),
+            ...lifecycleFaultStore.getFaults(),
+        ]);
     }), []);
 
     const allFaults = useMemo(() => {
