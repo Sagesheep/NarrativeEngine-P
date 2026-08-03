@@ -70,6 +70,14 @@ describe('KeyVault lifecycle', () => {
         expect(vault.exists()).toBe(false);
     });
 
+    it('archives a vault for password-recovery reset', () => {
+        vault.create({ presets: [] }, 'forgotten-password');
+        const archiveName = vault.archiveForRecovery();
+        expect(vault.exists()).toBe(false);
+        expect(archiveName).toMatch(/^apikeys\.vault\.recovery-\d+$/);
+        expect(fs.existsSync(path.join(tmpDir, archiveName))).toBe(true);
+    });
+
     it('exports and re-imports vault data', () => {
         vault.create({ presets: [{ name: 'exported' }] }, null);
         vault.unlock(null);

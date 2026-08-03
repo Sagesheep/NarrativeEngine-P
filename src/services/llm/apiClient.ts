@@ -426,6 +426,11 @@ export const api = {
         async clearRemembered(): Promise<void> {
             await fetch(`${API}/vault/remember`, { method: 'DELETE' });
         },
+        async reset(): Promise<{ archived: string | null }> {
+            const res = await fetch(`${API}/vault/reset`, { method: 'POST' });
+            if (!res.ok) throw new Error('Failed to reset vault');
+            return await res.json();
+        },
         async delete(): Promise<void> {
             await fetch(`${API}/vault`, { method: 'DELETE' });
         },

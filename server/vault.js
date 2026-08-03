@@ -373,6 +373,22 @@ export class KeyVault {
         }
         this.clearRememberedKey();
     }
+
+    /**
+     * Remove a locked vault from the active location without destroying it.
+     * Recovery resets stay reversible if the password is remembered later.
+     */
+    archiveForRecovery() {
+        this.lock();
+        if (!fs.existsSync(this.vaultPath)) {
+            this.clearRememberedKey();
+            return null;
+        }
+        const archivedPath = `${this.vaultPath}.recovery-${Date.now()}`;
+        fs.renameSync(this.vaultPath, archivedPath);
+        this.clearRememberedKey();
+        return path.basename(archivedPath);
+    }
 }
 
 export default KeyVault;

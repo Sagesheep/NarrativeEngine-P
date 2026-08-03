@@ -39,6 +39,7 @@ export type SettingsSlice = {
     setupVault: (password: string | null, remember: boolean) => Promise<boolean>;
     unlockVault: (password: string, remember: boolean) => Promise<boolean>;
     unlockVaultWithRemembered: () => Promise<boolean>;
+    resetVault: () => Promise<boolean>;
     lockVault: () => Promise<void>;
     saveVaultKeys: () => Promise<void>;
     exportVault: (password: string) => Promise<Blob>;
@@ -347,6 +348,22 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
         } catch (e) {
             console.error('[Vault] Remembered unlock failed:', e);
             set({ vaultStatus: { exists: true, unlocked: false, hasRemember: false } });
+            return false;
+        } finally {
+            set({ vaultLoading: false });
+        }
+    },
+
+    resetVault: async () => {
+        set({ vaultLoading: true });
+        try {
+            await api.vault.reset();
+            set({ vaultStatus: { exists: false, unlocked: false, hasRemember: false } });
+            toast.success('Locked vault archived. Create a new vault to continue.');
+            return true;
+        } catch (e) {
+            console.error('[Vault] Reset failed:', e);
+            toast.error('Failed to reset vault');
             return false;
         } finally {
             set({ vaultLoading: false });

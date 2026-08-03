@@ -36,6 +36,7 @@ export default function App() {
   const checkVaultStatus = useAppStore((s) => s.checkVaultStatus);
   const unlockVaultWithRemembered = useAppStore((s) => s.unlockVaultWithRemembered);
   const unlockVault = useAppStore((s) => s.unlockVault);
+  const resetVault = useAppStore((s) => s.resetVault);
   const pinnedMemoriesOpen = useAppStore((s) => s.pinnedMemoriesOpen);
   const closePinnedMemories = useAppStore((s) => s.closePinnedMemories);
 
@@ -138,6 +139,7 @@ export default function App() {
             // Machine key mode - unlock with null password
             return await unlockVault('', false);
           }}
+          onResetVault={resetVault}
           hasRememberedKey={false}
         />
       </div>
