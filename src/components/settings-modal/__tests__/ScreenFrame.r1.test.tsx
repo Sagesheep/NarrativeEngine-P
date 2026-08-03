@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -122,6 +122,74 @@ describe('ScreenFrame — CSP and lifecycle wiring', () => {
         bootFrame(frame);
         sendFrom(window, { __screenFault: true, nonce: 'wrong', kind: 'threw', message: 'spoof' });
         expect(screen.getByTitle('m.s')).toBeInTheDocument();
+    });
+});
+
+describe('ScreenFrame — declared campaign capabilities', () => {
+    it('returns only a host-projected resource that the manifest declared', async () => {
+        const onCampaignRead = vi.fn().mockResolvedValue([{ id: 'pc', name: 'Mira' }]);
+        render(
+            <ScreenFrame
+                modId="m"
+                screen={{ id: 's', file: 's.js', capabilities: ['campaign:read:characters'] }}
+                source="export default function () {}"
+                onCampaignRead={onCampaignRead}
+            />,
+        );
+        const frame = screen.getByTitle('m.s') as HTMLIFrameElement;
+        const { nonce, target } = bootFrame(frame);
+        const postSpy = vi.mocked(target.postMessage);
+        sendFrom(target, { __screenRequest: true, id: 7, nonce, capability: 'campaign.read', resource: 'characters' });
+
+        await waitFor(() => expect(onCampaignRead).toHaveBeenCalledWith('characters'));
+        expect(postSpy.mock.calls.some(([message]) => (
+            (message as { __screenResponse?: boolean; id?: number; ok?: boolean }).__screenResponse === true
+            && (message as { id?: number }).id === 7
+            && (message as { ok?: boolean }).ok === true
+        ))).toBe(true);
+    });
+
+    it('denies an undeclared campaign projection', async () => {
+        const onFault = vi.fn();
+        const onCampaignRead = vi.fn();
+        render(
+            <ScreenFrame
+                modId="m"
+                screen={{ id: 's', file: 's.js' }}
+                source="export default function () {}"
+                onCampaignRead={onCampaignRead}
+                onFault={onFault}
+            />,
+        );
+        const frame = screen.getByTitle('m.s') as HTMLIFrameElement;
+        const { nonce, target } = bootFrame(frame);
+        sendFrom(target, { __screenRequest: true, id: 8, nonce, capability: 'campaign.read', resource: 'inventory' });
+
+        await waitFor(() => expect(onFault).toHaveBeenCalledWith(expect.objectContaining({ kind: 'denied' })));
+        expect(onCampaignRead).not.toHaveBeenCalled();
+    });
+
+    it('permits a declared bounded file download', async () => {
+        const onDownload = vi.fn().mockResolvedValue(undefined);
+        render(
+            <ScreenFrame
+                modId="m"
+                screen={{ id: 's', file: 's.js', capabilities: ['file:download'] }}
+                source="export default function () {}"
+                onDownload={onDownload}
+            />,
+        );
+        const frame = screen.getByTitle('m.s') as HTMLIFrameElement;
+        const { nonce, target } = bootFrame(frame);
+        sendFrom(target, {
+            __screenRequest: true,
+            id: 9,
+            nonce,
+            capability: 'file.download',
+            filename: 'abilities.json',
+            content: '{"abilities":[]}',
+        });
+        await waitFor(() => expect(onDownload).toHaveBeenCalledWith('abilities.json', '{"abilities":[]}'));
     });
 });
 

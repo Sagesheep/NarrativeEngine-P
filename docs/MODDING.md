@@ -1,34 +1,12 @@
-# Making a mod
+# Making a Narrative Engine module
 
-A mod for Narrative Engine is **one JSON file**. It adds text to the prompt the AI sees, optionally
-only under conditions you choose. No code runs, so a mod can't break your game or touch your API
-keys — the worst a bad mod can do is get rejected with a reason.
+Narrative Engine extensions start with a `.mod.json` manifest in the app's `mods/` folder. A simple
+mod needs only that file. Advanced modules may add campaign-owned tables, post-turn compute, panels,
+and isolated screens. Open **Settings > Extensions** and select **Rescan** after changing files.
 
-If you've edited a SillyTavern character card, you already know enough to do this.
+The module format is still evolving. Use `appVersion` to state the oldest compatible engine release.
 
-> **This format is not frozen.** The engine is still changing quickly, so a future version may
-> require small edits to your mod file. We'll keep those changes small and documented, but we're not
-> promising a stable contract yet.
-
----
-
-## Where mods go
-
-Put `.mod.json` files in the **`mods/` folder** at the app root — next to `data/`. It's created for
-you on first run.
-
-```
-Narrative Engine/
-├── data/                        ← your campaigns
-└── mods/                        ← your mods
-    └── grimdark-tone.mod.json
-```
-
-No restart needed. Drop a file in, open **Settings → Extensions**, and press **Rescan**.
-
----
-
-## Your first mod
+## A basic prompt mod
 
 Save this as `mods/grimdark-tone.mod.json`:
 
@@ -37,201 +15,141 @@ Save this as `mods/grimdark-tone.mod.json`:
   "id": "grimdark-tone",
   "name": "Grimdark Tone",
   "version": "1.0.0",
+  "appVersion": ">=1.0.4",
   "description": "Wounds persist and mercy costs something.",
-  "contributions": [
-    {
-      "id": "tone",
-      "order": 250,
-      "budget": 120,
-      "text": "Tone: unforgiving. Injuries persist between scenes and mercy costs the one who gives it."
-    }
+  "contributions": [{
+    "id": "tone",
+    "order": 250,
+    "budget": 120,
+    "text": "Tone: unforgiving. Injuries persist between scenes."
+  }]
+}
+```
+
+- `id`: unique module ID using letters, numbers, `_`, or `-`; no dots.
+- `version`: the module version.
+- `appVersion`: optional `">=X.Y.Z"` minimum, or `"*"`.
+- `contributions`: one or more prompt blocks. Contribution IDs use the same character rules.
+- `order`: prompt placement, from low to high. Built-in blocks occupy roughly 100 through 800.
+- `budget`: maximum tokens for this block. The default is 512.
+- `text`: non-empty prompt text.
+
+### Conditions, slots, and suppression
+
+`when` conditions are ANDed across keys and ORed within an array value. Text matching is
+case-insensitive. Supported keys are `npcPresent`, `location`, `inCombat`, and `sceneTag`. Unknown
+facts do not match. `sceneTag` is accepted but is not currently populated during prompt assembly.
+
+The text slots `{{location}}` and `{{npcs}}` expand to the current place and on-stage NPC names.
+Unknown slots remain visible verbatim.
+
+An active contribution may declare `suppresses` for toggleable prompt IDs such as `gm.reminder`,
+`director.brief`, `writer.cot`, and `watchdog.nudge`. Protected player/structural blocks cannot be
+suppressed. A module is never permitted to remove the player's words.
+
+## Campaign-persistent tables
+
+Advanced modules can declare owned data:
+
+```json
+"tables": [
+  { "name": "entries", "recordShape": "array", "label": "Entries" },
+  { "name": "config", "recordShape": "single-object", "label": "Configuration" }
+]
+```
+
+`recordShape` is `array` or `single-object`. The host namespaces each table as
+`mod.<module-id>.<table-name>` and includes it in campaign hydrate/transfer data. A module cannot read
+or write another module's tables.
+
+## Mention-triggered prompt lookup
+
+A contribution can inject rows from one of its own array tables when an exact name or alias appears
+in recent play:
+
+```json
+{
+  "id": "mentioned-entries",
+  "order": 150,
+  "budget": 1200,
+  "text": "[MATCHED MODULE CONTEXT]",
+  "lookup": {
+    "table": "prompt-index",
+    "termFields": ["terms"],
+    "textField": "text",
+    "recentMessages": 8
+  }
+}
+```
+
+The lookup table must belong to this module. Matching is case-insensitive and phrase-boundary aware;
+the normal contribution budget still applies.
+
+## Post-turn compute
+
+```json
+"compute": {
+  "file": "my-module.compute.js",
+  "hook": "postTurn",
+  "capabilities": [
+    "table:read:mod.my-module.entries",
+    "table:write:mod.my-module.entries",
+    "model:utility"
   ]
 }
 ```
 
-Line by line:
+Compute is an ES module with a default async function. It runs after a committed turn in a
+time-limited browser worker. Every table, host mutation, and model role must be declared. Writes are
+journalled and applied together; a fault discards the compute result. The worker has no API keys,
+network access, filesystem access, or unrestricted application state.
 
-- **`id`** — a unique name for your mod. Letters, numbers, `_` and `-` only. **No dots.**
-- **`name`** / **`description`** — what the user sees in the Extensions screen.
-- **`version`** — your mod's version. Any string.
-- **`contributions`** — the list of things this mod adds. At least one.
-  - **`id`** — unique *within your mod*. Same character rules.
-  - **`order`** — where the text lands relative to everything else. See below.
-  - **`budget`** — the most tokens this may use.
-  - **`text`** — what gets added to the prompt.
-
-Press Rescan and "Grimdark Tone" appears with a checkbox. That's the whole loop.
-
----
-
-## `order` — where your text lands
-
-Everything in the prompt's final section is sorted by `order`, low to high. The engine's own blocks
-sit at round hundreds, leaving room between any two:
-
-| `order` | Block | Can you suppress it? |
-|--------:|-------|----------------------|
-| 100 | World state (rules, world, enemies, scene state) | **No** — protected |
-| 200 | Chain-of-thought invocation | Yes — `writer.cot` |
-| 300 | Director Brief | Yes — `director.brief` |
-| 400 | GM Reminder | Yes — `gm.reminder` |
-| 500 | Director Watchdog nudge | Yes — `watchdog.nudge` |
-| 600 | Ask-GM handoff | **No** — protected |
-| 700 | The player's message | **No** — protected |
-| 800 | Absolute Command | **No** — protected |
-
-So `"order": 250` lands after the reasoning invocation and before the Director Brief. `"order": 750`
-would land after the player's message — very high emphasis, use sparingly.
-
-You can use any number, including negatives and values above 800.
-
----
-
-## `budget` — how much room your text gets
-
-`budget` is the maximum number of tokens your contribution may occupy. If your text is longer, it is
-**trimmed to fit, not dropped** — you get the first part of it.
-
-If you leave `budget` out, a default cap of **512 tokens** is applied. Built-in blocks are unbounded;
-mods are not, so one mod can't quietly eat the whole context window.
-
-A `budget` of `0` removes the contribution entirely.
-
----
-
-## `when` — conditions
-
-Add `when` to make a contribution appear only sometimes. Leave it out and the text is always active.
+## Isolated screens
 
 ```json
-{
-  "id": "tavern-mood",
-  "order": 250,
-  "budget": 80,
-  "when": { "location": ["Tavern", "Inn"], "inCombat": false },
-  "text": "The room is loud. Conversations carry further than people think."
-}
+"screens": [{
+  "id": "manager",
+  "file": "my-module.screen.js",
+  "label": "Open Manager",
+  "launch": { "surface": "header", "label": "My Module", "icon": "puzzle" },
+  "capabilities": ["campaign:read:characters", "file:download"]
+}]
 ```
 
-**All keys must match** (AND). **Within one key, any value matches** (OR). Above: location is Tavern
-*or* Inn, *and* combat is not active.
+A screen is an ES module with a default async function. It runs in an opaque, networkless iframe
+under `sandbox="allow-scripts"`. The built-in bridge always provides:
 
-| Key | Matches against | Type |
-|---|---|---|
-| `npcPresent` | NPCs on stage this turn | string or array |
-| `location` | The current place name | string or array |
-| `inCombat` | Whether an enemy encounter is active | `true` / `false` |
-| `sceneTag` | Scene tags | string or array |
+- `table.read` / `table.write` for this module's declared tables only.
+- `theme` for safe visual tokens.
+- `resize` within host bounds.
 
-Text matching is **case-insensitive**.
+Optional manifest capabilities are:
 
-> ⚠️ **`sceneTag` does not work yet.** It's accepted by the file format, but the engine doesn't
-> populate scene tags at the moment the prompt is built, so **a condition using `sceneTag` never
-> matches**. It's documented here so the format won't change when it starts working. Don't use it yet.
+- `campaign:read:characters`
+- `campaign:read:character-sheet`
+- `campaign:read:inventory`
+- `campaign:read:recent-play`
+- `file:download`
 
-**Unknown keys are rejected.** If you typo `npcsPresent`, the whole file is rejected with a reason —
-deliberately, because silently ignoring it would mean "no condition", i.e. always on, which is the
-most dangerous way to be wrong.
+Campaign reads return deliberately limited projections, not the complete store. Undeclared and
+unknown capabilities are denied and stop the faulty screen without affecting the app.
 
-**If the engine doesn't know a fact, the condition doesn't match.** No current location means a
-`location` condition is false, not true.
+The optional `launch` block asks the host to show a shortcut for this screen in the campaign header.
+Supported icons are `sparkles`, `book-open`, and `puzzle`. The shortcut is host-rendered, opens the
+same isolated screen, and disappears automatically when the user disables the module in Extensions.
 
----
+## Boundaries
 
-## Template slots
-
-Two placeholders can appear inside `text`:
-
-| Slot | Becomes |
-|---|---|
-| `{{location}}` | The current place name |
-| `{{npcs}}` | The on-stage NPC names, comma-separated |
-
-```json
-"text": "Anyone in {{location}} would notice a drawn blade."
-```
-
-Anything else in `{{ }}` is left exactly as written. There are no expressions, no logic, no other
-variables.
-
----
-
-## `suppresses` — turning off a built-in block
-
-A contribution can remove another block while it's active:
-
-```json
-{
-  "id": "no-nagging",
-  "order": 250,
-  "text": "Keep the narration lean.",
-  "suppresses": ["gm.reminder"]
-}
-```
-
-You may suppress the four toggleable blocks in the table above. Naming any **protected** id
-(`user.message`, `volatile.block`, `askgm.brief`, `absolute.command`) **rejects the whole file** — a
-mod is never allowed to delete the player's own words.
-
-Two rules worth knowing:
-
-- **Suppression is one pass.** If A suppresses B and B suppresses C, then when both A and B are
-  active you get A only — B's suppression of C still counts even though B itself was removed.
-- **An inactive contribution suppresses nothing.** If your `when` doesn't match, your `suppresses`
-  doesn't fire either.
-
----
-
-## `appVersion` — requiring a minimum app version
-
-Optional. Two forms only:
-
-```json
-"appVersion": ">=1.0.0"     // or ">=1.0", or ">=1"
-"appVersion": "*"           // any version (same as leaving it out)
-```
-
-Anything else — `^1.0.0`, `~1.0.0`, `<2.0.0`, a bare `1.0.0` — is **rejected**. If the app is older
-than your floor, the mod is rejected with a message naming both versions.
-
----
-
-## What mods can't do (yet)
-
-Being straight with you about the current boundary:
-
-- **No code.** No JavaScript, no logic, no loops.
-- **No custom UI.** You can't add a panel, button, or tab.
-- **No algorithms.** Nothing that inspects, scores, or reorders what the engine already built.
-- **No new mechanics.** You can *describe* a rule to the AI; you can't make the engine resolve one.
-- **No post-turn scans.** You can't add something that runs after a turn and writes to a ledger.
-- **No editing existing blocks.** You can add or suppress, not rewrite.
-
-A mod adds text, under conditions, in a chosen order, within a budget. That's the whole surface today.
-
----
+Modules cannot access secrets, make network requests, run server-side code, read arbitrary files or
+campaign state, bypass prompt budgets, suppress protected blocks, or reach another module's tables.
+Installing a mechanics module does not grant it authority to enforce player eligibility unless the
+host explicitly offers such a capability; Narrative Engine currently does not.
 
 ## Troubleshooting
 
-**My mod doesn't show up.**
-Open **Settings → Extensions**. If the file was rejected it appears under **Rejected files** with the
-exact reason. If it isn't there at all, check the filename ends in `.mod.json` and it's in `mods/`.
-
-**Common rejections:**
-
-| Reason | Fix |
-|---|---|
-| `id` contains a dot | Use letters, numbers, `_`, `-` only |
-| unknown key in `when` | Check spelling against the table above |
-| `contributions` must be a non-empty array | Add at least one contribution |
-| `text` required | Every contribution needs non-empty `text` |
-| suppressing a protected id | You can't suppress those four |
-| unsupported `appVersion` | Only `">=X.Y.Z"` and `"*"` |
-| duplicate id | Two files declare the same mod `id`; the first alphabetically wins |
-
-**My mod loads but nothing changes.**
-Check its checkbox is on. If it has a `when`, remember the conditions must *all* match — and
-`sceneTag` never matches yet.
-
-**My text gets cut off.**
-Raise `budget`, or write less. Remember the 512-token default when `budget` is omitted.
+- A missing module must end in `.mod.json`, live in `mods/`, and be followed by **Rescan**.
+- Rejected files appear in **Settings > Extensions** with their exact validation reason.
+- If a contribution appears inactive, check its checkbox, `when` facts, `order`, and `budget`.
+- Sibling compute/screen paths must be plain filenames in the same `mods/` folder.
+- A module ID containing a dot, duplicate IDs, foreign table capability, unavailable screen
+  capability, or protected suppression rejects that module safely.

@@ -14,6 +14,8 @@ import {
     MAX_INBOUND_MESSAGES,
     MIN_SCREEN_HEIGHT_PX,
     MAX_SCREEN_HEIGHT_PX,
+    MAX_SCREEN_DOWNLOAD_CHARS,
+    SCREEN_CAMPAIGN_RESOURCES,
     SCREEN_THEME,
     tableAcceptsValue,
     tableDefault,
@@ -24,11 +26,13 @@ import { SCREEN_SANDBOX_ATTRIBUTE, SCREEN_FRAME_CSP, buildScreenSrcDoc } from '.
 
 export interface ScreenFrameProps {
     modId: string;
-    screen: { id: string; file: string; label?: string };
+    screen: { id: string; file: string; label?: string; capabilities?: readonly string[] };
     source: string;
     tables?: readonly ValidatedModTable[];
     onTableRead?: (table: string) => ScreenTableReadResult | Promise<ScreenTableReadResult>;
     onTableWrite?: (table: string, value: unknown) => void | Promise<void>;
+    onCampaignRead?: (resource: string) => unknown | Promise<unknown>;
+    onDownload?: (filename: string, content: string) => void | Promise<void>;
     onFault?: (fault: { modId: string; screenId: string; kind: ScreenFaultKind; message: string }) => void;
 }
 
@@ -54,6 +58,8 @@ export function ScreenFrame({
     tables = [],
     onTableRead,
     onTableWrite,
+    onCampaignRead,
+    onDownload,
     onFault,
 }: ScreenFrameProps) {
     const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -174,6 +180,52 @@ export function ScreenFrame({
                 return;
             }
 
+            if (data.capability === 'campaign.read') {
+                const resource = typeof data.resource === 'string' ? data.resource : '';
+                const required = `campaign:read:${resource}`;
+                if (!SCREEN_CAMPAIGN_RESOURCES.includes(resource as typeof SCREEN_CAMPAIGN_RESOURCES[number])
+                    || !screen.capabilities?.includes(required)) {
+                    sendResponse(target, data.id, false, undefined, `denied: campaign resource "${resource}" was not declared`);
+                    reportFault('denied', `campaign resource "${resource}" was not declared`);
+                    return;
+                }
+                try {
+                    const result = await onCampaignRead?.(resource);
+                    if (!isStructuredCloneSafe(result)) {
+                        sendResponse(target, data.id, false, undefined, 'malformed: campaign data is not serializable');
+                        reportFault('malformed', 'campaign data is not structured-clone-safe');
+                        return;
+                    }
+                    sendResponse(target, data.id, true, result);
+                } catch (error) {
+                    sendResponse(target, data.id, false, undefined, `campaign.read failed: ${String(error)}`);
+                }
+                return;
+            }
+
+            if (data.capability === 'file.download') {
+                if (!screen.capabilities?.includes('file:download')) {
+                    sendResponse(target, data.id, false, undefined, 'denied: file download was not declared');
+                    reportFault('denied', 'file download was not declared');
+                    return;
+                }
+                const filename = typeof data.filename === 'string' ? data.filename.trim() : '';
+                const content = typeof data.content === 'string' ? data.content : '';
+                if (!filename || filename.length > 128 || filename.includes('/') || filename.includes('\\')
+                    || content.length > MAX_SCREEN_DOWNLOAD_CHARS) {
+                    sendResponse(target, data.id, false, undefined, 'malformed: invalid download payload');
+                    reportFault('malformed', 'invalid download payload');
+                    return;
+                }
+                try {
+                    await onDownload?.(filename, content);
+                    sendResponse(target, data.id, true, { downloaded: true });
+                } catch (error) {
+                    sendResponse(target, data.id, false, undefined, `file.download failed: ${String(error)}`);
+                }
+                return;
+            }
+
             sendResponse(target, data.id, false, undefined, `denied: unknown capability "${data.capability}"`);
             reportFault('denied', `unknown capability "${data.capability}"`);
         };
@@ -204,7 +256,7 @@ export function ScreenFrame({
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [onTableRead, onTableWrite, reportFault, tables]);
+    }, [onCampaignRead, onDownload, onTableRead, onTableWrite, reportFault, screen.capabilities, tables]);
 
     useEffect(() => {
         const iframe = iframeRef.current;

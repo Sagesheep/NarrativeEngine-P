@@ -7,16 +7,10 @@
  */
 import { useCallback, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { useAppStore } from '../../store/useAppStore';
 import type { ValidatedMod } from '../../services/mods/modTypes';
-import { modTableName } from '../../services/mods/modTables';
-import { formatScreenFaultReason, screenFaultStore, type ScreenFaultKind } from '../../services/mods/screenFaults';
-import { ScreenFrame } from './ScreenFrame';
+import { ModScreenHost } from './ModScreenHost';
 
 export function ModScreens({ mods }: { mods: readonly ValidatedMod[] }) {
-    const getModTable = useAppStore((state) => state.getModTable);
-    const setModTable = useAppStore((state) => state.setModTable);
-
     /**
      * Which screens are currently expanded.
      *
@@ -49,36 +43,12 @@ export function ModScreens({ mods }: { mods: readonly ValidatedMod[] }) {
         setMountedKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
     }, []);
 
-    const onFault = useCallback((fault: { modId: string; screenId: string; kind: ScreenFaultKind; message: string }) => {
-        const mod = mods.find((candidate) => candidate.id === fault.modId);
-        screenFaultStore.add({
-            modId: fault.modId,
-            screenId: fault.screenId,
-            file: mod?.file ?? `${fault.modId}.mod.json`,
-            kind: fault.kind,
-            reason: formatScreenFaultReason({
-                modName: mod?.name ?? fault.modId,
-                screenId: fault.screenId,
-                kind: fault.kind,
-                message: fault.message,
-            }),
-        });
-    }, [mods]);
-
-    const onTableRead = useCallback((modId: string, table: string): unknown => {
-        return getModTable(modTableName(modId, table));
-    }, [getModTable]);
-
-    const onTableWrite = useCallback((modId: string, table: string, value: unknown): void => {
-        setModTable(modTableName(modId, table), value);
-    }, [setModTable]);
-
     const entries: Array<{
         modId: string;
         modName: string;
         screen: ValidatedMod['screens'][number];
         source: string;
-        tables: ValidatedMod['tables'];
+        mod: ValidatedMod;
     }> = [];
     for (const mod of mods) {
         if (!Array.isArray(mod.screens) || !Array.isArray(mod.screenSources)) continue;
@@ -90,7 +60,7 @@ export function ModScreens({ mods }: { mods: readonly ValidatedMod[] }) {
                 modName: mod.name,
                 screen: mod.screens[index],
                 source,
-                tables: mod.tables,
+                mod,
             });
         }
     }
@@ -107,7 +77,7 @@ export function ModScreens({ mods }: { mods: readonly ValidatedMod[] }) {
                     Screens declared by installed mods. Each screen renders in an isolated frame with no access to the app's DOM, storage, or network. Open one to load it.
                 </p>
             </div>
-            {entries.map(({ modId, modName, screen, source, tables }) => {
+            {entries.map(({ modId, modName, screen, source, mod }) => {
                 const key = `${modId}.${screen.id}`;
                 const open = openKeys.has(key);
                 const mounted = mountedKeys.has(key);
@@ -143,14 +113,10 @@ export function ModScreens({ mods }: { mods: readonly ValidatedMod[] }) {
                           * frame has not yet written back. */}
                         {mounted && (
                             <div id={bodyId} className={open ? 'px-3 pb-3' : 'hidden'}>
-                                <ScreenFrame
-                                    modId={modId}
+                                <ModScreenHost
+                                    mod={mod}
                                     screen={screen}
                                     source={source}
-                                    tables={tables}
-                                    onTableRead={(table) => onTableRead(modId, table)}
-                                    onTableWrite={(table, value) => onTableWrite(modId, table, value)}
-                                    onFault={onFault}
                                 />
                             </div>
                         )}

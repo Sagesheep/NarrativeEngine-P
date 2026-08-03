@@ -133,6 +133,47 @@ describe('modToContributionModule', () => {
         const junk = modToContributionModule({ id: 'j', name: 'J', version: '1', description: '', file: 'j.mod.json' } as ValidatedMod);
         expect(junk.produce(input())).toEqual([]);
     });
+
+    it('injects only exact ability name or alias matches from its own prompt index', () => {
+        const module = modToContributionModule(mod({
+            id: 'ability-compendium',
+            contributions: [{
+                id: 'mentioned-abilities', order: 150, text: 'Relevant abilities:',
+                lookup: { table: 'prompt-index', termFields: ['terms'], textField: 'promptText', recentMessages: 2 },
+            }],
+        }));
+        const promptText = 'Fireball: a controlled burst of flame.';
+        const spec = module.produce({
+            extensionTables: {
+                'mod.ability-compendium.prompt-index': [
+                    { terms: ['Fireball', 'Orb of Flame'], promptText },
+                    { terms: ['Fly'], promptText: 'Fly: take to the air.' },
+                ],
+                'mod.some-other-mod.prompt-index': [
+                    { terms: ['Fireball'], promptText: 'This must never leak.' },
+                ],
+            },
+            recentPlay: ['The wizard prepares.', 'I cast Orb of Flame at the door.'],
+        } as FinalUserModuleInput)[0];
+
+        expect(spec.text).toBe(`Relevant abilities:\n\n${promptText}`);
+        expect(spec.text).not.toContain('take to the air');
+        expect(spec.text).not.toContain('never leak');
+    });
+
+    it('does not substring-match a short ability name inside an unrelated word', () => {
+        const module = modToContributionModule(mod({
+            contributions: [{
+                id: 'mentioned', order: 150, text: 'Relevant:',
+                lookup: { table: 'index', termFields: ['terms'], textField: 'promptText' },
+            }],
+        }));
+        const spec = module.produce({
+            extensionTables: { 'mod.grimdark-tone.index': [{ terms: ['Fly'], promptText: 'Matched.' }] },
+            recentPlay: ['The flag flies above us.'],
+        } as FinalUserModuleInput)[0];
+        expect(spec.text).toBe('');
+    });
 });
 
 describe('evaluateWhen', () => {

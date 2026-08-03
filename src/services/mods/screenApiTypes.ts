@@ -1,11 +1,14 @@
 import type { ValidatedModTable } from './modTypes';
 
-export const SCREEN_API_CAPABILITIES = ['table.read', 'table.write', 'theme', 'resize'] as const;
+export const SCREEN_API_CAPABILITIES = ['table.read', 'table.write', 'theme', 'resize', 'campaign.read', 'file.download'] as const;
 export type ScreenApiCapability = (typeof SCREEN_API_CAPABILITIES)[number];
 
 export const MAX_INBOUND_MESSAGES = 1000;
 export const MIN_SCREEN_HEIGHT_PX = 120;
 export const MAX_SCREEN_HEIGHT_PX = 1200;
+export const MAX_SCREEN_DOWNLOAD_CHARS = 10_000_000;
+export const SCREEN_CAMPAIGN_RESOURCES = ['characters', 'character-sheet', 'inventory', 'recent-play'] as const;
+export type ScreenCampaignResource = (typeof SCREEN_CAMPAIGN_RESOURCES)[number];
 
 export const SCREEN_THEME = {
     version: 1,
@@ -45,6 +48,9 @@ export interface ScreenApiRequest {
     readonly table?: string;
     readonly value?: unknown;
     readonly height?: number;
+    readonly resource?: string;
+    readonly filename?: string;
+    readonly content?: string;
 }
 
 export interface ScreenApiResponse {
@@ -103,5 +109,8 @@ export function isScreenApiRequest(value: unknown): value is ScreenApiRequest {
     if (value.table !== undefined && typeof value.table !== 'string') return false;
     if (value.height !== undefined && (typeof value.height !== 'number' || !Number.isFinite(value.height))) return false;
     if (value.value !== undefined && !isStructuredCloneSafe(value.value)) return false;
+    if (value.resource !== undefined && typeof value.resource !== 'string') return false;
+    if (value.filename !== undefined && typeof value.filename !== 'string') return false;
+    if (value.content !== undefined && typeof value.content !== 'string') return false;
     return true;
 }

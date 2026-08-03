@@ -10,7 +10,7 @@ import { buildPinnedMemoriesBlock } from './pinnedMemories';
 import { countTokens } from '../infrastructure/tokenizer';
 import { assembleContributions } from './contributions/assemble';
 import { createFinalUserRegistryWithExtensions } from './contributions/extensions';
-import type { FinalUserModuleInput } from './contributions/builtins';
+import { BUILTIN_IDS, type FinalUserModuleInput } from './contributions/builtins';
 import type { ContributionRegistry } from './contributions/registry';
 import type { ElevatedScene } from '../archive-memory/dynamicElevation';
 import type { SlottedRagSnippet } from '../archive-memory/slottedRag';
@@ -30,6 +30,8 @@ export type BuildPayloadOptions = {
     enemyInstances?: EnemyInstance[];
     enemyEncounters?: EnemyEncounter[];
     enemyCombatConfig?: EnemyCombatConfig;
+    /** Hydrated namespaced extension tables. Used only by validated generic mod lookups. */
+    modTables?: Readonly<Record<string, unknown>>;
     archiveRecall?: ArchiveScene[];
     recommendedNPCNames?: string[];
     semanticFactText?: string;
@@ -89,6 +91,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         enemyInstances,
         enemyEncounters,
         enemyCombatConfig,
+        modTables,
         archiveRecall,
         recommendedNPCNames,
         semanticFactText,
@@ -120,7 +123,15 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
     const { stableContent, stableTokens, retrievedRulesContent } = buildStable({ settings, context, relevantRules, rulesManifest, rulesBudget, budgetStable: budgetMap.stable, collector });
     const { worldContent, currentWorldTokens, divergenceContent, divergenceTokens, plannerEventTypes: resolvedEventTypes } = buildWorld({ history, userMessage, condensedUpToIndex, relevantLore, npcLedger, archiveRecall, recommendedNPCNames, semanticFactText, archiveIndex, timelineEvents, deepContextSummary, divergenceRegister, chapters, onStageNpcIds, loreRaw: context.loreRaw, agencyDigest: context.agencyDigest, arcDigest: context.arcDigest, budgetWorld: budgetMap.world, npcBudgetFloor: budgetMap.npc, plannerEventTypes, matureMode: settings.matureMode, isDebug, collector, elevatedScenes, slottedRagSnippets });
     const { volatileContent, volatileTokens } = buildVolatile({ context, inventoryCategories, profileFields, budgetVolatile: budgetMap.volatile, collector, plannerEventTypes: resolvedEventTypes, userMessage, history, npcLedger, locationLedger });
-    const enemyContextEnabled = enemyCombatConfig?.promptContextEnabled !== false;
+    // The Enemy Compendium is an optional built-in module. Resolve its switch before doing any
+    // matching or reserving history space, so a disabled compendium has a true zero-token cost.
+    const enemyFeatureEnabled = isBlockEnabled(
+        BUILTIN_IDS.enemyCompendium,
+        settings.aiTier,
+        settings.moduleEnabled,
+    );
+    const enemyContextEnabled = enemyFeatureEnabled
+        && enemyCombatConfig?.promptContextEnabled !== false;
     const activeEncounterBlock = enemyContextEnabled
         ? buildActiveEncounterBlock(enemyEncounters, enemyInstances, enemyCombatConfig, budgetMap.enemy)
         : '';
@@ -198,7 +209,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
     // RAG-retrieved rules are per-turn dynamic (re-selected by semantic match to user input),
     // so they ride in the volatile block below the cache boundary — not in stable. Mirrors
     // mobileApp. Only verbatim full-rules fallback stays in stable (byte-identical across turns).
-    const volatileBlock = [retrievedRulesContent, worldContent, enemyBlock, volatileContent].filter(Boolean).join('\n\n');
+    const volatileBlock = [retrievedRulesContent, worldContent, volatileContent].filter(Boolean).join('\n\n');
 
     // Project 2 / WO-P2-02: the final user message is assembled by the contribution registry
     // rather than a hand-written array. Every block that used to be open-coded here — the
@@ -232,11 +243,17 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             settings,
             userMessage,
             volatileBlock,
+            enemyBlock,
             directorBrief,
             watchdogNudge,
             absoluteCommand,
             nextTurnOocBrief,
             facts,
+            extensionTables: modTables,
+            recentPlay: [
+                ...history.slice(-20).map((message) => message.content),
+                userMessage,
+            ],
         },
         // Enablement rides on `settings` (already threaded everywhere `buildPayload` is called),
         // so wiring the extensions screen to the prompt needed no call-site changes at all.
