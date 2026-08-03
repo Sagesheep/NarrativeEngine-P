@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { ProvidersTab } from './settings-modal/ProvidersTab';
@@ -12,6 +12,9 @@ import { useTranslation } from '../i18n/useTranslation';
 import type { TranslateKey } from '../i18n';
 
 type TabKey = 'providers' | 'presets' | 'global' | 'extensions' | 'advanced' | 'debug';
+
+/** Reading-width cap for the form tabs. Extensions opts out — see the render below. */
+const FORM_WIDTH = 'max-w-5xl mx-auto';
 
 // Label is a translation KEY, resolved at render — a const array evaluated at
 // module load would freeze the language at import time and never update.
@@ -30,6 +33,19 @@ export function SettingsModal() {
   const [activeTab, setActiveTab] = useState<TabKey>('providers');
   const { t } = useTranslation();
 
+  // The panel is full-bleed, so the backdrop's click-to-close is unreachable —
+  // it is covered edge to edge. Escape is what replaces it. Without this the X
+  // button would be the ONLY way out of a screen that occupies the whole app.
+  // Matches BlockViewModal's handler.
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') toggleSettings();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [settingsOpen, toggleSettings]);
+
   if (!settingsOpen) return null;
 
   return (
@@ -38,7 +54,11 @@ export function SettingsModal() {
       <div className="absolute inset-0 bg-ember/40 backdrop-blur-sm" onClick={toggleSettings} />
 
       {/* Panel */}
-      <div className="relative bg-surface border border-border w-full h-full sm:h-[75vh] sm:max-w-[75vw] sm:mx-4 flex flex-col shadow-2xl overflow-hidden">
+      {/* Full-bleed at every breakpoint. Settings now hosts mod screens, which
+          can be whole applications; a 75vw × 75vh box left a node editor in a
+          letterbox. The header below is `shrink-0` and outside the scroll
+          container, so the X stays on screen no matter how tall the content is. */}
+      <div className="relative bg-surface border border-border w-full h-full flex flex-col shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between p-4 sm:p-6 border-b border-border shrink-0 bg-void z-10">
           <h2 className="chrome-label text-terminal text-sm font-bold tracking-[0.2em] uppercase glow-green">
             {t('settings.title')}
@@ -74,15 +94,15 @@ export function SettingsModal() {
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-20 relative">
           {/* WO-12.1 — Constrain content width on wide desktop viewports so the
               mobile-first full-width fields don't stretch across a wide screen.
-              Centered max-width wrapper; tabs themselves stay full-width above. */}
-          <div className="max-w-5xl mx-auto">
-            <div className={activeTab !== 'providers' ? 'hidden' : ''}><ProvidersTab /></div>
-            <div className={activeTab !== 'presets' ? 'hidden' : ''}><PresetsTab /></div>
-            <div className={activeTab !== 'global' ? 'hidden' : ''}><GlobalSettingsTab /></div>
-            <div className={activeTab !== 'extensions' ? 'hidden' : ''}><ExtensionsTab /></div>
-            <div className={activeTab !== 'advanced' ? 'hidden' : ''}><AdvancedTab /></div>
-            <div className={activeTab !== 'debug' ? 'hidden' : ''}><DebugTab /></div>
-          </div>
+              The cap is per-tab rather than one shared wrapper: it exists for
+              FORMS, and Extensions is not one. It hosts mod screens (a node
+              editor, a canvas) that should use whatever width the window has. */}
+          <div className={`${FORM_WIDTH} ${activeTab !== 'providers' ? 'hidden' : ''}`}><ProvidersTab /></div>
+          <div className={`${FORM_WIDTH} ${activeTab !== 'presets' ? 'hidden' : ''}`}><PresetsTab /></div>
+          <div className={`${FORM_WIDTH} ${activeTab !== 'global' ? 'hidden' : ''}`}><GlobalSettingsTab /></div>
+          <div className={activeTab !== 'extensions' ? 'hidden' : ''}><ExtensionsTab /></div>
+          <div className={`${FORM_WIDTH} ${activeTab !== 'advanced' ? 'hidden' : ''}`}><AdvancedTab /></div>
+          <div className={`${FORM_WIDTH} ${activeTab !== 'debug' ? 'hidden' : ''}`}><DebugTab /></div>
         </div>
       </div>
     </div>
