@@ -26,12 +26,25 @@ import { loadMods } from '../lib/modLoader.js';
 
 let dir;
 
-const write = (name, contents) => {
+const write = (name, contents, siblingFiles = {}) => {
+    let folderName = name;
+    if (name.endsWith('.mod.json')) {
+        folderName = name.slice(0, -'.mod.json'.length);
+    } else if (name.endsWith('/manifest.json')) {
+        folderName = name.slice(0, -'/manifest.json'.length);
+    }
+    const modFolder = path.join(dir, folderName);
+    fs.mkdirSync(modFolder, { recursive: true });
     fs.writeFileSync(
-        path.join(dir, name),
+        path.join(modFolder, 'manifest.json'),
         typeof contents === 'string' ? contents : JSON.stringify(contents, null, 2),
         'utf-8',
     );
+    for (const [fileName, fileContent] of Object.entries(siblingFiles)) {
+        const filePath = path.join(modFolder, fileName);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, fileContent, 'utf-8');
+    }
 };
 
 const validMod = (overrides = {}) => ({
@@ -71,21 +84,21 @@ afterEach(() => {
 
 describe('loadMods — panels validation (WO-P5-16 Step 3)', () => {
     it('accepts a mod with no panels field (the common case)', () => {
-        write('x.mod.json', validMod());
+        write('x', validMod());
         const { mods, faults } = loadMods(dir, '1.0.4');
         expect(faults).toEqual([]);
         expect(mods[0].panels).toEqual([]);
     });
 
     it('accepts an empty panels array', () => {
-        write('x.mod.json', validMod({ panels: [] }));
+        write('x', validMod({ panels: [] }));
         const { mods, faults } = loadMods(dir, '1.0.4');
         expect(faults).toEqual([]);
         expect(mods[0].panels).toEqual([]);
     });
 
     it('loads a valid panel declaration with every field preserved', () => {
-        write('x.mod.json', validMod({
+        write('x', validMod({
             panels: [validPanel({
                 fields: [
                     { key: 'name', label: 'Name', control: 'text', placeholder: 'Name…' },
@@ -381,16 +394,18 @@ describe('loadMods — panels validation (WO-P5-16 Step 3)', () => {
     // ── Fail-safe: a bad panel rejects only this mod, not others ───────
 
     it('keeps loading the good mods when one file has a bad panel', () => {
-        write('a-good.mod.json', validMod({ id: 'good' }));
-        write('b-bad.mod.json', validMod({
+        write('a-good', validMod({ id: 'good' }));
+        write('b-bad', validMod({
             id: 'bad',
             panels: [validPanel({ bindsTo: 'settings' })],
         }));
-        write('c-good.mod.json', validMod({ id: 'alsogood' }));
+        write('c-good', validMod({ id: 'alsogood' }));
 
         const { mods, faults } = loadMods(dir, '1.0.4');
-        expect(mods.map((m) => m.id)).toEqual(['good', 'alsogood']);
-        expect(faults.map((f) => f.file)).toEqual(['b-bad.mod.json']);
+        // §6.3: survivors sort by id ascending. Old folder sort returned
+        // ['good', 'alsogood']; resolved order is ['alsogood', 'good'].
+        expect(mods.map((m) => m.id)).toEqual(['alsogood', 'good']);
+        expect(faults.map((f) => f.file)).toEqual(['b-bad/manifest.json']);
         expect(faults[0].reason).toMatch(/bindsTo "settings" is not one of mod "bad"'s own tables/);
     });
 

@@ -77,7 +77,9 @@ describe('WO-P5-16 §6 — THE PANELS GATE end-to-end round trip', () => {
     it('declare -> create -> edit -> read -> reload -> still there -> delete -> gone', async () => {
         // 1. DECLARE: copy the real gate mod into the tmp mods dir.
         const gateModText = fs.readFileSync(gateModPath, 'utf-8');
-        fs.writeFileSync(path.join(modsDir, 'panels-gate.mod.json'), gateModText);
+        const gateFolder = path.join(modsDir, 'panels-gate');
+        fs.mkdirSync(gateFolder, { recursive: true });
+        fs.writeFileSync(path.join(gateFolder, 'manifest.json'), gateModText);
 
         const app = await buildApp();
         const api = request(app);
@@ -171,7 +173,9 @@ describe('WO-P5-16 §6 — THE PANELS GATE end-to-end round trip', () => {
         // descriptor is what the generic PanelRenderer consumes. Assert the
         // adapter preserves the gate mod's fields, crud, sort, and search
         // — the things the renderer reads (not the namespaced id/bindsTo).
-        fs.writeFileSync(path.join(modsDir, 'panels-gate.mod.json'), fs.readFileSync(gateModPath, 'utf-8'));
+        const gateFolder = path.join(modsDir, 'panels-gate');
+        fs.mkdirSync(gateFolder, { recursive: true });
+        fs.writeFileSync(path.join(gateFolder, 'manifest.json'), fs.readFileSync(gateModPath, 'utf-8'));
         const app = await buildApp();
         const api = request(app);
         const modsRes = await api.get('/api/mods');

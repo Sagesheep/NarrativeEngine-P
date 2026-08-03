@@ -96,7 +96,9 @@ describe('WO-P5-05 Step 2 — descriptor building', () => {
 
 describe('WO-P5-05 Step 2 — registration into the server registry', () => {
     it('registers mod tables so the derived suffix set includes them', async () => {
-        fs.writeFileSync(path.join(modsDir, 'compendium.mod.json'), JSON.stringify(validMod({
+        const modFolder = path.join(modsDir, 'compendium');
+        fs.mkdirSync(modFolder, { recursive: true });
+        fs.writeFileSync(path.join(modFolder, 'manifest.json'), JSON.stringify(validMod({
             tables: [{ name: 'powers', recordShape: 'array' }],
         })));
 
@@ -119,7 +121,9 @@ describe('WO-P5-05 Step 2 — registration into the server registry', () => {
 
     it('clears previous mod tables before registering the next batch', async () => {
         // First load: one mod with one table.
-        fs.writeFileSync(path.join(modsDir, 'a.mod.json'), JSON.stringify(validMod({
+        const modFolder = path.join(modsDir, 'mod-a');
+        fs.mkdirSync(modFolder, { recursive: true });
+        fs.writeFileSync(path.join(modFolder, 'manifest.json'), JSON.stringify(validMod({
             id: 'mod-a',
             tables: [{ name: 'powers', recordShape: 'array' }],
         })));
@@ -132,8 +136,8 @@ describe('WO-P5-05 Step 2 — registration into the server registry', () => {
         registerModTables(serverTableRegistry, loadMods(modsDir, '1.0.4').mods);
         expect(getCampaignFileSuffixes(serverTableRegistry)).toContain('.mod-mod-a-powers.json');
 
-        // Second load: the mod is removed (file deleted). Stale descriptor must go.
-        fs.unlinkSync(path.join(modsDir, 'a.mod.json'));
+        // Second load: the mod is removed (folder deleted). Stale descriptor must go.
+        fs.rmSync(modFolder, { recursive: true, force: true });
         registerModTables(serverTableRegistry, loadMods(modsDir, '1.0.4').mods);
         expect(getCampaignFileSuffixes(serverTableRegistry)).not.toContain('.mod-mod-a-powers.json');
     });

@@ -15,9 +15,32 @@ import { loadMods, PROTECTED_SUPPRESSION_IDS } from '../lib/modLoader.js';
 
 let dir;
 
-const write = (name, contents) => {
+const write = (name, contents, siblingFiles = {}) => {
+    let folderName = name;
+    if (name.endsWith('.mod.json')) {
+        folderName = name.slice(0, -'.mod.json'.length);
+    } else if (name.endsWith('/manifest.json')) {
+        folderName = name.slice(0, -'/manifest.json'.length);
+    }
+    const modFolder = path.join(dir, folderName);
+    fs.mkdirSync(modFolder, { recursive: true });
     fs.writeFileSync(
-        path.join(dir, name),
+        path.join(modFolder, 'manifest.json'),
+        typeof contents === 'string' ? contents : JSON.stringify(contents, null, 2),
+        'utf-8',
+    );
+    for (const [fileName, fileContent] of Object.entries(siblingFiles)) {
+        const filePath = path.join(modFolder, fileName);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, fileContent, 'utf-8');
+    }
+};
+
+const writeRawFile = (name, contents) => {
+    const filePath = path.join(dir, name);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+        filePath,
         typeof contents === 'string' ? contents : JSON.stringify(contents, null, 2),
         'utf-8',
     );
@@ -50,7 +73,7 @@ afterEach(() => {
 
 describe('loadMods — happy path', () => {
     it('loads a valid mod with every field preserved', () => {
-        write('grimdark.mod.json', validMod({
+        write('grimdark', validMod({
             appVersion: '>=0.9.0',
             contributions: [{
                 id: 'tone',
@@ -72,7 +95,7 @@ describe('loadMods — happy path', () => {
             version: '1.0.0',
             appVersion: '>=0.9.0',
             description: 'Harsher consequences, lasting wounds.',
-            file: 'grimdark.mod.json',
+            file: 'grimdark/manifest.json',
         });
         expect(mods[0].contributions[0]).toEqual({
             id: 'tone',
@@ -85,7 +108,7 @@ describe('loadMods — happy path', () => {
     });
 
     it('accepts a contribution with no budget — the registry supplies the default', () => {
-        write('a.mod.json', validMod({ contributions: [{ id: 'tone', order: 250, text: 'x' }] }));
+        write('a', validMod({ contributions: [{ id: 'tone', order: 250, text: 'x' }] }));
 
         const { mods, faults } = loadMods(dir, '1.0.4');
 
@@ -94,15 +117,14 @@ describe('loadMods — happy path', () => {
     });
 
     it('normalises a missing description to an empty string', () => {
-        write('a.mod.json', validMod({ description: undefined }));
+        write('a', validMod({ description: undefined }));
         expect(loadMods(dir, '1.0.4').mods[0].description).toBe('');
     });
 
-    it('ignores files that are not *.mod.json', () => {
-        write('grimdark.mod.json', validMod());
-        write('notes.json', { id: 'x' });
-        write('README.md', '# not a mod');
-        fs.mkdirSync(path.join(dir, 'nested.mod.json')); // a directory, not a file
+    it('ignores non-mod files and reports stray flat mod files', () => {
+        write('grimdark', validMod());
+        writeRawFile('notes.json', { id: 'x' });
+        writeRawFile('README.md', '# not a mod');
 
         const { mods, faults } = loadMods(dir, '1.0.4');
 
@@ -110,12 +132,35 @@ describe('loadMods — happy path', () => {
         expect(faults).toEqual([]);
     });
 
-    it('loads several mods and keeps them in filename order', () => {
-        write('b.mod.json', validMod({ id: 'beta' }));
-        write('a.mod.json', validMod({ id: 'alpha' }));
-        write('c.mod.json', validMod({ id: 'gamma' }));
+    it('reports flat mod file deprecation fault', () => {
+        writeRawFile('stray.mod.json', validMod());
+        const { faults } = loadMods(dir, '1.0.4');
+        expect(faults).toHaveLength(1);
+        expect(faults[0].reason).toMatch(/flat mod files are no longer supported/);
+    });
+
+    // Phase 1.3 / MANIFEST.md §6.3 — resolved order is topological over
+    // `dependencies` with `loadOrder` ascending then `id` ascending as the
+    // tie-break. With no dependencies and equal `loadOrder` (default 0), mods
+    // sort by `id` ascending. This replaces the old folder-name sort; the
+    // folder is a path only, and the manifest `id` is authoritative (§6.1).
+    it('loads several mods and sorts them by id ascending when loadOrder is equal', () => {
+        write('b', validMod({ id: 'beta' }));
+        write('a', validMod({ id: 'alpha' }));
+        write('c', validMod({ id: 'gamma' }));
 
         expect(loadMods(dir, '1.0.4').mods.map((m) => m.id)).toEqual(['alpha', 'beta', 'gamma']);
+    });
+
+    it('sorts by id ascending even when folder order would give a different result', () => {
+        // Folder order is a-good, c-good, b-good. Id-ascending order is
+        // alsogood, good, zeta. The old folder sort returned good, zeta,
+        // alsogood; §6.3 returns alsogood, good, zeta.
+        write('a-good', validMod({ id: 'good' }));
+        write('c-good', validMod({ id: 'zeta' }));
+        write('b-good', validMod({ id: 'alsogood' }));
+
+        expect(loadMods(dir, '1.0.4').mods.map((m) => m.id)).toEqual(['alsogood', 'good', 'zeta']);
     });
 });
 
@@ -128,23 +173,26 @@ describe('loadMods — fail-safe', () => {
     });
 
     it('turns malformed JSON into a fault instead of throwing', () => {
-        write('broken.mod.json', '{ "id": "broken", ');
+        write('broken', '{ "id": "broken", ');
 
         const result = loadMods(dir, '1.0.4');
 
-        expect(result.faults[0].file).toBe('broken.mod.json');
+        expect(result.faults[0].file).toBe('broken/manifest.json');
         expect(result.faults[0].reason).toMatch(/invalid JSON/i);
     });
 
     it('keeps loading the good mods when one file is bad', () => {
-        write('a-good.mod.json', validMod({ id: 'good' }));
-        write('b-bad.mod.json', 'not json at all');
-        write('c-good.mod.json', validMod({ id: 'alsogood' }));
+        write('a-good', validMod({ id: 'good' }));
+        write('b-bad', '{ "id": "bad", ');
+        write('c-good', validMod({ id: 'alsogood' }));
 
         const { mods, faults } = loadMods(dir, '1.0.4');
 
-        expect(mods.map((m) => m.id)).toEqual(['good', 'alsogood']);
-        expect(faults.map((f) => f.file)).toEqual(['b-bad.mod.json']);
+        // §6.3: survivors sort by id ascending, not folder name. The old
+        // folder sort returned ['good', 'alsogood']; the resolved order is
+        // ['alsogood', 'good'].
+        expect(mods.map((m) => m.id)).toEqual(['alsogood', 'good']);
+        expect(faults.map((f) => f.file)).toEqual(['b-bad/manifest.json']);
     });
 
     it.each([
@@ -188,12 +236,30 @@ describe('loadMods — mod-level validation', () => {
     });
 
     it.each([
-        ['missing', undefined],
         ['not an array', { id: 'tone' }],
         ['empty', []],
     ])('rejects contributions that are %s', (_label, value) => {
         write('x.mod.json', validMod({ contributions: value }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/contributions must be a non-empty array/i);
+    });
+
+    // Phase 1.3 / MANIFEST.md §7.5 — `contributions` is now OPTIONAL. A mod
+    // with no contributions and no other declarations hits the "declares
+    // nothing" rule (§2), which replaces the old required-non-empty-array
+    // rule's accidental typo detection. A mod with no contributions but WITH
+    // other declarations (tables, panels, screens, compute, native, i18n) is
+    // valid — a native-only mod contributes no prompt text.
+    it('rejects a mod that declares nothing (contributions absent, no other declarations)', () => {
+        write('x.mod.json', { id: 'x', name: 'X', version: '1.0.0' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/manifest declares nothing — a mod must declare at least one of contributions, tables, panels, screens, compute, native, i18n/i);
+    });
+
+    it('accepts a mod with no contributions but a declared table (contributions is optional)', () => {
+        write('x', { id: 'x', name: 'X', version: '1.0.0', tables: [{ name: 'things', recordShape: 'array' }] });
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].contributions).toEqual([]);
     });
 
     it('rejects the later file when two mods claim the same id, keeping the first', () => {
@@ -205,8 +271,8 @@ describe('loadMods — mod-level validation', () => {
         expect(mods).toHaveLength(1);
         expect(mods[0].name).toBe('First');
         expect(faults).toHaveLength(1);
-        expect(faults[0].file).toBe('b.mod.json');
-        expect(faults[0].reason).toMatch(/duplicate mod id "twin" \(already declared by a\.mod\.json\)/);
+        expect(faults[0].file).toBe('b/manifest.json');
+        expect(faults[0].reason).toMatch(/duplicate mod id "twin" \(already declared by a\/manifest\.json\)/);
     });
 });
 
@@ -226,12 +292,12 @@ describe('loadMods — contribution validation', () => {
         ['a string budget', { id: 'a', order: 1, text: 'x', budget: '120' }, /budget must be a positive/],
         ['a non-object', 'just a string', /contributions\[0\] must be an object/],
     ])('rejects %s', (_label, contribution, expected) => {
-        write('x.mod.json', withContribution(contribution));
+        write('x', withContribution(contribution));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(expected);
     });
 
     it('rejects two contributions sharing an id', () => {
-        write('x.mod.json', validMod({
+        write('x', validMod({
             contributions: [
                 { id: 'tone', order: 1, text: 'a' },
                 { id: 'tone', order: 2, text: 'b' },
@@ -241,7 +307,7 @@ describe('loadMods — contribution validation', () => {
     });
 
     it('rejects the whole file when a single contribution is bad', () => {
-        write('x.mod.json', validMod({
+        write('x', validMod({
             contributions: [
                 { id: 'good', order: 1, text: 'fine' },
                 { id: 'bad', order: 'nope', text: 'also fine' },
@@ -262,19 +328,19 @@ describe('loadMods — `when` validation', () => {
         ['a numeric location', { location: 3 }, /when\.location must be a non-empty string/],
         ['an array with a blank entry', { sceneTag: ['tense', ''] }, /when\.sceneTag must be a non-empty string/],
     ])('rejects %s', (_label, when, expected) => {
-        write('x.mod.json', withWhen(when));
+        write('x', withWhen(when));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(expected);
     });
 
     it('accepts an empty when object (always active)', () => {
-        write('x.mod.json', withWhen({}));
+        write('x', withWhen({}));
         const { mods, faults } = loadMods(dir, '1.0.4');
         expect(faults).toEqual([]);
         expect(mods[0].contributions[0].when).toEqual({});
     });
 
     it('accepts scalar and array forms of the string keys', () => {
-        write('x.mod.json', withWhen({ npcPresent: 'Kira', sceneTag: ['tense', 'night'] }));
+        write('x', withWhen({ npcPresent: 'Kira', sceneTag: ['tense', 'night'] }));
         const { mods, faults } = loadMods(dir, '1.0.4');
         expect(faults).toEqual([]);
         expect(mods[0].contributions[0].when).toEqual({ npcPresent: 'Kira', sceneTag: ['tense', 'night'] });
@@ -286,23 +352,23 @@ describe('loadMods — suppression guard', () => {
         validMod({ contributions: [{ id: 'a', order: 1, text: 'x', suppresses }] });
 
     it.each(PROTECTED_SUPPRESSION_IDS)('rejects a mod that suppresses the structural built-in %s', (id) => {
-        write('x.mod.json', suppressing([id]));
+        write('x', suppressing([id]));
         expect(soleFaultReason(loadMods(dir, '1.0.4')))
             .toMatch(new RegExp(`may not target the structural built-in "${id.replace('.', '\\.')}"`));
     });
 
     it('rejects a protected id however it is cased or padded', () => {
-        write('x.mod.json', suppressing([' User.Message ']));
+        write('x', suppressing([' User.Message ']));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/may not target the structural built-in/);
     });
 
     it('rejects the file when ANY entry is protected', () => {
-        write('x.mod.json', suppressing(['gm.reminder', 'absolute.command']));
+        write('x', suppressing(['gm.reminder', 'absolute.command']));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/absolute\.command/);
     });
 
     it('allows suppressing non-structural built-ins verbatim', () => {
-        write('x.mod.json', suppressing(['gm.reminder', 'watchdog.nudge', 'director.brief']));
+        write('x', suppressing(['gm.reminder', 'watchdog.nudge', 'director.brief']));
         const { mods, faults } = loadMods(dir, '1.0.4');
         expect(faults).toEqual([]);
         expect(mods[0].contributions[0].suppresses).toEqual(['gm.reminder', 'watchdog.nudge', 'director.brief']);
@@ -313,7 +379,7 @@ describe('loadMods — suppression guard', () => {
         ['a blank entry', ['gm.reminder', ' '], /suppresses must contain only non-empty/],
         ['a numeric entry', [7], /suppresses must contain only non-empty/],
     ])('rejects suppresses given as %s', (_label, suppresses, expected) => {
-        write('x.mod.json', suppressing(suppresses));
+        write('x', suppressing(suppresses));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(expected);
     });
 });
@@ -329,18 +395,18 @@ describe('loadMods — appVersion compatibility', () => {
         ['a two-part floor', '>=0.9'],
         ['a spaced floor', '>= 1.0.0'],
     ])('accepts %s', (_label, appVersion) => {
-        write('x.mod.json', withAppVersion(appVersion));
+        write('x', withAppVersion(appVersion));
         expect(loadMods(dir, '1.0.4').faults).toEqual([]);
     });
 
     it('rejects a mod that needs a newer app', () => {
-        write('x.mod.json', withAppVersion('>=2.0.0'));
+        write('x', withAppVersion('>=2.0.0'));
         expect(soleFaultReason(loadMods(dir, '1.0.4')))
             .toBe('requires app version >=2.0.0, but this app is 1.0.4');
     });
 
     it('compares minor and patch, not just major', () => {
-        write('x.mod.json', withAppVersion('>=1.0.5'));
+        write('x', withAppVersion('>=1.0.5'));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/requires app version >=1\.0\.5/);
     });
 
@@ -351,38 +417,37 @@ describe('loadMods — appVersion compatibility', () => {
         ['an upper bound', '<2.0.0'],
         ['a compound range', '>=1.0.0 <2.0.0'],
     ])('rejects %s as unsupported', (_label, appVersion) => {
-        write('x.mod.json', withAppVersion(appVersion));
+        write('x', withAppVersion(appVersion));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/unsupported appVersion/);
     });
 
     it('rejects a non-string appVersion', () => {
-        write('x.mod.json', withAppVersion(1));
+        write('x', withAppVersion(1));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/appVersion must be a non-empty string/);
     });
 
     it('skips the check when the host version is unknown rather than rejecting', () => {
-        write('x.mod.json', withAppVersion('>=99.0.0'));
+        write('x', withAppVersion('>=99.0.0'));
         expect(loadMods(dir, undefined).faults).toEqual([]);
     });
 });
 
 describe('loadMods — compute mods', () => {
     it('loads compute metadata and carries the sibling source as text', () => {
-        write('arc.mod.json', validMod({
+        write('arc', validMod({
             id: 'arc',
             compute: {
-                file: 'arc.compute.js',
+                file: 'compute.js',
                 hook: 'postTurn',
                 capabilities: ['write:updateContext', 'table:read:npcs'],
             },
-        }));
-        write('arc.compute.js', 'export default async function () { return { ok: true }; }');
+        }), { 'compute.js': 'export default async function () { return { ok: true }; }' });
 
         const { mods, faults } = loadMods(dir, '1.0.4');
 
         expect(faults).toEqual([]);
         expect(mods[0].compute).toEqual({
-            file: 'arc.compute.js',
+            file: 'compute.js',
             hook: 'postTurn',
             capabilities: ['write:updateContext', 'table:read:npcs'],
         });
@@ -390,7 +455,7 @@ describe('loadMods — compute mods', () => {
     });
 
     it('leaves data-only mods without compute metadata or source', () => {
-        write('data.mod.json', validMod());
+        write('data', validMod());
 
         const { mods, faults } = loadMods(dir, '1.0.4');
 
@@ -409,19 +474,19 @@ describe('loadMods — compute mods', () => {
         ['an undeclared write', { file: 'x.js', hook: 'postTurn', capabilities: ['write:nope'] }, /unknown write "nope"/],
         ['an unavailable table', { file: 'x.js', hook: 'postTurn', capabilities: ['table:write:divergence'] }, /unavailable write table "divergence"/],
     ])('rejects %s', (_label, compute, expected) => {
-        write('x.mod.json', validMod({ compute }));
+        write('x', validMod({ compute }));
 
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(expected);
     });
 
-    it.each(['../outside.js', 'nested/x.js', 'nested\\x.js', 'x..js'])('rejects a compute path that is not a plain filename: %s', (file) => {
-        write('x.mod.json', validMod({ compute: { file, hook: 'postTurn', capabilities: [] } }));
+    it.each(['../outside.js', 'nested\\x.js', '/x.js'])('rejects a compute path that is not relative or uses backslashes: %s', (file) => {
+        write('x', validMod({ compute: { file, hook: 'postTurn', capabilities: [] } }));
 
-        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/plain filename inside the mods directory/);
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/relative path using forward slashes inside the mod's own folder/);
     });
 
     it('rejects a missing sibling compute source as a fault', () => {
-        write('x.mod.json', validMod({ compute: { file: 'missing.js', hook: 'postTurn', capabilities: [] } }));
+        write('x', validMod({ compute: { file: 'missing.js', hook: 'postTurn', capabilities: [] } }));
 
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/compute\.file "missing\.js" could not be read/);
     });
@@ -586,8 +651,10 @@ describe('loadMods — tables validation (WO-P5-05 Step 1)', () => {
         write('c-good.mod.json', validMod({ id: 'alsogood' }));
 
         const { mods, faults } = loadMods(dir, '1.0.4');
-        expect(mods.map((m) => m.id)).toEqual(['good', 'alsogood']);
-        expect(faults.map((f) => f.file)).toEqual(['b-bad.mod.json']);
+        // §6.3: survivors sort by id ascending. Old folder sort returned
+        // ['good', 'alsogood']; resolved order is ['alsogood', 'good'].
+        expect(mods.map((m) => m.id)).toEqual(['alsogood', 'good']);
+        expect(faults.map((f) => f.file)).toEqual(['b-bad/manifest.json']);
         expect(faults[0].reason).toMatch(/fileSuffix is not allowed/);
     });
 
@@ -599,5 +666,562 @@ describe('loadMods — tables validation (WO-P5-05 Step 1)', () => {
             ],
         }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/tables\[1\]\.fileSuffix/);
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 1.3 — folder discovery, load order, and dependencies.
+//
+// The contract under test is MANIFEST.md §6.3 (resolved load order is
+// topological over `dependencies`, tie-broken by `loadOrder` ascending then
+// `id` ascending) and §6.4 (dependencies: present, loaded, version-satisfied,
+// no cycles). Every test below is a "Done when" item from the phase work
+// order. The fail-safe contract still holds: a faulted mod never takes down
+// independent mods.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('loadMods — Phase 1.3 folder discovery', () => {
+    it('rejects a directory without manifest.json as a fault, not a silent skip', () => {
+        // A real folder with junk in it — not a dotfile, not a stray .mod.json.
+        const modFolder = path.join(dir, 'no-manifest');
+        fs.mkdirSync(modFolder, { recursive: true });
+        fs.writeFileSync(path.join(modFolder, 'README.md'), '# not a mod');
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+
+        expect(mods).toEqual([]);
+        expect(faults).toHaveLength(1);
+        expect(faults[0].file).toBe('no-manifest');
+        expect(faults[0].reason).toMatch(/directory "no-manifest" contains no manifest\.json — a mod folder must contain one/);
+    });
+
+    it('ignores dot-directories silently (e.g. .git, .DS_Store)', () => {
+        fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+        fs.writeFileSync(path.join(dir, '.git', 'config'), '[core]');
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods).toEqual([]);
+    });
+
+    it('carries the mod folder name and absolute path on the validated mod', () => {
+        write('arc-like', validMod({ id: 'arc' }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].folder).toBe('arc-like');
+        expect(typeof mods[0].folderPath).toBe('string');
+        expect(mods[0].folderPath).toContain('arc-like');
+    });
+});
+
+describe('loadMods — Phase 1.3 loadOrder', () => {
+    it('respects loadOrder: lower runs first', () => {
+        write('a', validMod({ id: 'alpha', loadOrder: 100 }));
+        write('b', validMod({ id: 'beta', loadOrder: -5 }));
+        write('c', validMod({ id: 'gamma', loadOrder: 50 }));
+
+        expect(loadMods(dir, '1.0.4').mods.map((m) => m.id))
+            .toEqual(['beta', 'gamma', 'alpha']);
+    });
+
+    it('respects loadOrder over id: a higher loadOrder always runs later', () => {
+        // id-ascending would give ['aaa', 'zzz']; loadOrder inverts it.
+        write('a', validMod({ id: 'zzz', loadOrder: 0 }));
+        write('b', validMod({ id: 'aaa', loadOrder: 10 }));
+
+        expect(loadMods(dir, '1.0.4').mods.map((m) => m.id)).toEqual(['zzz', 'aaa']);
+    });
+
+    it('two mods with equal loadOrder sort deterministically by id ascending', () => {
+        write('a', validMod({ id: 'zeta', loadOrder: 0 }));
+        write('b', validMod({ id: 'alpha', loadOrder: 0 }));
+        write('c', validMod({ id: 'mid', loadOrder: 0 }));
+
+        expect(loadMods(dir, '1.0.4').mods.map((m) => m.id))
+            .toEqual(['alpha', 'mid', 'zeta']);
+    });
+
+    it('two mods with equal loadOrder sort by id even when folder order differs', () => {
+        // Folder order: z-folder, a-folder, m-folder. Id-ascending: a, m, z.
+        write('z-folder', validMod({ id: 'aaa' }));
+        write('a-folder', validMod({ id: 'mmm' }));
+        write('m-folder', validMod({ id: 'zzz' }));
+
+        expect(loadMods(dir, '1.0.4').mods.map((m) => m.id))
+            .toEqual(['aaa', 'mmm', 'zzz']);
+    });
+
+    it('rejects a non-integer loadOrder', () => {
+        write('x', validMod({ loadOrder: 1.5 }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/loadOrder must be an integer/);
+    });
+
+    it('rejects a string loadOrder', () => {
+        write('x', validMod({ loadOrder: '0' }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/loadOrder must be an integer/);
+    });
+
+    it('accepts a negative loadOrder', () => {
+        write('a', validMod({ id: 'a', loadOrder: -100 }));
+        write('b', validMod({ id: 'b', loadOrder: 0 }));
+        expect(loadMods(dir, '1.0.4').mods.map((m) => m.id)).toEqual(['a', 'b']);
+    });
+
+    it('defaults loadOrder to 0 when absent', () => {
+        write('x', validMod());
+        const { mods } = loadMods(dir, '1.0.4');
+        expect(mods[0].loadOrder).toBe(0);
+    });
+});
+
+describe('loadMods — Phase 1.3 dependencies', () => {
+    it('rejects a mod whose dependency is not installed, naming the missing dep', () => {
+        write('dependent', validMod({
+            id: 'dependent',
+            dependencies: { 'missing-mod': '>=1.0.0' },
+        }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(mods).toHaveLength(0);
+        expect(faults).toHaveLength(1);
+        expect(faults[0].file).toBe('dependent/manifest.json');
+        expect(faults[0].reason).toMatch(/depends on mod "missing-mod", which is not installed/);
+    });
+
+    it('keeps independent mods when one mod has a missing dependency', () => {
+        write('a', validMod({ id: 'alpha' }));
+        write('b', validMod({
+            id: 'beta',
+            dependencies: { 'no-such': '*' },
+        }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(mods.map((m) => m.id)).toEqual(['alpha']);
+        expect(faults).toHaveLength(1);
+        expect(faults[0].file).toBe('b/manifest.json');
+        expect(faults[0].reason).toMatch(/depends on mod "no-such", which is not installed/);
+    });
+
+    it('rejects a self-dependency', () => {
+        write('x', validMod({
+            id: 'selfish',
+            dependencies: { 'selfish': '>=1.0.0' },
+        }));
+
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/dependencies names "selfish", which is this mod/);
+    });
+
+    it('rejects a version-unsatisfied dependency, naming the range and the installed version', () => {
+        write('dep', validMod({ id: 'dep', version: '1.0.0' }));
+        write('need', validMod({
+            id: 'need',
+            dependencies: { 'dep': '>=2.0.0' },
+        }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(mods).toHaveLength(1);
+        expect(mods[0].id).toBe('dep');
+        expect(faults).toHaveLength(1);
+        expect(faults[0].file).toBe('need/manifest.json');
+        expect(faults[0].reason).toMatch(/depends on mod "dep" >=2\.0\.0, but the installed version is 1\.0\.0/);
+    });
+
+    it('accepts a satisfied dependency (>= floor met)', () => {
+        write('dep', validMod({ id: 'dep', version: '1.2.3' }));
+        write('need', validMod({
+            id: 'need',
+            dependencies: { 'dep': '>=1.0.0' },
+        }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        // Dependency precedes dependent regardless of loadOrder/folder.
+        expect(mods.map((m) => m.id)).toEqual(['dep', 'need']);
+    });
+
+    it('accepts a wildcard dependency range', () => {
+        write('dep', validMod({ id: 'dep', version: '0.1.0' }));
+        write('need', validMod({
+            id: 'need',
+            dependencies: { 'dep': '*' },
+        }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods.map((m) => m.id)).toEqual(['dep', 'need']);
+    });
+
+    it('dependency runs before dependent even when its loadOrder is higher', () => {
+        // §6.3: the dependency graph is a constraint, loadOrder is the tie-break.
+        // dep has loadOrder 100, dependent has loadOrder 0, but dependent needs dep.
+        write('dep', validMod({ id: 'dep', loadOrder: 100 }));
+        write('need', validMod({
+            id: 'need',
+            loadOrder: 0,
+            dependencies: { 'dep': '*' },
+        }));
+
+        expect(loadMods(dir, '1.0.4').mods.map((m) => m.id)).toEqual(['dep', 'need']);
+    });
+
+    it('cascades drops: a mod whose dependency was dropped also drops', () => {
+        // chain: c -> b -> a, a is missing. b drops (a missing), c drops (b dropped).
+        write('b', validMod({
+            id: 'b',
+            dependencies: { 'a': '*' },
+        }));
+        write('c', validMod({
+            id: 'c',
+            dependencies: { 'b': '*' },
+        }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(mods).toHaveLength(0);
+        // Two faults: b (a missing) and c (b failed to load).
+        expect(faults).toHaveLength(2);
+        const reasons = faults.map((f) => f.reason).join('\n');
+        expect(reasons).toMatch(/depends on mod "a", which is not installed/);
+        expect(reasons).toMatch(/depends on mod "b", which failed to load/);
+    });
+
+    it('detects a two-mod dependency cycle and rejects both, naming both ids', () => {
+        write('a', validMod({
+            id: 'alpha',
+            dependencies: { 'beta': '*' },
+        }));
+        write('b', validMod({
+            id: 'beta',
+            dependencies: { 'alpha': '*' },
+        }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(mods).toHaveLength(0);
+        expect(faults).toHaveLength(2);
+        const files = faults.map((f) => f.file).sort();
+        expect(files).toEqual(['a/manifest.json', 'b/manifest.json']);
+        // §11: cycle reason names both ids.
+        for (const fault of faults) {
+            expect(fault.reason).toMatch(/dependency cycle between "alpha" and "beta"/);
+        }
+    });
+
+    it('rejects a malformed dependency range', () => {
+        write('x', validMod({
+            id: 'x',
+            dependencies: { 'dep': '^1.0.0' },
+        }));
+
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/dependencies\["dep"\] "\^1\.0\.0" must be ">=X\.Y\.Z" or "\*"/);
+    });
+
+    it('rejects a non-object dependencies field', () => {
+        write('x', validMod({ id: 'x', dependencies: ['dep'] }));
+
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/dependencies must be an object mapping mod ids to version ranges/);
+    });
+
+    it('rejects a dotted dependency key (would forge a namespace)', () => {
+        write('x', validMod({
+            id: 'x',
+            dependencies: { 'dotted.id': '*' },
+        }));
+
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/dependencies key "dotted\.id" may contain only letters, digits, "_" and "-"/);
+    });
+});
+
+describe('loadMods — Phase 1.3 manifest version', () => {
+    it('rejects a version that is not X.Y.Z', () => {
+        write('x', validMod({ version: '1.0' }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/version "1\.0" must be X\.Y\.Z, optionally with a "-prerelease" suffix/);
+    });
+
+    it('accepts a version with a prerelease suffix', () => {
+        write('x', validMod({ version: '2.1.0-rc.1' }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].version).toBe('2.1.0-rc.1');
+    });
+
+    it('accepts a plain X.Y.Z version', () => {
+        write('x', validMod({ version: '1.2.3' }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].version).toBe('1.2.3');
+    });
+});
+
+describe('loadMods — Phase 1.3 author and homepage', () => {
+    it('accepts author and homepage', () => {
+        write('x', validMod({ author: 'Jane', homepage: 'https://example.invalid/x' }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].author).toBe('Jane');
+        expect(mods[0].homepage).toBe('https://example.invalid/x');
+    });
+
+    it('rejects an empty author', () => {
+        write('x', validMod({ author: '   ' }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/author must be a non-empty string/);
+    });
+
+    it('rejects a non-http homepage', () => {
+        write('x', validMod({ homepage: 'ftp://example.invalid/x' }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/homepage "ftp:\/\/example\.invalid\/x" must be an http or https URL/);
+    });
+
+    it('rejects a non-string homepage', () => {
+        write('x', validMod({ homepage: 7 }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/homepage .* must be an http or https URL/);
+    });
+});
+
+describe('loadMods — Phase 1.3 unknown top-level keys', () => {
+    it('rejects an unknown top-level key', () => {
+        write('x', validMod({ futureField: 'oops' }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/unknown field "futureField" — see MANIFEST\.md for the field set/);
+    });
+
+    it('gives a targeted hint for loading_order (ST spelling)', () => {
+        write('x', validMod({ loading_order: 5 }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/unknown field "loading_order" — this app spells it "loadOrder"/);
+    });
+
+    it('gives a targeted hint for display_name (ST spelling)', () => {
+        write('x', validMod({ display_name: 'X' }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/unknown field "display_name" — this app spells it "name"/);
+    });
+
+    it('gives a targeted hint for minimum_client_version (ST spelling)', () => {
+        write('x', validMod({ minimum_client_version: '>=1.0.0' }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/unknown field "minimum_client_version" — this app spells it "appVersion"/);
+    });
+
+    it('rejects the declined "assets" key with a targeted message', () => {
+        write('x', validMod({ assets: ['x.png'] }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/unknown field "assets" — every file in the mod's folder is available to it; no declaration is needed/);
+    });
+
+    it('rejects the declined "permissions" key with a targeted message', () => {
+        write('x', validMod({ permissions: ['vault'] }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/unknown field "permissions" — native code runs with the app's own access and a permission list would not constrain it/);
+    });
+
+    it('rejects the declined "settings" key with a targeted message', () => {
+        write('x', validMod({ settings: { x: 1 } }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/unknown field "settings" — declare a single-object table and a form panel bound to it/);
+    });
+
+    it('rejects a reserved key with the phase that will define it', () => {
+        write('x', validMod({ mounts: [] }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/field "mounts" is reserved for a later app version \(4\.1\) and is not supported yet/);
+    });
+
+    it('rejects top-level hooks (belongs inside native)', () => {
+        write('x', validMod({ hooks: { activate: 'onActivate' } }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/unknown field "hooks" — it belongs inside "native", which requires a native\.js entry point/);
+    });
+
+    it('allows x- prefixed keys as the escape hatch (never read, never validated)', () => {
+        write('x', validMod({ 'x-built-by': 'tooling', 'x-anything': { nested: true } }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods).toHaveLength(1);
+    });
+});
+
+describe('loadMods — Phase 1.3 native tier validation', () => {
+    const writeNative = (native, siblingFiles = {}) =>
+        write('x', { ...validMod(), contributions: undefined, native }, siblingFiles);
+
+    it('accepts a native-only mod (no contributions, but native declares something)', () => {
+        writeNative({ js: 'index.js' }, { 'index.js': 'export function onActivate() {}' });
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].native).toEqual({ js: 'index.js' });
+        expect(mods[0].contributions).toEqual([]);
+    });
+
+    it('rejects native that is not an object', () => {
+        writeNative('not an object');
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/native must be an object/);
+    });
+
+    it('rejects native without a js entry point', () => {
+        writeNative({ hooks: { activate: 'onActivate' } });
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/native\.js must be a non-empty string/);
+    });
+
+    it('rejects a native.js that does not exist on disk', () => {
+        writeNative({ js: 'missing.js' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/native\.js "missing\.js" could not be read/);
+    });
+
+    it('rejects a native.js that escapes the mod folder (path traversal)', () => {
+        writeNative({ js: '../outside.js' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/native\.js "\.\.\/outside\.js" must be a relative path inside the mod's own folder/);
+    });
+
+    it('rejects a native.js with a backslash (Windows-authored path)', () => {
+        writeNative({ js: 'nested\\\\x.js' }, { 'nested/x.js': 'export {}' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/native\.js ".*" must use forward slashes/);
+    });
+
+    it('rejects an unknown native hook name', () => {
+        writeNative({ js: 'index.js', hooks: { onActivate: 'onActivate' } }, { 'index.js': 'export {}' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/native\.hooks has unknown hook "onActivate" \(allowed: install, update, activate, enable, disable, delete, clean\)/);
+    });
+
+    it('accepts all seven known hooks', () => {
+        writeNative({
+            js: 'index.js',
+            hooks: {
+                install: 'onInstall', update: 'onUpdate', activate: 'onActivate',
+                enable: 'onEnable', disable: 'onDisable', delete: 'onDelete', clean: 'onClean',
+            },
+        }, { 'index.js': 'export {}' });
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(Object.keys(mods[0].native.hooks).sort()).toEqual(
+            ['activate', 'clean', 'delete', 'disable', 'enable', 'install', 'update'],
+        );
+    });
+
+    it('rejects a hook value that is not a string', () => {
+        writeNative({ js: 'index.js', hooks: { activate: 7 } }, { 'index.js': 'export {}' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/native\.hooks\.activate must name an exported function/);
+    });
+
+    it('rejects an empty generateInterceptor', () => {
+        writeNative({ js: 'index.js', generateInterceptor: '   ' }, { 'index.js': 'export {}' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/native\.generateInterceptor must name an exported function/);
+    });
+
+    it('rejects an unknown native key', () => {
+        writeNative({ js: 'index.js', future: 'oops' }, { 'index.js': 'export {}' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/native has unknown field "future" — only js, css, hooks, generateInterceptor are allowed/);
+    });
+
+    it('accepts and validates a native.css path', () => {
+        writeNative({ js: 'index.js', css: 'style.css' }, {
+            'index.js': 'export {}', 'style.css': 'body { color: red; }',
+        });
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].native.css).toBe('style.css');
+    });
+
+    it('rejects a native.css that does not exist on disk', () => {
+        writeNative({ js: 'index.js', css: 'missing.css' }, { 'index.js': 'export {}' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/native\.css "missing\.css" could not be read/);
+    });
+});
+
+describe('loadMods — Phase 1.3 i18n validation', () => {
+    const writeI18n = (i18n, siblingFiles = {}) =>
+        write('x', { ...validMod(), i18n }, siblingFiles);
+
+    it('accepts a mod with no i18n field (default {})', () => {
+        write('x', validMod());
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].i18n).toEqual({});
+        expect(mods[0].i18nStrings).toEqual({});
+    });
+
+    it('accepts and parses a locale file', () => {
+        writeI18n({ en: 'i18n/en.json' }, {
+            'i18n/en.json': JSON.stringify({ 'greeting': 'Hello', 'farewell': 'Bye' }),
+        });
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].i18n).toEqual({ en: 'i18n/en.json' });
+        expect(mods[0].i18nStrings).toEqual({ en: { greeting: 'Hello', farewell: 'Bye' } });
+    });
+
+    it('accepts locale codes outside the host\'s six (e.g. fr)', () => {
+        writeI18n({ fr: 'fr.json' }, { 'fr.json': JSON.stringify({ hi: 'Bonjour' }) });
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].i18n.fr).toBe('fr.json');
+    });
+
+    it('accepts a dashed locale code (e.g. pt-BR)', () => {
+        writeI18n({ 'pt-BR': 'pt.json' }, { 'pt.json': JSON.stringify({ hi: 'Oi' }) });
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].i18n['pt-BR']).toBe('pt.json');
+    });
+
+    it('rejects a non-object i18n field', () => {
+        writeI18n(['en']);
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/i18n must be an object mapping locale codes to translation files/);
+    });
+
+    it('rejects a bad locale code', () => {
+        writeI18n({ 'not_a_locale!': 'x.json' }, { 'x.json': '{}' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/i18n key "not_a_locale!" is not a locale code/);
+    });
+
+    it('rejects a non-string i18n value', () => {
+        writeI18n({ en: 7 });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/i18n\["en"\] must be a path to a JSON translation file/);
+    });
+
+    it('rejects an i18n file that does not exist', () => {
+        writeI18n({ en: 'missing.json' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/i18n\["en"\] file "missing\.json" could not be read/);
+    });
+
+    it('rejects an i18n file that is not valid JSON', () => {
+        writeI18n({ en: 'en.json' }, { 'en.json': '{ broken' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/i18n\["en"\] file "en\.json" is not valid JSON/);
+    });
+
+    it('rejects an i18n file that is not a flat string map', () => {
+        writeI18n({ en: 'en.json' }, { 'en.json': JSON.stringify({ nested: { a: 1 } }) });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/i18n\["en"\] must be a flat object of string keys to string values/);
+    });
+
+    it('rejects an i18n file with a non-string value', () => {
+        writeI18n({ en: 'en.json' }, { 'en.json': JSON.stringify({ num: 7 }) });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/i18n\["en"\] must be a flat object of string keys to string values/);
+    });
+
+    it('rejects an i18n path that escapes the mod folder', () => {
+        writeI18n({ en: '../outside.json' });
+        expect(soleFaultReason(loadMods(dir, '1.0.4')))
+            .toMatch(/i18n\["en"\] "\.\.\/outside\.json" must be a relative path inside the mod's own folder/);
     });
 });

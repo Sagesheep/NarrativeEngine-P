@@ -30,7 +30,7 @@ const appVersion = JSON.parse(
 ).version as string;
 
 describe('shipped mods load cleanly', () => {
-    it('every *.mod.json in mods/ loads with ZERO faults', () => {
+    it('every manifest in mods/ loads with ZERO faults', () => {
         const { faults } = loadMods(modsDir, appVersion);
         // Print the reason, not just a count — a bare `toHaveLength(0)` tells
         // the next person nothing about which manifest broke or why.
@@ -38,7 +38,10 @@ describe('shipped mods load cleanly', () => {
     });
 
     it('loads every manifest present on disk', () => {
-        const onDisk = fs.readdirSync(modsDir).filter((f) => f.endsWith('.mod.json')).sort();
+        const onDisk = fs.readdirSync(modsDir, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+            .map((e) => `${e.name}/manifest.json`)
+            .sort();
         const { mods } = loadMods(modsDir, appVersion);
         expect(mods.map((m) => m.file).sort()).toEqual(onDisk);
     });
@@ -46,7 +49,7 @@ describe('shipped mods load cleanly', () => {
     it('arc ships as a mod and the loader accepts its own-table capabilities', () => {
         const { mods } = loadMods(modsDir, appVersion);
         const arc = mods.find((m) => m.id === 'arc');
-        expect(arc, 'arc.mod.json must load — it is the COMPUTE gate artefact').toBeDefined();
+        expect(arc, 'arc manifest must load — it is the COMPUTE gate artefact').toBeDefined();
         // The exact capabilities that were rejected before the fix.
         expect(arc!.compute!.capabilities).toContain('table:read:mod.arc.arcs');
         expect(arc!.compute!.capabilities).toContain('table:write:mod.arc.arcs');
@@ -55,15 +58,17 @@ describe('shipped mods load cleanly', () => {
     it('a mod may NOT name another mod\'s table', () => {
         const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cross-mod-'));
         try {
-            fs.copyFileSync(path.join(modsDir, 'arc.compute.js'), path.join(tmp, 'arc.compute.js'));
-            fs.writeFileSync(path.join(tmp, 'thief.mod.json'), JSON.stringify({
+            const thiefDir = path.join(tmp, 'thief');
+            fs.mkdirSync(thiefDir);
+            fs.copyFileSync(path.join(modsDir, 'arc', 'compute.js'), path.join(thiefDir, 'compute.js'));
+            fs.writeFileSync(path.join(thiefDir, 'manifest.json'), JSON.stringify({
                 id: 'thief',
                 name: 'Thief',
                 version: '1.0.0',
                 contributions: [{ id: 'c', order: 900, text: '.' }],
                 tables: [{ name: 'own', recordShape: 'array' }],
                 compute: {
-                    file: 'arc.compute.js',
+                    file: 'compute.js',
                     hook: 'postTurn',
                     capabilities: ['table:read:mod.arc.arcs'],
                 },
@@ -79,15 +84,17 @@ describe('shipped mods load cleanly', () => {
     it('a mod may NOT name an own-table it never declared', () => {
         const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'undeclared-'));
         try {
-            fs.copyFileSync(path.join(modsDir, 'arc.compute.js'), path.join(tmp, 'arc.compute.js'));
-            fs.writeFileSync(path.join(tmp, 'typo.mod.json'), JSON.stringify({
+            const typoDir = path.join(tmp, 'typo');
+            fs.mkdirSync(typoDir);
+            fs.copyFileSync(path.join(modsDir, 'arc', 'compute.js'), path.join(typoDir, 'compute.js'));
+            fs.writeFileSync(path.join(typoDir, 'manifest.json'), JSON.stringify({
                 id: 'typo',
                 name: 'Typo',
                 version: '1.0.0',
                 contributions: [{ id: 'c', order: 900, text: '.' }],
                 tables: [{ name: 'notes', recordShape: 'array' }],
                 compute: {
-                    file: 'arc.compute.js',
+                    file: 'compute.js',
                     hook: 'postTurn',
                     capabilities: ['table:write:mod.typo.notez'],
                 },

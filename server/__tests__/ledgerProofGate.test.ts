@@ -119,7 +119,9 @@ describe('WO-P5-06 — THE TABLES GATE — proof mod round trip', () => {
         // 1. DECLARE: copy the real proof mod from mods/ledger-proof.mod.json
         //    into the tmp mods dir. The test exercises the actual shipped file.
         const proofModText = fs.readFileSync(proofModPath, 'utf-8');
-        fs.writeFileSync(path.join(modsDir, 'ledger-proof.mod.json'), proofModText);
+        const proofFolder = path.join(modsDir, 'ledger-proof');
+        fs.mkdirSync(proofFolder, { recursive: true });
+        fs.writeFileSync(path.join(proofFolder, 'manifest.json'), proofModText);
 
         const app = await buildApp();
         const api = request(app);
@@ -212,7 +214,9 @@ describe('WO-P5-06 — THE TABLES GATE — proof mod round trip', () => {
         // a collision here is a data-loss bug in 2.3 (WO-P5-06 §7 stop
         // condition).
         const proofModText = fs.readFileSync(proofModPath, 'utf-8');
-        fs.writeFileSync(path.join(modsDir, 'ledger-proof.mod.json'), proofModText);
+        const proofFolder = path.join(modsDir, 'ledger-proof');
+        fs.mkdirSync(proofFolder, { recursive: true });
+        fs.writeFileSync(path.join(proofFolder, 'manifest.json'), proofModText);
 
         const app = await buildApp();
         await request(app).get('/api/mods');

@@ -24,12 +24,31 @@ import { loadMods } from '../lib/modLoader.js';
 
 let dir;
 
-const write = (name, contents) => {
+const write = (name, contents, siblingFiles = {}) => {
+    let folderName = name;
+    if (name.endsWith('.mod.json')) {
+        folderName = name.slice(0, -'.mod.json'.length);
+    } else if (name.endsWith('/manifest.json')) {
+        folderName = name.slice(0, -'/manifest.json'.length);
+    } else if (name.endsWith('.js')) {
+        folderName = 'x';
+        const modFolder = path.join(dir, folderName);
+        fs.mkdirSync(modFolder, { recursive: true });
+        fs.writeFileSync(path.join(modFolder, name), contents, 'utf-8');
+        return;
+    }
+    const modFolder = path.join(dir, folderName);
+    fs.mkdirSync(modFolder, { recursive: true });
     fs.writeFileSync(
-        path.join(dir, name),
+        path.join(modFolder, 'manifest.json'),
         typeof contents === 'string' ? contents : JSON.stringify(contents, null, 2),
         'utf-8',
     );
+    for (const [fileName, fileContent] of Object.entries(siblingFiles)) {
+        const filePath = path.join(modFolder, fileName);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, fileContent, 'utf-8');
+    }
 };
 
 const validMod = (overrides = {}) => ({
@@ -65,7 +84,7 @@ afterEach(() => {
 
 describe('loadMods — screens validation (WO-P5-17 Step 1)', () => {
     it('accepts a mod with no screens field (the common case)', () => {
-        write('x.mod.json', validMod());
+        write('x', validMod());
         const { mods, faults } = loadMods(dir, '1.0.4');
         expect(faults).toEqual([]);
         expect(mods[0].screens).toEqual([]);
@@ -73,7 +92,7 @@ describe('loadMods — screens validation (WO-P5-17 Step 1)', () => {
     });
 
     it('accepts an empty screens array', () => {
-        write('x.mod.json', validMod({ screens: [] }));
+        write('x', validMod({ screens: [] }));
         const { mods, faults } = loadMods(dir, '1.0.4');
         expect(faults).toEqual([]);
         expect(mods[0].screens).toEqual([]);
@@ -82,7 +101,7 @@ describe('loadMods — screens validation (WO-P5-17 Step 1)', () => {
 
     it('loads a valid screen declaration with every field preserved', () => {
         write('screen-mod.js', 'export default function () { return "ok"; }');
-        write('x.mod.json', validMod({ screens: [validScreen()] }));
+        write('x', validMod({ screens: [validScreen()] }));
         const { mods, faults } = loadMods(dir, '1.0.4');
         expect(faults).toEqual([]);
         expect(mods[0].screens).toHaveLength(1);
@@ -91,14 +110,9 @@ describe('loadMods — screens validation (WO-P5-17 Step 1)', () => {
     });
 
     it('R2: carries the screen source as text, in screens[] order, never evaluated', () => {
-        // The source is real JavaScript. The loader reads it as a STRING
-        // and carries it on screenSources[0]. It never evaluates it —
-        // `require`/`import` would throw here because the file is not a
-        // module the server can resolve, and a thrown error would surface
-        // as a fault. The text survives verbatim.
         const source = 'export default function () { /* screen body */ return 42; }';
         write('screen-mod.js', source);
-        write('x.mod.json', validMod({ screens: [validScreen()] }));
+        write('x', validMod({ screens: [validScreen()] }));
         const { mods, faults } = loadMods(dir, '1.0.4');
         expect(faults).toEqual([]);
         expect(mods[0].screenSources).toEqual([source]);
@@ -107,7 +121,7 @@ describe('loadMods — screens validation (WO-P5-17 Step 1)', () => {
     it('R2: pairs declaration i with source i across multiple screens', () => {
         write('a.js', '// first');
         write('b.js', '// second');
-        write('x.mod.json', validMod({
+        write('x', validMod({
             screens: [
                 { id: 'first', file: 'a.js' },
                 { id: 'second', file: 'b.js' },
@@ -122,12 +136,12 @@ describe('loadMods — screens validation (WO-P5-17 Step 1)', () => {
     // ── Structural rejections ──────────────────────────────────────────
 
     it('rejects a non-array screens field', () => {
-        write('x.mod.json', validMod({ screens: { id: 'x' } }));
+        write('x', validMod({ screens: { id: 'x' } }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/screens must be an array/);
     });
 
     it('rejects a screen entry that is not an object', () => {
-        write('x.mod.json', validMod({ screens: ['just a string'] }));
+        write('x', validMod({ screens: ['just a string'] }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/screens\[0\] must be an object/);
     });
 
@@ -137,14 +151,14 @@ describe('loadMods — screens validation (WO-P5-17 Step 1)', () => {
         ['an empty string', '   '],
         ['a dotted id', 'a.b'],
     ])('rejects a screen id that is %s', (_label, id) => {
-        write('x.mod.json', validMod({ screens: [validScreen({ id })] }));
+        write('x', validMod({ screens: [validScreen({ id })] }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/screens\[0\]\.id/);
     });
 
     it('rejects two screens sharing an id', () => {
         write('a.js', '// a');
         write('b.js', '// b');
-        write('x.mod.json', validMod({
+        write('x', validMod({
             screens: [
                 { id: 'same', file: 'a.js' },
                 { id: 'same', file: 'b.js' },
@@ -154,28 +168,23 @@ describe('loadMods — screens validation (WO-P5-17 Step 1)', () => {
     });
 
     it('rejects a missing file', () => {
-        write('x.mod.json', validMod({ screens: [validScreen()] }));
+        write('x', validMod({ screens: [validScreen()] }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/screens\[0\]\.file "screen-mod\.js" could not be read/);
     });
 
     it('rejects a non-string file', () => {
-        write('x.mod.json', validMod({ screens: [validScreen({ file: 7 })] }));
+        write('x', validMod({ screens: [validScreen({ file: 7 })] }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/screens\[0\]\.file must be a non-empty string/);
     });
 
-    it('R2: rejects a file with a path separator (traversal)', () => {
-        write('x.mod.json', validMod({ screens: [validScreen({ file: 'sub/screen-mod.js' })] }));
-        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/file must be a plain filename inside the mods directory/);
-    });
-
-    it('R2: rejects a file with a parent traversal (..)', () => {
-        write('x.mod.json', validMod({ screens: [validScreen({ file: '../screen-mod.js' })] }));
-        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/file must be a plain filename inside the mods directory/);
+    it('R2: rejects a file with backslashes or parent traversal', () => {
+        write('x', validMod({ screens: [validScreen({ file: '../screen-mod.js' })] }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/relative path using forward slashes inside the mod's own folder/);
     });
 
     it('rejects a non-string label', () => {
         write('screen-mod.js', '// ok');
-        write('x.mod.json', validMod({ screens: [validScreen({ label: 7 })] }));
+        write('x', validMod({ screens: [validScreen({ label: 7 })] }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/label must be a string/);
     });
 
@@ -190,35 +199,37 @@ describe('loadMods — screens validation (WO-P5-17 Step 1)', () => {
         ['hooks', /hooks is not allowed on a mod screen/],
     ])('R6: rejects a %s field on a screen (no host API in 5.1)', (field, expected) => {
         write('screen-mod.js', '// ok');
-        write('x.mod.json', validMod({ screens: [validScreen({ [field]: 'anything' })] }));
+        write('x', validMod({ screens: [validScreen({ [field]: 'anything' })] }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(expected);
     });
 
     it('rejects an unknown field on a screen declaration', () => {
         write('screen-mod.js', '// ok');
-        write('x.mod.json', validMod({ screens: [validScreen({ future: 'oops' })] }));
+        write('x', validMod({ screens: [validScreen({ future: 'oops' })] }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/unknown field "future"/);
     });
 
     // ── Fail-safe: a bad screen rejects only this mod, not others ──────
 
     it('keeps loading the good mods when one file has a bad screen', () => {
-        write('a-good.mod.json', validMod({ id: 'good' }));
-        write('b-bad.mod.json', validMod({
+        write('a-good', validMod({ id: 'good' }));
+        write('b-bad', validMod({
             id: 'bad',
             screens: [validScreen({ id: 'oops', file: 'missing.js' })],
         }));
-        write('c-good.mod.json', validMod({ id: 'alsogood' }));
+        write('c-good', validMod({ id: 'alsogood' }));
 
         const { mods, faults } = loadMods(dir, '1.0.4');
-        expect(mods.map((m) => m.id)).toEqual(['good', 'alsogood']);
-        expect(faults.map((f) => f.file)).toEqual(['b-bad.mod.json']);
+        // §6.3: survivors sort by id ascending. Old folder sort returned
+        // ['good', 'alsogood']; resolved order is ['alsogood', 'good'].
+        expect(mods.map((m) => m.id)).toEqual(['alsogood', 'good']);
+        expect(faults.map((f) => f.file)).toEqual(['b-bad/manifest.json']);
         expect(faults[0].reason).toMatch(/screens\[0\]\.file "missing\.js" could not be read/);
     });
 
     it('rejects the whole file when a single screen is bad', () => {
         write('good.js', '// good');
-        write('x.mod.json', validMod({
+        write('x', validMod({
             screens: [
                 { id: 'good', file: 'good.js' },
                 { id: 'bad', file: 'missing.js' },

@@ -52,9 +52,13 @@ const mod = {
     name: 'Arc',
     version: '1.0.0',
     description: '',
-    file: 'arc.mod.json',
+    file: 'arc/manifest.json',
     contributions: [],
-    compute: { file: 'arc.compute.js', hook: 'postTurn' as const, capabilities: [] },
+    tables: [],
+    panels: [],
+    screens: [],
+    screenSources: [],
+    compute: { file: 'compute.js', hook: 'postTurn' as const, capabilities: [] },
     computeSource: 'export default async function () { throw new Error("failed"); }',
 };
 

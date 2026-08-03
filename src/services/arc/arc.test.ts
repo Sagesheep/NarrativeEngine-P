@@ -20,7 +20,7 @@ import {
     arcSurfaceLine,
     scanArcStance,
     arcWorldState,
-} from '../../../mods/arc.compute.js';
+} from '../../../mods/arc/compute.js';
 import {
     ARC_TICK_DC,
     ARC_BAND_RUNG_DELTA,

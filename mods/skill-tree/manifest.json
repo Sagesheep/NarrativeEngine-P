@@ -22,7 +22,7 @@
   "screens": [
     {
       "id": "editor",
-      "file": "skill-tree.screen.js",
+      "file": "screen.js",
       "label": "Skill Tree Editor"
     }
   ]

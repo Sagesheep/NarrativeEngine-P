@@ -28,7 +28,8 @@ import { modPanelToDescriptor } from '../../services/mods/modPanels';
 import type { PanelDescriptor } from '@narrative/engine';
 
 const REPO_MODS_DIR = path.join(process.cwd(), 'test-fixtures', 'mods');
-const GATE_FILE = 'panels-gate.mod.json';
+const GATE_FOLDER = 'panels-gate';
+const GATE_FILE = 'panels-gate/manifest.json';
 
 let tempDir: string;
 
@@ -40,21 +41,21 @@ afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
-/** Copy every mod file from the repo's mods/ into tempDir, EXCEPT one. */
+/** Copy every mod folder from the repo's test-fixtures/mods/ into tempDir, EXCEPT one. */
 function copyModsExcept(exclude: string) {
-    const files = fs.readdirSync(REPO_MODS_DIR).filter((f) => f.endsWith('.mod.json'));
-    for (const file of files) {
-        if (file === exclude) continue;
-        fs.copyFileSync(path.join(REPO_MODS_DIR, file), path.join(tempDir, file));
+    const entries = fs.readdirSync(REPO_MODS_DIR, { withFileTypes: true });
+    for (const entry of entries) {
+        if (entry.isDirectory()) {
+            if (entry.name === exclude) continue;
+            const srcDir = path.join(REPO_MODS_DIR, entry.name);
+            const destDir = path.join(tempDir, entry.name);
+            fs.cpSync(srcDir, destDir, { recursive: true });
+        }
     }
 }
 
 describe('WO-P5-16 §6 — THE PANELS GATE', () => {
     it('the gate mod file exists in test-fixtures/mods/', () => {
-        // A real, complete *.mod.json — loaded through the real loader below.
-        // It lives in test-fixtures/mods/ rather than mods/ so that the app's
-        // Extensions tab shows only mods a user would actually want; the gate
-        // it proves is unchanged.
         expect(fs.existsSync(path.join(REPO_MODS_DIR, GATE_FILE))).toBe(true);
         const raw = JSON.parse(fs.readFileSync(path.join(REPO_MODS_DIR, GATE_FILE), 'utf8'));
         expect(raw.id).toBe('panels-gate');
@@ -78,10 +79,7 @@ describe('WO-P5-16 §6 — THE PANELS GATE', () => {
         expect(panel.fields.map((f) => f.control)).toEqual([
             'text', 'textarea', 'number', 'tags', 'checkbox',
         ]);
-        // No fault for the gate mod. (Other mods' faults are pre-existing
-        // and not this sub-phase's concern — the arc.mod.json capability
-        // resolution is a registration-time matter, not a load-time fault
-        // introduced here.)
+        // No fault for the gate mod.
         const gateFault = faults.find((f) => f.file === GATE_FILE);
         expect(gateFault, `gate mod must load with no fault, got: ${JSON.stringify(gateFault)}`).toBeUndefined();
     });
@@ -122,10 +120,7 @@ describe('WO-P5-16 §6 — THE PANELS GATE', () => {
 
 describe('WO-P5-16 §6 — THE UNINSTALL TEST (gate mod absent, app still runs)', () => {
     it('when the gate mod file is deleted, the loader returns no panels-gate mod and no fault for it', () => {
-        // Copy every mod EXCEPT the gate mod — exactly the state the app
-        // would be in if the user deleted mods/panels-gate.mod.json and
-        // restarted.
-        copyModsExcept(GATE_FILE);
+        copyModsExcept(GATE_FOLDER);
         const { mods, faults } = loadMods(tempDir, '1.0.4');
 
         expect(mods.map((m) => m.id)).not.toContain('panels-gate');
@@ -136,49 +131,31 @@ describe('WO-P5-16 §6 — THE UNINSTALL TEST (gate mod absent, app still runs)'
     });
 
     it('when the gate mod is absent, no panels-gate table key exists in the store', () => {
-        // The mod table machinery only hydrates tables for INSTALLED mods.
-        // With the gate mod absent, the store's modTables map has no
-        // mod.panels-gate.notes key — exactly the arcUninstall discipline.
-        copyModsExcept(GATE_FILE);
+        copyModsExcept(GATE_FOLDER);
         const { mods } = loadMods(tempDir, '1.0.4');
         const gate = mods.find((m) => m.id === 'panels-gate');
         expect(gate).toBeUndefined();
-        // The namespaced table key the ModPanels component would read is
-        // absent by construction — no mod, no `mod.panels-gate.notes` key.
         const tableKey = 'mod.panels-gate.notes';
-        // Simulate the store state post-uninstall: the hydrator only adds
-        // keys for installed mods, so an empty modTables map is the
-        // post-uninstall state.
         const postUninstallModTables: Record<string, unknown> = {};
         expect(postUninstallModTables[tableKey]).toBeUndefined();
     });
 
     it('when the gate mod is absent, ModPanels renders nothing for it (no orphan UI)', () => {
-        // The ModPanels component takes the loaded mods list; with the
-        // gate mod absent, it produces no section for panels-gate. This is
-        // the "no orphaned UI" assertion from arcUninstall §6b, applied to
-        // panels.
-        copyModsExcept(GATE_FILE);
+        copyModsExcept(GATE_FOLDER);
         const { mods } = loadMods(tempDir, '1.0.4');
         const gate = mods.find((m) => m.id === 'panels-gate');
         expect(gate).toBeUndefined();
-        // The component iterates `mods`; with no `panels-gate` entry, it
-        // renders no section. (The behavioural test is in ModPanels.test.tsx;
-        // here we assert the precondition — the mod list has no gate entry.)
         const hasGatePanel = mods.some((m) => m.id === 'panels-gate' && Array.isArray(m.panels) && m.panels.length > 0);
         expect(hasGatePanel).toBe(false);
     });
 
     it('reinstalling the gate mod restores the panel with no migration (idempotent uninstall/install)', () => {
-        // Uninstall, then reinstall. The loader is stateless; the gate mod
-        // loads again with the same panel declaration. No migration, no
-        // fault, no orphan state. This is the "the app still runs" gate.
-        copyModsExcept(GATE_FILE);
+        copyModsExcept(GATE_FOLDER);
         const uninstalled = loadMods(tempDir, '1.0.4');
         expect(uninstalled.mods.find((m) => m.id === 'panels-gate')).toBeUndefined();
 
-        // Re-copy the gate mod and reload.
-        fs.copyFileSync(path.join(REPO_MODS_DIR, GATE_FILE), path.join(tempDir, GATE_FILE));
+        // Re-copy the gate mod folder and reload.
+        fs.cpSync(path.join(REPO_MODS_DIR, GATE_FOLDER), path.join(tempDir, GATE_FOLDER), { recursive: true });
         const reinstalled = loadMods(tempDir, '1.0.4');
         const gate = reinstalled.mods.find((m) => m.id === 'panels-gate');
         expect(gate, 'gate mod must reload after reinstall').toBeDefined();

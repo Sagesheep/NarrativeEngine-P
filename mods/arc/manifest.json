@@ -19,7 +19,7 @@
     }
   ],
   "compute": {
-    "file": "arc.compute.js",
+    "file": "compute.js",
     "hook": "postTurn",
     "capabilities": [
       "table:read:mod.arc.arcs",

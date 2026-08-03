@@ -245,7 +245,38 @@ export interface ModDefinition {
     /** `">=X.Y.Z"` or `"*"`. Absent = compatible with any app version. */
     appVersion?: string;
     description?: string;
-    contributions: ModContribution[];
+    /** Phase 1.1 / MANIFEST.md §2 — `TRUST.md` §D disclosure pair. Optional. */
+    author?: string;
+    /** Phase 1.1 / MANIFEST.md §2 — `http:`/`https:` URL. The app never auto-opens it. */
+    homepage?: string;
+    /**
+     * Phase 1.1 / MANIFEST.md §6.3 — one integer an author controls. Default 0.
+     * Negative is allowed. The RESOLVED load order is topological over
+     * `dependencies` with `loadOrder` as the tie-break (§6.3); a dependency
+     * therefore always precedes its dependent even when its `loadOrder` is
+     * higher. Lower runs first.
+     */
+    loadOrder?: number;
+    /**
+     * Phase 1.1 / MANIFEST.md §6.4 — `{ modId: range }`. A missing dependency is
+     * a fault on the dependent at load time (1.3). Self-dependency is a fault.
+     * Optional dependencies are declined for v1 (§6.4).
+     */
+    dependencies?: Record<string, string>;
+    /**
+     * Phase 1.1 / MANIFEST.md §5 — locale → flat-JSON translation file. The
+     * host namespaces every key as `mod.<modId>.<key>` on merge, so a mod can
+     * never overwrite a host string. Locale codes are not restricted to the
+     * host's six (§5).
+     */
+    i18n?: Record<string, string>;
+    /**
+     * Phase 1.1 / MANIFEST.md §7.5 — contributions is now OPTIONAL. A native-
+     * only mod (enemies, Phase 8) or a panel/screen-only mod contributes no
+     * prompt text. The "declares nothing" rule (§2) replaces the old required-
+     * non-empty-array rule.
+     */
+    contributions?: ModContribution[];
     compute?: ModCompute;
     /** Optional. Data tables the app provisions with zero mod code (WO-P5-05). */
     tables?: ModTableDeclaration[];
@@ -253,6 +284,30 @@ export interface ModDefinition {
     panels?: ModPanelDeclaration[];
     /** Optional. Declared screens — a mod's own UI in an isolated frame (WO-P5-17). */
     screens?: ModScreenDeclaration[];
+    /**
+     * Phase 1.1 / MANIFEST.md §3 — the native tier. Its presence alone makes
+     * the mod native-tier for trust and warning purposes (TRUST.md §B); Phase
+     * 6.1 shows the verbatim warning before first enablement. `js`/`css` paths
+     * are validated mod-relative; the server never evaluates native code (§4).
+     * Phase 1.5 wires `import()`; Phase 1.4 wires the hooks.
+     */
+    native?: ModNative;
+}
+
+/** Phase 1.1 / MANIFEST.md §3 — the native tier. */
+export interface ModNative {
+    /** Required. Mod-relative path to the ES module entry point. */
+    js: string;
+    /** Optional. Mod-relative path to a single CSS file, injected on activate. */
+    css?: string;
+    /**
+     * Optional. `{ hookName: exportName }`. The seven hook names are
+     * validated at load time (Phase 1.4 wires the firing). Values name
+     * functions exported by `js`; existence is a Phase 1.5 runtime check.
+     */
+    hooks?: Record<string, string>;
+    /** Optional. The name of a function exported by `js`, called by 5.2's hook. */
+    generateInterceptor?: string;
 }
 
 /** The code hook and capabilities declared by a compute mod. */
@@ -266,6 +321,47 @@ export interface ValidatedMod extends ModDefinition {
     description: string;
     /** Source filename inside the mods folder. Diagnostics and the extensions UI. */
     file: string;
+    /**
+     * Phase 1.3 / MANIFEST.md §6.6 — the mod's folder name (e.g. `arc`). Used
+     * by Phase 1.5's asset route to serve files from the mod's own folder.
+     * The manifest `id` is authoritative (§6.1); the folder is a path only.
+     */
+    folder: string;
+    /**
+     * Phase 1.3 / MANIFEST.md §6.6 — absolute path to the mod's folder, so
+     * Phase 1.5's asset route can serve files without re-reading the manifest
+     * or re-walking the directory. The loader must not read asset files
+     * eagerly (§6.6); this is the path, not the contents.
+     */
+    folderPath: string;
+    /**
+     * Phase 1.1 / MANIFEST.md §6.3 — one integer. Always present on a validated
+     * mod (default 0). The RESOLVED load order is topological over
+     * `dependencies` with `loadOrder` as the tie-break, then `id` ascending
+     * (§6.3). Callers MUST NOT re-sort `mods[]`; the loader returns them in
+     * resolved order.
+     */
+    loadOrder: number;
+    /**
+     * Phase 1.1 / MANIFEST.md §6.4 — the validated dependency map. Always
+     * present on a validated mod (default `{}`). The resolver uses this to
+     * topologically sort mods before they reach the caller.
+     */
+    dependencies: Record<string, string>;
+    /**
+     * Phase 1.1 / MANIFEST.md §5 — locale → translation file declarations.
+     * Always present on a validated mod (default `{}`). The parsed string
+     * maps ship alongside in `i18nStrings`.
+     */
+    i18n: Record<string, string>;
+    /**
+     * Phase 1.1 / MANIFEST.md §5 — the parsed locale → string-map contents,
+     * in the same keys as `i18n`. The host merges these on locale change
+     * without re-reading disk.
+     */
+    i18nStrings: Record<string, Record<string, string>>;
+    /** Phase 1.1 / MANIFEST.md §7.5 — contributions is now optional at authoring, default []. */
+    contributions: ModContribution[];
     /** The sibling compute file, carried as text; the server never evaluates it. */
     computeSource?: string;
     /** Validated data tables (WO-P5-05). Same shape, server-checked. */

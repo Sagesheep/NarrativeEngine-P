@@ -92,7 +92,9 @@ async function buildApp() {
 describe('WO-P5-05 Step 6 — fixture mod end-to-end round trip', () => {
     it('declare → write → read → hydrate → export → import (unknown key preserved)', async () => {
         // 1. DECLARE: write the fixture mod to disk.
-        fs.writeFileSync(path.join(modsDir, 'fixture.mod.json'), JSON.stringify(fixtureMod, null, 2));
+        const fixtureFolder = path.join(modsDir, 'fixture-compendium');
+        fs.mkdirSync(fixtureFolder, { recursive: true });
+        fs.writeFileSync(path.join(fixtureFolder, 'manifest.json'), JSON.stringify(fixtureMod, null, 2));
 
         const app = await buildApp();
         const api = request(app);
@@ -175,7 +177,9 @@ describe('WO-P5-05 Step 6 — fixture mod end-to-end round trip', () => {
     it('serverSchema/clientSchema are absent on the mod table descriptor', async () => {
         // §2 Definition of Done: assert in a test that the mod descriptor never
         // carries serverSchema/clientSchema.
-        fs.writeFileSync(path.join(modsDir, 'fixture.mod.json'), JSON.stringify(fixtureMod));
+        const fixtureFolder = path.join(modsDir, 'fixture-compendium');
+        fs.mkdirSync(fixtureFolder, { recursive: true });
+        fs.writeFileSync(path.join(fixtureFolder, 'manifest.json'), JSON.stringify(fixtureMod));
         const app = await buildApp();
         await request(app).get('/api/mods');
 

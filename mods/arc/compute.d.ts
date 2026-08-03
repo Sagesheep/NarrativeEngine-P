@@ -9,8 +9,8 @@
 // arcEngine.ts). The oracle test asserts the mod's behaviour is byte-identical
 // to the deleted in-tree copies; these types make that assertion type-safe.
 
-import type { ArcRecord, ArcStance, ArcWorldState, NPCPressure } from '../src/types/arc';
-import type { DivergenceEntry } from '../src/types';
+import type { ArcRecord, ArcStance, ArcWorldState, NPCPressure } from '../../src/types/arc';
+import type { DivergenceEntry } from '../../src/types';
 
 export const ARC_TICK_DC: { initial: number; reduction: number; floor: number };
 export const LADDER_MIN: number;

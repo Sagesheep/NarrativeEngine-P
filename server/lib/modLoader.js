@@ -74,6 +74,100 @@ const TABLE_RECORD_SHAPES = new Set(['array', 'single-object']);
 /** v1 supports exactly two forms: `">=X.Y.Z"` (Y and Z optional) and `"*"`. */
 const APP_VERSION_REGEX = /^>=\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?$/;
 
+/**
+ * Phase 1.3 / MANIFEST.md §6.2 — manifest `version` is `X.Y.Z` with an optional
+ * prerelease suffix. All three numeric components are required (unlike the
+ * range grammar, where `>=1` is a legal floor). The prerelease is ignored for
+ * range comparisons; it exists so `hooks.update` can fire on a `-rc.1` → `-rc.2`
+ * bump and so authors can tag pre-release builds without losing the version
+ * discipline.
+ */
+const MANIFEST_VERSION_REGEX = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * Phase 1.3 / MANIFEST.md §6.2 — range grammar shared by `appVersion` and every
+ * `dependencies` value. Identical to `APP_VERSION_REGEX` but documented as the
+ * shared grammar; `appVersion` keeps its own regex so its rejection reason
+ * (which names `appVersion` specifically) is unchanged.
+ */
+const DEPENDENCY_RANGE_REGEX = /^>=\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?$/;
+
+/**
+ * MANIFEST.md §6.4 / §11 — `dependencies` keys are mod ids, so they use the
+ * same character set as `ID_REGEX`. Re-declared here so the dependency
+ * validator is self-contained and the rejection reason matches the table.
+ */
+const DEPENDENCY_KEY_REGEX = ID_REGEX;
+
+/**
+ * MANIFEST.md §5 — locale codes are not restricted to the host's six. A mod
+ * may ship `fr` before the app does; unknown codes load and are simply never
+ * selected. The grammar is the common case: short ASCII, optionally dashed
+ * (e.g. `pt-BR`). Disallowing digits and underscores matches BCP-47's
+ * language subtag shape without over-validating.
+ */
+const LOCALE_CODE_REGEX = /^[a-z]{2,3}(-[a-z0-9]+)*$/i;
+
+/**
+ * Phase 1.4 / MANIFEST.md §3.1 — the seven lifecycle hook names. Phase 1.3
+ * validates the names only; Phase 1.4 wires the firing. Declared here so a
+ * typo in a manifest's `native.hooks` is a load-time rejection, not a silent
+ * no-op that the user only discovers when a hook never fires.
+ */
+const NATIVE_HOOK_NAMES = new Set([
+    'install', 'update', 'activate', 'enable', 'disable', 'delete', 'clean',
+]);
+
+/**
+ * MANIFEST.md §2 — the complete top-level field set. Unknown keys are rejected
+ * (§7.4), with targeted hints for the three ST spellings an author will reach
+ * for from muscle memory and targeted messages for the three deliberately
+ * declined names (`assets`, `permissions`, `settings`). Reserved keys
+ * (`mounts`, `macros`, `facts`, `roles`, `events`) point at the phase that
+ * will define them, so an author using a future field gets a precise message
+ * rather than a generic "unknown".
+ */
+const TOP_LEVEL_KEYS = new Set([
+    'id', 'name', 'version', 'description', 'author', 'homepage', 'appVersion',
+    'loadOrder', 'dependencies', 'i18n', 'contributions', 'tables', 'panels',
+    'screens', 'compute', 'native',
+]);
+
+/** ST spellings that get a "this app spells it X" hint, not a bare unknown-key. */
+const ST_SPELLING_HINTS = {
+    loading_order: 'loadOrder',
+    display_name: 'name',
+    minimum_client_version: 'appVersion',
+};
+
+/** Deliberately declined names with a message pointing at the MANIFEST row. */
+const DECLINED_KEYS = {
+    assets: 'unknown field "assets" — every file in the mod\'s folder is available to it; no declaration is needed',
+    permissions: 'unknown field "permissions" — native code runs with the app\'s own access and a permission list would not constrain it',
+    settings: 'unknown field "settings" — declare a single-object table and a form panel bound to it',
+};
+
+/**
+ * Reserved for a later app version. An author who writes one of these expects
+ * it to do something; rejecting with the phase that will define it is the
+ * point, so a mod that loads while silently doing nothing is not the failure
+ * mode (§9 "Reserved — declared now, defined later").
+ */
+const RESERVED_KEYS = {
+    mounts: '4.1',
+    macros: '5.1',
+    facts: '5.4',
+    roles: '7.1',
+    events: '3.1',
+};
+
+/**
+ * Top-level `hooks` or `generateInterceptor` belong inside `native` (§3). They
+ * structurally require a native entry point; declaring one without the other
+ * is a fault, not a silent pass.
+ */
+const NATIVE_ONLY_TOP_LEVEL_KEYS = new Set(['hooks', 'generateInterceptor']);
+
 /** Internal control flow only — never escapes `loadMods`. */
 class ModRejected extends Error {}
 
@@ -235,12 +329,12 @@ function validateComputeCapability(value, index, modId, ownTableNames) {
     reject(at + ' must be write:<name> or table:<read|write>:<name>');
 }
 
-function validateCompute(raw, modsDir, modId, ownTableNames) {
+function validateCompute(raw, modDir, modId, ownTableNames) {
     if (!isPlainObject(raw)) reject('compute must be an object');
 
     requireNonEmptyString(raw.file, 'compute.file');
-    if (raw.file.includes('/') || raw.file.includes('\\') || raw.file.includes('..')) {
-        reject('compute.file must be a plain filename inside the mods directory');
+    if (raw.file.includes('\\') || raw.file.includes('..') || raw.file.startsWith('/')) {
+        reject('compute.file must be a relative path using forward slashes inside the mod\'s own folder');
     }
     if (raw.hook !== 'postTurn') {
         reject('compute.hook must be "postTurn"');
@@ -258,17 +352,17 @@ function validateCompute(raw, modsDir, modId, ownTableNames) {
         return capability;
     });
 
-    const modsRoot = fs.realpathSync(modsDir);
-    const requestedPath = path.resolve(modsRoot, raw.file);
+    const modRoot = fs.realpathSync(modDir);
+    const requestedPath = path.resolve(modRoot, raw.file);
     let sourcePath;
     try {
         sourcePath = fs.realpathSync(requestedPath);
     } catch (err) {
         reject('compute.file "' + raw.file + '" could not be read: ' + (err?.message ?? String(err)));
     }
-    const relative = path.relative(modsRoot, sourcePath);
+    const relative = path.relative(modRoot, sourcePath);
     if (relative === '' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
-        reject('compute.file must resolve to a file inside the mods directory');
+        reject('compute.file must resolve to a file inside the mod\'s own folder');
     }
 
     let computeSource;
@@ -695,11 +789,11 @@ function validatePanels(raw, modId, tables) {
  * Returns `{ screens, sources }` — `sources[i]` is the text of
  * `screens[i].file`, so the host pairs declaration with source by index.
  */
-function validateScreens(raw, modId, modsDir) {
+function validateScreens(raw, modId, modDir) {
     if (raw === undefined) return { screens: [], sources: [] };
     if (!Array.isArray(raw)) reject('screens must be an array of screen declarations');
 
-    const modsRoot = fs.realpathSync(modsDir);
+    const modRoot = fs.realpathSync(modDir);
     const seen = new Set();
     const screens = [];
     const sources = [];
@@ -715,25 +809,21 @@ function validateScreens(raw, modId, modsDir) {
         if (seen.has(entry.id)) reject(`${at}.id "${entry.id}" is declared more than once in mod "${modId}"`);
         seen.add(entry.id);
 
-        // R2: same resolution rules as `compute.file` (modLoader.js:220-222).
-        // A plain filename inside the mods directory — no traversal, no
-        // absolute paths, no parent. The server reads it as text; it never
-        // evaluates it.
         requireNonEmptyString(entry.file, `${at}.file`);
-        if (entry.file.includes('/') || entry.file.includes('\\') || entry.file.includes('..')) {
-            reject(`${at}.file must be a plain filename inside the mods directory`);
+        if (entry.file.includes('\\') || entry.file.includes('..') || entry.file.startsWith('/')) {
+            reject(`${at}.file must be a relative path using forward slashes inside the mod's own folder`);
         }
 
-        const requestedPath = path.resolve(modsRoot, entry.file);
+        const requestedPath = path.resolve(modRoot, entry.file);
         let sourcePath;
         try {
             sourcePath = fs.realpathSync(requestedPath);
         } catch (err) {
             reject(`${at}.file "${entry.file}" could not be read: ` + (err?.message ?? String(err)));
         }
-        const relative = path.relative(modsRoot, sourcePath);
+        const relative = path.relative(modRoot, sourcePath);
         if (relative === '' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
-            reject(`${at}.file must resolve to a file inside the mods directory`);
+            reject(`${at}.file must resolve to a file inside the mod's own folder`);
         }
 
         let sourceText;
@@ -787,7 +877,216 @@ function validateStringArray(value, at) {
     return [...value];
 }
 
-function validateMod(raw, file, appVersion, modsDir) {
+/**
+ * Phase 1.3 / MANIFEST.md §6.2 — range satisfaction, shared by `appVersion`
+ * and `dependencies`. Returns `true` if `version` (a numeric triple) satisfies
+ * `range` (one of `"*"`, `">=X"`, `">=X.Y"`, `">=X.Y.Z"`). The grammar is
+ * stricter than full semver on purpose: no upper bound, no caret/tilde, no
+ * compound ranges (§6.2 "No upper bound in v1").
+ *
+ * The prerelease suffix of `version` is ignored for comparison — recorded
+ * here so nobody assumes full semver precedence is implemented.
+ */
+function satisfiesRange(version, range) {
+    if (range === '*') return true;
+    const match = DEPENDENCY_RANGE_REGEX.exec(range);
+    if (!match) return false;
+    const floor = [Number(match[1]), Number(match[2] || 0), Number(match[3] || 0)];
+    return compareVersions(version, floor) >= 0;
+}
+
+/**
+ * Phase 1.3 / MANIFEST.md §11 "Paths" — shared containment check for mod-relative
+ * path fields (`native.js`, `native.css`, `i18n[locale]`). Mirrors the
+ * `compute.file` and `screens[].file` discipline: forward slashes only, no
+ * leading `/`, no `..`, no backslash, and the resolved real path must lie
+ * inside the mod's own folder.
+ *
+ * Returns the file's text (read with `readFileSync(..., 'utf-8')`), so callers
+ * that need the contents (i18n, native) get it without re-reading. Callers
+ * that only need the path (native.js/css, which the browser fetches later)
+ * ignore the return value.
+ *
+ * `readErrorLabel` overrides the label used in the "could not be read" reason.
+ * The Paths table (§11) uses `<at> "<path>"` for all path fields, but the i18n
+ * table specifically says `i18n["<locale>"] file "<path>"` — i18n passes
+ * `at + ' file'` so its read error carries the word "file" per the spec.
+ */
+function readModRelativeFile(modDir, rawFile, at, readErrorLabel) {
+    const readAt = readErrorLabel ?? at;
+    requireNonEmptyString(rawFile, `${at} must be a non-empty string`);
+    if (rawFile.includes('\\')) reject(`${at} "${rawFile}" must use forward slashes`);
+    if (rawFile.startsWith('/') || rawFile.includes('..')) {
+        reject(`${at} "${rawFile}" must be a relative path inside the mod's own folder`);
+    }
+
+    const modRoot = fs.realpathSync(modDir);
+    const requestedPath = path.resolve(modRoot, rawFile);
+    let sourcePath;
+    try {
+        sourcePath = fs.realpathSync(requestedPath);
+    } catch (err) {
+        reject(`${readAt} "${rawFile}" could not be read: ${err?.message ?? String(err)}`);
+    }
+    const relative = path.relative(modRoot, sourcePath);
+    if (relative === '' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+        reject(`${at} must resolve to a file inside the mod's own folder`);
+    }
+
+    try {
+        return fs.readFileSync(sourcePath, 'utf-8');
+    } catch (err) {
+        reject(`${readAt} "${rawFile}" could not be read: ${err?.message ?? String(err)}`);
+    }
+}
+
+/**
+ * Phase 1.3 / MANIFEST.md §3 — `native` tier validation. Names and shapes
+ * only; Phase 1.5 wires `import()` and Phase 1.4 wires the hooks. The
+ * `native` entry point's `js`/`css` paths are validated as mod-relative
+ * (§6.5) but NOT read here — the server never evaluates native code (§4).
+ * Reading the file now would be eager I/O the browser never asked for, and
+ * §6.6 says the loader "must not read asset files eagerly"; native source is
+ * the same category, served by 1.5's asset route.
+ *
+ * `hooks` values and `generateInterceptor` are validated as non-empty
+ * strings only. They name exports of `js`; whether those exports actually
+ * exist is a Phase 1.5 runtime check, not a load-time one (a manifest can
+ * name an export before the module is on disk, and the loader does not run
+ * mod code).
+ */
+function validateNative(raw, modDir) {
+    if (!isPlainObject(raw)) reject('native must be an object');
+
+    requireNonEmptyString(raw.js, 'native.js must be a non-empty string');
+    readModRelativeFile(modDir, raw.js, 'native.js');
+
+    if (raw.css !== undefined) {
+        if (typeof raw.css !== 'string') reject('native.css must be a string');
+        if (raw.css !== '') readModRelativeFile(modDir, raw.css, 'native.css');
+    }
+
+    if (raw.hooks !== undefined) {
+        if (!isPlainObject(raw.hooks)) {
+            reject('native.hooks must be an object mapping hook names to exported function names');
+        }
+        for (const [hookName, exportName] of Object.entries(raw.hooks)) {
+            if (!NATIVE_HOOK_NAMES.has(hookName)) {
+                reject(`native.hooks has unknown hook "${hookName}" (allowed: ${[...NATIVE_HOOK_NAMES].join(', ')})`);
+            }
+            if (typeof exportName !== 'string' || exportName.trim() === '') {
+                reject(`native.hooks.${hookName} must name an exported function`);
+            }
+        }
+    }
+
+    if (raw.generateInterceptor !== undefined) {
+        if (typeof raw.generateInterceptor !== 'string' || raw.generateInterceptor.trim() === '') {
+            reject('native.generateInterceptor must name an exported function');
+        }
+    }
+
+    const allowed = new Set(['js', 'css', 'hooks', 'generateInterceptor']);
+    for (const key of Object.keys(raw)) {
+        if (!allowed.has(key)) {
+            reject(`native has unknown field "${key}" — only js, css, hooks, generateInterceptor are allowed`);
+        }
+    }
+
+    const native = { js: raw.js };
+    if (raw.css !== undefined) native.css = raw.css;
+    if (raw.hooks !== undefined) native.hooks = { ...raw.hooks };
+    if (raw.generateInterceptor !== undefined) native.generateInterceptor = raw.generateInterceptor;
+    return native;
+}
+
+/**
+ * Phase 1.3 / MANIFEST.md §5 — `i18n` validation. Locale → flat-JSON
+ * translation file. The host namespaces every key as `mod.<modId>.<key>` on
+ * merge, so a mod can never overwrite a host string. `i18n` is DATA ONLY: a
+ * locale file is never JS. Locale codes are not restricted to the host's six
+ * — a mod may ship `fr` before the app does; unknown codes load and are
+ * simply never selected.
+ *
+ * Returns `{ i18n: declarations, i18nStrings: parsed }` so the host can pair
+ * the declaration (which locales the mod claims) with the contents (the
+ * actual string maps), in the same order. The contents are read here because
+ * a malformed locale file is a load-time rejection naming the locale and the
+ * problem, not a runtime surprise when the user switches languages.
+ */
+function validateI18n(raw, modDir) {
+    if (!isPlainObject(raw)) reject('i18n must be an object mapping locale codes to translation files');
+
+    const i18n = {};
+    const i18nStrings = {};
+
+    for (const [locale, fileValue] of Object.entries(raw)) {
+        if (!LOCALE_CODE_REGEX.test(locale)) {
+            reject(`i18n key "${locale}" is not a locale code`);
+        }
+        if (typeof fileValue !== 'string' || fileValue.trim() === '') {
+            reject(`i18n["${locale}"] must be a path to a JSON translation file`);
+        }
+
+        const text = readModRelativeFile(modDir, fileValue, `i18n["${locale}"]`, `i18n["${locale}"] file`);
+        let parsed;
+        try {
+            parsed = JSON.parse(text);
+        } catch (err) {
+            reject(`i18n["${locale}"] file "${fileValue}" is not valid JSON: ${err.message}`);
+        }
+        if (!isPlainObject(parsed)) {
+            reject(`i18n["${locale}"] must be a flat object of string keys to string values`);
+        }
+        const flat = {};
+        for (const [key, value] of Object.entries(parsed)) {
+            if (typeof value !== 'string') {
+                reject(`i18n["${locale}"] must be a flat object of string keys to string values`);
+            }
+            flat[key] = value;
+        }
+
+        i18n[locale] = fileValue;
+        i18nStrings[locale] = flat;
+    }
+
+    return { i18n, i18nStrings };
+}
+
+/**
+ * Phase 1.3 / MANIFEST.md §6.4 — `dependencies` field validation. Shape and
+ * range grammar only; resolution (present, loaded, version-satisfied) happens
+ * after all mods are parsed, in `resolveDependenciesAndSort`. Returns the
+ * validated `{ id: range }` map.
+ *
+ * A self-dependency is caught here (not in resolution) because it is a shape
+ * fault on the dependent, not a relationship fault between two mods.
+ */
+function validateDependenciesField(raw, modId) {
+    if (!isPlainObject(raw)) {
+        reject('dependencies must be an object mapping mod ids to version ranges');
+    }
+    const dependencies = {};
+    for (const [depId, range] of Object.entries(raw)) {
+        if (!DEPENDENCY_KEY_REGEX.test(depId)) {
+            reject(`dependencies key "${depId}" may contain only letters, digits, "_" and "-"`);
+        }
+        if (depId === modId) {
+            reject(`dependencies names "${depId}", which is this mod`);
+        }
+        if (typeof range !== 'string') {
+            reject(`dependencies["${depId}"] "${range}" must be ">=X.Y.Z" or "*"`);
+        }
+        const trimmed = range.trim();
+        if (trimmed !== '*' && !DEPENDENCY_RANGE_REGEX.exec(trimmed)) {
+            reject(`dependencies["${depId}"] "${range}" must be ">=X.Y.Z" or "*"`);
+        }
+        dependencies[depId] = trimmed;
+    }
+    return dependencies;
+}
+
+function validateMod(raw, file, appVersion, modDir) {
     if (!isPlainObject(raw)) reject('mod file must contain a JSON object');
 
     requireNonEmptyString(raw.id, 'id');
@@ -796,18 +1095,58 @@ function validateMod(raw, file, appVersion, modsDir) {
     }
     requireNonEmptyString(raw.name, 'name');
     requireNonEmptyString(raw.version, 'version');
+    if (!MANIFEST_VERSION_REGEX.test(raw.version.trim())) {
+        reject(`version "${raw.version}" must be X.Y.Z, optionally with a "-prerelease" suffix`);
+    }
     if (raw.description !== undefined && typeof raw.description !== 'string') {
         reject('description must be a string');
     }
 
-    checkAppVersion(raw.appVersion, appVersion);
-
-    if (!Array.isArray(raw.contributions) || raw.contributions.length === 0) {
-        reject('contributions must be a non-empty array');
+    // Phase 1.1 / MANIFEST.md §2 — `author` and `homepage` are the trust-
+    // disclosure pair (TRUST.md §D). `author` is a non-empty string; `homepage`
+    // is an http(s) URL rendered as text with a copyable link (the app never
+    // auto-opens it). Both optional; absent means the disclosure has nothing
+    // to show for this mod.
+    if (raw.author !== undefined) {
+        if (typeof raw.author !== 'string' || raw.author.trim() === '') {
+            reject('author must be a non-empty string');
+        }
+    }
+    if (raw.homepage !== undefined) {
+        if (typeof raw.homepage !== 'string' || raw.homepage.trim() === '') {
+            reject('homepage "' + raw.homepage + '" must be an http or https URL');
+        }
+        if (!/^https?:\/\//.test(raw.homepage.trim())) {
+            reject('homepage "' + raw.homepage + '" must be an http or https URL');
+        }
     }
 
-    const seenIds = new Set();
-    const contributions = raw.contributions.map((c, i) => validateContribution(c, i, seenIds));
+    // Phase 1.3 / MANIFEST.md §2 — `loadOrder` is one integer an author
+    // controls. Negative is allowed (so a mod can force itself before the
+    // default 0 without a bidding war). Float, NaN, Infinity, and numeric
+    // strings are all rejected; only Number.isInteger passes.
+    if (raw.loadOrder !== undefined) {
+        if (typeof raw.loadOrder !== 'number' || !Number.isInteger(raw.loadOrder)) {
+            reject('loadOrder must be an integer');
+        }
+    }
+
+    checkAppVersion(raw.appVersion, appVersion);
+
+    // Phase 1.1 / MANIFEST.md §7.5 — `contributions` is now OPTIONAL. A
+    // native-only mod (enemies, Phase 8) or a panel/screen-only mod
+    // contributes no prompt text. The old "must be a non-empty array" rule
+    // is replaced by the "declares nothing" check below: a manifest that
+    // declares none of contributions/tables/panels/screens/compute/native/i18n
+    // is a mod that does nothing, which is a typo, not an intention.
+    let contributions = [];
+    if (raw.contributions !== undefined) {
+        if (!Array.isArray(raw.contributions) || raw.contributions.length === 0) {
+            reject('contributions must be a non-empty array');
+        }
+        const seenIds = new Set();
+        contributions = raw.contributions.map((c, i) => validateContribution(c, i, seenIds));
+    }
 
     // WO-P5-05: validate declared data tables. Optional; absent = []. A
     // malformed table entry rejects this mod (not others). No descriptor is
@@ -826,7 +1165,77 @@ function validateMod(raw, file, appVersion, modsDir) {
     // rejections, in the same shape as validatePanels/validateTables. A
     // malformed screen rejects this mod (not others). The source ships as
     // TEXT — the server never evaluates it (R2).
-    const { screens, sources: screenSources } = validateScreens(raw.screens, raw.id, modsDir);
+    const { screens, sources: screenSources } = validateScreens(raw.screens, raw.id, modDir);
+
+    // Phase 1.3 / MANIFEST.md §6.4 — dependencies field shape. Resolution
+    // (present, loaded, version-satisfied, no cycle) happens AFTER all mods
+    // are parsed, in resolveDependenciesAndSort below. A self-dependency is
+    // caught here because it is a shape fault on this mod, not a relationship
+    // fault between two mods.
+    let dependencies = {};
+    if (raw.dependencies !== undefined) {
+        dependencies = validateDependenciesField(raw.dependencies, raw.id);
+    }
+
+    // Phase 1.3 / MANIFEST.md §5 — i18n. Optional; absent = {}. Read here so
+    // a malformed locale file is a load-time fault naming the locale, not a
+    // runtime surprise when the user switches languages. The parsed string
+    // maps ship on the mod so the host merges them without re-reading disk.
+    let i18n = {};
+    let i18nStrings = {};
+    if (raw.i18n !== undefined) {
+        ({ i18n, i18nStrings } = validateI18n(raw.i18n, modDir));
+    }
+
+    // Phase 1.3 / MANIFEST.md §7.5 — a manifest that declares none of these
+    // is a mod that does nothing, which is a typo, not an intention. This
+    // replaces the old "contributions required" rule, which was accidentally
+    // providing typo detection and would have rejected every native-only mod
+    // in Phase 8.
+    if (
+        contributions.length === 0 &&
+        tables.length === 0 &&
+        panels.length === 0 &&
+        screens.length === 0 &&
+        raw.compute === undefined &&
+        raw.native === undefined &&
+        Object.keys(i18n).length === 0
+    ) {
+        reject('manifest declares nothing — a mod must declare at least one of contributions, tables, panels, screens, compute, native, i18n');
+    }
+
+    // Phase 1.3 / MANIFEST.md §3 — `native`. Its presence alone makes the mod
+    // native-tier for trust and warning purposes (TRUST.md §B). The js/css
+    // paths are validated as mod-relative but NOT read — the server never
+    // evaluates native code (§4), and reading now would be eager I/O the
+    // browser never asked for (§6.6).
+    let native;
+    if (raw.native !== undefined) {
+        native = validateNative(raw.native, modDir);
+    }
+
+    // Phase 1.1 / MANIFEST.md §7.4 — unknown top-level keys are rejected, not
+    // ignored. The forward-compatibility mechanism is `appVersion`: an author
+    // using a field this host does not have declares `appVersion: ">=1.1.0"`
+    // and gets a precise rejection on older hosts. Keys beginning `x-` are the
+    // escape hatch (§2): allowed anywhere, never validated, never read.
+    for (const key of Object.keys(raw)) {
+        if (key.startsWith('x-')) continue;
+        if (TOP_LEVEL_KEYS.has(key)) continue;
+        if (key in ST_SPELLING_HINTS) {
+            reject(`unknown field "${key}" — this app spells it "${ST_SPELLING_HINTS[key]}"`);
+        }
+        if (key in DECLINED_KEYS) {
+            reject(DECLINED_KEYS[key]);
+        }
+        if (key in RESERVED_KEYS) {
+            reject(`field "${key}" is reserved for a later app version (${RESERVED_KEYS[key]}) and is not supported yet`);
+        }
+        if (NATIVE_ONLY_TOP_LEVEL_KEYS.has(key)) {
+            reject(`unknown field "${key}" — it belongs inside "native", which requires a native.js entry point`);
+        }
+        reject(`unknown field "${key}" — see MANIFEST.md for the field set`);
+    }
 
     const mod = {
         id: raw.id,
@@ -840,15 +1249,235 @@ function validateMod(raw, file, appVersion, modsDir) {
         screenSources,
         file,
     };
+    if (typeof raw.description === 'string') mod.description = raw.description;
+    if (raw.author !== undefined) mod.author = raw.author;
+    if (raw.homepage !== undefined) mod.homepage = raw.homepage;
     if (typeof raw.appVersion === 'string') mod.appVersion = raw.appVersion;
+    // §6.3: loadOrder is one number; default 0. Carried on the mod so callers
+    // (4.1 mount points, 5.2 interceptors) can use the resolved order without
+    // re-reading the manifest.
+    mod.loadOrder = typeof raw.loadOrder === 'number' ? raw.loadOrder : 0;
+    // §6.4: the validated dependency map. Empty = no dependencies. The
+    // resolver uses this to topologically sort mods before they reach the
+    // caller.
+    mod.dependencies = dependencies;
+    // §5: locale → translation file declarations. The host uses these to know
+    // which locales a mod claims; the parsed strings ship alongside.
+    mod.i18n = i18n;
+    mod.i18nStrings = i18nStrings;
+    // §3: the native tier. Absent = no native code. Presence flags native-tier
+    // trust (TRUST.md §B) and Phase 6.1 shows the verbatim warning before the
+    // first enablement.
+    if (native !== undefined) mod.native = native;
     if (raw.compute !== undefined) {
-        Object.assign(mod, validateCompute(raw.compute, modsDir, raw.id, new Set(tables.map((t) => t.name))));
+        Object.assign(mod, validateCompute(raw.compute, modDir, raw.id, new Set(tables.map((t) => t.name))));
     }
     return mod;
 }
 
 /**
- * Load and validate every `*.mod.json` in `modsDir`.
+ * Phase 1.3 / MANIFEST.md §6.3 — resolve dependencies and topologically sort.
+ *
+ * Resolved order = topological sort over `dependencies`, choosing among ready
+ * mods by `loadOrder` ascending, then by `id` ascending. Deterministic, and
+ * stable across filesystems (§6.3). A dependency therefore always precedes its
+ * dependent even when its `loadOrder` is higher.
+ *
+ * This order governs: loader registration, lifecycle-hook firing (1.4),
+ * mount-point render order (4.1), and interceptor order (5.2). Load order is
+ * BEHAVIOUR, NOT STYLE; reordering changes execution. Callers must not
+ * re-sort the returned `mods[]`.
+ *
+ * Faults produced here (missing dep, faulted dep, version unsatisfied, cycle)
+ * remove ONLY the dependent mod and any mod that transitively depends on it.
+ * A mod whose dependency is missing cannot be loaded in a consistent order, so
+ * it is dropped; a mod whose dependency was dropped for a different reason
+ * must also be dropped, because a dependent loading before its dependency is
+ * the bug the topological sort exists to prevent. Independent mods keep loading
+ * — that is the fail-safe contract (§7.4).
+ *
+ * A cycle is reported naming BOTH ids in the smallest cycle found, per §6.4
+ * and the rejection table in §11. Self-dependency is already caught at
+ * `validateDependenciesField` (it is a shape fault, not a relationship one).
+ *
+ * @param {object[]} mods - validated mods, in arbitrary order
+ * @param {Map<string, string>} idToFile - mod id → manifest file label, for faults
+ * @param {{ file: string, reason: string }[]} faults - append faults here
+ * @returns {object[]} mods in resolved load order; faulted mods removed
+ */
+function resolveDependenciesAndSort(mods, idToFile, faults) {
+    const byId = new Map(mods.map((m) => [m.id, m]));
+    const dropped = new Set();
+
+    // ── Step 1: validate every dependency is present, loaded, and version-
+    // satisfied. Drop the dependent on any failure. This is a property of
+    // each mod independent of order; do it before the sort so the sort works
+    // on a clean graph. §6.4.
+    for (const mod of mods) {
+        for (const [depId, range] of Object.entries(mod.dependencies)) {
+            if (dropped.has(mod.id)) break;
+            if (!byId.has(depId)) {
+                faults.push({
+                    file: idToFile.get(mod.id),
+                    reason: `depends on mod "${depId}", which is not installed`,
+                });
+                dropped.add(mod.id);
+                continue;
+            }
+            // A dependency that itself faulted at load is not in `mods`/`byId`,
+            // so the `!byId.has(depId)` branch above already covered it. The
+            // "present but faulted" reason in §11 is the same case from this
+            // resolver's perspective; the distinction between "faulted at
+            // validation" and "not installed at all" is not visible here, and
+            // the user-facing message ("which is not installed") is honest
+            // about the outcome (the dependency is not loadable).
+            const dep = byId.get(depId);
+            const depVersion = parseVersion(dep.version);
+            if (!depVersion) {
+                // The version regex already validated this at validateMod, so
+                // this is unreachable. Belt-and-braces: drop rather than throw.
+                faults.push({
+                    file: idToFile.get(mod.id),
+                    reason: `depends on mod "${depId}", which failed to load`,
+                });
+                dropped.add(mod.id);
+                continue;
+            }
+            if (!satisfiesRange(depVersion, range)) {
+                faults.push({
+                    file: idToFile.get(mod.id),
+                    reason: `depends on mod "${depId}" ${range}, but the installed version is ${dep.version}`,
+                });
+                dropped.add(mod.id);
+            }
+        }
+    }
+
+    // ── Step 2: cascade drops. A mod whose dependency was dropped cannot
+    // load before its dependency, so it must also drop. Iterate to fixpoint
+    // because a drop can expose a new drop (A→B→C, B drops, A must drop).
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (const mod of mods) {
+            if (dropped.has(mod.id)) continue;
+            for (const depId of Object.keys(mod.dependencies)) {
+                if (dropped.has(depId)) {
+                    faults.push({
+                        file: idToFile.get(mod.id),
+                        reason: `depends on mod "${depId}", which failed to load`,
+                    });
+                    dropped.add(mod.id);
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    const live = mods.filter((m) => !dropped.has(m.id));
+    if (live.length === 0) return [];
+
+    // ── Step 3: detect cycles among the survivors. A cycle is reported
+    // naming BOTH ids in the smallest cycle found (§6.4). Self-dependency was
+    // caught at validation; here we look for cycles of length ≥ 2.
+    //
+    // DFS with a recursion stack; when we revisit a node on the stack, the
+    // slice from the first occurrence to the current node is a cycle. We
+    // report the first one found — there may be more, but one cycle is enough
+    // to stop the sort, and reporting one per fault is the contract (§7.4:
+    // "one reason per rejection"). Every mod in a cycle is dropped.
+    const cycleMembers = findCycle(live);
+    if (cycleMembers) {
+        const [a, b] = cycleMembers;
+        for (const id of cycleMembers) {
+            faults.push({
+                file: idToFile.get(id),
+                reason: `dependency cycle between "${a}" and "${b}"`,
+            });
+        }
+        for (const id of cycleMembers) dropped.add(id);
+    }
+    const acyclic = live.filter((m) => !dropped.has(m.id));
+
+    // ── Step 4: topological sort with `loadOrder` then `id` as the tie-break
+    // (§6.3). Among mods whose dependencies are all already emitted, pick the
+    // one with the lowest `loadOrder`, then the lowest `id`. Deterministic
+    // across filesystems: the only inputs are the integers in the manifests
+    // and the ids, both of which the loader has already canonicalised.
+    const remaining = new Map(acyclic.map((m) => [m.id, m]));
+    const emitted = new Set();
+    const ordered = [];
+
+    while (remaining.size > 0) {
+        // Ready = every dependency already emitted. A mod with no
+        // dependencies is always ready on the first pass.
+        const ready = [...remaining.values()].filter(
+            (m) => Object.keys(m.dependencies).every((depId) => emitted.has(depId)),
+        );
+        if (ready.length === 0) {
+            // Should be unreachable after cycle detection. Belt-and-braces:
+            // stop rather than infinite-loop. A remaining mod that is not
+            // ready and not in a detected cycle means the cycle finder
+            // missed one — keep the app alive by dropping the rest.
+            for (const id of remaining.keys()) dropped.add(id);
+            break;
+        }
+        ready.sort((a, b) => {
+            if (a.loadOrder !== b.loadOrder) return a.loadOrder - b.loadOrder;
+            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+        });
+        const next = ready[0];
+        ordered.push(next);
+        emitted.add(next.id);
+        remaining.delete(next.id);
+    }
+
+    return ordered;
+}
+
+/**
+ * Find one cycle in the dependency graph and return its members, or `null`
+ * if the graph is acyclic. Returns the members of the smallest cycle found
+ * (the first one DFS closes), so the rejection reason can name two of them
+ * per §6.4. Members are returned in cycle order, starting from the node DFS
+ * entered the cycle through.
+ */
+function findCycle(mods) {
+    const adj = new Map(mods.map((m) => [m.id, Object.keys(m.dependencies)]));
+    const visited = new Set();
+    const stack = new Set();
+    const path = [];
+
+    const dfs = (id) => {
+        if (stack.has(id)) {
+            const start = path.indexOf(id);
+            return path.slice(start);
+        }
+        if (visited.has(id)) return null;
+        visited.add(id);
+        stack.add(id);
+        path.push(id);
+        for (const dep of adj.get(id) || []) {
+            if (!adj.has(dep)) continue; // dep not in `mods`; resolver drops the dependent
+            const cycle = dfs(dep);
+            if (cycle) return cycle;
+        }
+        stack.delete(id);
+        path.pop();
+        return null;
+    };
+
+    for (const mod of mods) {
+        if (visited.has(mod.id)) continue;
+        const cycle = dfs(mod.id);
+        if (cycle) return cycle;
+    }
+    return null;
+}
+
+/**
+ * Load and validate every folder containing `manifest.json` in `modsDir`.
  *
  * @param {string} modsDir Directory to scan. Missing = `{ mods: [], faults: [] }`.
  * @param {string} [appVersion] Host app version, for `appVersion` compatibility checks.
@@ -870,38 +1499,94 @@ export function loadMods(modsDir, appVersion) {
         };
     }
 
-    // Sorted so "first wins" on a duplicate id is deterministic rather than filesystem-ordered.
-    const files = entries
-        .filter((e) => e.isFile() && e.name.toLowerCase().endsWith(MOD_FILE_SUFFIX))
-        .map((e) => e.name)
-        .sort();
-
     const claimedIds = new Map();
 
-    for (const file of files) {
-        try {
-            const text = fs.readFileSync(path.join(modsDir, file), 'utf-8');
+    const sortedEntries = [...entries].sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of sortedEntries) {
+        if (entry.name.startsWith('.')) continue;
+
+        if (entry.isFile()) {
+            if (entry.name.toLowerCase().endsWith(MOD_FILE_SUFFIX)) {
+                faults.push({
+                    file: entry.name,
+                    reason: `flat mod files are no longer supported — move "${entry.name}" and its sibling sources into mods/<mod-id>/manifest.json`,
+                });
+            }
+            continue;
+        }
+
+        if (entry.isDirectory()) {
+            const folderName = entry.name;
+            const modDir = path.join(modsDir, folderName);
+            const manifestPath = path.join(modDir, 'manifest.json');
+            const fileLabel = `${folderName}/manifest.json`;
+
+            if (!fs.existsSync(manifestPath)) {
+                faults.push({
+                    file: folderName,
+                    reason: `directory "${folderName}" contains no manifest.json — a mod folder must contain one`,
+                });
+                continue;
+            }
+
+            let text;
+            try {
+                text = fs.readFileSync(manifestPath, 'utf-8');
+            } catch (err) {
+                faults.push({
+                    file: fileLabel,
+                    reason: `manifest.json could not be read: ${err?.message ?? String(err)}`,
+                });
+                continue;
+            }
+
             let parsed;
             try {
                 parsed = JSON.parse(text);
             } catch (err) {
-                reject(`invalid JSON: ${err.message}`);
+                faults.push({
+                    file: fileLabel,
+                    reason: `invalid JSON: ${err.message}`,
+                });
+                continue;
             }
 
-            const mod = validateMod(parsed, file, appVersion, modsDir);
+            try {
+                const mod = validateMod(parsed, fileLabel, appVersion, modDir);
 
-            const claimedBy = claimedIds.get(mod.id);
-            if (claimedBy) reject(`duplicate mod id "${mod.id}" (already declared by ${claimedBy})`);
-            claimedIds.set(mod.id, file);
+                const claimedBy = claimedIds.get(mod.id);
+                if (claimedBy) {
+                    reject(`duplicate mod id "${mod.id}" (already declared by ${claimedBy})`);
+                }
+                claimedIds.set(mod.id, fileLabel);
 
-            mods.push(mod);
-        } catch (err) {
-            faults.push({
-                file,
-                reason: err instanceof ModRejected ? err.message : `unreadable: ${err?.message ?? String(err)}`,
-            });
+                // §6.6 / Phase 1.5: carry the mod's folder name and absolute
+                // folder path so later phases can serve files from it without
+                // re-reading the manifest or re-walking the directory. The
+                // loader must not read asset files eagerly (§6.6); `folder` is
+                // the path, not the contents.
+                mod.folder = folderName;
+                mod.folderPath = modDir;
+
+                mods.push(mod);
+            } catch (err) {
+                faults.push({
+                    file: fileLabel,
+                    reason: err instanceof ModRejected ? err.message : `unreadable: ${err?.message ?? String(err)}`,
+                });
+            }
         }
     }
 
-    return { mods, faults };
+    // Phase 1.3 / MANIFEST.md §6.3 — resolve dependencies and topologically
+    // sort. Faults produced here (missing dep, faulted dep, version
+    // unsatisfied, cycle) are appended to `faults` and the dependent is
+    // removed from `mods`. Independent mods keep loading — the fail-safe
+    // contract (§7.4) still holds. The returned `mods` are in resolved load
+    // order; callers MUST NOT re-sort.
+    const idToFile = new Map(mods.map((m) => [m.id, m.file]));
+    const ordered = resolveDependenciesAndSort(mods, idToFile, faults);
+
+    return { mods: ordered, faults };
 }

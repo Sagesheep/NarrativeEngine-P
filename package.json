@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:base-app-gate": "vitest run src/services/turn/__tests__/baseAppGate/baseAppGate.test.ts",
     "test:coverage": "vitest run --coverage",
     "i18n:check": "node scripts/i18n-check.mjs"
   },

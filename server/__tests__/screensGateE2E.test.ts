@@ -41,8 +41,10 @@ describe('WO-P5-17 — THE SCREENS GATE end-to-end load', () => {
         // 1. DECLARE: copy the real gate mod and its screen source into the tmp mods dir.
         const gateModText = fs.readFileSync(gateModPath, 'utf-8');
         const gateSourceText = fs.readFileSync(gateSourcePath, 'utf-8');
-        fs.writeFileSync(path.join(modsDir, 'screens-gate.mod.json'), gateModText);
-        fs.writeFileSync(path.join(modsDir, 'screens-gate.js'), gateSourceText);
+        const gateFolder = path.join(modsDir, 'screens-gate');
+        fs.mkdirSync(gateFolder, { recursive: true });
+        fs.writeFileSync(path.join(gateFolder, 'manifest.json'), gateModText);
+        fs.writeFileSync(path.join(gateFolder, 'screens-gate.js'), gateSourceText);
 
         // 2. LOAD: the real mod loader reads the manifest + source.
         const { mods, faults } = loadMods(modsDir, '1.0.4');
@@ -68,9 +70,14 @@ describe('WO-P5-17 — THE SCREENS GATE end-to-end load', () => {
 
     it('uninstall: delete the gate mod and the app still runs (no other mods affected)', () => {
         // Copy both the gate mod and a second, unrelated mod.
-        fs.writeFileSync(path.join(modsDir, 'screens-gate.mod.json'), fs.readFileSync(gateModPath, 'utf-8'));
-        fs.writeFileSync(path.join(modsDir, 'screens-gate.js'), fs.readFileSync(gateSourcePath, 'utf-8'));
-        fs.writeFileSync(path.join(modsDir, 'other.mod.json'), JSON.stringify({
+        const gateFolder = path.join(modsDir, 'screens-gate');
+        fs.mkdirSync(gateFolder, { recursive: true });
+        fs.writeFileSync(path.join(gateFolder, 'manifest.json'), fs.readFileSync(gateModPath, 'utf-8'));
+        fs.writeFileSync(path.join(gateFolder, 'screens-gate.js'), fs.readFileSync(gateSourcePath, 'utf-8'));
+
+        const otherFolder = path.join(modsDir, 'other');
+        fs.mkdirSync(otherFolder, { recursive: true });
+        fs.writeFileSync(path.join(otherFolder, 'manifest.json'), JSON.stringify({
             id: 'other',
             name: 'Other',
             version: '1.0.0',
@@ -82,9 +89,8 @@ describe('WO-P5-17 — THE SCREENS GATE end-to-end load', () => {
         expect(faults).toEqual([]);
         expect(mods.map((m) => m.id).sort()).toEqual(['other', 'screens-gate']);
 
-        // UNINSTALL: delete the gate mod and its source.
-        fs.unlinkSync(path.join(modsDir, 'screens-gate.mod.json'));
-        fs.unlinkSync(path.join(modsDir, 'screens-gate.js'));
+        // UNINSTALL: delete the gate mod folder.
+        fs.rmSync(gateFolder, { recursive: true, force: true });
 
         // The other mod still loads; the gate mod is gone. No faults.
         ({ mods, faults } = loadMods(modsDir, '1.0.4'));
@@ -93,15 +99,10 @@ describe('WO-P5-17 — THE SCREENS GATE end-to-end load', () => {
     });
 
     it('R2: the server never evaluates the screen source (a syntax error in the source is not a load fault)', () => {
-        // The screen source is read as TEXT. A syntax error that would
-        // fail at eval time is NOT a load fault — the server never
-        // evaluates it. The frame evaluates it at render time, and a
-        // syntax error there is a 'threw' fault (R5), not a load
-        // rejection. This is the same rule as computeSource: the server
-        // holds the vault; mod code never runs on the machine with the
-        // keys.
-        fs.writeFileSync(path.join(modsDir, 'screens-gate.mod.json'), fs.readFileSync(gateModPath, 'utf-8'));
-        fs.writeFileSync(path.join(modsDir, 'screens-gate.js'), 'this is not valid javascript {{{');
+        const gateFolder = path.join(modsDir, 'screens-gate');
+        fs.mkdirSync(gateFolder, { recursive: true });
+        fs.writeFileSync(path.join(gateFolder, 'manifest.json'), fs.readFileSync(gateModPath, 'utf-8'));
+        fs.writeFileSync(path.join(gateFolder, 'screens-gate.js'), 'this is not valid javascript {{{');
 
         const { mods, faults } = loadMods(modsDir, '1.0.4');
         expect(faults).toEqual([]);
