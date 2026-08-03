@@ -1,0 +1,29 @@
+{
+  "id": "skill-tree",
+  "name": "Skill Tree",
+  "version": "1.0.0",
+  "description": "A node-graph editor for character skill trees. Drag skills around a canvas, wire prerequisites between them, and the layout persists to this mod's own table. Ships entirely as a mod — the app was not modified to make it work.",
+  "contributions": [
+    {
+      "id": "skill-tree-note",
+      "order": 940,
+      "budget": 28,
+      "when": { "sceneTag": "skill-tree" },
+      "text": "The party's advancement options are defined by a skill tree with prerequisite chains; refer to earned skills rather than inventing new ones."
+    }
+  ],
+  "tables": [
+    {
+      "name": "tree",
+      "recordShape": "single-object",
+      "label": "Skill Tree"
+    }
+  ],
+  "screens": [
+    {
+      "id": "editor",
+      "file": "skill-tree.screen.js",
+      "label": "Skill Tree Editor"
+    }
+  ]
+}
