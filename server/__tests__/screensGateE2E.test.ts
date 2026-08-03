@@ -20,8 +20,8 @@ import url from 'url';
 import { loadMods } from '../lib/modLoader.js';
 
 const __projectRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..', '..');
-const gateModPath = path.join(__projectRoot, 'mods', 'screens-gate.mod.json');
-const gateSourcePath = path.join(__projectRoot, 'mods', 'screens-gate.js');
+const gateModPath = path.join(__projectRoot, 'test-fixtures', 'mods', 'screens-gate.mod.json');
+const gateSourcePath = path.join(__projectRoot, 'test-fixtures', 'mods', 'screens-gate.js');
 
 let tmpDir: string;
 let modsDir: string;

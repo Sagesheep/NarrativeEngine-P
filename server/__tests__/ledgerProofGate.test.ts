@@ -26,7 +26,7 @@ import express from 'express';
 import request from 'supertest';
 
 const __projectRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..', '..');
-const proofModPath = path.join(__projectRoot, 'mods', 'ledger-proof.mod.json');
+const proofModPath = path.join(__projectRoot, 'test-fixtures', 'mods', 'ledger-proof.mod.json');
 
 let tmpDir: string;
 let modsDir: string;

@@ -2,7 +2,7 @@
   "id": "arc",
   "name": "Arc Engine",
   "version": "1.0.0",
-  "description": "WO-P5-12 — THE COMPUTE GATE. The Arc Engine (System 2 / Oracle Function) shipped as an installed mod. Its state lives in a mod-declared table (mod.arc.arcs); its tick runs as a post-turn compute track inside the track registry; its surface line is a prompt contribution. Uninstall it and the app still runs — Arc's prompt contribution simply is not there. The host-side ArcInjectorButton and chapter-tab rendering stay in the app until PANELS/SCREENS (this is the COMPUTE gate, not the project gate).",
+  "description": "Tracks the story's long arcs and open threads across scenes, and nudges the GM toward paying them off instead of letting them drift. Switch it off and the story simply stops tracking arcs — nothing else changes.",
   "contributions": [
     {
       "id": "arc-surface",

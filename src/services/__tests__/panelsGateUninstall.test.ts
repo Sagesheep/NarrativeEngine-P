@@ -27,7 +27,7 @@ import { loadMods } from '../../../server/lib/modLoader.js';
 import { modPanelToDescriptor } from '../../services/mods/modPanels';
 import type { PanelDescriptor } from '@narrative/engine';
 
-const REPO_MODS_DIR = path.join(process.cwd(), 'mods');
+const REPO_MODS_DIR = path.join(process.cwd(), 'test-fixtures', 'mods');
 const GATE_FILE = 'panels-gate.mod.json';
 
 let tempDir: string;
@@ -50,8 +50,11 @@ function copyModsExcept(exclude: string) {
 }
 
 describe('WO-P5-16 §6 — THE PANELS GATE', () => {
-    it('the gate mod file exists in mods/ alongside arc.mod.json', () => {
-        // Not a fixture. A real *.mod.json in mods/, next to arc.mod.json.
+    it('the gate mod file exists in test-fixtures/mods/', () => {
+        // A real, complete *.mod.json — loaded through the real loader below.
+        // It lives in test-fixtures/mods/ rather than mods/ so that the app's
+        // Extensions tab shows only mods a user would actually want; the gate
+        // it proves is unchanged.
         expect(fs.existsSync(path.join(REPO_MODS_DIR, GATE_FILE))).toBe(true);
         const raw = JSON.parse(fs.readFileSync(path.join(REPO_MODS_DIR, GATE_FILE), 'utf8'));
         expect(raw.id).toBe('panels-gate');

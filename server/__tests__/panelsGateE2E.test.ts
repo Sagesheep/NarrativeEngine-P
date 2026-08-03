@@ -23,7 +23,7 @@ import express from 'express';
 import request from 'supertest';
 
 const __projectRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..', '..');
-const gateModPath = path.join(__projectRoot, 'mods', 'panels-gate.mod.json');
+const gateModPath = path.join(__projectRoot, 'test-fixtures', 'mods', 'panels-gate.mod.json');
 
 let tmpDir: string;
 let modsDir: string;

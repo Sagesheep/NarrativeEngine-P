@@ -177,7 +177,7 @@ function validateSuppresses(raw, at) {
     return [...raw];
 }
 
-function validateComputeCapability(value, index) {
+function validateComputeCapability(value, index, modId, ownTableNames) {
     const at = 'compute.capabilities[' + index + ']';
     if (typeof value !== 'string' || value.trim() === '') {
         reject(at + ' must be a non-empty capability string');
@@ -203,6 +203,28 @@ function validateComputeCapability(value, index) {
     if (tableMatch) {
         const operation = tableMatch[1];
         const table = tableMatch[2];
+
+        // A mod's OWN table, namespaced `mod.<modId>.<name>`. This is the same
+        // rule panels (WO-P5-16 R1) and screens already enforce: a mod may
+        // reach its own data and nothing else. Validated against this mod's
+        // declared `tables[]`, so a typo is still a load-time rejection.
+        //
+        // Without this branch every compute mod that declared a table of its
+        // own was rejected at startup — including `arc.mod.json`, the COMPUTE
+        // gate's own artefact, from the day it shipped. `arc.test.ts` stayed
+        // green because it exercises the compute logic directly and never
+        // reaches this validator (12_PROJECT_GATE.md §6).
+        const ownPrefix = 'mod.' + modId + '.';
+        if (table.startsWith(ownPrefix)) {
+            if (!ownTableNames.has(table.slice(ownPrefix.length))) {
+                reject(at + ' names "' + table + '", which is not one of mod "' + modId + '"\'s own declared tables');
+            }
+            return value;
+        }
+        if (table.startsWith('mod.')) {
+            reject(at + ' names "' + table + '" — a mod may not reach another mod\'s tables');
+        }
+
         const allowed = operation === 'read' ? COMPUTE_TABLE_READS : COMPUTE_TABLE_WRITES;
         if (!allowed.has(table)) {
             reject(at + ' names an unavailable ' + operation + ' table "' + table + '"');
@@ -213,7 +235,7 @@ function validateComputeCapability(value, index) {
     reject(at + ' must be write:<name> or table:<read|write>:<name>');
 }
 
-function validateCompute(raw, modsDir) {
+function validateCompute(raw, modsDir, modId, ownTableNames) {
     if (!isPlainObject(raw)) reject('compute must be an object');
 
     requireNonEmptyString(raw.file, 'compute.file');
@@ -230,7 +252,7 @@ function validateCompute(raw, modsDir) {
     }
     const seen = new Set();
     const capabilities = rawCapabilities.map((value, index) => {
-        const capability = validateComputeCapability(value, index);
+        const capability = validateComputeCapability(value, index, modId, ownTableNames);
         if (seen.has(capability)) reject('duplicate compute capability "' + capability + '"');
         seen.add(capability);
         return capability;
@@ -819,7 +841,9 @@ function validateMod(raw, file, appVersion, modsDir) {
         file,
     };
     if (typeof raw.appVersion === 'string') mod.appVersion = raw.appVersion;
-    if (raw.compute !== undefined) Object.assign(mod, validateCompute(raw.compute, modsDir));
+    if (raw.compute !== undefined) {
+        Object.assign(mod, validateCompute(raw.compute, modsDir, raw.id, new Set(tables.map((t) => t.name))));
+    }
     return mod;
 }
 
