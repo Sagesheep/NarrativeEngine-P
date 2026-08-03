@@ -18,6 +18,11 @@ let lastResult: { mods: readonly ValidatedMod[]; faults: readonly ModFault[] } =
     mods: [],
     faults: [],
 };
+const loadListeners = new Set<() => void>();
+
+function emitModLoad(): void {
+    for (const listener of loadListeners) listener();
+}
 
 function registerComputeTracks(mods: readonly ValidatedMod[]): void {
     for (const track of postTurnTracks.list()) {
@@ -60,10 +65,17 @@ export async function refreshMods(): Promise<{
             ],
         };
     }
+    emitModLoad();
     return lastResult;
 }
 
 /** The last known load result, without re-fetching. For the extensions screen. */
 export function getLastModLoad(): { mods: readonly ValidatedMod[]; faults: readonly ModFault[] } {
     return lastResult;
+}
+
+/** Subscribe to successful rescans and loader-fault refreshes. */
+export function subscribeModLoad(listener: () => void): () => void {
+    loadListeners.add(listener);
+    return () => loadListeners.delete(listener);
 }

@@ -213,6 +213,42 @@ describe('loadMods — mod-level validation', () => {
 describe('loadMods — contribution validation', () => {
     const withContribution = (contribution) => validMod({ contributions: [contribution] });
 
+    it('accepts a lookup over one of the mod\'s own declared tables', () => {
+        write('x.mod.json', validMod({
+            tables: [{ name: 'prompt-index', recordShape: 'array' }],
+            contributions: [{
+                id: 'ability-context',
+                order: 150,
+                text: 'Relevant abilities:',
+                lookup: {
+                    table: 'prompt-index',
+                    termFields: ['terms'],
+                    textField: 'promptText',
+                    recentMessages: 8,
+                },
+            }],
+        }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].contributions[0].lookup).toEqual({
+            table: 'prompt-index',
+            termFields: ['terms'],
+            textField: 'promptText',
+            recentMessages: 8,
+        });
+    });
+
+    it('rejects a lookup over an undeclared or foreign table', () => {
+        write('x.mod.json', validMod({
+            tables: [{ name: 'own', recordShape: 'array' }],
+            contributions: [{
+                id: 'ability-context', order: 150, text: 'Relevant abilities:',
+                lookup: { table: 'foreign', termFields: ['terms'], textField: 'promptText' },
+            }],
+        }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/lookup\.table "foreign" is not one of/);
+    });
+
     it.each([
         ['a missing id', { order: 1, text: 'x' }, /contributions\[0\]\.id must be a non-empty string/],
         ['a dotted id', { id: 'a.b', order: 1, text: 'x' }, /contributions\[0\]\.id .* may contain only letters/],

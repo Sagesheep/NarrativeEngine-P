@@ -64,6 +64,13 @@ const COMPUTE_WRITES = new Set([
 const COMPUTE_TABLE_READS = new Set(['archive', 'divergence', 'enemies', 'locations', 'npcs']);
 const COMPUTE_TABLE_WRITES = new Set(['archive', 'locations', 'npcs']);
 const COMPUTE_MODEL_ROLES = new Set(['story', 'utility', 'auxiliary', 'summariser', 'raw-auxiliary', 'raw-summariser']);
+const SCREEN_CAPABILITIES = new Set([
+    'campaign:read:characters',
+    'campaign:read:character-sheet',
+    'campaign:read:inventory',
+    'campaign:read:recent-play',
+    'file:download',
+]);
 
 /**
  * WO-P5-05 §2: the only two record shapes a mod table may declare. The app
@@ -311,6 +318,38 @@ function validateContribution(raw, index, seenIds) {
     }
     if (raw.when !== undefined) contribution.when = validateWhen(raw.when, at);
     if (raw.suppresses !== undefined) contribution.suppresses = validateSuppresses(raw.suppresses, at);
+    if (raw.lookup !== undefined) {
+        if (!isPlainObject(raw.lookup)) reject(`${at}.lookup must be an object`);
+        requireNonEmptyString(raw.lookup.table, `${at}.lookup.table`);
+        if (!ID_REGEX.test(raw.lookup.table)) {
+            reject(`${at}.lookup.table "${raw.lookup.table}" may contain only letters, digits, "_" and "-"`);
+        }
+        const termFields = validateStringArray(raw.lookup.termFields, `${at}.lookup.termFields`);
+        if (termFields.length === 0) reject(`${at}.lookup.termFields must not be empty`);
+        for (const field of termFields) {
+            if (!ID_REGEX.test(field)) reject(`${at}.lookup.termFields contains invalid field "${field}"`);
+        }
+        requireNonEmptyString(raw.lookup.textField, `${at}.lookup.textField`);
+        if (!ID_REGEX.test(raw.lookup.textField)) reject(`${at}.lookup.textField must be a plain field name`);
+        const lookup = {
+            table: raw.lookup.table,
+            termFields,
+            textField: raw.lookup.textField,
+        };
+        if (raw.lookup.recentMessages !== undefined) {
+            if (!Number.isInteger(raw.lookup.recentMessages)
+                || raw.lookup.recentMessages < 0
+                || raw.lookup.recentMessages > 20) {
+                reject(`${at}.lookup.recentMessages must be an integer from 0 to 20`);
+            }
+            lookup.recentMessages = raw.lookup.recentMessages;
+        }
+        const allowedLookup = new Set(['table', 'termFields', 'textField', 'recentMessages']);
+        for (const key of Object.keys(raw.lookup)) {
+            if (!allowedLookup.has(key)) reject(`${at}.lookup has unknown field "${key}"`);
+        }
+        contribution.lookup = lookup;
+    }
 
     return contribution;
 }
@@ -749,17 +788,47 @@ function validateScreens(raw, modId, modsDir) {
             screen.label = entry.label;
         }
 
+        if (entry.capabilities !== undefined) {
+            if (!Array.isArray(entry.capabilities)) reject(`${at}.capabilities must be an array`);
+            const capabilitySeen = new Set();
+            screen.capabilities = entry.capabilities.map((capability, capabilityIndex) => {
+                if (typeof capability !== 'string' || !SCREEN_CAPABILITIES.has(capability)) {
+                    reject(`${at}.capabilities[${capabilityIndex}] names an unavailable screen capability "${String(capability)}"`);
+                }
+                if (capabilitySeen.has(capability)) reject(`${at}.capabilities contains duplicate "${capability}"`);
+                capabilitySeen.add(capability);
+                return capability;
+            });
+        }
+
+        if (entry.launch !== undefined) {
+            if (!isPlainObject(entry.launch)) reject(`${at}.launch must be an object`);
+            if (entry.launch.surface !== 'header') reject(`${at}.launch.surface must be "header"`);
+            requireNonEmptyString(entry.launch.label, `${at}.launch.label`);
+            if (entry.launch.label.length > 40) reject(`${at}.launch.label must be 40 characters or fewer`);
+            const launchIcons = new Set(['sparkles', 'book-open', 'puzzle']);
+            if (entry.launch.icon !== undefined && !launchIcons.has(entry.launch.icon)) {
+                reject(`${at}.launch.icon names an unavailable host icon "${String(entry.launch.icon)}"`);
+            }
+            const allowedLaunch = new Set(['surface', 'label', 'icon']);
+            for (const key of Object.keys(entry.launch)) {
+                if (!allowedLaunch.has(key)) reject(`${at}.launch has unknown field "${key}"`);
+            }
+            screen.launch = { surface: 'header', label: entry.launch.label };
+            if (entry.launch.icon !== undefined) screen.launch.icon = entry.launch.icon;
+        }
+
         // R6: no capabilities, no message channel, no host API in 5.1. The
         // frame receives nothing and sends nothing. Any of these fields is
         // a fault, not a pass — a mod that declares a channel is asking for
         // 5.2, and adding it now would be a stop condition, not initiative.
-        const forbidden = ['capabilities', 'channel', 'postMessage', 'api', 'launch', 'hooks', 'compute'];
+        const forbidden = ['channel', 'postMessage', 'api', 'hooks', 'compute'];
         for (const key of forbidden) {
             if (entry[key] !== undefined) {
                 reject(`${at}.${key} is not allowed on a mod screen — v1 ships isolation only; a host API is a later sub-phase`);
             }
         }
-        const allowed = new Set(['id', 'file', 'label']);
+        const allowed = new Set(['id', 'file', 'label', 'capabilities', 'launch']);
         for (const key of Object.keys(entry)) {
             if (!allowed.has(key)) {
                 reject(`${at} has unknown field "${key}" — only ${[...allowed].join(', ')} are allowed`);
@@ -813,6 +882,13 @@ function validateMod(raw, file, appVersion, modsDir) {
     // malformed table entry rejects this mod (not others). No descriptor is
     // built here — Step 2 derives suffixes and registers descriptors.
     const tables = validateTables(raw.tables, raw.id);
+    const tableNames = new Set(tables.map((table) => table.name));
+    for (let index = 0; index < contributions.length; index += 1) {
+        const lookup = contributions[index].lookup;
+        if (lookup && !tableNames.has(lookup.table)) {
+            reject(`contributions[${index}].lookup.table "${lookup.table}" is not one of mod "${raw.id}"'s own tables`);
+        }
+    }
 
     // WO-P5-16: validate declared panels. Optional; absent = []. R1–R5 are
     // enforced here as load-time rejections, in the same shape as
@@ -842,7 +918,7 @@ function validateMod(raw, file, appVersion, modsDir) {
     };
     if (typeof raw.appVersion === 'string') mod.appVersion = raw.appVersion;
     if (raw.compute !== undefined) {
-        Object.assign(mod, validateCompute(raw.compute, modsDir, raw.id, new Set(tables.map((t) => t.name))));
+        Object.assign(mod, validateCompute(raw.compute, modsDir, raw.id, tableNames));
     }
     return mod;
 }

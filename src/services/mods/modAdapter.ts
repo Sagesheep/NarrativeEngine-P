@@ -158,6 +158,45 @@ function toSpec(mod: ValidatedMod, contribution: ModContribution, facts: ModFact
     return spec;
 }
 
+const lookupFold = (value: string): string =>
+    ` ${value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+
+function lookupTerms(value: unknown): string[] {
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+    if (typeof value !== 'string') return [];
+    return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function renderLookupContribution(
+    mod: ValidatedMod,
+    contribution: ModContribution,
+    input: FinalUserModuleInput,
+): string | null {
+    const lookup = contribution.lookup;
+    if (!lookup) return null;
+    const raw = input.extensionTables?.[`mod.${mod.id}.${lookup.table}`];
+    if (!Array.isArray(raw)) return '';
+    const priorCount = lookup.recentMessages ?? 8;
+    const recent = (input.recentPlay ?? []).slice(-(priorCount + 1)).join('\n');
+    const haystack = lookupFold(recent);
+    if (haystack.trim() === '') return '';
+
+    const rendered: string[] = [];
+    for (const row of raw) {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+        const record = row as Record<string, unknown>;
+        const matched = lookup.termFields.some((field) => lookupTerms(record[field]).some((term) => {
+            const needle = lookupFold(term);
+            return needle.trim() !== '' && haystack.includes(needle);
+        }));
+        if (!matched) continue;
+        const text = record[lookup.textField];
+        if (typeof text === 'string' && text.trim()) rendered.push(text.trim());
+    }
+    if (rendered.length === 0) return '';
+    return [contribution.text.trim(), ...new Set(rendered)].filter(Boolean).join('\n\n');
+}
+
 /**
  * Wrap a validated mod as a registerable module.
  *
@@ -176,7 +215,12 @@ export function modToContributionModule(mod: ValidatedMod): ContributionModule<F
         toggleable: true,
         produce: (input) => {
             const facts = readFacts(input);
-            return contributions.map((contribution) => toSpec(mod, contribution, facts));
+            return contributions.map((contribution) => {
+                const spec = toSpec(mod, contribution, facts);
+                if (spec.text === '') return spec;
+                const lookupText = renderLookupContribution(mod, contribution, input);
+                return lookupText === null ? spec : { ...spec, text: lookupText };
+            });
         },
     };
 }

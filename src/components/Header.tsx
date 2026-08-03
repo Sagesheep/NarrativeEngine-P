@@ -9,6 +9,9 @@ import { saveCampaignState } from '../store/campaignStore';
 import type { AiTier } from '../types/llm';
 import { APP_VERSION } from '../version';
 import { useTranslation } from '../i18n/useTranslation';
+import { ModHeaderLaunchers } from './ModHeaderLaunchers';
+import { BUILTIN_IDS } from '../services/payload/contributions/builtins';
+import { isBlockEnabled } from '../services/turn/blockEnablement';
 
 const TIER_CYCLE: Record<AiTier, AiTier> = { lite: 'pro', pro: 'max', max: 'lite' };
 
@@ -37,6 +40,11 @@ export function Header() {
 
     const pinnedExcerpts = useAppStore(s => s.pinnedExcerpts);
     const aiTier = (settings?.aiTier ?? 'pro') as AiTier;
+    const enemyCompendiumEnabled = isBlockEnabled(
+        BUILTIN_IDS.enemyCompendium,
+        aiTier,
+        settings?.moduleEnabled,
+    );
     const { t } = useTranslation();
     // A saved opt-in must not look active after the user switches to Lite,
     // because Lite is deliberately blocked from running discovery scans.
@@ -82,6 +90,8 @@ export function Header() {
 
             <div className="flex items-center gap-1.5 ml-auto overflow-x-auto no-scrollbar py-1 shrink-0">
                 <BackgroundControl />
+
+                <ModHeaderLaunchers />
 
                 <button
                     onClick={async () => {
@@ -134,15 +144,17 @@ export function Header() {
                     <span>{t('header.npcLedger.label')}</span>
                 </button>
 
-                <button
-                    onClick={toggleEnemyCompendium}
-                    className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
-                    title={t('header.enemyCompendium.tooltip', { state: enemyScannerState })}
-                    aria-label={t('header.enemyCompendium.aria', { state: enemyScannerState })}
-                >
-                    <Swords size={13} />
-                    <span className="hidden sm:inline">{t('header.enemyCompendium.label', { state: enemyScannerState })}</span>
-                </button>
+                {enemyCompendiumEnabled && (
+                    <button
+                        onClick={toggleEnemyCompendium}
+                        className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
+                        title={t('header.enemyCompendium.tooltip', { state: enemyScannerState })}
+                        aria-label={t('header.enemyCompendium.aria', { state: enemyScannerState })}
+                    >
+                        <Swords size={13} />
+                        <span className="hidden sm:inline">{t('header.enemyCompendium.label', { state: enemyScannerState })}</span>
+                    </button>
+                )}
 
                 <button
                     onClick={toggleLocationLedger}

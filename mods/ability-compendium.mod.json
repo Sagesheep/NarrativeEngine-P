@@ -1,0 +1,64 @@
+{
+  "id": "ability-compendium",
+  "name": "Ability & Power Compendium",
+  "version": "2.0.0",
+  "appVersion": ">=1.0.4",
+  "description": "A campaign-neutral library for spells, powers, perks, traits and techniques, including character ownership, runtime state, discovery review, progression, terminology and cross-system references.",
+  "contributions": [
+    {
+      "id": "mentioned-abilities",
+      "order": 150,
+      "budget": 1600,
+      "text": "[ABILITY & POWER COMPENDIUM — MATCHED CANON]",
+      "lookup": {
+        "table": "prompt-index",
+        "termFields": ["terms"],
+        "textField": "text",
+        "recentMessages": 8
+      }
+    }
+  ],
+  "tables": [
+    { "name": "abilities", "recordShape": "array", "label": "Canonical Abilities" },
+    { "name": "assignments", "recordShape": "array", "label": "Character Abilities" },
+    { "name": "runtime", "recordShape": "array", "label": "Runtime State" },
+    { "name": "proposals", "recordShape": "array", "label": "Discovery Proposals" },
+    { "name": "config", "recordShape": "single-object", "label": "Compendium Configuration" },
+    { "name": "prompt-index", "recordShape": "array", "label": "Prompt Lookup Index" }
+  ],
+  "compute": {
+    "file": "ability-compendium.compute.js",
+    "hook": "postTurn",
+    "capabilities": [
+      "table:read:mod.ability-compendium.abilities",
+      "table:read:mod.ability-compendium.assignments",
+      "table:read:mod.ability-compendium.runtime",
+      "table:read:mod.ability-compendium.proposals",
+      "table:read:mod.ability-compendium.config",
+      "table:write:mod.ability-compendium.proposals",
+      "table:write:mod.ability-compendium.config",
+      "table:write:mod.ability-compendium.prompt-index",
+      "write:setCharacterProfileData",
+      "model:utility"
+    ]
+  },
+  "screens": [
+    {
+      "id": "manager",
+      "file": "ability-compendium.screen.js",
+      "label": "Open Ability & Power Compendium",
+      "launch": {
+        "surface": "header",
+        "label": "Abilities",
+        "icon": "sparkles"
+      },
+      "capabilities": [
+        "campaign:read:characters",
+        "campaign:read:character-sheet",
+        "campaign:read:inventory",
+        "campaign:read:recent-play",
+        "file:download"
+      ]
+    }
+  ]
+}

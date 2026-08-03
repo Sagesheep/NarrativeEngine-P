@@ -223,6 +223,7 @@ export function useChatOperations({
             enemyInstances,
             enemyEncounters,
             enemyCombatConfig,
+            modTables: storeSnapshot.modTables,
             archiveIndex,
             activeCampaignId,
             provider: storyProvider,

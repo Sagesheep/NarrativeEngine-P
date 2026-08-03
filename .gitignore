@@ -69,6 +69,9 @@ src/assets/react.svg
 # Planning / design docs (not app code)
 auto-condenser.md
 
+# Local non-SRD compendium research; never distribute with the project
+Example_Setup/Ability Compendium/Dungeons and Dragons 5e 2024/dnd_2024_full_reference_ability_compendium.json
+
 # Electron (not maintained in repo)
 electron/
 build-server.mjs

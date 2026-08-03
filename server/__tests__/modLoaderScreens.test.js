@@ -179,19 +179,57 @@ describe('loadMods — screens validation (WO-P5-17 Step 1)', () => {
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/label must be a string/);
     });
 
-    // ── R6 — no host API in 5.1 ─────────────────────────────────────────
+    it('accepts the narrow, declared screen capability allowlist', () => {
+        write('screen-mod.js', '// ok');
+        const capabilities = [
+            'campaign:read:characters',
+            'campaign:read:character-sheet',
+            'campaign:read:inventory',
+            'campaign:read:recent-play',
+            'file:download',
+        ];
+        write('x.mod.json', validMod({ screens: [validScreen({ capabilities })] }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].screens[0].capabilities).toEqual(capabilities);
+    });
+
+    it('accepts and preserves a declared header launcher', () => {
+        write('screen-mod.js', '// ok');
+        const launch = { surface: 'header', label: 'Abilities', icon: 'sparkles' };
+        write('x.mod.json', validMod({ screens: [validScreen({ launch })] }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].screens[0].launch).toEqual(launch);
+    });
 
     it.each([
-        ['capabilities', /capabilities is not allowed on a mod screen/],
+        ['a non-object', 'header', /launch must be an object/],
+        ['an unavailable surface', { surface: 'sidebar', label: 'Open' }, /launch\.surface must be "header"/],
+        ['a missing label', { surface: 'header' }, /launch\.label must be a non-empty string/],
+        ['an unavailable icon', { surface: 'header', label: 'Open', icon: 'wand' }, /unavailable host icon/],
+        ['an unknown field', { surface: 'header', label: 'Open', future: true }, /launch has unknown field "future"/],
+    ])('rejects a header launcher with %s', (_label, launch, expected) => {
+        write('screen-mod.js', '// ok');
+        write('x.mod.json', validMod({ screens: [validScreen({ launch })] }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(expected);
+    });
+
+    it.each([
         ['channel', /channel is not allowed on a mod screen/],
         ['postMessage', /postMessage is not allowed on a mod screen/],
         ['api', /api is not allowed on a mod screen/],
-        ['launch', /launch is not allowed on a mod screen/],
         ['hooks', /hooks is not allowed on a mod screen/],
-    ])('R6: rejects a %s field on a screen (no host API in 5.1)', (field, expected) => {
+    ])('rejects an arbitrary %s field on a screen', (field, expected) => {
         write('screen-mod.js', '// ok');
         write('x.mod.json', validMod({ screens: [validScreen({ [field]: 'anything' })] }));
         expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(expected);
+    });
+
+    it('rejects an unavailable screen capability', () => {
+        write('screen-mod.js', '// ok');
+        write('x.mod.json', validMod({ screens: [validScreen({ capabilities: ['campaign:read:everything'] })] }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/unavailable screen capability/);
     });
 
     it('rejects an unknown field on a screen declaration', () => {

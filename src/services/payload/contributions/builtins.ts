@@ -54,8 +54,10 @@ export interface FinalUserModuleInput {
     settings: AppSettings;
     /** The player's message for this turn. */
     userMessage: string;
-    /** Pre-composed rules + world + enemy + volatile block. Its parts trace themselves. */
+    /** Pre-composed rules + world + volatile block. Its parts trace themselves. */
     volatileBlock: string;
+    /** Budgeted encounter/template context, kept separate so the feature is toggleable. */
+    enemyBlock: string;
     directorBrief?: string;
     watchdogNudge?: string;
     absoluteCommand?: string;
@@ -66,6 +68,11 @@ export interface FinalUserModuleInput {
      * one contract rather than needing a second channel.
      */
     facts?: TurnFacts;
+    /** Hydrated campaign tables keyed by their namespaced descriptor id. Mods can read only
+     * tables whose bare names were validated in their own manifest. */
+    extensionTables?: Readonly<Record<string, unknown>>;
+    /** Up to twenty recent chat-message bodies followed by the current player input. */
+    recentPlay?: readonly string[];
 }
 
 export const GM_REMINDER =
@@ -74,6 +81,7 @@ export const GM_REMINDER =
 /** Ids are part of the contract — `suppresses` references them, and mods may target them. */
 export const BUILTIN_IDS = {
     volatileBlock: 'volatile.block',
+    enemyCompendium: 'enemy.compendium',
     writerCot: 'writer.cot',
     directorBrief: 'director.brief',
     gmReminder: 'gm.reminder',
@@ -102,7 +110,7 @@ const hasAbsolute = (input: FinalUserModuleInput): boolean =>
 
 export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
     /**
-     * Rules + world + enemy + volatile state. Structural, not a feature — and its constituent
+     * Rules + world + volatile state. Structural, not a feature — and its constituent
      * parts already emit their own traces from `buildWorld`/`buildVolatile`/the enemy block, so
      * it declares none of its own.
      */
@@ -110,10 +118,29 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
         {
             id: BUILTIN_IDS.volatileBlock,
             name: 'World State',
-            description: 'Retrieved rules, world context, enemies, and volatile scene state.',
+            description: 'Retrieved rules, world context, and volatile scene state.',
             toggleable: false,
         },
         (input) => ({ id: BUILTIN_IDS.volatileBlock, order: 100, text: input.volatileBlock }),
+    ),
+
+    /**
+     * Exact-name enemy and active-encounter context. Keeping this out of World State makes the
+     * entire Enemy Compendium optional: disabling this module also prevents its token allowance
+     * from being reserved before history fitting (payloadBuilder performs the same enablement
+     * check before it builds the block).
+     */
+    single(
+        {
+            id: BUILTIN_IDS.enemyCompendium,
+            name: 'Enemy Compendium',
+            description: 'Adds matched enemy templates or the active encounter to story prompts.',
+        },
+        (input) => ({
+            id: BUILTIN_IDS.enemyCompendium,
+            order: 150,
+            text: input.enemyBlock,
+        }),
     ),
 
     /**

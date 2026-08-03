@@ -60,6 +60,24 @@ export interface ModContribution {
      * ids in `PROTECTED_SUPPRESSION_IDS` are rejected at load time.
      */
     suppresses?: string[];
+    /**
+     * Optional module-owned lookup table used to materialize dynamic prompt text.
+     * Rows whose declared term fields occur in recent play contribute their text field.
+     * The loader guarantees `table` belongs to this mod; the payload layer receives only
+     * the hydrated namespaced table map and remains feature-agnostic.
+     */
+    lookup?: ModContributionLookup;
+}
+
+export interface ModContributionLookup {
+    /** Bare name from this mod's own `tables[]`. */
+    table: string;
+    /** Row fields containing a string, comma-delimited string, or string array of match terms. */
+    termFields: string[];
+    /** Row field containing the already-rendered prompt block. */
+    textField: string;
+    /** Number of prior chat messages included with the current player input. Default 8. */
+    recentMessages?: number;
 }
 
 /**
@@ -166,13 +184,32 @@ export interface ModScreenDeclaration {
     file: string;
     /** Optional. Human-readable label, for the host chrome above the frame. */
     label?: string;
+    /** Optional, narrowly allow-listed read/download capabilities granted by the host. */
+    capabilities?: ModScreenCapability[];
+    /** Optional host-owned shortcut. The screen remains isolated and module-owned. */
+    launch?: ModScreenLaunch;
 }
+
+export interface ModScreenLaunch {
+    surface: 'header';
+    label: string;
+    icon?: 'sparkles' | 'book-open' | 'puzzle';
+}
+
+export type ModScreenCapability =
+    | 'campaign:read:characters'
+    | 'campaign:read:character-sheet'
+    | 'campaign:read:inventory'
+    | 'campaign:read:recent-play'
+    | 'file:download';
 
 /** A validated screen declaration. Same shape, server-checked, plus the loaded source text (R2). */
 export interface ValidatedModScreen {
     id: string;
     file: string;
     label?: string;
+    capabilities?: ModScreenCapability[];
+    launch?: ModScreenLaunch;
 }
 
 /**

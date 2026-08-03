@@ -88,6 +88,7 @@ export type TurnState = {
     enemyInstances?: EnemyInstance[];
     enemyEncounters?: EnemyEncounter[];
     enemyCombatConfig?: EnemyCombatConfig;
+    modTables?: Record<string, unknown>;
     archiveIndex: ArchiveIndexEntry[];
     activeCampaignId: string | null;
     provider: EndpointConfig | ProviderConfig | undefined;
