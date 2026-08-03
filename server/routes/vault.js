@@ -225,6 +225,12 @@ export function createVaultRouter(vault) {
         res.json({ ok: true });
     }));
 
+    // Keep a recoverable encrypted copy when a user resets a forgotten password.
+    router.post('/api/vault/reset', wrapAsync((_req, res) => {
+        const archived = vault.archiveForRecovery();
+        res.json({ ok: true, archived });
+    }));
+
     router.delete('/api/vault', wrapAsync((_req, res) => {
         try {
             vault.delete();
