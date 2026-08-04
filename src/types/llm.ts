@@ -2,7 +2,7 @@
 
 import type { LocaleCode } from '../i18n/types';
 
-export type ApiFormat = 'openai' | 'ollama' | 'claude' | 'gemini' | 'comfyui';
+export type ApiFormat = 'openai' | 'ollama' | 'claude' | 'gemini' | 'comfyui' | 'openrouter';
 
 /**
  * Native ComfyUI image-generation settings (scene images only). Attached to an

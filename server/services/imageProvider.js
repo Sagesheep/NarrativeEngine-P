@@ -3,6 +3,11 @@ import path from 'path';
 import crypto from 'crypto';
 import { CAMPAIGNS_DIR, validateCampaignId } from '../lib/fileStore.js';
 import { generateComfyUIImage } from './comfyUiProvider.js';
+import {
+    isOpenRouterImageProvider,
+    openRouterImagesUrl,
+    buildOpenRouterImageBody,
+} from './openRouterImage.js';
 
 export function getCampaignSceneImagesDir(campaignId) {
     validateCampaignId(campaignId);
@@ -102,13 +107,23 @@ export async function generateSceneImage({ campaignId, promptPackage, config }) 
         };
     }
 
-    const payload = {
-        model: config.modelName || 'standard-image-v1',
-        prompt,
-        negative_prompt,
-        size,
-        response_format: 'url',
-    };
+    // ── OpenRouter branch ────────────────────────────────────────────────────
+    // Different route, different field names, base64 reply. The shared response
+    // handling below already accepts data[0].b64_json, so only the request differs.
+    const openRouter = isOpenRouterImageProvider(config);
+    if (openRouter && !config.modelName) {
+        throw new Error('OpenRouter requires an image model name (e.g. google/gemini-2.5-flash-image) in the provider settings.');
+    }
+
+    const payload = openRouter
+        ? buildOpenRouterImageBody(config.modelName, prompt, promptPackage.aspectRatio, '1:1')
+        : {
+            model: config.modelName || 'standard-image-v1',
+            prompt,
+            negative_prompt,
+            size,
+            response_format: 'url',
+        };
 
     const headers = {
         'Content-Type': 'application/json',
@@ -120,7 +135,7 @@ export async function generateSceneImage({ campaignId, promptPackage, config }) 
     const baseEndpoint = config.endpoint
         .replace(/\/+$/, '')
         .replace(/\/images\/generations$/, '');
-    const url = `${baseEndpoint}/images/generations`;
+    const url = openRouter ? openRouterImagesUrl(config.endpoint) : `${baseEndpoint}/images/generations`;
 
     console.log(`[SceneImage Provider] Generating image for campaign ${campaignId} via ${url}`);
 
