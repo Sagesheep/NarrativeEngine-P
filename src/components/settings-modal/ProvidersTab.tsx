@@ -8,6 +8,7 @@ import { toast } from '../Toast';
 import { uid } from '../../utils/uid';
 
 const COMFY_DEFAULT_ENDPOINT = 'http://127.0.0.1:8188';
+const OPENROUTER_DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1';
 
 function getEndpointPlaceholder(apiFormat?: ApiFormat) {
     const fmt = apiFormat || 'openai';
@@ -15,6 +16,7 @@ function getEndpointPlaceholder(apiFormat?: ApiFormat) {
     if (fmt === 'claude') return 'https://api.anthropic.com/v1';
     if (fmt === 'gemini') return 'https://generativelanguage.googleapis.com/v1beta';
     if (fmt === 'comfyui') return COMFY_DEFAULT_ENDPOINT;
+    if (fmt === 'openrouter') return OPENROUTER_DEFAULT_ENDPOINT;
     return 'http://localhost:11434/v1';
 }
 
@@ -23,6 +25,7 @@ function getApiKeyPlaceholder(apiFormat?: ApiFormat) {
     if (fmt === 'ollama') return 'Ollama API key (optional for local)';
     if (fmt === 'claude') return 'sk-ant-...';
     if (fmt === 'gemini') return 'AIza...';
+    if (fmt === 'openrouter') return 'sk-or-v1-...';
     return 'sk-...';
 }
 
@@ -82,6 +85,10 @@ export function ProvidersTab() {
             if (!endpoint || /^https?:\/\/(localhost|127\.0\.0\.1):11434(\/v1)?$/.test(endpoint)) {
                 endpoint = COMFY_DEFAULT_ENDPOINT;
             }
+        } else if (newFormat === 'openrouter') {
+            if (!endpoint || /^https?:\/\/(localhost|127\.0\.0\.1):11434(\/v1)?$/.test(endpoint)) {
+                endpoint = OPENROUTER_DEFAULT_ENDPOINT;
+            }
         }
         updateProvider(activeProvider.id, { apiFormat: newFormat, endpoint });
     };
@@ -132,6 +139,7 @@ export function ProvidersTab() {
     const canDelete = settings.providers.length > 1;
     const config = activeProvider;
     const isComfy = (config?.apiFormat || 'openai') === 'comfyui';
+    const isOpenRouter = (config?.apiFormat || 'openai') === 'openrouter';
 
     return (
         <div className="flex flex-col">
@@ -204,19 +212,24 @@ export function ProvidersTab() {
                                 <div>
                                     <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">API Format</label>
                                     <div className="flex border border-border overflow-hidden rounded">
-                                        {(['openai', 'ollama', 'claude', 'gemini', 'comfyui'] as ApiFormat[]).map(fmt => (
+                                        {(['openai', 'ollama', 'claude', 'gemini', 'comfyui', 'openrouter'] as ApiFormat[]).map(fmt => (
                                             <button
                                                 key={fmt}
                                                 onClick={() => handleApiFormatChange(fmt)}
-                                                className={`flex-1 px-3 py-2 text-[10px] uppercase tracking-wider transition-colors focus:outline-none ${(config.apiFormat || 'openai') === fmt
+                                                className={`flex-1 px-2 py-2 text-[10px] uppercase tracking-wider transition-colors focus:outline-none ${(config.apiFormat || 'openai') === fmt
                                                     ? 'bg-terminal text-surface font-bold'
                                                     : 'bg-void text-text-dim hover:text-text-primary'
                                                 }`}
                                             >
-                                                {fmt === 'openai' ? 'OpenAI' : fmt === 'ollama' ? 'Ollama' : fmt === 'claude' ? 'Claude' : fmt === 'gemini' ? 'Gemini' : 'ComfyUI'}
+                                                {fmt === 'openai' ? 'OpenAI' : fmt === 'ollama' ? 'Ollama' : fmt === 'claude' ? 'Claude' : fmt === 'gemini' ? 'Gemini' : fmt === 'comfyui' ? 'ComfyUI' : 'OpenRouter'}
                                             </button>
                                         ))}
                                     </div>
+                                    {isOpenRouter && (
+                                        <p className="text-[10px] text-text-dim mt-1">
+                                            Use for OpenRouter <span className="font-mono">image</span> models — they live on <span className="font-mono">/api/v1/images</span>, not the OpenAI image route. For OpenRouter <em>text</em> models keep the OpenAI format.
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">{isComfy ? 'Checkpoint Model Name' : 'Model Name'}</label>
@@ -224,7 +237,7 @@ export function ProvidersTab() {
                                         type="text"
                                         value={config.modelName}
                                         onChange={(e) => handleFieldChange('modelName', e.target.value)}
-                                        placeholder={isComfy ? 'sd_xl_base_1.0.safetensors' : 'llama3'}
+                                        placeholder={isComfy ? 'sd_xl_base_1.0.safetensors' : isOpenRouter ? 'google/gemini-2.5-flash-image' : 'llama3'}
                                         className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
                                     />
                                     {isComfy && (

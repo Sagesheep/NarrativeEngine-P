@@ -126,6 +126,70 @@ describe('Scene Images Router & Services', () => {
         expect(fs.existsSync(diskPath)).toBe(true);
     });
 
+    it('POST /api/scene-images/generate routes OpenRouter providers to /api/v1/images and decodes base64', async () => {
+        // OpenRouter has no /images/generations route — the OpenAI shape 404s there.
+        const settingsPath = path.join(tmpDir, 'settings.json');
+        fs.writeFileSync(settingsPath, JSON.stringify({
+            activePresetId: 'preset_or',
+            presets: [{ id: 'preset_or', imageAIProviderId: 'prov_or' }],
+            providers: [{
+                id: 'prov_or',
+                endpoint: 'https://openrouter.ai/api/v1/images',
+                apiKey: 'sk-or-v1-test',
+                modelName: 'google/gemini-2.5-flash-image',
+                apiFormat: 'openrouter',
+            }],
+        }));
+
+        const pngBase64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64');
+        const seen = [];
+        const fetchMock = vi.fn().mockImplementation((url, init) => {
+            seen.push({ url, body: JSON.parse(init.body) });
+            if (url === 'https://openrouter.ai/api/v1/images') {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        created: 1748372400,
+                        data: [{ b64_json: pngBase64, media_type: 'image/png' }],
+                    }),
+                });
+            }
+            return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const res = await request(app)
+            .post('/api/scene-images/generate')
+            .send({
+                campaignId: 'test_camp_123',
+                sourceMessageId: 'msg_001',
+                selectedText: 'The hero drew his flaming sword atop the ancient tower.',
+                promptPackage: {
+                    focus: 'Hero with flaming sword',
+                    positivePrompt: 'Hero standing on ancient tower holding a flaming sword.',
+                    negativePrompt: 'text, watermark',
+                    style: 'Cinematic illustration',
+                    framing: 'Wide scene',
+                    aspectRatio: '16:9',
+                },
+            });
+
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+
+        // No path doubling, and OpenRouter's own field names.
+        expect(seen).toHaveLength(1);
+        expect(seen[0].url).toBe('https://openrouter.ai/api/v1/images');
+        expect(seen[0].body.aspect_ratio).toBe('16:9');
+        expect(seen[0].body.model).toBe('google/gemini-2.5-flash-image');
+        expect(seen[0].body.size).toBeUndefined();
+        expect(seen[0].body.negative_prompt).toBeUndefined();
+
+        const filename = path.basename(res.body.attachment.imageUrl);
+        const diskPath = path.join(tmpDir, 'campaigns', 'test_camp_123', 'scene-images', filename);
+        expect(fs.existsSync(diskPath)).toBe(true);
+    });
+
     it('POST /api/scene-images/generate routes ComfyUI providers, writes a campaign image, and keeps the attachment contract', async () => {
         // Resolve config from settings (not an override) so the route's apiFormat + comfyUi pass-through is exercised.
         const settingsPath = path.join(tmpDir, 'settings.json');
