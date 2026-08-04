@@ -149,7 +149,7 @@ export async function runTurn(
 
     if (!provider) return;
 
-    const facade = buildHostFacade(state, callbacks, { signal: abortController.signal });
+    const facade = buildHostFacade(state, callbacks, { signal: abortController.signal, reactiveStore: useAppStore });
 
     // ── WO-P1-01: TurnContext data bus ───────────────────────────────────
     // The bus replaces (a) the `let finalInput += …` string-gluing, (b) the

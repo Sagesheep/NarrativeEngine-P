@@ -407,9 +407,14 @@ export {
 // is the spawn (arcSpawn.ts), which fires from the host-side ArcInjectorButton.
 //
 // `displayInput` and `lastAssistantContent` are derived from the frozen facade
-// snapshot: `ctx.data.input` is the player's turn input; the last assistant
-// message in `ctx.data.messages` is the GM reply the tick processes (mirrors
+// snapshot: `ctx.data.playerInput` is the player's turn input (renamed from
+// `ctx.data.input` in Phase 2.3 — see API.md §4.1); the last assistant message
+// in `ctx.data.messages` is the GM reply the tick processes (mirrors
 // `lastAssistantContent()` in directorBrief.ts).
+//
+// The bare table name `'arcs'` is accepted as an alias for the fully-qualified
+// `'mod.arc.arcs'` (API.md §6.2); both resolve to the same table because the
+// ModContext object already knows which mod it belongs to.
 function lastAssistantMessage(messages) {
     for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i];
@@ -419,11 +424,11 @@ function lastAssistantMessage(messages) {
 }
 
 export default async function arcCompute(ctx) {
-    const arcs = await ctx.table.read('mod.arc.arcs');
+    const arcs = await ctx.table.read('arcs');
     if (!Array.isArray(arcs) || arcs.length === 0) return;
 
     const archiveIndex = ctx.data.archiveIndex;
-    const displayInput = ctx.data.input;
+    const displayInput = ctx.data.playerInput;
     const lastAssistantContent = lastAssistantMessage(ctx.data.messages);
 
     const result = runArcTick(
@@ -435,7 +440,7 @@ export default async function arcCompute(ctx) {
     );
 
     if (result.arcs) {
-        await ctx.table.write('mod.arc.arcs', result.arcs);
+        await ctx.table.write('arcs', result.arcs);
     }
     if (result.arcDigest !== null) {
         ctx.write.updateContext({ arcDigest: result.arcDigest });

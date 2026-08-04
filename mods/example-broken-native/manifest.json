@@ -1,0 +1,13 @@
+{
+  "id": "example-broken-native",
+  "name": "Example Broken Native Mod",
+  "version": "1.0.0",
+  "description": "A fixture native-tier mod that throws at import time. Used to verify Phase 1.5 fault containment: the mod is surfaced as a fault in Extensions and the app still works.",
+  "author": "Narrative Engine",
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate"
+    }
+  }
+}

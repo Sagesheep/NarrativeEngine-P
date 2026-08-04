@@ -1,0 +1,1 @@
+throw new Error('[example-broken-native] deliberate import-time throw — Phase 1.5 fault containment test');

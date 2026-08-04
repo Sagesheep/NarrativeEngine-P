@@ -179,6 +179,7 @@ export async function runPostTurnPipeline(
     // single `allSettled`, same containment, archive still at index 0.
     const facade = buildHostFacade(state, callbacks, {
         updatePlayerCharacter: (patch) => useAppStore.getState().updatePlayerCharacter(patch),
+        reactiveStore: useAppStore,
     });
     const trackCtx: PostTurnTrackContext = {
         facade,

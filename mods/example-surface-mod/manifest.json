@@ -1,0 +1,20 @@
+{
+  "id": "example-surface-mod",
+  "name": "Example Surface Mod",
+  "version": "1.0.0",
+  "description": "A fixture native mod that exercises the full getContext() v1 surface: reads host state, performs a write, calls a model, and reads/writes its own table. Used by Phase 2.3 tests to prove a native mod can do all four through the ModContext with zero imports from src/.",
+  "author": "Narrative Engine",
+  "tables": [
+    {
+      "name": "ledger",
+      "recordShape": "array",
+      "label": "Ledger"
+    }
+  ],
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate"
+    }
+  }
+}

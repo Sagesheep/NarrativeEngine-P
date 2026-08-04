@@ -15,12 +15,13 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { createFinalUserRegistry } from '../../services/payload/contributions/builtins';
 import type { FinalUserModuleInput } from '../../services/payload/contributions/builtins';
 import type { ContributionModule } from '../../services/payload/contributions/registry';
-import { refreshMods } from '../../services/mods/modBootstrap';
+import { refreshMods, enableNativeMod, disableNativeMod } from '../../services/mods/modBootstrap';
 import { modToContributionModule } from '../../services/mods/modAdapter';
 import type { ModFault, ValidatedMod } from '../../services/mods/modTypes';
 import { sandboxFaultStore } from '../../services/mods/sandbox/sandboxFaults';
 import { screenFaultStore } from '../../services/mods/screenFaults';
 import { lifecycleFaultStore } from '../../services/mods/lifecycle/lifecycleFaults';
+import { reactiveFaultStore } from '../../services/mods/reactiveFaults';
 import { ModPanels } from './ModPanels';
 import { ModScreens } from './ModScreens';
 
@@ -85,6 +86,7 @@ export function ExtensionsTab() {
         ...sandboxFaultStore.getFaults(),
         ...screenFaultStore.getFaults(),
         ...lifecycleFaultStore.getFaults(),
+        ...reactiveFaultStore.getFaults(),
     ]);
     const [loading, setLoading] = useState(true);
     const [loadFailed, setLoadFailed] = useState(false);
@@ -125,6 +127,7 @@ export function ExtensionsTab() {
             ...sandboxFaultStore.getFaults(),
             ...screenFaultStore.getFaults(),
             ...lifecycleFaultStore.getFaults(),
+            ...reactiveFaultStore.getFaults(),
         ]);
     }), []);
 
@@ -133,6 +136,7 @@ export function ExtensionsTab() {
             ...sandboxFaultStore.getFaults(),
             ...screenFaultStore.getFaults(),
             ...lifecycleFaultStore.getFaults(),
+            ...reactiveFaultStore.getFaults(),
         ]);
     }), []);
 
@@ -141,6 +145,16 @@ export function ExtensionsTab() {
             ...sandboxFaultStore.getFaults(),
             ...screenFaultStore.getFaults(),
             ...lifecycleFaultStore.getFaults(),
+            ...reactiveFaultStore.getFaults(),
+        ]);
+    }), []);
+
+    useEffect(() => reactiveFaultStore.subscribe(() => {
+        setRuntimeFaults([
+            ...sandboxFaultStore.getFaults(),
+            ...screenFaultStore.getFaults(),
+            ...lifecycleFaultStore.getFaults(),
+            ...reactiveFaultStore.getFaults(),
         ]);
     }), []);
 
@@ -186,6 +200,25 @@ export function ExtensionsTab() {
 
     const setEnabled = (id: string, enabled: boolean) => {
         updateSettings({ moduleEnabled: { ...(moduleEnabled ?? {}), [id]: enabled } });
+        // Phase 1.5 — fire the lifecycle enable/disable hooks for native
+        // mods. The settings write is the source of truth for enablement;
+        // the lifecycle call is the side-effect that mounts/unmounts the
+        // mod's code and CSS. A mod whose id starts with `mod.` and has a
+        // `native` block is a native-tier mod; map the row id back to the
+        // mod to pass to the lifecycle functions. The call is fire-and-forget
+        // (the host contains faults and surfaces them in the fault list
+        // below), so a slow or throwing hook does not block the toggle.
+        if (id.startsWith('mod.')) {
+            const modId = id.slice(4);
+            const mod = mods.find((m) => m.id === modId);
+            if (mod?.native) {
+                if (enabled) {
+                    enableNativeMod(mod).catch((e) => console.warn('[mods] enable failed:', e));
+                } else {
+                    disableNativeMod(mod).catch((e) => console.warn('[mods] disable failed:', e));
+                }
+            }
+        }
     };
 
     const allRows = useMemo(() => [...builtinRows, ...modRows], [builtinRows, modRows]);

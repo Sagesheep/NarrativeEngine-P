@@ -49,20 +49,18 @@ const COMPUTE_WRITES = new Set([
     'updateContext',
     'updateNPC',
     'addMessage',
-    'addEnemySuggestions',
     'setDivergenceRegister',
     'addNpcSuggestions',
     'archiveNPC',
     'restoreNPC',
-    'onDirectorBriefPhase',
     'updatePlayerCharacter',
-    'setCharacterProfileData',
-    'setInventoryItems',
+    'setCharacterSheet',
+    'setInventory',
     'setLocationLedger',
     'addLocationSuggestions',
 ]);
-const COMPUTE_TABLE_READS = new Set(['archive', 'divergence', 'enemies', 'locations', 'npcs']);
-const COMPUTE_TABLE_WRITES = new Set(['archive', 'locations', 'npcs']);
+const COMPUTE_TABLE_READS = new Set([]);
+const COMPUTE_TABLE_WRITES = new Set([]);
 const COMPUTE_MODEL_ROLES = new Set(['story', 'utility', 'auxiliary', 'summariser', 'raw-auxiliary', 'raw-summariser']);
 
 /**

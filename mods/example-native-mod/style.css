@@ -1,0 +1,7 @@
+/* Phase 1.5 fixture: a single CSS rule the host mounts as a <link>. */
+.example-native-mod-banner {
+    border: 1px dashed var(--ember, #d97706);
+    padding: 4px 8px;
+    font-size: 10px;
+    color: var(--ember, #d97706);
+}

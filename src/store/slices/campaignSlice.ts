@@ -29,6 +29,7 @@ import {
 } from '../campaignStore';
 import { normalizeRelations } from '../../services/npc/relationDedupe';
 import { toast } from '../../components/Toast';
+import { disposeCampaignSubscriptions } from '../../services/mods/reactiveReads';
 import { debouncedSaveSettings } from './settingsSlice';
 import {
     DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES,
@@ -551,6 +552,7 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         // OLD campaign's state from the live store.
         const currentId = get().activeCampaignId;
         if (id !== currentId) {
+            disposeCampaignSubscriptions(currentId);
             try {
                 const { commitPendingTurn } = await import('../../services/turn/pendingCommit');
                 await commitPendingTurn();

@@ -304,7 +304,7 @@ async function runCommitPendingTurn(): Promise<void> {
         : rebuildStateFromLiveStore(store, findTurnUserInput(messages, pendingMsg.id));
 
     const commitCallbacks = buildCommitCallbacks(commitState.activeCampaignId ?? '', store);
-    const facade = buildHostFacade(commitState, commitCallbacks);
+    const facade = buildHostFacade(commitState, commitCallbacks, { reactiveStore: useAppStore });
 
     // Determine scene stakes from the chosen variant.
     let sceneStakes: SceneStakes = variant.sceneStakes;

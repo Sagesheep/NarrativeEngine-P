@@ -23,6 +23,7 @@ import type {
 import { llmCall, type LLMCallPriority } from '../../utils/llmCall';
 import { extractJson } from '../infrastructure/jsonExtract';
 import type { TurnCallbacks, TurnState } from './turnOrchestrator';
+import { createReactiveReadHub, disposeCampaignSubscriptions, type ReactiveReadHub, type ReactiveStoreLike } from '../mods/reactiveReads';
 
 export type ModelRole = 'story' | 'utility' | 'auxiliary' | 'summariser' | 'raw-auxiliary' | 'raw-summariser';
 export const MODEL_ROLES: readonly ModelRole[] = [
@@ -130,7 +131,12 @@ export interface HostFacade {
         callJson(role: ModelRole, req: ModelRequest, options?: ModelJsonOptions): Promise<unknown>;
         available(role: ModelRole): boolean;
     };
-    readonly table: { read(name: string): Promise<unknown>; write(name: string, rows: unknown): Promise<void> };
+    readonly table: {
+        read(name: string): Promise<unknown>;
+        write(name: string, rows: unknown): Promise<void>;
+        subscribe?(name: string, listener: (rows: unknown) => void): () => void;
+    };
+    readonly subscribe?: (key: string, listener: (value: unknown) => void) => () => void;
     readonly signal: AbortSignal;
     refresh(): HostFacade;
     log(...args: unknown[]): void;
@@ -139,6 +145,7 @@ export interface HostFacade {
 export interface HostFacadeTableAdapter {
     read(name: string): Promise<unknown>;
     write(name: string, rows: unknown): Promise<void>;
+    subscribe?(name: string, listener: (rows: unknown) => void): () => void;
 }
 
 export interface HostFacadeBuildOptions {
@@ -148,6 +155,12 @@ export interface HostFacadeBuildOptions {
     updatePlayerCharacter?: (patch: Partial<PlayerCharacter>) => void;
     modelCall?: (role: ModelRole, request: ModelRequest, endpoint: EndpointConfig | ProviderConfig | undefined) => Promise<ModelResponse>;
     table?: HostFacadeTableAdapter;
+    reactiveStore?: ReactiveStoreLike;
+    getLocationState?: () => {
+        readonly currentPlaceId: string | null;
+        readonly currentFeature: string | null;
+        readonly ledger: readonly LocationEntry[];
+    };
 }
 
 type FacadeSettings = {
@@ -263,7 +276,7 @@ function resolveEndpoint(state: TurnState, role: ModelRole): EndpointConfig | Pr
     }
 }
 
-function buildDefaultTableAdapter(activeCampaignId: string | null): HostFacadeTableAdapter {
+function buildDefaultTableAdapter(activeCampaignId: string | null, reactiveStore?: ReactiveStoreLike): HostFacadeTableAdapter {
     const routeFor = (name: string): string => {
         const route = TABLE_ROUTES[name];
         if (!route) throw new Error(`[facade] unknown table: ${name}`);
@@ -273,11 +286,20 @@ function buildDefaultTableAdapter(activeCampaignId: string | null): HostFacadeTa
 
     return {
         async read(name) {
+            const storeState = reactiveStore?.getState() as { modTables?: Record<string, unknown> } | undefined;
+            if (name.startsWith('mod.') && storeState?.modTables && Object.prototype.hasOwnProperty.call(storeState.modTables, name)) {
+                return storeState.modTables[name];
+            }
             const response = await fetch(routeFor(name));
             if (!response.ok) throw new Error(`[facade] table read failed: ${name} (${response.status})`);
             return response.json();
         },
         async write(name, rows) {
+            const storeState = reactiveStore?.getState() as { setModTable?: (tableName: string, data: unknown) => void } | undefined;
+            if (name.startsWith('mod.') && typeof storeState?.setModTable === 'function') {
+                storeState.setModTable(name, rows);
+                return;
+            }
             const response = await fetch(routeFor(name), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -295,20 +317,95 @@ export function buildHostFacade(
 ): HostFacade {
     const data = readFacadeData(state);
     const config = readFacadeSettings(state.settings);
+    const reactiveStore = options.reactiveStore;
+    const tableAdapter = options.table ?? buildDefaultTableAdapter(state.activeCampaignId, reactiveStore);
+    const tableCache = new Map<string, unknown>();
+    const tableSourceUnsubscribes = new Map<string, () => void>();
+    const detachTableSources = (): void => {
+        for (const unsubscribe of tableSourceUnsubscribes.values()) unsubscribe();
+        tableSourceUnsubscribes.clear();
+    };
+
+    const readReactiveValue = (key: string): unknown => {
+        if (key.startsWith('table:')) {
+            const name = key.slice('table:'.length);
+            const storeState = reactiveStore?.getState() as { modTables?: Record<string, unknown> } | undefined;
+            if (storeState?.modTables && Object.prototype.hasOwnProperty.call(storeState.modTables, name)) {
+                return cloneAndFreeze(storeState.modTables[name]);
+            }
+            return cloneAndFreeze(tableCache.get(name));
+        }
+
+        const live = reactiveStore?.getState() as Record<string, unknown> | undefined;
+        const context = (live?.context ?? data.context) as GameContext;
+        switch (key) {
+            case 'campaignId': return live?.activeCampaignId ?? data.activeCampaignId;
+            case 'playerInput': return live?.input ?? data.input;
+            case 'messages': return live?.messages ?? data.messages;
+            case 'archiveIndex': return live?.archiveIndex ?? data.archiveIndex;
+            case 'timeline': return live?.timeline ?? data.timeline;
+            case 'npcLedger': return live?.npcLedger ?? data.npcLedger;
+            case 'onStageNpcIds': return live?.onStageNpcIds ?? data.onStageNpcIds;
+            case 'loreChunks': return live?.loreChunks ?? data.loreChunks;
+            case 'divergenceRegister': return live?.divergenceRegister ?? data.divergenceRegister;
+            case 'playerCharacter': return live?.playerCharacter ?? context.playerCharacter ?? null;
+            case 'characterSheet': return live?.characterProfileData ?? context.characterProfileData;
+            case 'inventory': return live?.inventoryItems ?? context.inventoryItems;
+            case 'location': {
+                const fresh = options.getLocationState?.();
+                return {
+                    currentPlaceId: context.currentPlaceId ?? fresh?.currentPlaceId ?? null,
+                    currentFeature: context.currentFeature ?? fresh?.currentFeature ?? null,
+                    ledger: live?.locationLedger ?? fresh?.ledger ?? [],
+                };
+            }
+            default: return undefined;
+        }
+    };
+
+    const hub: ReactiveReadHub | undefined = reactiveStore
+        ? createReactiveReadHub({
+            store: reactiveStore,
+            getValue: (key) => cloneAndFreeze(readReactiveValue(key)),
+            getCampaignId: () => {
+                const current = reactiveStore.getState().activeCampaignId;
+                return typeof current === 'string' ? current : null;
+            },
+            onCampaignChange: (campaignId) => {
+                disposeCampaignSubscriptions(campaignId);
+                detachTableSources();
+            },
+        })
+        : undefined;
+
+    const notifyForWrite = (keys: readonly string[]): void => {
+        for (const key of keys) hub?.invalidate(key);
+    };
+    const writeAfter = <T extends (...args: never[]) => unknown>(
+        fn: T,
+        keys: readonly string[],
+    ): T => {
+        const wrapped = (...args: Parameters<T>): ReturnType<T> => {
+            const result = fn(...args) as ReturnType<T>;
+            notifyForWrite(keys);
+            return result;
+        };
+        return wrapped as T;
+    };
     const write: FacadeWrites = Object.freeze({
-        updateContext: callbacks.updateContext,
-        updateNPC: callbacks.updateNPC,
-        addMessage: callbacks.addMessage,
+        updateContext: writeAfter(callbacks.updateContext, ['location', 'playerCharacter', 'characterSheet', 'inventory']) as FacadeWrites['updateContext'],
+        updateNPC: writeAfter(callbacks.updateNPC, ['npcLedger']) as FacadeWrites['updateNPC'],
+        addMessage: writeAfter(callbacks.addMessage, ['messages']) as FacadeWrites['addMessage'],
         addEnemySuggestions: callbacks.addEnemySuggestions ?? (() => undefined),
-        setDivergenceRegister: callbacks.setDivergenceRegister ?? (() => undefined),
+        setDivergenceRegister: writeAfter(callbacks.setDivergenceRegister ?? (() => undefined), ['divergenceRegister']) as FacadeWrites['setDivergenceRegister'],
         addNpcSuggestions: callbacks.addNpcSuggestions ?? (() => undefined),
-        archiveNPC: callbacks.archiveNPC,
-        restoreNPC: callbacks.restoreNPC,
+        archiveNPC: writeAfter(callbacks.archiveNPC, ['npcLedger']) as FacadeWrites['archiveNPC'],
+        restoreNPC: writeAfter(callbacks.restoreNPC, ['npcLedger']) as FacadeWrites['restoreNPC'],
         onDirectorBriefPhase: callbacks.onDirectorBriefPhase ?? (() => undefined),
-        updatePlayerCharacter: options.updatePlayerCharacter ?? (() => undefined),
-        setCharacterProfileData: callbacks.setCharacterProfileData,
-        setInventoryItems: callbacks.setInventoryItems,
-        setLocationLedger: callbacks.setLocationLedger,
+        updatePlayerCharacter: writeAfter(options.updatePlayerCharacter ?? (() => undefined), ['playerCharacter']) as FacadeWrites['updatePlayerCharacter'],
+        setCharacterProfileData: writeAfter(callbacks.setCharacterProfileData, ['characterSheet']) as FacadeWrites['setCharacterProfileData'],
+        setInventoryItems: writeAfter(callbacks.setInventoryItems, ['inventory']) as FacadeWrites['setInventoryItems'],
+        setLocationLedger: writeAfter(callbacks.setLocationLedger, ['location']) as FacadeWrites['setLocationLedger'],
         addLocationSuggestions: callbacks.addLocationSuggestions,
     });
     const call: ModelCall = async (role: ModelRole, request: ModelRequest): Promise<ModelResponse> => {
@@ -331,19 +428,52 @@ export function buildHostFacade(
             callModelJson(role, request, call, jsonOptions),
         available: (role: ModelRole): boolean => hasConfiguredRole(state, role),
     });
-    const table = Object.freeze(options.table ?? buildDefaultTableAdapter(state.activeCampaignId));
+    const tableRead = async (name: string): Promise<unknown> => {
+        const value = await tableAdapter.read(name);
+        tableCache.set(name, cloneAndFreeze(value));
+        return cloneAndFreeze(value);
+    };
+    const tableWrite = async (name: string, rows: unknown): Promise<void> => {
+        await tableAdapter.write(name, rows);
+        tableCache.set(name, cloneAndFreeze(rows));
+        hub?.invalidate(`table:${name}`, cloneAndFreeze(rows));
+    };
+    const tableSubscribe = (name: string, listener: (rows: unknown) => void): (() => void) => {
+        if (!hub) throw new Error('[facade] reactive table subscriptions require a live store');
+        if (!tableSourceUnsubscribes.has(name) && tableAdapter.subscribe) {
+            tableSourceUnsubscribes.set(name, tableAdapter.subscribe(name, (rows) => {
+                tableCache.set(name, cloneAndFreeze(rows));
+                hub.invalidate(`table:${name}`, cloneAndFreeze(rows));
+            }));
+        }
+        const unsubscribe = hub.subscribe(`table:${name}`, listener, cloneAndFreeze(readReactiveValue(`table:${name}`)));
+        return () => {
+            unsubscribe();
+            if (hub.getListenerCount(`table:${name}`) === 0) {
+                tableSourceUnsubscribes.get(name)?.();
+                tableSourceUnsubscribes.delete(name);
+            }
+        };
+    };
+    const table: HostFacade['table'] = Object.freeze(hub
+        ? { read: tableRead, write: tableWrite, subscribe: tableSubscribe }
+        : { read: tableRead, write: tableWrite });
     const signal = options.signal ?? new AbortController().signal;
     const refresh = (): HostFacade => buildHostFacade(
         options.getState?.() ?? state,
         options.getCallbacks?.() ?? callbacks,
-        options,
+        { ...options, reactiveStore, table: tableAdapter },
     );
-    const facade = Object.freeze({
+    const facade: HostFacade = Object.freeze({
         data,
         config,
         write,
         model,
         table,
+        ...(hub ? {
+            subscribe: (key: string, listener: (value: unknown) => void): (() => void) =>
+                hub.subscribe(key, listener, cloneAndFreeze(readReactiveValue(key))),
+        } : {}),
         signal,
         refresh,
         log: (...args: unknown[]) => console.log(...args),

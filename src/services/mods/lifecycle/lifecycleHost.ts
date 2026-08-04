@@ -50,6 +50,8 @@ import {
     LIFECYCLE_DEADLINE_MS,
     LIFECYCLE_FAULT_STRIKES,
 } from './lifecycleFaults';
+import type { NativeLoader, NativeMissingExportError } from '../native/nativeLoader';
+import { disposeAllModSubscriptions, disposeModSubscriptions } from '../reactiveReads';
 
 /** A mod, as the host needs to see it. A narrow read-only view of `ValidatedMod`. */
 export interface LifecycleMod {
@@ -58,7 +60,13 @@ export interface LifecycleMod {
     readonly version: string;
     readonly file: string;
     readonly dependencies: Record<string, string>;
-    readonly native?: { readonly js: string; readonly hooks?: Record<string, string> };
+    readonly native?: { readonly js: string; readonly css?: string; readonly hooks?: Record<string, string> };
+    /**
+     * Phase 1.5 / MANIFEST.md §6.6 — the mod's folder name, so the native
+     * loader can build the asset URL that the browser `import()`s. Required
+     * for any mod with a `native` block; optional for declarative-only mods.
+     */
+    readonly folder?: string;
 }
 
 export interface LifecycleHostOptions {
@@ -66,6 +74,18 @@ export interface LifecycleHostOptions {
     readonly stateStore: LifecycleStateStore;
     readonly faultStore?: LifecycleFaultStore;
     readonly deadlineMs?: number;
+    /**
+     * Phase 1.5 — the native-tier loader. Optional: when absent, the host
+     * uses `noNativeHooks` and behaves exactly as Phase 1.4 did (no native
+     * imports, no CSS). When present, the host:
+     *   • mounts `native.css` after `activate` fires successfully (idempotent);
+     *   • unmounts `native.css` after `disable` fires (idempotent);
+     *   • forgets the cached module on `disable` so a re-enable re-imports.
+     * The `loadHooks` seam still owns `import()`; this loader only handles
+     * the CSS side-effects and the module-cache invalidation that the host
+     * owns but the `LoadModHooks` function does not.
+     */
+    readonly nativeLoader?: NativeLoader;
 }
 
 export interface LifecycleHost {
@@ -115,6 +135,7 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
     const stateStore = options.stateStore;
     const faultStore = options.faultStore ?? createNoopFaultStore();
     const deadlineMs = options.deadlineMs ?? LIFECYCLE_DEADLINE_MS;
+    const nativeLoader = options.nativeLoader;
 
     // In-memory session state. `latched` is per-session; `strikes` accumulate
     // within a session and are cleared by `reset()`. A restart gives a mod a
@@ -168,7 +189,7 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         readonly mod: LifecycleMod;
         readonly hookName: string;
         readonly fn: NativeHookFn;
-        readonly ctx: ModContext;
+        readonly ctx: ModContext | undefined;
     }): Promise<HookRunResult> {
         if (latched.has(input.mod.id)) {
             return { modId: input.mod.id, hook: input.hookName as never, ok: true, skipped: true };
@@ -203,8 +224,14 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
      * has no hooks to fire, which is the "behaves identically" rule (§3).
      *
      * A faulted `import()` (Phase 1.5 §4) surfaces as a `load` fault here so
-     * the app still starts. The host does NOT latch on a load fault — the
-     * next load cycle (after the user fixes the file and rescans) should get
+     * the app still starts. A `missing-export` error (the loader resolved the
+     * module but a declared hook name does not match an exported function) is
+     * surfaced with its own fault kind — the user sees "names a missing
+     * export" rather than "load failed", because a missing export is a
+     * manifest bug, not a network error.
+     *
+     * The host does NOT latch on a load or missing-export fault — the next
+     * load cycle (after the user fixes the file and rescans) should get
      * another chance, and a load is not a hook run.
      */
     async function resolveHooks(mod: LifecycleMod): Promise<ResolvedHooks | undefined> {
@@ -214,18 +241,20 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         try {
             hooks = await loadHooks(mod);
         } catch (error) {
+            const isMissingExport = isNativeMissingExportError(error);
+            const kind: LifecycleFaultKind = isMissingExport ? 'missing-export' : 'load';
             const message = error instanceof Error ? error.message : String(error);
             faultStore.add({
                 modId: mod.id,
                 file: mod.file,
-                kind: 'load',
-                hook: 'load',
+                kind,
+                hook: isMissingExport ? 'activate' : 'load',
                 strikes: 0,
                 latched: false,
                 reason: formatLifecycleFaultReason({
                     modName: mod.name,
-                    kind: 'load',
-                    hook: 'load',
+                    kind,
+                    hook: isMissingExport ? 'activate' : 'load',
                     message,
                 }),
             });
@@ -333,6 +362,15 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
                 runs.push(r);
             }
 
+            // Phase 1.5 — mount the mod's CSS after activate succeeds. A
+            // faulted activate does NOT mount the stylesheet: the mod is in
+            // a broken state and its CSS should not reach the page until the
+            // user fixes it and rescans. `mountCss` is idempotent, so a
+            // re-load that re-activates does not double-mount.
+            if (activateRan && nativeLoader && mod.native?.css) {
+                nativeLoader.mountCss(mod);
+            }
+
             runs.push(...ranInstall.filter((r) => !r.ok || !r.skipped));
 
             // Collect faulted mod ids so a caller can tell which mods failed
@@ -387,14 +425,40 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         if (!enableResult.ok) return enableResult;
         // `activate` follows `enable` regardless of whether `enable` was
         // skipped (a mod with no `enable` hook still activates on toggle-on).
-        return fireUserHook({ mod: input.mod, hookName: 'activate', ctx: input.ctx });
+        const activateResult = await fireUserHook({ mod: input.mod, hookName: 'activate', ctx: input.ctx });
+        // Phase 1.5 — mount CSS after a successful enable+activate. Idempotent
+        // (a re-enable does not double-mount), and only fires when activate
+        // actually ran and succeeded — a skipped or faulted activate leaves
+        // the page without the mod's CSS, matching the load-cycle behaviour.
+        if (activateResult.ok && !activateResult.skipped && nativeLoader && input.mod.native?.css) {
+            nativeLoader.mountCss(input.mod);
+        }
+        return activateResult;
     }
 
     async function disable(input: {
         readonly mod: LifecycleMod;
         readonly ctx?: ModContext;
     }): Promise<HookRunResult> {
-        return fireUserHook({ mod: input.mod, hookName: 'disable', ctx: input.ctx });
+        const result = await fireUserHook({ mod: input.mod, hookName: 'disable', ctx: input.ctx });
+        // Phase 2.4: teardown is host-owned, even if the mod forgot to unsubscribe.
+        disposeModSubscriptions(input.mod.id);
+        // Phase 1.5 — unmount CSS after disable, regardless of whether the
+        // disable hook itself threw. The mod is being switched off; its CSS
+        // must leave the page even if its cleanup hook misbehaved, otherwise
+        // a broken disable would leak the stylesheet for the rest of the
+        // session. Idempotent.
+        if (nativeLoader) {
+            nativeLoader.unmountCss(input.mod.id);
+            // Forget the cached module so a re-enable re-imports. A mod whose
+            // `disable` ran has been torn down; its module namespace should
+            // not survive into a fresh enable (mirrors the sandbox's per-run
+            // isolation — a re-enabled mod should not see stale module state).
+            nativeLoader.forget(input.mod.id);
+            // Drop the resolved-hooks cache too, so the next enable re-resolves.
+            resolved.delete(input.mod.id);
+        }
+        return result;
     }
 
     /**
@@ -434,6 +498,8 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
             strikes.clear();
             latched.clear();
             resolved.clear();
+            disposeAllModSubscriptions();
+            nativeLoader?.clear();
             faultStore.clear();
         },
     };
@@ -445,7 +511,7 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
  * is implemented with `Promise.race` so a hanging hook's promise is orphaned
  * rather than awaited — the host returns control to the caller regardless.
  */
-function runUnderDeadline(fn: NativeHookFn, ctx: ModContext, deadlineMs: number): Promise<void> {
+function runUnderDeadline(fn: NativeHookFn, ctx: ModContext | undefined, deadlineMs: number): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<void>((_, reject) => {
         timer = setTimeout(() => {
@@ -474,6 +540,15 @@ function classifyFault(error: unknown): {
     }
     const message = error instanceof Error ? error.message : String(error);
     return { kind: 'threw', message };
+}
+
+/**
+ * Narrow an unknown error to a `NativeMissingExportError`. Uses the duck-typed
+ * `name` field rather than `instanceof` so a loader from a different module
+ * instance (e.g. in tests with vi.resetModules) still classifies correctly.
+ */
+function isNativeMissingExportError(error: unknown): error is NativeMissingExportError {
+    return error instanceof Error && (error as { name?: string }).name === 'NativeMissingExportError';
 }
 
 /** A no-op fault store for tests that do not care about surfaced faults. */

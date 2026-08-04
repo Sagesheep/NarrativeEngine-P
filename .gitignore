@@ -56,6 +56,10 @@ GLM-CODE-REVIEW-HANDOFF.md
 # SESSION_LOG.md is a local working journal — keep it out of git going forward
 Upgrade/Refactor 18-07/SESSION_LOG.md
 
+# Playwright run output (the e2e specs themselves are tracked)
+test-results/
+playwright-report/
+
 # Graphify output and tooling
 graphify-out/
 .graphify_python

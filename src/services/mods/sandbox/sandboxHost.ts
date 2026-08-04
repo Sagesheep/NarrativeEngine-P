@@ -19,15 +19,13 @@ const WRITE_NAMES = [
     'updateContext',
     'updateNPC',
     'addMessage',
-    'addEnemySuggestions',
     'setDivergenceRegister',
     'addNpcSuggestions',
     'archiveNPC',
     'restoreNPC',
-    'onDirectorBriefPhase',
     'updatePlayerCharacter',
-    'setCharacterProfileData',
-    'setInventoryItems',
+    'setCharacterSheet',
+    'setInventory',
     'setLocationLedger',
     'addLocationSuggestions',
 ] as const;
@@ -163,7 +161,15 @@ export function applyJournal(
     for (const entry of writes) {
         if (entry.kind === 'store') {
             const storeEntry = entry as { kind: 'store'; name: string; args: unknown[] };
-            const method = facade.write[storeEntry.name as keyof FacadeWrites] as unknown as (...args: unknown[]) => void;
+            // Phase 2.3 / API.md §8.2 — two writes were renamed on the mod surface
+            // so the capability string, the write, and the read agree. The host
+            // facade still carries the old names (`setCharacterProfileData`,
+            // `setInventoryItems`); map the mod-facing name back here so the
+            // journal applies to the right callback. This keeps the sandbox
+            // surface (the new names) and the host facade (the old names)
+            // aligned without renaming the host's internal API in this phase.
+            const facadeName = SANDBOX_WRITE_TO_FACADE_NAME[storeEntry.name] ?? storeEntry.name;
+            const method = facade.write[facadeName as keyof FacadeWrites] as unknown as (...args: unknown[]) => void;
             method(...storeEntry.args);
         } else {
             const tableEntry = entry as { kind: 'table'; name: string; rows: unknown };
@@ -171,6 +177,17 @@ export function applyJournal(
         }
     }
 }
+
+/**
+ * `API.md` §8.2 — the two renamed writes. The mod surface uses the new names
+ * (`setCharacterSheet`, `setInventory`); the host facade still exposes the
+ * old names. This map is the single point of translation so a mod's
+ * `ctx.write.setCharacterSheet(...)` reaches `facade.write.setCharacterProfileData(...)`.
+ */
+const SANDBOX_WRITE_TO_FACADE_NAME: Record<string, string> = {
+    setCharacterSheet: 'setCharacterProfileData',
+    setInventory: 'setInventoryItems',
+};
 
 function createBrowserWorker(source: string): SandboxWorkerLike {
     if (typeof Worker === 'undefined') {

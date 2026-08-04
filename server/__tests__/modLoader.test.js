@@ -436,10 +436,11 @@ describe('loadMods — compute mods', () => {
     it('loads compute metadata and carries the sibling source as text', () => {
         write('arc', validMod({
             id: 'arc',
+            tables: [{ name: 'arcs', recordShape: 'array' }],
             compute: {
                 file: 'compute.js',
                 hook: 'postTurn',
-                capabilities: ['write:updateContext', 'table:read:npcs'],
+                capabilities: ['write:updateContext', 'table:read:mod.arc.arcs'],
             },
         }), { 'compute.js': 'export default async function () { return { ok: true }; }' });
 
@@ -449,7 +450,7 @@ describe('loadMods — compute mods', () => {
         expect(mods[0].compute).toEqual({
             file: 'compute.js',
             hook: 'postTurn',
-            capabilities: ['write:updateContext', 'table:read:npcs'],
+            capabilities: ['write:updateContext', 'table:read:mod.arc.arcs'],
         });
         expect(mods[0].computeSource).toBe('export default async function () { return { ok: true }; }');
     });

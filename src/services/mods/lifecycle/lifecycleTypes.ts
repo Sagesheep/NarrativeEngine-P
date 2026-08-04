@@ -2,10 +2,11 @@
  * Phase 1.4 — lifecycle hook types.
  *
  * The seven hook names are fixed by MANIFEST.md §3.1 and Phase 1.4 §2. The
- * firing moments and ordering are this phase's; the argument shape is NOT —
- * MANIFEST.md §10 defers `ModContext` to Phase 2.2, so it is carried here as
- * an opaque token. The host passes whatever the caller supplies through to
- * each hook; a mod author's TypeScript sees `unknown` until 2.2 narrows it.
+ * firing moments and ordering are this phase's; the argument shape is now
+ * Phase 2.3's `ModContext` (previously an opaque `unknown` token per
+ * MANIFEST.md §10's deferral to 2.2). The host passes whatever the caller
+ * supplies through to each hook; a mod author's TypeScript sees the real
+ * `ModContext` shape from Phase 2.3's `modContext.ts`.
  *
  * `NativeModHooks` is what Phase 1.5's native loader produces after
  * `import()`-ing a mod's `native.js` and resolving the named exports from
@@ -13,6 +14,7 @@
  * hooks; the seam between this phase and 1.5 is the `LoadModHooks` function
  * passed into `createLifecycleHost`.
  */
+import type { ModContext } from '../modContext';
 import type { ModFault } from '../modTypes';
 
 export type LifecycleHookName =
@@ -36,17 +38,36 @@ export const LIFECYCLE_HOOK_NAMES: readonly LifecycleHookName[] = [
 ] as const;
 
 /**
- * The mod context object. Phase 2.2 owns the shape; this phase only carries
- * it. Declared as `unknown` so no caller can reach into it by accident.
+ * The mod context object. Phase 2.3 narrowed this from `unknown` to the real
+ * `ModContext` shape from `modContext.ts`. The host passes whatever the caller
+ * supplies through to each hook — it never introspects the object, only
+ * carries it. A native mod's `activate`/`enable`/`disable`/etc. now receives
+ * the same surface a sandboxed compute hook does (`API.md` §1.1 — one shape,
+ * two commit points), so a mod that has both a compute hook and a native UI
+ * panel can share one helper module between them.
+ *
+ * Re-exported here so the lifecycle host's call sites have one import for
+ * both the hook names and the context shape. The source of truth is
+ * `../modContext`; this is a re-export, not a redefinition.
  */
-export type ModContext = unknown;
+export type { ModContext };
 
 /**
  * A single lifecycle hook. May be async; the host awaits it under a timeout.
  * A hook that throws or rejects is contained as a fault, never fatal
  * (Phase 1.4 §3).
+ *
+ * The context is `ModContext | undefined` rather than `ModContext` because the
+ * bootstrap does not yet construct a `ModContext` for the install/update/
+ * activate load cycle — that wiring lands with the lifecycle-context phase
+ * that follows 2.3. A mod's `activate` hook today receives `undefined` when
+ * fired from the load cycle, and a real `ModContext` when fired from a path
+ * that has one (the explicit `enable`/`disable` code paths will pass one
+ * once they are wired). A mod that wants to read host state should guard
+ * against `undefined`; a mod that only logs (like the example fixture) does
+ * not need to.
  */
-export type NativeHookFn = (ctx: ModContext) => void | Promise<void>;
+export type NativeHookFn = (ctx: ModContext | undefined) => void | Promise<void>;
 
 /**
  * The resolved exports of a mod's `native.js`, keyed by hook name. Every
@@ -66,7 +87,7 @@ export type LoadModHooks = (mod: {
     readonly id: string;
     readonly name: string;
     readonly version: string;
-    readonly native?: { readonly js: string; readonly hooks?: Record<string, string> };
+    readonly native?: { readonly js: string; readonly css?: string; readonly hooks?: Record<string, string> };
     readonly folder?: string;
 }) => Promise<NativeModHooks | undefined> | NativeModHooks | undefined;
 
