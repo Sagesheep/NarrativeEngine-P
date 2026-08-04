@@ -1,14 +1,20 @@
 import { Save, Loader2, Zap, Scroll, Search, Package, Dices } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { toast } from '../Toast';
-import { ArcInjectorButton } from '../ArcInjectorButton';
+// PARKED (Full Modularity 2.9.3) — `ArcInjectorButton` is hidden while the Arc
+// Engine is parked. The component and `arcSpawn.ts` are untouched; only the
+// mount is removed. See the note in this file below and `API.md` §8.6 item 2.
+// import { ArcInjectorButton } from '../ArcInjectorButton';
 import { OneShotInjectorButton } from '../OneShotInjectorButton';
 import { AbsoluteCommandButton } from '../AbsoluteCommandButton';
 
 /**
  * The horizontal button strip above the composer: Save, Trim, Deep Search,
- * Dice Me, Roll Loot, Arc/One-Shot injectors, Ask GM, Archive.
+ * Dice Me, Roll Loot, One-Shot injector, Absolute Command, Ask GM, Archive.
  * Extracted from ChatArea; arming state lives in the store.
+ *
+ * The Arc injector is parked and unmounted — see the block comment at its old
+ * position below.
  */
 export function ChatActionStrip({
     isStreaming,
@@ -120,9 +126,25 @@ export function ChatActionStrip({
                 </button>
             )}
 
-            {activeCampaignId && (
-                <ArcInjectorButton />
-            )}
+            {/*
+              * PARKED — "Inject Arc" button hidden (Full Modularity, Phase 2.9.3).
+              *
+              * The Arc Engine's post-turn tick is broken at HEAD: 2.3 migrated
+              * `mods/arc/compute.js` to the `getContext()` v1 surface while the
+              * sandbox binding still hands mods the raw `HostFacade` shape, so the
+              * tick throws on its first statement every turn (`API.md` §11.3).
+              * Offering a "spawn an arc" button for an engine that cannot then
+              * advance the arc it spawned is worse than offering nothing — it costs
+              * an LLM call (`arcSpawn.ts`) and produces a thread that never moves.
+              *
+              * Nothing is deleted. `ArcInjectorButton.tsx`, `arcSpawn.ts`,
+              * `openThreads.ts` and `mods/arc/` all remain; only this mount is gone,
+              * so restoring it is uncommenting two lines.
+              *
+              * Reintroduction is Phase 4.2 (header button registry) — the button
+              * comes back as a mount point the arc mod claims for itself, which is
+              * where `mods/arc/compute.js:14-20` always said it belonged.
+              */}
             {activeCampaignId && (
                 <OneShotInjectorButton />
             )}
