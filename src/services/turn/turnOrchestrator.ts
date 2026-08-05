@@ -3,6 +3,7 @@ import type { AppSettings, GameContext, ChatMessage, NPCEntry, EnemyEntry, Enemy
 import type { OneShotEventId } from '../oneshot/oneShotEvents';
 import { createTurnContext } from './turnContext';
 import { buildHostFacade } from './hostFacade';
+import { emitCoreEvent } from '../mods/events';
 import {
     resolveEngineRolls,
     addUserTurnMessage,
@@ -164,6 +165,19 @@ export async function runTurn(
         displayInput,
         locationLedger: useAppStore.getState().locationLedger ?? [],
         npcLedger: npcLedger ?? [],
+    });
+
+    // Phase 3.2 / `EVENTS.md` §6.3 — the composition root, past the `!provider`
+    // guard, before anything mutates. The only place in the app where "a turn is
+    // beginning" is unambiguously true. `playerInput` is the RAW text: the user
+    // bubble's stored content carries the engine-roll and loot injections
+    // `resolveEngineRolls` appends on the next line, and a mod that wants the
+    // injected form reads `ctx.data.messages` (§8.3).
+    emitCoreEvent('turn.start', {
+        turnId: ctx.turnId,
+        campaignId: state.activeCampaignId ?? null,
+        playerInput: input,
+        tier: facade.config.aiTier,
     });
 
     // ── WO-P1-02: turn stages ────────────────────────────────────────────

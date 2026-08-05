@@ -1031,6 +1031,16 @@ describe('loadMods — Phase 1.3 unknown top-level keys', () => {
             .toMatch(/field "mounts" is reserved for a later app version \(4\.1\) and is not supported yet/);
     });
 
+    // Phase 3.2 / MANIFEST.md §16 — `events` moved from reserved to declined.
+    // Phase 3.1 was the phase that would have defined it, and it declined the
+    // key, so the message must say so and point at the working alternative.
+    it('rejects the declined "events" key with the ctx.events.on() alternative', () => {
+        write('x', validMod({ events: ['turn.start'] }));
+        const reason = soleFaultReason(loadMods(dir, '1.0.4'));
+        expect(reason).toMatch(/events is not a manifest field — subscribe with ctx\.events\.on\(\) from your activate hook/);
+        expect(reason).not.toMatch(/reserved for a later app version/);
+    });
+
     it('rejects top-level hooks (belongs inside native)', () => {
         write('x', validMod({ hooks: { activate: 'onActivate' } }));
         expect(soleFaultReason(loadMods(dir, '1.0.4')))

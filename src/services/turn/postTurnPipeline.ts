@@ -21,6 +21,7 @@ import { tierAllows } from './aiTier';
 import { startPostTurnTracks } from './tracks';
 import type { PostTurnTrackContext } from './tracks/types';
 import { buildHostFacade, hasHostModelRole, type HostFacade } from './hostFacade';
+import { emitCoreEvent, emitCoreEventLazy } from '../mods/events';
 
 // WO-P2-03: the enemy-discovery single-flight map moved to `tracks/enemySuggestionTrack.ts`
 // along with the track body. Re-exported here so the campaign-switch caller
@@ -355,9 +356,14 @@ async function runArchiveTrack(
     // Durable-commit v1: a retry after a failed commit looks for the scene before
     // writing one, so a lost-response failure re-links instead of duplicating.
     let appendedSceneId: string | undefined;
+    // Phase 3.2 / `EVENTS.md` §6.5 — on the re-link path the message was stamped
+    // by an earlier attempt, so `archive.sceneAppended` carries `messageId: null`
+    // rather than naming a bubble this run did not touch.
+    let reLinked = false;
     if (verifyExistingScene) {
         appendedSceneId = await findArchivedSceneIdForTurn(activeCampaignId, displayInput);
         if (appendedSceneId) {
+            reLinked = true;
             console.log(`[PostTurn] Turn was already archived as scene #${appendedSceneId} — re-linking, not re-appending`);
         }
     }
@@ -415,6 +421,36 @@ async function runArchiveTrack(
     state.setChapters(freshChapters);
     console.log(`[Archive] Scene #${appendedSceneId} committed`);
 
+    // Phase 3.2 / `EVENTS.md` §4.3 + §6.5 — the one emit inside the durable
+    // commit path, and placement is what makes it safe. The append has returned
+    // a sceneId, the sceneId is stamped on the message, and the fresh index,
+    // timeline and chapters have landed in the store, so a listener reading
+    // `ctx.data.archiveIndex` after a refresh sees the new scene. Everything
+    // below this line is background scheduling, and `runArchiveTrack`'s
+    // `return true` verdict is unreachable from a listener: containment is
+    // per-listener inside the bus, so no listener can propagate an exception
+    // into the enclosing `try` and turn a successful append into
+    // `archived: false`.
+    if (appendedSceneId) {
+        // Lazy: resolving `messageId` reads the live store, so with no listeners
+        // it does not happen at all, and if it ever throws it does so inside the
+        // emit guard rather than inside `runArchiveTrack`'s `try` — where a
+        // throw would turn a successful append into `archived: false`.
+        const sceneId = appendedSceneId;
+        emitCoreEventLazy('archive.sceneAppended', () => ({
+            campaignId: activeCampaignId,
+            sceneId,
+            // The stamped bubble, identified by the stamp itself rather than by
+            // re-deriving "last assistant" — `allMsgs` is the snapshot's frozen
+            // window, and `updateLastAssistantMessage` wrote to the live store.
+            // `null` on the re-link path, where the message was stamped by an
+            // earlier attempt and this run touched no bubble.
+            messageId: reLinked
+                ? null
+                : (useAppStore.getState().messages?.find(m => m.sceneId === sceneId)?.id ?? null),
+        }));
+    }
+
     const entry = freshIndex.find(e => e.sceneId === appendedSceneId);
     const bkProvider = state.getFreshProvider();
     if (entry && !entry.events && bkProvider) {
@@ -451,6 +487,18 @@ async function runArchiveTrack(
             const sealedChapters = await api.chapters.list(activeCampaignId);
             if (!assertStillActive(activeCampaignId, 'Chapter-AutoSeal')) return;
             guardedSetChapters(sealedChapters);
+            // Phase 3.2 / `EVENTS.md` §4.3 + §6.5 — inside the `Chapter-AutoSeal`
+            // background closure, after `api.chapters.seal` succeeded and
+            // `guardedSetChapters` applied the result: the seal is durable
+            // before any listener sees it. **No ordering guarantee relative to
+            // the turn sequence** — this closure runs on `backgroundQueue` and
+            // can land after the next `turn.start` (§7.3).
+            emitCoreEvent('archive.chapterSealed', {
+                campaignId: activeCampaignId,
+                chapterId: sealResult.sealedChapter.chapterId,
+                title: sealResult.sealedChapter.title,
+                trigger: 'auto',
+            });
             toast.info(`Chapter "${sealResult.sealedChapter.title}" auto-sealed (${CHAPTER_SCENE_SOFT_CAP} scenes)`);
 
             const sealProvider = facade ? undefined : state.getFreshProvider();

@@ -39,6 +39,7 @@ import type { TurnContext } from './turnContext';
 import type { GatheredContext } from './contextGatherer';
 import type { TurnState, TurnCallbacks } from './turnOrchestrator';
 import { hasHostModelRole, type HostFacade } from './hostFacade';
+import { emitCoreEvent, emitCoreEventLazy } from '../mods/events';
 
 const MAX_TOOL_CALLS_PER_TURN = 5;
 
@@ -384,6 +385,31 @@ export function buildTurnPayload(
     ctx.payloadTrace = payloadResult.trace;
     ctx.payloadDebugSections = payloadResult.debugSections;
 
+    // Phase 3.2 / `EVENTS.md` §6.3 — the last moment before the prompt is frozen
+    // and sent. The payload BODY is never carried: a prompt body on the surface
+    // is a `CONTRACT.md` permanent prohibition (§3).
+    //
+    // **Correction to `EVENTS.md` §6.3.** It says `tokenEstimate` is "summed
+    // from `payloadResult.trace`, which is computed unconditionally… identical
+    // with `debugMode` off". The trace is *collected* unconditionally but only
+    // RETURNED when `debugMode` is on (`payloadBuilder.ts` — `trace: isDebug ?
+    // collector.trace : undefined`), so a trace sum alone would be 0 for every
+    // user with debug off. The fallback is the character/4 heuristic the repo
+    // already uses for exactly this purpose (`pushToolTrace`, below) — the field
+    // is `tokenEstimate`, not a token count. Recorded as a finding; no turn
+    // stage was restructured (3.2 §6).
+    //
+    // Lazy because building it walks the payload: with no listeners this does
+    // not run at all, which is what keeps the Phase 0.2 gate honest (§3).
+    emitCoreEventLazy('turn.payloadBuilt', () => ({
+        turnId: ctx.turnId,
+        campaignId: state.activeCampaignId ?? null,
+        messageCount: payloadResult.messages.length,
+        tokenEstimate: payloadResult.trace?.length
+            ? payloadResult.trace.reduce((sum, row) => sum + (row.tokens ?? 0), 0)
+            : Math.round(payloadResult.messages.reduce((sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0), 0) / 4),
+    }));
+
     const payload = payloadResult.messages;
     if (settings.debugMode && callbacks.setLastPayloadTrace) {
         callbacks.setLastPayloadTrace(payloadResult.trace);
@@ -662,6 +688,19 @@ export async function runGenerationStage(
                 // reconciler to find, and the scene silently never archived.
                 callbacks.persistTurnState?.();
 
+                // Phase 3.2 / `EVENTS.md` §6.3 — the terminal success branch,
+                // immediately after `persistTurnState()`: a listener runs only
+                // once the turn is recoverable on disk. `text` is carried
+                // because from this instant the message is mutable — swipe,
+                // edit and continue all overwrite it.
+                emitCoreEvent('turn.generated', {
+                    turnId: ctx.turnId,
+                    campaignId: state.activeCampaignId ?? null,
+                    messageId: assistantMsgId,
+                    text: stakesStrippedText,
+                    sceneStakes: parsedStakes,
+                });
+
                 callbacks.setPipelinePhase?.('idle');
                 abortController.signal.removeEventListener('abort', abortListener);
             },
@@ -681,6 +720,14 @@ export async function runGenerationStage(
                     callbacks.onCheckingNotes(false);
                     callbacks.setLoadingStatus?.(null);
                     callbacks.setPipelinePhase?.('idle');
+                    // Phase 3.2 / `EVENTS.md` §6.3 — the `isUserAbort` terminal
+                    // branch, after `setPipelinePhase('idle')`, before the abort
+                    // listener is detached.
+                    emitCoreEvent('turn.aborted', {
+                        turnId: ctx.turnId,
+                        campaignId: state.activeCampaignId ?? null,
+                        messageId: assistantMsgId,
+                    });
                     abortController.signal.removeEventListener('abort', abortListener);
                     return;
                 }
@@ -721,6 +768,16 @@ export async function runGenerationStage(
                     callbacks.onCheckingNotes(false);
                     callbacks.setLoadingStatus?.(null);
                     callbacks.setPipelinePhase?.('idle');
+                    // Phase 3.2 / `EVENTS.md` §6.3 — the retry-exhausted terminal
+                    // branch ONLY. The two intermediate retry branches above are
+                    // still in flight and emit nothing: a mod must not see three
+                    // "failures" for one turn.
+                    emitCoreEvent('turn.failed', {
+                        turnId: ctx.turnId,
+                        campaignId: state.activeCampaignId ?? null,
+                        messageId: assistantMsgId,
+                        reason: String(err),
+                    });
                     abortController.signal.removeEventListener('abort', abortListener);
                 }
             },

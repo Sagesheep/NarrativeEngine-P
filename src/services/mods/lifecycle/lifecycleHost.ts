@@ -52,6 +52,7 @@ import {
 } from './lifecycleFaults';
 import type { NativeLoader, NativeMissingExportError } from '../native/nativeLoader';
 import { disposeAllModSubscriptions, disposeModSubscriptions } from '../reactiveReads';
+import { eventFaultStore, modEventBus } from '../events';
 
 /** A mod, as the host needs to see it. A narrow read-only view of `ValidatedMod`. */
 export interface LifecycleMod {
@@ -443,6 +444,11 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         const result = await fireUserHook({ mod: input.mod, hookName: 'disable', ctx: input.ctx });
         // Phase 2.4: teardown is host-owned, even if the mod forgot to unsubscribe.
         disposeModSubscriptions(input.mod.id);
+        // Phase 3.2 / `EVENTS.md` §5.4: the same discipline for event listeners.
+        // Every subscription is attributed to the mod whose context created it
+        // and **the host removes them here — the mod is never trusted to call
+        // `off`.** Phase 4.9.4 will try deliberately to leak one.
+        modEventBus.disposeModListeners(input.mod.id);
         // Phase 1.5 — unmount CSS after disable, regardless of whether the
         // disable hook itself threw. The mod is being switched off; its CSS
         // must leave the page even if its cleanup hook misbehaved, otherwise
@@ -499,6 +505,11 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
             latched.clear();
             resolved.clear();
             disposeAllModSubscriptions();
+            // Phase 3.2 / `EVENTS.md` §5.4 — `reset()` is the same teardown call
+            // site for the bus. Retained sticky payloads go too: a reset host is
+            // a host that has not yet said the app is ready.
+            modEventBus.reset();
+            eventFaultStore.clear();
             nativeLoader?.clear();
             faultStore.clear();
         },

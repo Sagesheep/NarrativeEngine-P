@@ -159,6 +159,53 @@ export interface GameContextPatch {
     arcDigest?: string;
 }
 
+export type SceneStakes = 'low' | 'medium' | 'high' | 'climactic' | 'unknown';
+
+export interface ModEvents {
+    'app.ready': { readonly modIds: readonly string[]; readonly faultCount: number; readonly replayed?: true };
+    'app.modsChanged': { readonly modIds: readonly string[]; readonly faultCount: number };
+    'campaign.opened': { readonly campaignId: string; readonly replayed?: true };
+    'campaign.closing': { readonly campaignId: string; readonly nextCampaignId: string | null };
+    'turn.start': { readonly turnId: string; readonly campaignId: string | null; readonly playerInput: string; readonly tier: AiTier | undefined };
+    'turn.payloadBuilt': { readonly turnId: string; readonly campaignId: string | null; readonly messageCount: number; readonly tokenEstimate: number };
+    'turn.generated': { readonly turnId: string; readonly campaignId: string | null; readonly messageId: string; readonly text: string; readonly sceneStakes: SceneStakes };
+    'turn.aborted': { readonly turnId: string; readonly campaignId: string | null; readonly messageId: string };
+    'turn.failed': { readonly turnId: string; readonly campaignId: string | null; readonly messageId: string; readonly reason: string };
+    'turn.committed': { readonly turnId: string | null; readonly campaignId: string; readonly messageId: string; readonly sceneId: string };
+    'turn.commitFailed': { readonly turnId: string | null; readonly campaignId: string; readonly messageId: string };
+    'message.swiped': { readonly campaignId: string; readonly messageId: string; readonly index: number; readonly total: number; readonly generated: boolean };
+    'message.continued': { readonly campaignId: string; readonly messageId: string; readonly addedText: string };
+    'message.edited': { readonly campaignId: string; readonly messageId: string; readonly role: 'user' | 'assistant' | 'system' | 'tool'; readonly pending: boolean };
+    'message.deleted': { readonly campaignId: string; readonly messageIds: readonly string[] };
+    'archive.sceneAppended': { readonly campaignId: string; readonly sceneId: string; readonly messageId: string | null };
+    'archive.chapterSealed': { readonly campaignId: string; readonly chapterId: string; readonly title: string; readonly trigger: 'auto' | 'manual' };
+    'settings.changed': { readonly changedKeys: readonly string[] };
+    'settings.tierChanged': { readonly tier: AiTier | undefined; readonly previous: AiTier | undefined };
+    'settings.presetChanged': { readonly presetId: string; readonly name: string };
+}
+
+export type CoreEventName = keyof ModEvents;
+export type ModScopedEventName = `mod.${string}`;
+export type AnyEventName = CoreEventName | ModScopedEventName;
+export type ModEventPayload = Readonly<Record<string, unknown>>;
+export type PayloadFor<E extends AnyEventName> = E extends CoreEventName ? ModEvents[E] : ModEventPayload;
+
+export interface ModEventsApi {
+    on<E extends CoreEventName>(event: E, listener: (payload: ModEvents[E]) => void): () => void;
+    on(event: ModScopedEventName, listener: (payload: ModEventPayload) => void): () => void;
+    on(event: AnyEventName, listener: (payload: any) => void): () => void;
+
+    off<E extends CoreEventName>(event: E, listener: (payload: ModEvents[E]) => void): void;
+    off(event: ModScopedEventName, listener: (payload: ModEventPayload) => void): void;
+    off(event: AnyEventName, listener: (payload: any) => void): void;
+
+    once<E extends CoreEventName>(event: E, listener: (payload: ModEvents[E]) => void): () => void;
+    once(event: ModScopedEventName, listener: (payload: ModEventPayload) => void): () => void;
+    once(event: AnyEventName, listener: (payload: any) => void): () => void;
+
+    emit(name: string, payload: ModEventPayload): void;
+}
+
 // ─── The surface (API.md §3) ────────────────────────────────────────────────
 
 /**
@@ -174,6 +221,7 @@ export interface ModContext {
     readonly write: ModWrites;
     readonly model: ModModel;
     readonly table: ModTables;
+    readonly events: ModEventsApi;
     readonly signal: AbortSignal;
     subscribe<K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void): () => void;
     refresh(): Promise<ModContext>;

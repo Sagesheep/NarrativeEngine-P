@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type { ArchiveIndexEntry, ChatMessage, CondenserState, GameContext, DivergenceRegister, DivergenceEntry, DivergenceCategory, TopicClusters, PinnedExcerpt } from '../../types';
-import { debouncedSaveCampaignState } from './campaignSlice';
+import { debouncedSaveCampaignState, getActiveCampaignIdForEvents } from './campaignSlice';
+import { emitCoreEvent } from '../../services/mods/events';
 import { uid } from '../../utils/uid';
 import { countTokens } from '../../services/infrastructure/tokenizer';
 
@@ -366,17 +367,38 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
             }
             return { messages: msgs };
         }),
-    updateMessageContent: (id, content) =>
+    updateMessageContent: (id, content) => {
+        let edited: ChatMessage | undefined;
         set((s) => {
-            const msgs = s.messages.map(m => m.id === id ? { ...m, content } : m);
+            const msgs = s.messages.map(m => {
+                if (m.id !== id) return m;
+                edited = m;
+                return { ...m, content };
+            });
             debouncedSaveCampaignState();
             return { messages: msgs };
-        }),
+        });
+        // Phase 3.2 / `EVENTS.md` §6.7 — one of the three USER-edit paths. The
+        // emit goes after `set(...)` returns, never inside the updater, because a
+        // listener that reads the store must see post-write state. `pending` is
+        // true when the message still carries `pendingCommit`, so a mod can tell
+        // a pre-commit variant edit from a history edit.
+        if (edited) {
+            emitCoreEvent('message.edited', {
+                campaignId: getActiveCampaignIdForEvents(),
+                messageId: id,
+                role: edited.role,
+                pending: edited.pendingCommit === true,
+            });
+        }
+    },
     replaceMessageText: (messageId, oldText, newText) => {
         let applied = false;
+        let edited: ChatMessage | undefined;
         set((s) => {
             const msgs = s.messages.map(msg => {
                 if (msg.id !== messageId) return msg;
+                edited = msg;
                 const next = { ...msg };
                 if (typeof msg.content === 'string') {
                     const span = locateRawSpan(msg.content, oldText);
@@ -398,22 +420,52 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
             debouncedSaveCampaignState();
             return { messages: msgs };
         });
+        // Phase 3.2 / `EVENTS.md` §11 site 21 — only when the span was actually
+        // replaced. A `replaceMessageText` that located nothing wrote nothing,
+        // and a mod must not be told about an edit that did not happen.
+        if (applied && edited) {
+            emitCoreEvent('message.edited', {
+                campaignId: getActiveCampaignIdForEvents(),
+                messageId,
+                role: edited.role,
+                pending: edited.pendingCommit === true,
+            });
+        }
         return applied;
     },
-    deleteMessage: (id) =>
+    deleteMessage: (id) => {
         set((s) => {
             const msgs = s.messages.filter(m => m.id !== id);
             debouncedSaveCampaignState();
             return { messages: msgs };
-        }),
-    deleteMessagesFrom: (id) =>
+        });
+        // Phase 3.2 / `EVENTS.md` §6.7 — one of the app's only two deletion
+        // paths (`useMessageEditor.ts` and `ChatArea.tsx` both route through
+        // these two).
+        emitCoreEvent('message.deleted', {
+            campaignId: getActiveCampaignIdForEvents(),
+            messageIds: [id],
+        });
+    },
+    deleteMessagesFrom: (id) => {
+        let removedIds: string[] = [];
         set((s) => {
             const index = s.messages.findIndex(m => m.id === id);
             if (index === -1) return { messages: s.messages };
             const msgs = s.messages.slice(0, index);
+            removedIds = s.messages.slice(index).map(m => m.id);
             debouncedSaveCampaignState();
             return { messages: msgs };
-        }),
+        });
+        // `messageIds` is an array so the whole removed tail is **one** emit,
+        // not one per message. No-op when the id was not found (`index === -1`).
+        if (removedIds.length > 0) {
+            emitCoreEvent('message.deleted', {
+                campaignId: getActiveCampaignIdForEvents(),
+                messageIds: removedIds,
+            });
+        }
+    },
     setStreaming: (v) => set({ isStreaming: v } as Partial<ChatDeps>),
     clearChat: () => set((_s) => {
         const newCondenser = { condensedUpToIndex: -1 };

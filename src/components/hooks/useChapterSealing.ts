@@ -5,6 +5,7 @@ import { pruneChapterEntries } from '../../services/campaign-state/divergenceReg
 import { saveDivergenceRegister } from '../../store/campaignStore';
 import { useAppStore } from '../../store/useAppStore';
 import { toast } from '../Toast';
+import { emitCoreEvent } from '../../services/mods/events';
 import type { ArchiveChapter, EndpointConfig, ProviderConfig, GameContext } from '../../types';
 
 interface UseChapterSealingDeps {
@@ -124,6 +125,18 @@ export function useChapterSealing(deps: UseChapterSealingDeps) {
 
             const freshChapters = await api.chapters.list(campaignId);
             deps.setChapters(freshChapters);
+
+            // Phase 3.2 / `EVENTS.md` §6.5 — the second of the two places a seal
+            // completes, after the seal landed and the new chapter list is in the
+            // store. `trigger` distinguishes it from the auto-seal in
+            // `postTurnPipeline.ts` so a mod can ignore the one it does not care
+            // about.
+            emitCoreEvent('archive.chapterSealed', {
+                campaignId,
+                chapterId: result.sealedChapter.chapterId,
+                title: result.sealedChapter.title,
+                trigger: reason === 'manual' ? 'manual' : 'auto',
+            });
 
             const capturedHeaderIndex = deps.context.headerIndex;
             const capturedProvider = deps.getActiveSummarizerEndpoint?.()

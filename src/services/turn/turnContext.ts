@@ -25,11 +25,48 @@ import type { OpenAIMessage } from '../llm/llmService';
 import type { PayloadTrace, DebugSection } from '../../types';
 
 /**
+ * Phase 3.2 — the `turnId` source. A per-session monotonic counter, **not**
+ * `uid()`.
+ *
+ * `EVENTS.md` §7.1 suggests "a `uid()` alongside the existing fields", and that
+ * is a defect the Phase 0.2 base-app gate caught on the first run: `uid()` is
+ * `Date.now().toString(36) + Math.random()…`, so minting one here consumes a
+ * draw from the RNG that `rollEngines` reads two stages later. Every dice
+ * outcome in the canonical turn moved. Emitting an event must not change what
+ * the app does (3.2 §3), and a correlation key that perturbs the dice is a
+ * changed base-app behaviour, not a side effect.
+ *
+ * A counter is also the better key on the merits: `turnId` only has to correlate
+ * `turn.generated` with `turn.committed` inside one page load — the snapshot
+ * that carries it is in-memory, and after a crash the id is `null` by
+ * construction (§7.1). No clock dependence, no collision window.
+ */
+let turnCounter = 0;
+
+/**
  * The per-turn working set. Created at `runTurn` entry from `TurnState`,
  * mutated by each stage, consumed by `buildPayload` (as an options object)
  * and the generation/streaming stage.
  */
 export type TurnContext = {
+    // ── Identity ──────────────────────────────────────────────────────────
+    /**
+     * Phase 3.2 / `EVENTS.md` §7.1 — the correlation key for the mod event bus.
+     * Minted here, carried on the bus, and carried across the commit boundary by
+     * the pending snapshot (which already carries the bus).
+     *
+     * It exists because `turn.generated` and `turn.committed` are separated by an
+     * unbounded interval and by at least one other `turn.start` — the commit for
+     * turn N normally lands during the send of turn N+1. Without a correlation
+     * key a mod that stages work at generation time and finalises it at commit
+     * time cannot tell which turn it is finalising.
+     *
+     * Not read by any product code: nothing in the turn path branches on it, and
+     * a Smart Retry re-entry keeps the original id so a mod sees one start and
+     * one end per turn however many attempts it took.
+     */
+    turnId: string;
+
     // ── Inputs (set at creation from TurnState) ────────────────────────────
     /** The original user input string (before engine-roll appends). */
     input: string;
@@ -89,6 +126,7 @@ export function createTurnContext(args: {
     npcLedger: NPCEntry[];
 }): TurnContext {
     return {
+        turnId: `turn_${++turnCounter}`,
         input: args.input,
         displayInput: args.displayInput,
         locationLedger: args.locationLedger,

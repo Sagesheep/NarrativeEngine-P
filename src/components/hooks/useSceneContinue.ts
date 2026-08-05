@@ -12,6 +12,7 @@ import { gatherContext } from '../../services/turn/contextGatherer';
 import { rebuildStateFromLiveStoreLike } from './sceneContinueFallback';
 import { toast } from '../Toast';
 import { debouncedSaveCampaignState } from '../../store/slices/campaignSlice';
+import { emitCoreEvent } from '../../services/mods/events';
 import type { ChatMessage } from '../../types';
 
 /**
@@ -187,6 +188,16 @@ export function useSceneContinue(messageId: string | null) {
             // Refresh the snapshot's frozen message copy so the commit-time importance
             // rater sees the merged text (snapshot.messages holds stale object refs otherwise).
             refreshPendingSnapshotMessage(messageId, { content: finalMerged });
+
+            // Phase 3.2 / `EVENTS.md` §6.7 — after `refreshPendingSnapshotMessage`,
+            // so the commit-time view and the store agree before any listener
+            // runs. `addedText` is the continuation ONLY; the merged whole is on
+            // the message.
+            emitCoreEvent('message.continued', {
+                campaignId: fresh.activeCampaignId ?? '',
+                messageId,
+                addedText: result.text,
+            });
 
             // R8: persist after every merge.
             debouncedSaveCampaignState();

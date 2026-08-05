@@ -143,7 +143,7 @@ describe('Phase 2.3 — buildModContext', () => {
                 facade: makeFacade(),
             });
             expect(Object.keys(ctx).sort()).toEqual(
-                ['api', 'config', 'data', 'log', 'mod', 'model', 'refresh', 'signal', 'subscribe', 'table', 'write'].sort(),
+                ['api', 'config', 'data', 'events', 'log', 'mod', 'model', 'refresh', 'signal', 'subscribe', 'table', 'write'].sort(),
             );
         });
 

@@ -44,6 +44,8 @@ import type {
 import { APP_VERSION } from '../../version';
 import { trackModSubscription } from './reactiveReads';
 import { reactiveFaultStore, formatReactiveFaultReason } from './reactiveFaults';
+import type { AnyEventName, CoreEventName, ModEventOwner, ModEventPayload, ModEvents, ModScopedEventName } from './events';
+import { modEventBus } from './events';
 
 /**
  * `API.md` §3.1 — the mod's own identity, as the host sees it. The object is
@@ -179,12 +181,26 @@ export interface ModTables {
 }
 
 /**
- * `API.md` §3 — the full surface handed to a mod. The reserved names
- * (`events`, `mounts`, `macros`, `facts`, `roles`, `theme`) are **absent in v1
- * and will not be squatted**; they will be defined by the phases that own them.
- *
- * `subscribe` is declared here and implemented in Phase 2.4. The signature is
- * fixed now so 2.4 implements a decision rather than invents one.
+ * Phase 3.3 — events interface on the context object.
+ */
+export interface ModEventsApi {
+    on<E extends CoreEventName>(event: E, listener: (payload: ModEvents[E]) => void): () => void;
+    on(event: ModScopedEventName, listener: (payload: ModEventPayload) => void): () => void;
+    on(event: AnyEventName, listener: (payload: any) => void): () => void;
+
+    off<E extends CoreEventName>(event: E, listener: (payload: ModEvents[E]) => void): void;
+    off(event: ModScopedEventName, listener: (payload: ModEventPayload) => void): void;
+    off(event: AnyEventName, listener: (payload: any) => void): void;
+
+    once<E extends CoreEventName>(event: E, listener: (payload: ModEvents[E]) => void): () => void;
+    once(event: ModScopedEventName, listener: (payload: ModEventPayload) => void): () => void;
+    once(event: AnyEventName, listener: (payload: any) => void): () => void;
+
+    emit(name: string, payload: ModEventPayload): void;
+}
+
+/**
+ * `API.md` §3 — the full surface handed to a mod.
  */
 export interface ModContext {
     readonly mod: ModIdentity;
@@ -194,6 +210,7 @@ export interface ModContext {
     readonly write: ModWrites;
     readonly model: ModModel;
     readonly table: ModTables;
+    readonly events: ModEventsApi;
     readonly signal: AbortSignal;
     subscribe<K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void): () => void;
     refresh(): Promise<ModContext>;
@@ -345,6 +362,47 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         },
     });
 
+    const owner: ModEventOwner = Object.freeze({
+        modId: mod.id,
+        modName: mod.name,
+        file: (mod as { file?: string }).file ?? `mod:${mod.id}`,
+    });
+
+    const events: ModEventsApi = Object.freeze({
+        on: (event: AnyEventName, listener: (payload: any) => void) => {
+            const rawUnsubscribe = modEventBus.on(event as any, listener, owner);
+            if (facade.signal.aborted) {
+                rawUnsubscribe();
+                return () => {};
+            }
+            const onAbort = () => rawUnsubscribe();
+            facade.signal.addEventListener('abort', onAbort, { once: true });
+            return () => {
+                facade.signal.removeEventListener('abort', onAbort);
+                rawUnsubscribe();
+            };
+        },
+        off: (event: AnyEventName, listener: (payload: any) => void) => {
+            modEventBus.off(event, listener);
+        },
+        once: (event: AnyEventName, listener: (payload: any) => void) => {
+            const rawUnsubscribe = modEventBus.once(event as any, listener, owner);
+            if (facade.signal.aborted) {
+                rawUnsubscribe();
+                return () => {};
+            }
+            const onAbort = () => rawUnsubscribe();
+            facade.signal.addEventListener('abort', onAbort, { once: true });
+            return () => {
+                facade.signal.removeEventListener('abort', onAbort);
+                rawUnsubscribe();
+            };
+        },
+        emit: (name: string, payload: ModEventPayload) => {
+            modEventBus.emitFromMod(owner, name, payload);
+        },
+    });
+
     const refreshImpl = options.refresh ?? (() => Promise.resolve(buildModContext({
         mod,
         facade: facade.refresh(),
@@ -360,6 +418,7 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         write,
         model,
         table,
+        events,
         signal: facade.signal,
         subscribe: <K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void) => {
             const source = facade.subscribe;

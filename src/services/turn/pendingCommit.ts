@@ -10,6 +10,7 @@ import { toast } from '../../components/Toast';
 import { useAppStore } from '../../store/useAppStore';
 import { saveCampaignState } from '../../store/campaignStore';
 import { buildHostFacade, hasHostModelRole } from './hostFacade';
+import { emitCoreEvent, emitCoreEventLazy } from '../mods/events';
 
 // ── In-memory snapshot ─────────────────────────────────────────────────
 // Lost on crash — that's OK. Relaunch reconciliation rebuilds from the live
@@ -377,13 +378,45 @@ async function runCommitPendingTurn(): Promise<void> {
         // survives a restart even if a new turn buries this one in the meantime
         // (`retryFailedCommits` sweeps those on launch).
         markCommitFailed(pendingMsg.id, activeCampaignId);
+        // Phase 3.2 / `EVENTS.md` §6.4 — the honest counterpart to
+        // `turn.committed`. A mod that did work at `turn.generated` and is
+        // waiting for the commit would otherwise wait forever. `turnId` is null
+        // on the crash-recovery path, where the in-memory snapshot died with the
+        // process and there is no id to recover (§7.1).
+        emitCoreEvent('turn.commitFailed', {
+            turnId: snapshot?.turnContext?.turnId ?? null,
+            campaignId: activeCampaignId,
+            messageId: pendingMsg.id,
+        });
         return;
     }
+
+    // Phase 3.2 / `EVENTS.md` §11 site 12 — capture the correlation key before
+    // `clearPendingTurnSnapshot()` drops the snapshot that carries it.
+    const committedTurnId = snapshot?.turnContext?.turnId ?? null;
 
     // Clear the swipe set + pendingCommit marker — the bubble is now a
     // normal historical message. Flush immediately (commit path should not debounce).
     retirePendingMessage(pendingMsg.id, activeCampaignId);
     clearPendingTurnSnapshot();
+
+    // Phase 3.2 / `EVENTS.md` §6.4 — the single point at which a pending turn
+    // becomes ordinary history, downstream of `runPostTurnPipeline`, so every
+    // post-turn effect the host performs has already been started.
+    // `commitPendingTurn` is single-flight, so exactly one of committed /
+    // commitFailed fires per pending turn however many of the four callers race.
+    //
+    // The `sceneId` is read back from the retired message: `runArchiveTrack`
+    // stamped it there, and carrying it here is what lets a mod that needs both
+    // "the scene id" and "this turn is settled history" subscribe to one event
+    // (§6.6). Empty only if the stamp did not land on this bubble — the same
+    // condition under which `archive.sceneAppended` already reported the id.
+    emitCoreEventLazy('turn.committed', () => ({
+        turnId: committedTurnId,
+        campaignId: activeCampaignId,
+        messageId: pendingMsg.id,
+        sceneId: useAppStore.getState().messages?.find(m => m.id === pendingMsg.id)?.sceneId ?? '',
+    }));
 }
 
 // ── Message-state transitions (shared by commit + the recovery sweep) ───

@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyEncounterStatus, EnemyEncounterWave, EnemyCombatConfig, EnemySuggestion, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { createEnemyInstance } from '../../services/enemy/enemyInstance';
+import { emitCoreEvent } from '../../services/mods/events';
 import { createEnemyEncounter as makeEnemyEncounter, createEnemyEncounterWave } from '../../services/enemy/enemyEncounter';
 import {
     DEFAULT_ENEMY_COMBAT_CONFIG,
@@ -62,6 +63,19 @@ export function _registerCampaignStateGetter(
     getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
 ) {
     _getStateForSave = getter;
+}
+
+/**
+ * Phase 3.2 — the active campaign id for `chatSlice`'s `message.*` emits.
+ *
+ * A slice cannot import the assembled `useAppStore` without a module cycle, and
+ * `chatSlice` already depends on this module for `debouncedSaveCampaignState`.
+ * This reuses the getter that module registers rather than opening a second
+ * seam. `''` when no campaign is open, which is also when none of the emit sites
+ * can fire.
+ */
+export function getActiveCampaignIdForEvents(): string {
+    return _getStateForSave?.().activeCampaignId ?? '';
 }
 
 let stateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -599,6 +613,21 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         if (autoBackupTimer) {
             clearInterval(autoBackupTimer);
             autoBackupTimer = null;
+        }
+
+        // Phase 3.2 / `EVENTS.md` §6.2 — the last instant the OLD campaign is
+        // readable, immediately before `activeCampaignId` changes. Placed here
+        // and not ~50 lines up so a mod's teardown sees a settled campaign: the
+        // pending commit, the Director-brief cache clear and the enemy-discovery
+        // clear have all already run. Fires on switch and on exit-to-hub
+        // (`nextCampaignId: null`); a first open from the hub closes nothing.
+        //
+        // Known inconsistency, recorded not fixed (`EVENTS.md` §9.4 finding 1):
+        // `disposeCampaignSubscriptions(currentId)` above has already revoked
+        // the mod's reactive handles by the time this arrives. Survivable — a
+        // teardown handler reads the payload, not a subscription.
+        if (currentId && currentId !== id) {
+            emitCoreEvent('campaign.closing', { campaignId: currentId, nextCampaignId: id });
         }
 
         set({ activeCampaignId: id } as Partial<CampaignDeps>);

@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
-import type { AppSettings, LLMProvider, AIPreset } from '../../types';
+import type { AiTier, AppSettings, LLMProvider, AIPreset } from '../../types';
+import { emitCoreEvent } from '../../services/mods/events';
 import { get as idbGet } from 'idb-keyval';
 import { decryptSettingsProviders, decryptSettingsPresets } from '../../services/infrastructure/settingsCrypto';
 import { toast } from '../../components/Toast';
@@ -119,7 +120,9 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
     },
 
     updateSettings: (patch) => {
+        let previousTier: AiTier | undefined;
         set((s) => {
+            previousTier = s.settings?.aiTier;
             const newSettings = { ...s.settings, ...patch };
             debouncedSaveSettings(newSettings, s.activeCampaignId);
             if (patch.theme) {
@@ -133,6 +136,21 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
             }
             return { settings: newSettings };
         });
+        // Phase 3.2 / `EVENTS.md` §6.8 — the single funnel every settings write
+        // passes through. **Key names only** (§3): `AppSettings.providers`
+        // carries `EndpointConfig` records with API keys in them, and a payload
+        // of "the new settings" would hand every native mod the user's
+        // credentials through a channel `CONTRACT.md`'s permanent prohibition
+        // closes everywhere else.
+        emitCoreEvent('settings.changed', { changedKeys: Object.keys(patch) });
+        // `aiTier` is the one setting a mod can read (`ctx.config.aiTier`) and
+        // the one that gates what a mod may do, so it gets its own event rather
+        // than making every tier-aware mod string-match inside `changedKeys` on
+        // every unrelated settings write. Both fire, `changed` first — the one
+        // deliberate overlap in the taxonomy.
+        if ('aiTier' in patch && patch.aiTier !== previousTier) {
+            emitCoreEvent('settings.tierChanged', { tier: patch.aiTier, previous: previousTier });
+        }
     },
 
     addPreset: (preset) => {
@@ -174,11 +192,18 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
     },
 
     setActivePreset: (id) => {
+        let name = '';
         set((s) => {
+            name = s.settings.presets.find((p) => p.id === id)?.name ?? '';
             const newSettings = { ...s.settings, activePresetId: id };
             debouncedSaveSettings(newSettings, s.activeCampaignId);
             return { settings: newSettings };
         });
+        // Phase 3.2 / `EVENTS.md` §6.8 — ST's `PRESET_CHANGED`. Carries the id
+        // and the display name and **never the preset body**, which holds
+        // provider ids that resolve to credential-bearing `EndpointConfig`
+        // records (§3).
+        emitCoreEvent('settings.presetChanged', { presetId: id, name });
     },
 
     getActivePreset: () => {

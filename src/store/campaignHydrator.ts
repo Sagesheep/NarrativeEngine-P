@@ -17,6 +17,7 @@ import { normalizeEnemyResolutions } from '../services/enemy/enemyResolution';
 import { loadLocationTable } from '../services/tables/locationTable';
 import { hydrateModTables, saveModTable } from '../services/mods/modTables';
 import { fetchMods } from '../services/mods/modClient';
+import { emitCoreEvent } from '../services/mods/events';
 import { safeSceneNum } from '../utils/helpers';
 import type { ArcRecord } from '../types/arc';
 
@@ -393,4 +394,15 @@ export async function hydrateCampaign(campaignId: string) {
         pinnedExcerpts: state?.pinnedExcerpts ?? [],
         modTables: hydratedModTables,
     });
+
+    // Phase 3.2 / `EVENTS.md` §6.2 — after the single `setState` that makes a
+    // campaign current, so every campaign-scoped read is valid the instant a
+    // listener runs. **Sticky** (§4.4): `App.tsx` fires `refreshMods()` (which
+    // runs every mod's `activate`) and hydrates the restored campaign in two
+    // independent effects with no ordering between them, so without replay
+    // whether a mod sees this event is a coin-flip. With it, a mod that
+    // subscribes in `activate` gets `campaign.opened` whether hydration won the
+    // race or lost it — which is what makes "seed on first campaign" writable in
+    // one way that always works (`API.md` §6.5).
+    emitCoreEvent('campaign.opened', { campaignId });
 }

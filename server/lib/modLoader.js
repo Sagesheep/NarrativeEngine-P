@@ -119,9 +119,9 @@ const NATIVE_HOOK_NAMES = new Set([
 /**
  * MANIFEST.md §2 — the complete top-level field set. Unknown keys are rejected
  * (§7.4), with targeted hints for the three ST spellings an author will reach
- * for from muscle memory and targeted messages for the three deliberately
- * declined names (`assets`, `permissions`, `settings`). Reserved keys
- * (`mounts`, `macros`, `facts`, `roles`, `events`) point at the phase that
+ * for from muscle memory and targeted messages for the four deliberately
+ * declined names (`assets`, `permissions`, `settings`, `events`). Reserved keys
+ * (`mounts`, `macros`, `facts`, `roles`) point at the phase that
  * will define them, so an author using a future field gets a precise message
  * rather than a generic "unknown".
  */
@@ -143,6 +143,12 @@ const DECLINED_KEYS = {
     assets: 'unknown field "assets" — every file in the mod\'s folder is available to it; no declaration is needed',
     permissions: 'unknown field "permissions" — native code runs with the app\'s own access and a permission list would not constrain it',
     settings: 'unknown field "settings" — declare a single-object table and a form panel bound to it',
+    // Phase 3.1 was the phase that would define `events`, and it declined the
+    // key (`EVENTS.md` §9.1, `MANIFEST.md` §16): a declarative subscription list
+    // needs a declarative handler name to point at, which is a second dispatch
+    // mechanism beside the hooks §3.1 already declares. Moved from RESERVED_KEYS
+    // to the targeted form, with the working alternative.
+    events: 'events is not a manifest field — subscribe with ctx.events.on() from your activate hook. See EVENTS.md',
 };
 
 /**
@@ -156,7 +162,10 @@ const RESERVED_KEYS = {
     macros: '5.1',
     facts: '5.4',
     roles: '7.1',
-    events: '3.1',
+    // `events` moved to DECLINED_KEYS in Phase 3.2 — the phase that would have
+    // defined it declined it instead. Should 5.4's facts registry later want
+    // declared publishers it can be reintroduced additively (absent = no
+    // declarations), exactly as MANIFEST.md §9 argues for `manifestVersion`.
 };
 
 /**

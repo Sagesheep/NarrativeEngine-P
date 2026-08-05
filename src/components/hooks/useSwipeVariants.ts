@@ -10,6 +10,7 @@ import { getCachedSwipePayload } from '../../services/turn/pendingCommit';
 import type { SwipeVariant, ChatMessage } from '../../types';
 import { toast } from '../Toast';
 import { debouncedSaveCampaignState } from '../../store/slices/campaignSlice';
+import { emitCoreEvent } from '../../services/mods/events';
 
 /**
  * useSwipeVariants — manages the swipe set on the LATEST GM message.
@@ -83,6 +84,17 @@ export function useSwipeVariants(messageId: string | null) {
             reasoning_content: variant.reasoningContent,
         };
         useAppStore.setState({ messages: updated });
+
+        // Phase 3.2 / `EVENTS.md` §6.7 — the browse half of `message.swiped`.
+        // One event, two sites: a mod that mirrors the visible text does not care
+        // *why* the visible variant changed, only that it did.
+        emitCoreEvent('message.swiped', {
+            campaignId: store.activeCampaignId ?? '',
+            messageId,
+            index,
+            total: msg.swipeSet.length,
+            generated: false,
+        });
 
         // Slot-level guard: if the user navigated AWAY from a streaming slot,
         // stop the onChunk callback from overwriting the visible content. The
@@ -254,6 +266,15 @@ export function useSwipeVariants(messageId: string | null) {
             };
             useAppStore.setState({ messages: updated });
             streamingSlotRef.current = null;
+            // Phase 3.2 / `EVENTS.md` §6.7 — the generation half: a newly
+            // generated variant filled its slot.
+            emitCoreEvent('message.swiped', {
+                campaignId: fresh.activeCampaignId ?? '',
+                messageId,
+                index: newIndex,
+                total: filledSet.length,
+                generated: true,
+            });
             debouncedSaveCampaignState();
         } catch (err) {
             if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -307,6 +328,16 @@ export function useSwipeVariants(messageId: string | null) {
             swipeSet: updatedSwipeSet,
         };
         useAppStore.setState({ messages: updated });
+
+        // Phase 3.2 / `EVENTS.md` §6.7 — the third user-edit path: a pre-commit
+        // variant edit. `pending` is always true here, because the guard above
+        // requires `pendingCommit`.
+        emitCoreEvent('message.edited', {
+            campaignId: store.activeCampaignId ?? '',
+            messageId,
+            role: msg.role,
+            pending: true,
+        });
     }, [messageId]);
 
     // ── Invalidate the swipe set (discard without commit) ──

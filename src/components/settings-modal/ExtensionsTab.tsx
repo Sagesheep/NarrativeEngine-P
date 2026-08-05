@@ -22,6 +22,7 @@ import { sandboxFaultStore } from '../../services/mods/sandbox/sandboxFaults';
 import { screenFaultStore } from '../../services/mods/screenFaults';
 import { lifecycleFaultStore } from '../../services/mods/lifecycle/lifecycleFaults';
 import { reactiveFaultStore } from '../../services/mods/reactiveFaults';
+import { eventFaultStore } from '../../services/mods/events';
 import { ModPanels } from './ModPanels';
 import { ModScreens } from './ModScreens';
 
@@ -87,6 +88,7 @@ export function ExtensionsTab() {
         ...screenFaultStore.getFaults(),
         ...lifecycleFaultStore.getFaults(),
         ...reactiveFaultStore.getFaults(),
+        ...eventFaultStore.getFaults(),
     ]);
     const [loading, setLoading] = useState(true);
     const [loadFailed, setLoadFailed] = useState(false);
@@ -128,6 +130,7 @@ export function ExtensionsTab() {
             ...screenFaultStore.getFaults(),
             ...lifecycleFaultStore.getFaults(),
             ...reactiveFaultStore.getFaults(),
+            ...eventFaultStore.getFaults(),
         ]);
     }), []);
 
@@ -137,6 +140,7 @@ export function ExtensionsTab() {
             ...screenFaultStore.getFaults(),
             ...lifecycleFaultStore.getFaults(),
             ...reactiveFaultStore.getFaults(),
+            ...eventFaultStore.getFaults(),
         ]);
     }), []);
 
@@ -146,6 +150,7 @@ export function ExtensionsTab() {
             ...screenFaultStore.getFaults(),
             ...lifecycleFaultStore.getFaults(),
             ...reactiveFaultStore.getFaults(),
+            ...eventFaultStore.getFaults(),
         ]);
     }), []);
 
@@ -155,6 +160,20 @@ export function ExtensionsTab() {
             ...screenFaultStore.getFaults(),
             ...lifecycleFaultStore.getFaults(),
             ...reactiveFaultStore.getFaults(),
+            ...eventFaultStore.getFaults(),
+        ]);
+    }), []);
+
+    // Phase 3.2 / `EVENTS.md` §5.3 — the fourth runtime fault store. Strikes and
+    // latching are declined for v1: a throwing listener costs one try/catch, and
+    // surfacing it here is the whole remedy.
+    useEffect(() => eventFaultStore.subscribe(() => {
+        setRuntimeFaults([
+            ...sandboxFaultStore.getFaults(),
+            ...screenFaultStore.getFaults(),
+            ...lifecycleFaultStore.getFaults(),
+            ...reactiveFaultStore.getFaults(),
+            ...eventFaultStore.getFaults(),
         ]);
     }), []);
 

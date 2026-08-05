@@ -9,6 +9,7 @@ import type { ModFault, ValidatedMod } from './modTypes';
 import { setExtensionModules } from '../payload/contributions/extensions';
 import { postTurnTracks } from '../turn/tracks';
 import { modToComputeTrack } from './computeTrack';
+import { emitCoreEvent } from './events';
 import { useAppStore } from '../../store/useAppStore';
 
 /**
@@ -154,6 +155,34 @@ function readEnablement(): ModEnablementMap {
 }
 
 /**
+ * Phase 3.2 / `EVENTS.md` §6.1 — `app.ready` fires once per page load, on the
+ * FIRST completed `refreshMods()`. Every later completion is `app.modsChanged`.
+ * Module-level, like `lifecycleWiring`, so the distinction survives across
+ * refreshes within a session; `__resetLifecycleHost` clears it for the tests.
+ */
+let appReadyEmitted = false;
+
+/**
+ * `modIds` is the enabled, successfully-loaded set (§6.1). It is a collection,
+ * and it is allowed under the payload rule because there is no mod list anywhere
+ * on `ModContext` — a mod cannot read it any other way.
+ */
+function enabledModIds(mods: readonly ValidatedMod[]): string[] {
+    const enablement = readEnablement();
+    return mods.filter((mod) => enablement[`mod.${mod.id}`] !== false).map((mod) => mod.id);
+}
+
+function emitModSetEvent(mods: readonly ValidatedMod[], faults: readonly ModFault[]): void {
+    const payload = { modIds: enabledModIds(mods), faultCount: faults.length };
+    if (appReadyEmitted) {
+        emitCoreEvent('app.modsChanged', payload);
+        return;
+    }
+    appReadyEmitted = true;
+    emitCoreEvent('app.ready', payload);
+}
+
+/**
  * Fetch the installed mods and register them.
  *
  * NEVER THROWS. A failure to reach the server, or a malformed response, leaves the previously
@@ -188,6 +217,17 @@ export async function refreshMods(): Promise<{
             console.warn('[mods] lifecycle load cycle failed:', lifecycleError);
         }
         lastResult = { mods, faults };
+        // Phase 3.2 / `EVENTS.md` §6.1 — the last line of the only function that
+        // turns "mods on disk" into "mods running". Emitting earlier would fire
+        // before `activate`; later there is no boundary at all, because
+        // `refreshMods` is called fire-and-forget from `App.tsx`.
+        //
+        // The FIRST completed refresh is `app.ready` (sticky, §4.4 — replayed so
+        // a mod enabled mid-session can still observe that the app is up); every
+        // subsequent one is `app.modsChanged`, which is how a suite mod notices a
+        // sibling arrived or left. Its own `activate` cannot tell it about anyone
+        // else.
+        emitModSetEvent(mods, faults);
     } catch (error) {
         lastResult = {
             mods: lastResult.mods,
@@ -213,6 +253,13 @@ export async function refreshMods(): Promise<{
 export async function enableNativeMod(mod: ValidatedMod): Promise<void> {
     const wiring = getLifecycleWiring();
     await wiring.host.enable({ mod: toLifecycleMod(mod) });
+    // Phase 3.2 / `EVENTS.md` §11 site 2 — after `host.enable(…)` resolves, so
+    // the arriving mod's own `activate` has already run and its listeners are
+    // registered by the time its siblings are told it is here.
+    emitCoreEvent('app.modsChanged', {
+        modIds: enabledModIds(lastResult.mods),
+        faultCount: lastResult.faults.length,
+    });
 }
 
 /**
@@ -223,6 +270,14 @@ export async function enableNativeMod(mod: ValidatedMod): Promise<void> {
 export async function disableNativeMod(mod: ValidatedMod): Promise<void> {
     const wiring = getLifecycleWiring();
     await wiring.host.disable({ mod: toLifecycleMod(mod) });
+    // Phase 3.2 / `EVENTS.md` §11 site 3 — after `host.disable(…)` resolves, so
+    // the departing mod's listeners are already torn down (`lifecycleHost`'s
+    // `disable` calls `modEventBus.disposeModListeners`) and it cannot receive
+    // the announcement of its own removal.
+    emitCoreEvent('app.modsChanged', {
+        modIds: enabledModIds(lastResult.mods),
+        faultCount: lastResult.faults.length,
+    });
 }
 
 /** The last known load result, without re-fetching. For the extensions screen. */
@@ -237,4 +292,8 @@ export function getLastModLoad(): { mods: readonly ValidatedMod[]; faults: reado
  */
 export function __resetLifecycleHost(): void {
     lifecycleWiring = undefined;
+    // Phase 3.2 — a fresh wiring is a fresh page load as far as `app.ready` is
+    // concerned, so the next `refreshMods` emits `ready` again rather than
+    // `modsChanged`.
+    appReadyEmitted = false;
 }
