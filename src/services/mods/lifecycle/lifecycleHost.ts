@@ -39,6 +39,7 @@ import type {
     LoadCycleResult,
     LoadModHooks,
     ModContext,
+    ModContextFactory,
     ModEnablementMap,
     ModSeenRecord,
     NativeHookFn,
@@ -94,22 +95,34 @@ export interface LifecycleHost {
         readonly mods: readonly LifecycleMod[];
         readonly enablement: ModEnablementMap;
         readonly ctx?: ModContext;
+        /**
+         * Phase 4.0 — per-mod context factory. When supplied, the host calls
+         * it for each mod and passes the result to that mod's hooks; the
+         * single `ctx` (above) is the fallback for callers that do not supply
+         * a factory. The factory takes a narrow mod view so the bootstrap
+         * does not have to expose `ValidatedMod` here.
+         */
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<LoadCycleResult>;
     enable(input: {
         readonly mod: LifecycleMod;
         readonly ctx?: ModContext;
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult>;
     disable(input: {
         readonly mod: LifecycleMod;
         readonly ctx?: ModContext;
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult>;
     remove(input: {
         readonly mod: LifecycleMod;
         readonly ctx?: ModContext;
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult>;
     clean(input: {
         readonly mod: LifecycleMod;
         readonly ctx?: ModContext;
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult>;
     isLatched(modId: string): boolean;
     reset(): void;
@@ -286,8 +299,22 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         readonly mods: readonly LifecycleMod[];
         readonly enablement: ModEnablementMap;
         readonly ctx?: ModContext;
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<LoadCycleResult> {
-        const ctx = input.ctx;
+        const ctxForMod = input.ctxForMod;
+        const fallbackCtx = input.ctx;
+        const ctxFor = (mod: LifecycleMod): ModContext | undefined => {
+            if (ctxForMod) {
+                try {
+                    return ctxForMod({ id: mod.id, name: mod.name, version: mod.version, folder: mod.folder });
+                } catch {
+                    // A factory failure must not stop the load cycle; the hook
+                    // receives `undefined` and a mod that needs state guards.
+                    return undefined;
+                }
+            }
+            return fallbackCtx;
+        };
         const runs: HookRunResult[] = [];
         const faultedModIds: string[] = [];
 
@@ -335,13 +362,18 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
             }
 
             const hooks = resolvedHooks.hooks;
+            // Phase 4.0 — build the per-mod context once for this mod's
+            // hooks. The factory may return `undefined` (e.g. no active
+            // campaign at load time); hooks that need state guard against
+            // `undefined` (`MANIFEST.md` §10).
+            const modCtx = ctxFor(mod);
             const ranInstall: HookRunResult[] = [];
             if (!seen && hooks.install) {
-                const r = await runOneHook({ mod, hookName: 'install', fn: hooks.install, ctx });
+                const r = await runOneHook({ mod, hookName: 'install', fn: hooks.install, ctx: modCtx });
                 ranInstall.push(r);
             }
             if (seen && seen.lastSeenVersion !== mod.version && hooks.update) {
-                const r = await runOneHook({ mod, hookName: 'update', fn: hooks.update, ctx });
+                const r = await runOneHook({ mod, hookName: 'update', fn: hooks.update, ctx: modCtx });
                 ranInstall.push(r);
             }
 
@@ -358,7 +390,7 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
 
             let activateRan = false;
             if (hooks.activate) {
-                const r = await runOneHook({ mod, hookName: 'activate', fn: hooks.activate, ctx });
+                const r = await runOneHook({ mod, hookName: 'activate', fn: hooks.activate, ctx: modCtx });
                 activateRan = r.ok && !r.skipped;
                 runs.push(r);
             }
@@ -387,8 +419,20 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         readonly mod: LifecycleMod;
         readonly hookName: string;
         readonly ctx?: ModContext;
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult> {
-        const ctx = input.ctx;
+        // Phase 4.0 — prefer the per-mod factory so the hook receives a
+        // context whose `mod.id` matches the hook's mod. Falls back to the
+        // single `ctx` for callers that do not supply a factory.
+        const ctx = input.ctxForMod
+            ? (() => {
+                try {
+                    return input.ctxForMod!({ id: input.mod.id, name: input.mod.name, version: input.mod.version, folder: input.mod.folder });
+                } catch {
+                    return undefined;
+                }
+            })()
+            : input.ctx;
         const resolvedHooks = await resolveHooks(input.mod);
         if (!resolvedHooks) {
             return {
@@ -417,16 +461,23 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
     async function enable(input: {
         readonly mod: LifecycleMod;
         readonly ctx?: ModContext;
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult> {
         const enableResult = await fireUserHook({
             mod: input.mod,
             hookName: 'enable',
             ctx: input.ctx,
+            ctxForMod: input.ctxForMod,
         });
         if (!enableResult.ok) return enableResult;
         // `activate` follows `enable` regardless of whether `enable` was
         // skipped (a mod with no `enable` hook still activates on toggle-on).
-        const activateResult = await fireUserHook({ mod: input.mod, hookName: 'activate', ctx: input.ctx });
+        const activateResult = await fireUserHook({
+            mod: input.mod,
+            hookName: 'activate',
+            ctx: input.ctx,
+            ctxForMod: input.ctxForMod,
+        });
         // Phase 1.5 — mount CSS after a successful enable+activate. Idempotent
         // (a re-enable does not double-mount), and only fires when activate
         // actually ran and succeeded — a skipped or faulted activate leaves
@@ -440,8 +491,14 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
     async function disable(input: {
         readonly mod: LifecycleMod;
         readonly ctx?: ModContext;
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult> {
-        const result = await fireUserHook({ mod: input.mod, hookName: 'disable', ctx: input.ctx });
+        const result = await fireUserHook({
+            mod: input.mod,
+            hookName: 'disable',
+            ctx: input.ctx,
+            ctxForMod: input.ctxForMod,
+        });
         // Phase 2.4: teardown is host-owned, even if the mod forgot to unsubscribe.
         disposeModSubscriptions(input.mod.id);
         // Phase 3.2 / `EVENTS.md` §5.4: the same discipline for event listeners.
@@ -476,8 +533,9 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
     async function remove(input: {
         readonly mod: LifecycleMod;
         readonly ctx?: ModContext;
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult> {
-        return fireUserHook({ mod: input.mod, hookName: 'delete', ctx: input.ctx });
+        return fireUserHook({ mod: input.mod, hookName: 'delete', ctx: input.ctx, ctxForMod: input.ctxForMod });
     }
 
     /**
@@ -489,8 +547,9 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
     async function clean(input: {
         readonly mod: LifecycleMod;
         readonly ctx?: ModContext;
+        readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult> {
-        return fireUserHook({ mod: input.mod, hookName: 'clean', ctx: input.ctx });
+        return fireUserHook({ mod: input.mod, hookName: 'clean', ctx: input.ctx, ctxForMod: input.ctxForMod });
     }
 
     return {

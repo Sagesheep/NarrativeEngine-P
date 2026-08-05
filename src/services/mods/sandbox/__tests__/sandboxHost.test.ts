@@ -79,7 +79,16 @@ function makeFacade(overrides: Partial<HostFacade> = {}): HostFacade {
     return facade;
 }
 
-const source = 'export default async function (ctx) { return { input: ctx.data.input }; }';
+const source = 'export default async function (ctx) { return { playerInput: ctx.data.playerInput }; }';
+
+/**
+ * Phase 4.0 — every `runSandbox` call now requires a per-mod identity
+ * (`API.md` §8.6 item 1). The tests use a fixed `test` mod; its `id` is what
+ * the bare-name table alias resolves against, so a test that declares
+ * `table:read:mod.test.npcs` and reads `'npcs'` from the worker hits the
+ * right capability.
+ */
+const mod = { id: 'test', name: 'Test', version: '1.0.0' };
 
 describe('worker prelude', () => {
     it('carries the spike network barrier and the additional escape barriers', () => {
@@ -119,6 +128,7 @@ describe('runSandbox', () => {
 
         await expect(runSandbox(source, facade, ['write:updateContext'], {
             createWorker: () => worker,
+            mod,
         })).resolves.toEqual({ ok: true });
 
         expect(updateContext).toHaveBeenCalledWith({ scene: 'new' });
@@ -145,6 +155,7 @@ describe('runSandbox', () => {
 
         await expect(runSandbox(source, facade, ['write:updateContext'], {
             createWorker: () => worker,
+            mod,
         })).rejects.toThrow(/undeclared write "updateNPC"/);
 
         expect(updateContext).not.toHaveBeenCalled();
@@ -160,6 +171,7 @@ describe('runSandbox', () => {
 
         await expect(runSandbox(source, facade, ['write:updateContext'], {
             createWorker: () => worker,
+            mod,
         })).rejects.toThrow('mod failed');
         expect(updateContext).not.toHaveBeenCalled();
     });
@@ -172,6 +184,7 @@ describe('runSandbox', () => {
         await expect(runSandbox(source, facade, ['write:updateContext'], {
             createWorker: () => worker,
             deadlineMs: 5,
+            mod,
         })).rejects.toThrow('deadline exceeded (5 ms)');
 
         expect(updateContext).not.toHaveBeenCalled();
@@ -186,6 +199,7 @@ describe('runSandbox', () => {
 
         await expect(runSandbox(source, facade, ['write:updateContext'], {
             createWorker: () => worker,
+            mod,
         })).rejects.toThrow('mod threw after writes');
 
         expect(updateContext).not.toHaveBeenCalled();
@@ -200,6 +214,7 @@ describe('runSandbox', () => {
 
         await expect(runSandbox(source, facade, ['write:updateContext'], {
             createWorker: () => worker,
+            mod,
         })).rejects.toThrow('worker died after writes');
 
         expect(updateContext).not.toHaveBeenCalled();
@@ -225,6 +240,7 @@ describe('runSandbox', () => {
 
         await expect(runSandbox(source, facade, ['write:updateContext'], {
             createWorker: () => worker,
+            mod,
         })).rejects.toThrow('undeclared write "updateNPC"');
 
         expect(updateContext).not.toHaveBeenCalled();
@@ -242,9 +258,10 @@ describe('runSandbox', () => {
         const facade = makeFacade({ table: { read: vi.fn(async () => []), write: tableWrite } });
         const worker = new FakeWorker();
 
-        await expect(runSandbox(source, facade, ['table:write:npcs'], {
+        await expect(runSandbox(source, facade, ['table:write:mod.test.npcs'], {
             createWorker: () => worker,
             deadlineMs: 5,
+            mod,
         })).rejects.toThrow('deadline exceeded (5 ms)');
 
         expect(tableWrite).not.toHaveBeenCalled();
@@ -257,8 +274,9 @@ describe('runSandbox', () => {
             if (message.type === 'run') current.emit({ type: 'error', message: 'mod threw after table write' });
         });
 
-        await expect(runSandbox(source, facade, ['table:write:npcs'], {
+        await expect(runSandbox(source, facade, ['table:write:mod.test.npcs'], {
             createWorker: () => worker,
+            mod,
         })).rejects.toThrow('mod threw after table write');
 
         expect(tableWrite).not.toHaveBeenCalled();
@@ -271,8 +289,9 @@ describe('runSandbox', () => {
             if (message.type === 'run') queueMicrotask(() => current.emitError('worker died after table write'));
         });
 
-        await expect(runSandbox(source, facade, ['table:write:npcs'], {
+        await expect(runSandbox(source, facade, ['table:write:mod.test.npcs'], {
             createWorker: () => worker,
+            mod,
         })).rejects.toThrow('worker died after table write');
 
         expect(tableWrite).not.toHaveBeenCalled();
@@ -298,8 +317,9 @@ describe('runSandbox', () => {
             }
         });
 
-        await expect(runSandbox(source, facade, ['table:write:npcs'], {
+        await expect(runSandbox(source, facade, ['table:write:mod.test.npcs'], {
             createWorker: () => worker,
+            mod,
         })).rejects.toThrow('undeclared table write "undeclared-table"');
 
         expect(tableWrite).not.toHaveBeenCalled();
@@ -328,6 +348,7 @@ describe('runSandbox', () => {
 
         await expect(runSandbox(source, facade, ['write:updateContext'], {
             createWorker: () => worker,
+            mod,
         })).rejects.toThrow('undeclared table write "undeclared-table"');
 
         expect(updateContext).not.toHaveBeenCalled();
@@ -347,11 +368,12 @@ describe('runSandbox', () => {
             }
         });
 
-        await expect(runSandbox(source, facade, ['table:write:npcs'], {
+        await expect(runSandbox(source, facade, ['table:write:mod.test.npcs'], {
             createWorker: () => worker,
+            mod,
         })).resolves.toBeNull();
 
-        expect(tableWrite).toHaveBeenCalledWith('npcs', [{ id: 'n-1' }]);
+        expect(tableWrite).toHaveBeenCalledWith('mod.test.npcs', [{ id: 'n-1' }]);
     });
 
     it('preserves issue order across store and table entries', async () => {
@@ -375,8 +397,9 @@ describe('runSandbox', () => {
             }
         });
 
-        await expect(runSandbox(source, facade, ['write:updateContext', 'table:write:npcs'], {
+        await expect(runSandbox(source, facade, ['write:updateContext', 'table:write:mod.test.npcs'], {
             createWorker: () => worker,
+            mod,
         })).resolves.toBeNull();
 
         expect(updateContext).toHaveBeenCalledTimes(2);
@@ -407,6 +430,7 @@ describe('runSandbox', () => {
 
         await expect(runSandbox(source, facade, ['write:updateContext'], {
             createWorker: () => worker,
+            mod,
         })).rejects.toThrow('undeclared table write "unknown-table"');
 
         expect(updateContext).not.toHaveBeenCalled();
@@ -427,6 +451,7 @@ describe('runSandbox', () => {
 
         await expect(runSandbox(source, facade, ['table:read:npcs', 'table:write:npcs'], {
             createWorker: () => worker,
+            mod,
         })).resolves.toBeNull();
 
         expect(tableWrite).not.toHaveBeenCalled();
@@ -459,15 +484,16 @@ describe('runSandbox', () => {
             }
         });
 
-        await expect(runSandbox(source, facade, ['table:read:npcs', 'table:write:npcs'], {
+        await expect(runSandbox(source, facade, ['table:read:mod.test.npcs', 'table:write:mod.test.npcs'], {
             createWorker: () => worker,
+            mod,
         })).resolves.toEqual(committedRows);
 
         // The mod saw the committed (old) value, not the pending write.
         expect(readReply).toEqual(committedRows);
-        expect(tableRead).toHaveBeenCalledWith('npcs');
+        expect(tableRead).toHaveBeenCalledWith('mod.test.npcs');
         // The write is applied on clean return, but the read already saw the old value.
-        expect(tableWrite).toHaveBeenCalledWith('npcs', [{ id: 'new' }]);
+        expect(tableWrite).toHaveBeenCalledWith('mod.test.npcs', [{ id: 'new' }]);
     });
 
     it('handles table RPC and returns the reply to the worker', async () => {
@@ -483,32 +509,39 @@ describe('runSandbox', () => {
             }
         });
 
-        await expect(runSandbox(source, facade, ['table:read:npcs'], {
+        await expect(runSandbox(source, facade, ['table:read:mod.test.npcs'], {
             createWorker: () => worker,
+            mod,
         })).resolves.toEqual([{ id: 'n-1' }]);
-        expect(tableRead).toHaveBeenCalledWith('npcs');
+        expect(tableRead).toHaveBeenCalledWith('mod.test.npcs');
     });
 
-    it('returns a refreshed snapshot through refresh RPC', async () => {
-        const refreshed = {
-            data: { input: 'fresh' } as HostFacade['data'],
+    it('returns a refreshed ModContext snapshot through refresh RPC', async () => {
+        // Phase 4.0 — refresh returns the projected `ModContext`-shape
+        // snapshot (`mod`/`api`/`data`/`config`), not the raw `FacadeData`/
+        // `FacadeConfig`. The `data` shape is `ModData` (e.g. `playerInput`,
+        // not `input`).
+        const refreshed = makeFacade({
+            data: { context: { input: 'fresh' } as HostFacade['data']['context'], input: 'fresh' } as HostFacade['data'],
             config: { contextLimit: 2048 } as HostFacade['config'],
-        } as HostFacade;
+        });
         const facade = makeFacade({ refresh: vi.fn(() => refreshed) });
         const worker = new FakeWorker((current, message) => {
             if (message.type === 'run') {
                 queueMicrotask(() => current.emit({ type: 'rpc', id: 4, channel: 'refresh', args: [] }));
             }
             if (message.type === 'rpc-reply') {
-                expect(message).toMatchObject({ type: 'rpc-reply', id: 4, ok: true, value: refreshed });
+                // The refresh reply is a `ModContext`-shape snapshot, not a facade.
+                expect(message).toMatchObject({ type: 'rpc-reply', id: 4, ok: true });
+                const value = message.value as { mod: unknown; api: unknown; data: { playerInput: string }; config: unknown };
+                expect(value.mod).toEqual({ id: 'test', name: 'Test', version: '1.0.0' });
+                expect(value.api).toMatchObject({ commitPoint: 'on-return' });
+                expect(value.data.playerInput).toBe('fresh');
                 queueMicrotask(() => current.emit({ type: 'done', writes: [], result: message.value }));
             }
         });
 
-        await expect(runSandbox(source, facade, [], { createWorker: () => worker })).resolves.toEqual({
-            data: refreshed.data,
-            config: refreshed.config,
-        });
+        await expect(runSandbox(source, facade, [], { createWorker: () => worker, mod })).resolves.toBeDefined();
         expect(facade.refresh).toHaveBeenCalledTimes(1);
     });
 
@@ -520,12 +553,13 @@ describe('runSandbox', () => {
                 queueMicrotask(() => current.emit({ type: 'rpc', id: 2, channel: 'table', method: 'read', args: ['npcs'] }));
             }
             if (message.type === 'rpc-reply') {
-                expect(message).toMatchObject({ ok: false, error: '[sandbox] capability denied: table:read:npcs' });
+                // Bare 'npcs' resolves to 'mod.test.npcs' for the capability check.
+                expect(message).toMatchObject({ ok: false, error: '[sandbox] capability denied: table:read:mod.test.npcs' });
                 queueMicrotask(() => current.emit({ type: 'error', message: 'RPC denied' }));
             }
         });
 
-        await expect(runSandbox(source, facade, [], { createWorker: () => worker })).rejects.toThrow('RPC denied');
+        await expect(runSandbox(source, facade, [], { createWorker: () => worker, mod })).rejects.toThrow('RPC denied');
         expect(tableRead).not.toHaveBeenCalled();
     });
 
@@ -537,6 +571,7 @@ describe('runSandbox', () => {
         await expect(runSandbox(source, facade, ['write:updateContext'], {
             createWorker: () => worker,
             deadlineMs: 5,
+            mod,
         })).rejects.toThrow('deadline exceeded (5 ms)');
 
         expect(worker.terminated).toBe(true);
@@ -548,7 +583,7 @@ describe('runSandbox', () => {
         const controller = new AbortController();
         const facade = makeFacade({ signal: controller.signal });
         const worker = new FakeWorker();
-        const running = runSandbox(source, facade, [], { createWorker: () => worker, deadlineMs: 1000 });
+        const running = runSandbox(source, facade, [], { createWorker: () => worker, deadlineMs: 1000, mod });
 
         controller.abort();
 
@@ -566,7 +601,7 @@ describe('runSandbox', () => {
             }
         });
 
-        await expect(runSandbox(source, facade, [], { createWorker: () => worker, deadlineMs: 1000 }))
+        await expect(runSandbox(source, facade, [], { createWorker: () => worker, deadlineMs: 1000, mod }))
             .rejects.toThrow(`inbound message cap exceeded (${MAX_INBOUND_MESSAGES})`);
         expect(log).toHaveBeenCalledTimes(MAX_INBOUND_MESSAGES);
         expect(worker.terminated).toBe(true);
@@ -589,7 +624,7 @@ describe('runSandbox', () => {
 
 
 describe('brokered model channel', () => {
-    it('sends only a credential-free snapshot and replies with a content-only model value', async () => {
+    it('sends only a credential-free ModContext snapshot and replies with a content-only model value', async () => {
         const modelCall = vi.fn(async (_role: 'utility', request: { prompt: string; maxTokens?: number; signal?: AbortSignal }) => ({
             content: request.prompt === 'hello' ? 'model-result' : 'unexpected',
         }));
@@ -605,7 +640,9 @@ describe('brokered model channel', () => {
             if (message.type === 'run') {
                 const serialized = JSON.stringify(message);
                 expect(serialized).not.toMatch(/apiKey|endpoint|Authorization/i);
-                expect(Object.keys(message.snapshot)).toEqual(['data', 'config']);
+                // Phase 4.0 — the snapshot is the `ModContext`-shape read-only
+                // half: `mod`/`api`/`data`/`config` (`API.md` §8.6 item 1).
+                expect(Object.keys(message.snapshot).sort()).toEqual(['api', 'config', 'data', 'mod']);
                 expect(message.modelRoles).toContain('utility');
                 queueMicrotask(() => current.emit({
                     type: 'rpc',
@@ -623,6 +660,7 @@ describe('brokered model channel', () => {
 
         await expect(runSandbox('export default async function () {}', facade, ['model:utility'], {
             createWorker: () => worker,
+            mod,
         })).resolves.toEqual({ content: 'model-result' });
 
         expect(Object.keys(replyValue as Record<string, unknown>)).toEqual(['content']);
@@ -661,6 +699,7 @@ describe('brokered model channel', () => {
 
         await expect(runSandbox('export default async function () {}', facade, ['model:utility'], {
             createWorker: () => worker,
+            mod,
         })).resolves.toEqual({ content: { ok: true } });
 
         expect(Object.keys(reply?.value as Record<string, unknown>)).toEqual(['content']);
@@ -698,6 +737,7 @@ describe('brokered model channel', () => {
 
         await expect(runSandbox('export default async function () {}', facade, ['model:utility'], {
             createWorker: () => worker,
+            mod,
         })).resolves.toBeNull();
 
         expect(errorText).toBe('[sandbox] model call failed');
@@ -733,6 +773,7 @@ describe('brokered model channel', () => {
         await expect(runSandbox('export default async function () {}', facade, ['model:utility'], {
             createWorker: () => worker,
             deadlineMs: 5,
+            mod,
         })).rejects.toThrow('deadline exceeded (5 ms)');
 
         expect(aborted).toBe(true);

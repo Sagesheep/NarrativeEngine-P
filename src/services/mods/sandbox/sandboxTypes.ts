@@ -53,8 +53,24 @@ export class SandboxFaultError extends Error {
 
 
 export interface SandboxSnapshot {
-    readonly data: FacadeData;
-    readonly config: FacadeConfig;
+    /**
+     * Phase 4.0 — the snapshot is the `ModContext`-shape read-only half
+     * (`mod`/`api`/`data`/`config`), projected from `FacadeData` by
+     * `buildSandboxSnapshot` in `sandboxHost.ts`. The worker prelude exposes
+     * these on `ctx`. `data` is in `ModData` shape (`playerInput`, not
+     * `input`; promoted `playerCharacter`/`characterSheet`/`inventory`;
+     * derived `location`), so a mod reading `ctx.data.playerInput` gets the
+     * value, not `undefined` (`API.md` §8.6 item 1).
+     *
+     * The fields are typed `unknown` here so the wire contract does not
+     * import `ModContext`'s public types into the sandbox's internal types
+     * (the sandbox never imports from `modContext.ts` at the type level —
+     * the host projects and freezes before marshalling).
+     */
+    readonly mod: { readonly id: string; readonly name: string; readonly version: string };
+    readonly api: { readonly version: string; readonly commitPoint: 'immediate' | 'on-return' };
+    readonly data: Readonly<Record<string, unknown>>;
+    readonly config: Readonly<Record<string, unknown>>;
 }
 
 /**

@@ -208,4 +208,87 @@ describe('Phase 2.4 reactive reads', () => {
         expect(listener).not.toHaveBeenCalled();
         expect(getTrackedModSubscriptionCount('disabled-mod')).toBe(0);
     });
+
+    it('Phase 4.0: a subscriber and a fresh read agree on location (precedence aligned, API.md §8.6 item 7)', async () => {
+        // The snapshot path (`modContext.ts:457-460`) prefers the injected
+        // `locationState` over `context`. The reactive path
+        // (`hostFacade.ts:354-361`) used to prefer `context` over the
+        // injected state, so a subscriber and a fresh read disagreed. Phase
+        // 4.0 aligned them: both prefer the injected state.
+        //
+        // This test sets up a campaign where `getFreshLocationState()`
+        // returns a DIFFERENT `currentPlaceId` than `context.currentPlaceId`,
+        // then verifies that `ctx.data.location` (the snapshot read) and a
+        // `ctx.subscribe('location', …)` notification agree.
+        const store = makeStore({
+            activeCampaignId: 'campaign-a',
+            messages: [],
+            npcLedger: [],
+            modTables: {},
+            context: {
+                currentPlaceId: 'context-place',
+                currentFeature: 'context-feature',
+                playerCharacter: null,
+                characterProfileData: { name: 'Hero' },
+                inventoryItems: [],
+            } as unknown as TurnState['context'],
+            locationLedger: [{ id: 'store-place', name: 'Store Place', broadLocation: 'Region', features: ['feature'], firstSeenScene: '001', lastSeenScene: '001', source: 'llm' }],
+        });
+        const state = makeState();
+        // The injected state wins over context. The two must agree.
+        const getFreshLocationState = () => ({
+            activeCampaignId: 'campaign-a',
+            locationLedger: [{ id: 'injected-place', name: 'Injected Place', broadLocation: 'Region', features: ['feature'], firstSeenScene: '001', lastSeenScene: '001', source: 'llm' as const }],
+            context: { currentPlaceId: 'injected-place', currentFeature: 'injected-feature' } as TurnState['context'],
+        });
+        const callbacks = { ...makeCallbacks(), getFreshLocationState };
+        // `HostFacadeBuildOptions.getLocationState` returns the shape the
+        // reactive path reads (`{currentPlaceId, currentFeature, ledger}`),
+        // not the `TurnCallbacks.getFreshLocationState` shape. Bridge here.
+        const getLocationState = () => {
+            const fresh = getFreshLocationState();
+            return {
+                currentPlaceId: fresh.context.currentPlaceId ?? null,
+                currentFeature: fresh.context.currentFeature ?? null,
+                ledger: fresh.locationLedger,
+            };
+        };
+        const facade = buildHostFacade(state, callbacks, {
+            reactiveStore: store,
+            getLocationState,
+        });
+        const ctx = buildModContext({
+            mod: { id: 'location-mod', name: 'Location Mod', version: '1.0.0' },
+            facade,
+            locationState: {
+                currentPlaceId: 'injected-place',
+                currentFeature: 'injected-feature',
+                ledger: [{ id: 'injected-place', name: 'Injected Place', broadLocation: 'Region', features: ['feature'], firstSeenScene: '001', lastSeenScene: '001', source: 'llm' }],
+            },
+        });
+
+        // The snapshot read prefers the injected state.
+        expect(ctx.data.location.currentPlaceId).toBe('injected-place');
+        expect(ctx.data.location.currentFeature).toBe('injected-feature');
+        expect(ctx.data.location.ledger[0]).toMatchObject({ id: 'injected-place' });
+
+        // The subscriber sees the same value the snapshot read returns.
+        const values: unknown[] = [];
+        ctx.subscribe('location', (value) => values.push(value));
+        // Trigger an invalidation by setting locationLedger on the store.
+        store.set({ locationLedger: [{ id: 'injected-place', name: 'Injected Place', broadLocation: 'Region', features: ['feature'], firstSeenScene: '001', lastSeenScene: '001', source: 'llm' }] });
+        await tick();
+
+        // The subscriber fired at least once (the initial value), and
+        // every value the subscriber saw AGREES with the snapshot read.
+        expect(values.length).toBeGreaterThanOrEqual(1);
+        for (const value of values) {
+            const loc = value as { currentPlaceId: string | null; currentFeature: string | null; ledger: { id: string }[] };
+            expect(loc.currentPlaceId).toBe('injected-place');
+            expect(loc.currentFeature).toBe('injected-feature');
+            expect(loc.ledger[0]).toMatchObject({ id: 'injected-place' });
+        }
+
+        disposeModSubscriptions('location-mod');
+    });
 });

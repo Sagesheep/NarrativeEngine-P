@@ -1,10 +1,13 @@
 import { Save, Loader2, Zap, Scroll, Search, Package, Dices } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { toast } from '../Toast';
-// PARKED (Full Modularity 2.9.3) — `ArcInjectorButton` is hidden while the Arc
-// Engine is parked. The component and `arcSpawn.ts` are untouched; only the
-// mount is removed. See the note in this file below and `API.md` §8.6 item 2.
-// import { ArcInjectorButton } from '../ArcInjectorButton';
+// Phase 4.0 — `ArcInjectorButton` is restored (the Arc Engine is un-parked:
+// `API.md` §8.6 item 1 landed, the sandbox is bound to `ModContext`, and
+// `mods/arc/compute.js` runs again). This is the TEMPORARY restoration —
+// Phase 4.2 replaces this mount with a mod-claimed `composer.actions` entry
+// per `MOUNTS.md` §2.3, which is where `mods/arc/compute.js:14-20` always
+// said it belonged. See `PROGRESS.md` "Arc Engine — UN-PARKED".
+import { ArcInjectorButton } from '../ArcInjectorButton';
 import { OneShotInjectorButton } from '../OneShotInjectorButton';
 import { AbsoluteCommandButton } from '../AbsoluteCommandButton';
 
@@ -13,8 +16,9 @@ import { AbsoluteCommandButton } from '../AbsoluteCommandButton';
  * Dice Me, Roll Loot, One-Shot injector, Absolute Command, Ask GM, Archive.
  * Extracted from ChatArea; arming state lives in the store.
  *
- * The Arc injector is parked and unmounted — see the block comment at its old
- * position below.
+ * Phase 4.0 — the Arc injector is restored (the Arc Engine's tick runs
+ * again, so a spawned arc can now advance). Phase 4.2 will move this into
+ * the mod-claimed composer action strip.
  */
 export function ChatActionStrip({
     isStreaming,
@@ -127,24 +131,24 @@ export function ChatActionStrip({
             )}
 
             {/*
-              * PARKED — "Inject Arc" button hidden (Full Modularity, Phase 2.9.3).
+              * Phase 4.0 — "Inject Arc" button RESTORED.
               *
-              * The Arc Engine's post-turn tick is broken at HEAD: 2.3 migrated
-              * `mods/arc/compute.js` to the `getContext()` v1 surface while the
-              * sandbox binding still hands mods the raw `HostFacade` shape, so the
-              * tick throws on its first statement every turn (`API.md` §11.3).
-              * Offering a "spawn an arc" button for an engine that cannot then
-              * advance the arc it spawned is worse than offering nothing — it costs
-              * an LLM call (`arcSpawn.ts`) and produces a thread that never moves.
+              * The Arc Engine's post-turn tick was broken at HEAD since
+              * Phase 2.3 (the sandbox binding handed mods the raw
+              * `FacadeData`, so the tick threw on its first statement every
+              * turn — `API.md` §11.3). Phase 4.0 / `API.md` §8.6 item 1
+              * bound the sandbox to `ModContext`; the tick now runs and a
+              * spawned arc can advance, so the spawn button is honest again.
               *
-              * Nothing is deleted. `ArcInjectorButton.tsx`, `arcSpawn.ts`,
-              * `openThreads.ts` and `mods/arc/` all remain; only this mount is gone,
-              * so restoring it is uncommenting two lines.
-              *
-              * Reintroduction is Phase 4.2 (header button registry) — the button
-              * comes back as a mount point the arc mod claims for itself, which is
-              * where `mods/arc/compute.js:14-20` always said it belonged.
+              * This is the TEMPORARY restoration — Phase 4.2 replaces this
+              * host-owned mount with a mod-claimed `composer.actions` entry
+              * the arc mod registers from its `activate` hook per
+              * `MOUNTS.md` §2.3, which is where `mods/arc/compute.js:14-20`
+              * always said it belonged.
               */}
+            {activeCampaignId && (
+                <ArcInjectorButton />
+            )}
             {activeCampaignId && (
                 <OneShotInjectorButton />
             )}

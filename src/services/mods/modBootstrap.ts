@@ -3,7 +3,7 @@ import { modToContributionModule } from './modAdapter';
 import type { LifecycleMod } from './lifecycle/lifecycleHost';
 import { createLifecycleHost } from './lifecycle/lifecycleHost';
 import { createLifecycleFaultStore } from './lifecycle/lifecycleFaults';
-import type { LifecycleStateStore, ModEnablementMap } from './lifecycle/lifecycleTypes';
+import type { LifecycleStateStore, ModContextFactory, ModEnablementMap } from './lifecycle/lifecycleTypes';
 import { createNativeLoader } from './native/nativeLoader';
 import type { ModFault, ValidatedMod } from './modTypes';
 import { setExtensionModules } from '../payload/contributions/extensions';
@@ -11,6 +11,9 @@ import { postTurnTracks } from '../turn/tracks';
 import { modToComputeTrack } from './computeTrack';
 import { emitCoreEvent } from './events';
 import { useAppStore } from '../../store/useAppStore';
+import { buildHostFacade } from '../turn/hostFacade';
+import { buildCommitCallbacks, rebuildStateFromLiveStore } from '../turn/pendingCommit';
+import { buildModContext } from './modContext';
 
 /**
  * Project 2 / Phase 1.5 — loads installed mods and registers them as
@@ -124,6 +127,60 @@ function toLifecycleMod(mod: ValidatedMod): LifecycleMod {
     };
 }
 
+/**
+ * Phase 4.0 / `API.md` §8.6 item 3 — build a standing `ModContext` for a
+ * native lifecycle hook. The hook fires outside any turn (at app load, or
+ * on user toggle), so there is no live `TurnState`/`TurnCallbacks` to build
+ * a facade from. The standing facade is reconstructed from the live store
+ * the same way the crash-recovery path does (`rebuildStateFromLiveStore`,
+ * extracted from `pendingCommit.ts:483`); the callbacks are the same
+ * `buildCommitCallbacks` the commit path uses, which read live state at
+ * call time. `commitPoint: 'immediate'` — native hooks land writes
+ * immediately, not journalled (`API.md` §1.1).
+ *
+ * `locationState` is read through `getFreshLocationState()`, which
+ * `buildCommitCallbacks` wires to `useAppStore.getState()`; without it,
+ * `data.location.ledger` is `[]` (`API.md` §4.2).
+ *
+ * Returns `undefined` if the live store cannot be read (e.g. no provider
+ * yet) — a mod's `activate` should guard against `undefined` (`MANIFEST.md`
+ * §10). This is the stop-condition-respecting design: the standing facade
+ * uses the same `TurnCallbacks` the commit path uses, not a null-object
+ * shim invented for this path.
+ */
+function buildNativeModContext(mod: { readonly id: string; readonly name: string; readonly version: string; readonly folder?: string }): ReturnType<ModContextFactory> {
+    try {
+        const store = useAppStore.getState();
+        // The native lifecycle fires outside any turn — there is no
+        // `state.input` to recover. The standing facade carries `''` for
+        // `playerInput` (the same value `rebuildStateFromLiveStore` defaults
+        // to), and a mod that needs the live input reads it through
+        // `ctx.subscribe('playerInput')` or awaits a `turn.start` event.
+        const state = rebuildStateFromLiveStore(store, '');
+        const callbacks = buildCommitCallbacks(state.activeCampaignId ?? '', store);
+        const facade = buildHostFacade(state, callbacks, { reactiveStore: useAppStore });
+        const freshLocation = callbacks.getFreshLocationState();
+        const locationState = freshLocation && freshLocation.activeCampaignId
+            ? {
+                currentPlaceId: freshLocation.context.currentPlaceId ?? null,
+                currentFeature: freshLocation.context.currentFeature ?? null,
+                ledger: freshLocation.locationLedger ?? [],
+            }
+            : undefined;
+        return buildModContext({
+            mod: { id: mod.id, name: mod.name, version: mod.version, folder: mod.folder },
+            facade,
+            commitPoint: 'immediate',
+            locationState,
+        });
+    } catch (error) {
+        // A failure to build the context must not stop the lifecycle. The
+        // hook receives `undefined` and a mod that needs state guards.
+        console.warn(`[mods] buildNativeModContext failed for ${mod.id}:`, error);
+        return undefined;
+    }
+}
+
 function registerComputeTracks(mods: readonly ValidatedMod[]): void {
     for (const track of postTurnTracks.list()) {
         if (track.id.startsWith('mod.') && track.id.endsWith('.compute')) {
@@ -206,9 +263,15 @@ export async function refreshMods(): Promise<{
         try {
             const wiring = getLifecycleWiring();
             const enablement = readEnablement();
+            // Phase 4.0 / `API.md` §8.6 item 3 — pass a per-mod context
+            // factory so each native hook receives a `ModContext` whose
+            // `mod.id` matches the hook's mod. The factory reads the live
+            // store at call time, so a hook fired later in the same load
+            // cycle sees the state an earlier hook wrote.
             await wiring.host.runLoadCycle({
                 mods: mods.map(toLifecycleMod),
                 enablement,
+                ctxForMod: buildNativeModContext,
             });
         } catch (lifecycleError) {
             // The host itself never throws (it contains faults), but a
@@ -252,7 +315,7 @@ export async function refreshMods(): Promise<{
  */
 export async function enableNativeMod(mod: ValidatedMod): Promise<void> {
     const wiring = getLifecycleWiring();
-    await wiring.host.enable({ mod: toLifecycleMod(mod) });
+    await wiring.host.enable({ mod: toLifecycleMod(mod), ctxForMod: buildNativeModContext });
     // Phase 3.2 / `EVENTS.md` §11 site 2 — after `host.enable(…)` resolves, so
     // the arriving mod's own `activate` has already run and its listeners are
     // registered by the time its siblings are told it is here.
@@ -269,7 +332,7 @@ export async function enableNativeMod(mod: ValidatedMod): Promise<void> {
  */
 export async function disableNativeMod(mod: ValidatedMod): Promise<void> {
     const wiring = getLifecycleWiring();
-    await wiring.host.disable({ mod: toLifecycleMod(mod) });
+    await wiring.host.disable({ mod: toLifecycleMod(mod), ctxForMod: buildNativeModContext });
     // Phase 3.2 / `EVENTS.md` §11 site 3 — after `host.disable(…)` resolves, so
     // the departing mod's listeners are already torn down (`lifecycleHost`'s
     // `disable` calls `modEventBus.disposeModListeners`) and it cannot receive

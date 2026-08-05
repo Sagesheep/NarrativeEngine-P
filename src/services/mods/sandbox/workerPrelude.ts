@@ -18,9 +18,57 @@ export function buildWorkerSource(modSource: string): string {
     //   - `export function foo` / `export const bar` → `function foo` /
     //     `const bar` (named exports become top-level bindings inside the
     //     worker; the worker never re-exports them, they are just in scope).
-    const defaultSource = modSource
-        .replace(/^\s*export\s+default\s+/, '')
-        .replace(/^(\s*)export\s+(function|const|let|var|class)\s/gm, '$1$2 ');
+    //   - `export { ... };` (a named export block, used by `mods/arc/compute.js`
+    //     to expose pure helpers for the oracle test) → removed. The names
+    //     are already in scope as top-level bindings; the export block is
+    //     pure syntax in a classic script and would be a parse error.
+    //
+    // The `export default` strip uses the `m` flag so it matches at the start
+    // of any line — `mods/arc/compute.js` puts the default export at the
+    // bottom (after the pure helpers), not the top, and the strip must still
+    // catch it. (Phase 4.0: this is the latent bug that prevented Arc from
+    // running even after the binding was fixed — the strip only caught the
+    // default export when it was the first token of the file.)
+    const stripped = modSource
+        .replace(/^\s*export\s+default\s+/gm, '')
+        .replace(/^(\s*)export\s+(function|const|let|var|class)\s/gm, '$1$2 ')
+        .replace(/^\s*export\s*\{[^]*?\}\s*;?\s*(?=\n|$)/gm, '');
+
+    // Phase 4.0 — the default export becomes either:
+    //   (a) an anonymous function expression at the START of the source
+    //       (e.g. `export default async function (ctx) { ... }` →
+    //       `async function (ctx) { ... }`), which is a valid RHS for
+    //       `globalThis.__sandboxMod = ...`; OR
+    //   (b) a named function declaration anywhere in the source (e.g.
+    //       `mods/arc/compute.js` puts `export default async function
+    //       arcCompute(ctx) { ... }` at the bottom, after the pure helpers),
+    //       which is a hoisted declaration accessible by name from inside an
+    //       IIFE.
+    //
+    // Case (a) is detected by `stripped` starting with `async function ` or
+    // `function ` (an anonymous expression form). Case (b) is everything
+    // else — the source has declarations, and the default export is a named
+    // declaration somewhere in it.
+    //
+    // The OLD prelude (`globalThis.__sandboxMod = ${stripped}`) only handled
+    // case (a) where the default export was the FIRST token of the file.
+    // `mods/arc/compute.js` is case (b) and broke the OLD prelude silently:
+    // `__sandboxMod` was set to the first comment's `undefined`, then
+    // `const ARC_TICK_DC = ...` was a syntax error after the assignment.
+    const isAnonymousExpression = /^\s*(async\s+)?function\s*\(/.test(stripped);
+    const defaultSource = isAnonymousExpression
+        ? `globalThis.__sandboxMod = ${stripped};`
+        : [
+            'globalThis.__sandboxMod = (function() {',
+            stripped,
+            '  // Look for a named default function declaration (hoisted to this IIFE scope).',
+            '  const __sandboxCandidates = ["arcCompute", "compute", "tick", "default"];',
+            '  for (const __sandboxName of __sandboxCandidates) {',
+            '    try { if (typeof eval(__sandboxName) === "function") return eval(__sandboxName); } catch {}',
+            '  }',
+            '  return null;',
+            '})();',
+        ].join('\n');
     return [
         "'use strict';",
         'const __sandboxDenyGlobal = (name) => {',
@@ -34,7 +82,10 @@ export function buildWorkerSource(modSource: string): string {
         '    seen.add(value); Object.freeze(value); for (const child of Object.values(value)) __sandboxFreeze(child, seen);',
         '  } return value;',
         '};',
-        `globalThis.__sandboxMod = ${defaultSource};`,
+        // Phase 4.0 — `defaultSource` is now the FULL `globalThis.__sandboxMod = ...`
+        // statement (anonymous expression form) or the IIFE-wrapped named-
+        // declaration form. See the comment above for the case split.
+        defaultSource,
         'let __sandboxController;',
         'let __sandboxModelRoles = [];',
         'let __sandboxRpcId = 0;',
@@ -74,7 +125,12 @@ export function buildWorkerSource(modSource: string): string {
         '  callJson: (role, request, options) => __sandboxRpc("model", "callJson", [role, request, options || {}]).then((reply) => reply.content),',
         '  available: (role) => __sandboxModelRoles.includes(role),',
         '});',
+        'const __sandboxNativeOnly = (name) => () => {',
+        '  throw new Error("[sandbox] " + name + " is native-tier only (EVENTS.md §5.1); a sandboxed compute mod cannot hold a listener across a run");',
+        '};',
         'const __sandboxContext = {',
+        '  get mod() { return __sandboxSnapshot.mod; },',
+        '  get api() { return __sandboxSnapshot.api; },',
         '  get data() { return __sandboxSnapshot.data; },',
         '  get config() { return __sandboxSnapshot.config; },',
         '  write: __sandboxWrite,',
@@ -83,6 +139,13 @@ export function buildWorkerSource(modSource: string): string {
         '  get signal() { return __sandboxController.signal; },',
         '  refresh: () => __sandboxRpc("refresh", undefined, []),',
         '  log: (...args) => { self.postMessage({ type: "log", args }); },',
+        '  subscribe: __sandboxNativeOnly("ctx.subscribe"),',
+        '  events: Object.freeze({',
+        '    on: __sandboxNativeOnly("ctx.events.on"),',
+        '    off: __sandboxNativeOnly("ctx.events.off"),',
+        '    once: __sandboxNativeOnly("ctx.events.once"),',
+        '    emit: __sandboxNativeOnly("ctx.events.emit"),',
+        '  }),',
         '};',
         'Object.freeze(__sandboxContext);',
         'let __sandboxSnapshot;',

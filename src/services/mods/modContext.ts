@@ -22,6 +22,7 @@
 
 import type {
     AiTier,
+    ArchiveChapter,
     ArchiveIndexEntry,
     CharacterProfile,
     ChatMessage,
@@ -73,6 +74,34 @@ export interface ModApi {
 }
 
 /**
+ * `API.md` §4.4 — `data.chapters`, a projection of the host's
+ * `ArchiveChapter` (`src/types/archive.ts:55-76`). The archive/LOD subsystem
+ * is the least settled part of the app and freezing `ArchiveChapter`
+ * mid-flight is a real cost, so the entry ships as `ModChapter` — the same
+ * technique `ModLocation` uses. The internal-only fields (`sceneRange`,
+ * `keywords`, `npcs`, `majorEvents`, `unresolvedThreads`, `tone`, `themes`,
+ * `sceneCount`, `synopsis`, `abstractTitle`, `literalTitle`,
+ * `invalidated`, `_lastSeenSessionId`) stay internal and stay refactorable.
+ * `sealedAt` is normalised to `number | null` so "which chapter is open"
+ * is answerable without knowing the host spells it as an absent optional.
+ *
+ * **Absent, deliberately:** any chapter write. Sealing, elevation and
+ * summary depth are core's (`CONTRACT.md` L3 "may not touch"), and the
+ * archive track is excluded from the registry for data-loss safety. A mod
+ * reads chapters; it never seals one.
+ */
+export interface ModChapter {
+    readonly chapterId: string;
+    readonly title: string;
+    /** Normalised: a sealed chapter has a timestamp; an open one is `null`. */
+    readonly sealedAt: number | null;
+    /** The chapter's scene range, e.g. `['001', '024']`. */
+    readonly sceneIds: readonly string[];
+    /** The chapter summary text (may be empty for an unsummarised chapter). */
+    readonly summary: string;
+}
+
+/**
  * `API.md` §4 — frozen, cloned reads. `cloneAndFreeze` (`hostFacade.ts:176`)
  * is the existing discipline and it stays: a mod must never be able to mutate
  * host state by writing to a read. Live values arrive through `subscribe`
@@ -83,6 +112,7 @@ export interface ModData {
     readonly playerInput: string;
     readonly messages: readonly ChatMessage[];
     readonly archiveIndex: readonly ArchiveIndexEntry[];
+    readonly chapters: readonly ModChapter[];
     readonly timeline: readonly TimelineEvent[];
     readonly npcLedger: readonly NPCEntry[];
     readonly onStageNpcIds: readonly string[];
@@ -444,6 +474,16 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
  * surface. The five fields a measured consumer actually reaches for are
  * promoted to named entries here.
  */
+function projectChapter(chapter: ArchiveChapter): ModChapter {
+    return {
+        chapterId: chapter.chapterId,
+        title: chapter.title,
+        sealedAt: typeof chapter.sealedAt === 'number' && Number.isFinite(chapter.sealedAt) ? chapter.sealedAt : null,
+        sceneIds: chapter.sceneIds ?? [],
+        summary: chapter.summary ?? '',
+    };
+}
+
 function buildModData(
     facade: HostFacade,
     locationState?: {
@@ -459,11 +499,15 @@ function buildModData(
         currentFeature: locationState?.currentFeature ?? context.currentFeature ?? null,
         ledger: Object.freeze([...(locationState?.ledger ?? [])]),
     });
+    const chapters: readonly ModChapter[] = Object.freeze(
+        (facadeData.chapters ?? []).map(projectChapter),
+    );
     return {
         campaignId: facadeData.activeCampaignId,
         playerInput: facadeData.input,
         messages: facadeData.messages,
         archiveIndex: facadeData.archiveIndex,
+        chapters,
         timeline: facadeData.timeline,
         npcLedger: facadeData.npcLedger,
         onStageNpcIds: facadeData.onStageNpcIds,

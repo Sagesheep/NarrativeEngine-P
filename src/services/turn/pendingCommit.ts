@@ -165,7 +165,13 @@ export function findRetryableMessage(messages: ChatMessage[]): ChatMessage | nul
 }
 
 // ── Build fresh callbacks from the live store for commit ────────────────
-function buildCommitCallbacks(
+/**
+ * Build `TurnCallbacks` reading from the live store. Phase 4.0 — exported
+ * so `modBootstrap.ts` can build a standing facade for native lifecycle
+ * hooks (which fire outside any turn). The callbacks read live state at
+ * call time, so a facade built with them stays current without a turn.
+ */
+export function buildCommitCallbacks(
     activeCampaignId: string,
     store: ReturnType<typeof useAppStore.getState>,
 ): TurnCallbacks {
@@ -480,7 +486,14 @@ function commitStateCampaignId(
 // lost (Electron/renderer death). At relaunch, no "next turn's messages"
 // exist, so reading live is safe — the snapshot invariant (don't see the
 // next turn's messages) holds vacuously.
-function rebuildStateFromLiveStore(
+//
+// Phase 4.0 — exported so `modBootstrap.ts` can build a standing facade for
+// native lifecycle hooks. The native path needs a `TurnState` to build a
+// `HostFacade`, and at `activate` time (which can be before any campaign is
+// open) there is no live turn to read from. The live store is the only
+// source, and `rebuildStateFromLiveStore` is the existing reconstruction —
+// extracted rather than re-invented per Phase 4.0 §2 Part B.
+export function rebuildStateFromLiveStore(
     store: ReturnType<typeof useAppStore.getState>,
     // Durable-commit v1: the turn's user half, recovered from the chat log by
     // `findTurnUserInput`. This used to be hardcoded `''`, which the archive

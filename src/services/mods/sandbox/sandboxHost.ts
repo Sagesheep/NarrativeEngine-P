@@ -10,10 +10,21 @@ import {
     type SandboxJournalEntry,
     type SandboxRpcMessage,
     type SandboxHostMessage,
+    type SandboxSnapshot,
     type SandboxWorkerLike,
     SandboxFaultError,
     type SandboxWorkerMessage,
 } from './sandboxTypes';
+import { buildModContext, type ModContextMod } from '../modContext';
+import type { LocationEntry } from '../../../types';
+
+/**
+ * Phase 4.0 — the per-mod identity the sandbox needs to resolve bare table
+ * names (`API.md` §6.2) and to project the `ModContext` shape into the worker
+ * (`API.md` §8.6 item 1). Required on every `runSandbox` call: a sandboxed
+ * compute mod is a `ModContext` consumer, not a `FacadeData` consumer.
+ */
+export type SandboxModIdentity = ModContextMod;
 
 const WRITE_NAMES = [
     'updateContext',
@@ -112,10 +123,33 @@ function isWriteName(value: string): value is SandboxWriteName {
     return (WRITE_NAMES as readonly string[]).includes(value);
 }
 
+/**
+ * Phase 4.0 / `API.md` §6.2 — resolve a mod-supplied table name to the
+ * namespaced name the host adapter and capability check use. The mod may pass
+ * the bare declared name (`'arcs'`) or the fully-qualified own name
+ * (`'mod.arc.arcs'`); both resolve to the same table. Cross-mod names
+ * (`'mod.other.arcs'`) are rejected. Mirrors `resolveOwnTableName` in
+ * `modContext.ts` so the journal, the table RPC, and the `ModContext.table`
+ * adapter all agree on what a bare name means.
+ */
+function resolveOwnTableName(modId: string, name: string): string {
+    if (typeof name !== 'string' || name.trim() === '') {
+        throw new Error('[sandbox] table name must be a non-empty string');
+    }
+    const trimmed = name.trim();
+    const ownPrefix = 'mod.' + modId + '.';
+    if (trimmed.startsWith(ownPrefix)) return trimmed;
+    if (trimmed.startsWith('mod.')) {
+        throw new Error(`[sandbox] a mod may not reach another mod's tables ("${trimmed}")`);
+    }
+    return ownPrefix + trimmed;
+}
+
 /** Validate every journal entry before any host write is invoked. All-or-nothing. */
 export function validateJournal(
     writes: readonly SandboxJournalEntry[],
     capabilities: readonly string[],
+    modId: string = '',
 ): void {
     if (!Array.isArray(writes)) throw new SandboxFaultError('journal-rejected', '[sandbox] journal rejected: writes must be an array');
     if (writes.length > MAX_JOURNAL_ENTRIES) {
@@ -142,7 +176,8 @@ export function validateJournal(
             if (typeof tableEntry.name !== 'string' || tableEntry.name.trim() === '') {
                 throw new SandboxFaultError('journal-rejected', '[sandbox] journal rejected: malformed table entry');
             }
-            if (!hasCapability(capabilities, tableCapability('write', tableEntry.name))) {
+            const resolvedName = modId ? resolveOwnTableName(modId, tableEntry.name) : tableEntry.name;
+            if (!hasCapability(capabilities, tableCapability('write', resolvedName))) {
                 throw new SandboxFaultError('journal-rejected', `[sandbox] journal rejected: undeclared table write "${tableEntry.name}"`);
             }
         } else {
@@ -156,8 +191,9 @@ export function applyJournal(
     facade: HostFacade,
     writes: readonly SandboxJournalEntry[],
     capabilities: readonly string[],
+    modId: string = '',
 ): void {
-    validateJournal(writes, capabilities);
+    validateJournal(writes, capabilities, modId);
     for (const entry of writes) {
         if (entry.kind === 'store') {
             const storeEntry = entry as { kind: 'store'; name: string; args: unknown[] };
@@ -173,7 +209,8 @@ export function applyJournal(
             method(...storeEntry.args);
         } else {
             const tableEntry = entry as { kind: 'table'; name: string; rows: unknown };
-            facade.table.write(tableEntry.name, tableEntry.rows);
+            const resolvedName = modId ? resolveOwnTableName(modId, tableEntry.name) : tableEntry.name;
+            facade.table.write(resolvedName, tableEntry.rows);
         }
     }
 }
@@ -213,6 +250,7 @@ function handleTableRpc(
     facade: HostFacade,
     message: SandboxRpcMessage,
     capabilities: readonly string[],
+    modId: string = '',
 ): Promise<unknown> {
     // Only `read` is an immediate RPC. `write` is journalled by the worker
     // prelude and applied atomically on clean return (WO-P5-14); a `write`
@@ -226,7 +264,8 @@ function handleTableRpc(
         return Promise.reject(new Error('[sandbox] table RPC requires a table name'));
     }
 
-    const capability = tableCapability('read', table);
+    const resolvedName = modId ? resolveOwnTableName(modId, table) : table;
+    const capability = tableCapability('read', resolvedName);
     if (!hasCapability(capabilities, capability)) {
         return Promise.reject(new Error(`[sandbox] capability denied: ${capability}`));
     }
@@ -234,7 +273,7 @@ function handleTableRpc(
     if (message.args.length !== 1) {
         return Promise.reject(new Error('[sandbox] table read requires exactly one argument'));
     }
-    return facade.table.read(table);
+    return facade.table.read(resolvedName);
 }
 
 async function handleModelRpc(
@@ -283,8 +322,10 @@ function handleRpc(
     capabilities: readonly string[],
     modelSignal: AbortSignal,
     budget: ModelBudget,
+    modId: string,
+    buildSnapshot: () => SandboxSnapshot,
 ): Promise<unknown> {
-    if (message.channel === 'table') return handleTableRpc(facade, message, capabilities);
+    if (message.channel === 'table') return handleTableRpc(facade, message, capabilities, modId);
     if (message.channel === 'model') return handleModelRpc(facade, message, capabilities, modelSignal, budget);
     if (message.channel !== 'refresh') {
         return Promise.reject(new Error('[sandbox] unknown RPC channel: ' + String(message.channel)));
@@ -292,27 +333,82 @@ function handleRpc(
     if (message.method !== undefined || message.args.length !== 0) {
         return Promise.reject(new Error('[sandbox] refresh RPC takes no arguments'));
     }
-    const refreshed = facade.refresh();
-    return Promise.resolve({ data: refreshed.data, config: refreshed.config });
+    // Phase 4.0 — refresh returns the `ModContext`-shape snapshot, not the raw
+    // `FacadeData`/`FacadeConfig`. The worker prelude projects the snapshot
+    // onto `ctx.data`/`ctx.config`/`ctx.mod`/`ctx.api`; a mod that calls
+    // `await ctx.refresh()` and reads `ctx.data.playerInput` gets the new
+    // value, not `undefined` (`API.md` §8.6 item 1).
+    return Promise.resolve(buildSnapshot());
 }
 function isDoneMessage(message: SandboxWorkerMessage): message is SandboxDoneMessage {
     return message.type === 'done';
 }
 
 /**
+ * Phase 4.0 — project a `HostFacade` into the `ModContext`-shape snapshot
+ * handed to the worker. `data` is in `ModData` shape (renamed `playerInput`,
+ * promoted `playerCharacter`/`characterSheet`/`inventory`, derived
+ * `location`), `config` is the narrow `ModConfig` (`{ aiTier }`), and
+ * `mod`/`api` carry the identity and `commitPoint: 'on-return'`. The
+ * `ModContext` itself is built once per run by `runSandbox`; this helper
+ * builds the snapshot for the initial run message and the `refresh` RPC
+ * reply so they agree.
+ */
+function buildSandboxSnapshot(
+    mod: SandboxModIdentity,
+    facade: HostFacade,
+    locationState?: {
+        readonly currentPlaceId: string | null;
+        readonly currentFeature: string | null;
+        readonly ledger: readonly LocationEntry[];
+    },
+): SandboxSnapshot {
+    const context = buildModContext({
+        mod,
+        facade,
+        commitPoint: 'on-return',
+        locationState,
+    });
+    return {
+        mod: { id: context.mod.id, name: context.mod.name, version: context.mod.version },
+        api: { version: context.api.version, commitPoint: context.api.commitPoint },
+        data: context.data as unknown as Readonly<Record<string, unknown>>,
+        config: context.config as unknown as Readonly<Record<string, unknown>>,
+    };
+}
+
+/**
  * Run one compute module in one Worker. A rejected promise means the journal was discarded.
  * Writes are applied only inside the clean `done` branch after the whole journal validates.
+ *
+ * Phase 4.0 / `API.md` §8.6 item 1 — `mod` is required. The worker receives a
+ * `ModContext`-shape snapshot (projected from `facade`), not the raw
+ * `FacadeData`; the bare-name own-table alias resolves (`ctx.table.read('arcs')`
+ * and `ctx.table.read('mod.arc.arcs')` are the same table); `subscribe` and
+ * `events` throw "native tier only" on the worker side (`EVENTS.md` §5.1).
  */
 export async function runSandbox(
     modSource: string,
     facade: HostFacade,
     capabilities: readonly string[],
-    options: SandboxHostOptions = {},
+    options: SandboxHostOptions & {
+        mod?: SandboxModIdentity;
+        locationState?: {
+            readonly currentPlaceId: string | null;
+            readonly currentFeature: string | null;
+            readonly ledger: readonly LocationEntry[];
+        };
+    } = {},
 ): Promise<unknown> {
     const deadlineMs = options.deadlineMs ?? SANDBOX_DEADLINE_MS;
     if (!Number.isFinite(deadlineMs) || deadlineMs <= 0) {
         throw new Error('[sandbox] deadline must be a positive finite number');
     }
+    const mod = options.mod;
+    if (!mod) {
+        throw new Error('[sandbox] runSandbox requires a mod identity (Phase 4.0 / API.md §8.6 item 1)');
+    }
+    const locationState = options.locationState;
 
     const workerFactory = options.createWorker ?? createBrowserWorker;
     let worker: SandboxWorkerLike;
@@ -377,7 +473,7 @@ export async function runSandbox(
             }
             pendingRpc.add(message.id);
             Promise.resolve()
-                .then(() => handleRpc(facade, message, capabilities, modelAbort.signal, modelBudget))
+                .then(() => handleRpc(facade, message, capabilities, modelAbort.signal, modelBudget, mod.id, () => buildSandboxSnapshot(mod, facade.refresh(), locationState)))
                 .then((value) => {
                     pendingRpc.delete(message.id);
                     if (settled) return;
@@ -409,7 +505,7 @@ export async function runSandbox(
             const message = event.data;
             if (isDoneMessage(message)) {
                 try {
-                    applyJournal(facade, message.writes, capabilities);
+                    applyJournal(facade, message.writes, capabilities, mod.id);
                     finish({ ok: true, value: message.result });
                 } catch (error) {
                     finish({ ok: false, error });
@@ -454,9 +550,10 @@ export async function runSandbox(
         }
 
         try {
+            const snapshot = buildSandboxSnapshot(mod, facade, locationState);
             const runMessage: SandboxHostMessage = {
                 type: 'run',
-                snapshot: { data: facade.data, config: facade.config },
+                snapshot,
                 deadlineMs,
                 modelRoles: MODEL_ROLES.filter((role) => facade.model.available(role)),
             };

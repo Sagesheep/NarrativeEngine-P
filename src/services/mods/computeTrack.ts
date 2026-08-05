@@ -42,8 +42,33 @@ export function modToComputeTrack(
             if (!ctx.facade) throw new Error('[sandbox] no host facade for compute mod: ' + mod.id);
             if (!policy.canRun(mod.id, ctx.allMsgs)) return;
 
+            // Phase 4.0 / `API.md` §8.6 item 1 — build a `ModContext` per mod
+            // and marshal *that* across the worker boundary, not the raw
+            // `FacadeData`. The mod's identity is in scope here (`mod.id`,
+            // `mod.name`, `mod.version`, `mod.folder`); `commitPoint` is
+            // `'on-return'` for sandboxed compute (the journal applies
+            // atomically on clean return). The bare-name own-table alias is
+            // resolved by the host (`sandboxHost.ts`) using `mod.id`.
+            //
+            // `locationState` is read through `TurnCallbacks.getFreshLocationState()`
+            // when the post-turn track context carries callbacks; without it,
+            // `data.location.ledger` is `[]` (`API.md` §4.2). The track context
+            // passes `callbacks` lazily — it may be undefined on the crash-
+            // recovery path, where there is no live turn to read location from.
+            const freshLocation = ctx.callbacks?.getFreshLocationState?.();
+            const locationState = freshLocation && freshLocation.activeCampaignId
+                ? {
+                    currentPlaceId: freshLocation.context.currentPlaceId ?? null,
+                    currentFeature: freshLocation.context.currentFeature ?? null,
+                    ledger: freshLocation.locationLedger ?? [],
+                }
+                : undefined;
             try {
-                await runSandbox(computeSource, ctx.facade, compute.capabilities, options.sandboxOptions);
+                await runSandbox(computeSource, ctx.facade, compute.capabilities, {
+                    ...options.sandboxOptions,
+                    mod: { id: mod.id, name: mod.name, version: mod.version, folder: mod.folder },
+                    locationState,
+                });
                 policy.recordSuccess(mod.id, ctx.allMsgs);
             } catch (error) {
                 if (error instanceof Error && error.message === '[sandbox] run aborted') throw error;

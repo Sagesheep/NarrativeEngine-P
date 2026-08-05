@@ -53,6 +53,22 @@ export const LIFECYCLE_HOOK_NAMES: readonly LifecycleHookName[] = [
 export type { ModContext };
 
 /**
+ * Phase 4.0 — a factory that builds a `ModContext` for one mod. The lifecycle
+ * host calls it per-mod inside the load cycle (and for `enable`/`disable`),
+ * so each hook receives a context whose `mod.id` matches the hook's mod
+ * (`API.md` §3 — the object is per-mod so table access resolves to this
+ * mod's namespace). The factory may return `undefined` for a mod whose
+ * context cannot be built (e.g. no active campaign at load time); a hook
+ * that needs state guards against `undefined` (`MANIFEST.md` §10).
+ */
+export type ModContextFactory = (mod: {
+    readonly id: string;
+    readonly name: string;
+    readonly version: string;
+    readonly folder?: string;
+}) => ModContext | undefined;
+
+/**
  * A single lifecycle hook. May be async; the host awaits it under a timeout.
  * A hook that throws or rejects is contained as a fault, never fatal
  * (Phase 1.4 §3).

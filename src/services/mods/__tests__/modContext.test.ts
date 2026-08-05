@@ -153,7 +153,7 @@ describe('Phase 2.3 — buildModContext', () => {
                 facade: makeFacade(),
             });
             expect(Object.keys(ctx.data).sort()).toEqual(
-                ['archiveIndex', 'campaignId', 'characterSheet', 'divergenceRegister', 'inventory', 'location', 'loreChunks', 'messages', 'npcLedger', 'onStageNpcIds', 'playerCharacter', 'playerInput', 'timeline'].sort(),
+                ['archiveIndex', 'campaignId', 'chapters', 'characterSheet', 'divergenceRegister', 'inventory', 'location', 'loreChunks', 'messages', 'npcLedger', 'onStageNpcIds', 'playerCharacter', 'playerInput', 'timeline'].sort(),
             );
         });
 

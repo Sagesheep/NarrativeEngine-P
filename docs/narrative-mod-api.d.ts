@@ -74,6 +74,21 @@ export interface ArchiveIndexEntry {
     importance?: number;
 }
 
+/**
+ * `API.md` §4.4 — `data.chapters`, a projection of the host's
+ * `ArchiveChapter`. The internal-only fields stay internal and refactorable;
+ * `sealedAt` is normalised to `number | null` so "which chapter is open"
+ * is answerable. **Absent, deliberately:** any chapter write — sealing,
+ * elevation and summary depth are core's (`CONTRACT.md` L3).
+ */
+export interface ModChapter {
+    readonly chapterId: string;
+    readonly title: string;
+    readonly sealedAt: number | null;
+    readonly sceneIds: readonly string[];
+    readonly summary: string;
+}
+
 export interface TimelineEvent {
     sceneId: string;
     summary?: string;
@@ -248,6 +263,7 @@ export interface ModData {
     readonly playerInput: string;
     readonly messages: readonly ChatMessage[];
     readonly archiveIndex: readonly ArchiveIndexEntry[];
+    readonly chapters: readonly ModChapter[];
     readonly timeline: readonly TimelineEvent[];
     readonly npcLedger: readonly NPCEntry[];
     readonly onStageNpcIds: readonly string[];

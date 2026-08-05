@@ -1,5 +1,6 @@
 import type {
     AiTier,
+    ArchiveChapter,
     ArchiveIndexEntry,
     CharacterProfile,
     InventoryItem,
@@ -90,6 +91,14 @@ export interface FacadeData {
     readonly timeline: TimelineEvent[];
     readonly condenser: CondenserState;
     readonly semanticFacts: SemanticFact[];
+    /**
+     * Phase 4.0 / `API.md` §8.6 item 6 — the host's chapter list, projected
+     * to `ModChapter` by `buildModContext`. The raw `ArchiveChapter` shape
+     * is internal (`API.md` §4.4 — the archive/LOD subsystem is the least
+     * settled part of the app and freezing it mid-flight is a real cost);
+     * the projection stays here so the mod surface never sees the raw type.
+     */
+    readonly chapters: ArchiveChapter[];
 }
 
 export interface FacadeConfig {
@@ -238,6 +247,7 @@ function readFacadeData(state: TurnState): FacadeData {
         timeline: state.timeline ?? [],
         condenser: state.condenser,
         semanticFacts: state.semanticFacts ?? [],
+        chapters: state.chapters ?? [],
     });
 }
 
@@ -348,14 +358,23 @@ export function buildHostFacade(
             case 'onStageNpcIds': return live?.onStageNpcIds ?? data.onStageNpcIds;
             case 'loreChunks': return live?.loreChunks ?? data.loreChunks;
             case 'divergenceRegister': return live?.divergenceRegister ?? data.divergenceRegister;
+            case 'chapters': return live?.chapters ?? data.chapters;
             case 'playerCharacter': return live?.playerCharacter ?? context.playerCharacter ?? null;
             case 'characterSheet': return live?.characterProfileData ?? context.characterProfileData;
             case 'inventory': return live?.inventoryItems ?? context.inventoryItems;
             case 'location': {
+                // Phase 4.0 / `API.md` §8.6 item 7 — the reactive path and
+                // the snapshot path (`modContext.ts:457-460`) MUST agree on
+                // precedence. The snapshot path prefers the injected
+                // `locationState` over `context`; the reactive path used to
+                // prefer `context` over the injected state, so a subscriber
+                // and a fresh read disagreed. Aligned to the snapshot order
+                // (injected state wins) so a subscriber sees the same value
+                // a fresh `ctx.data.location` read returns.
                 const fresh = options.getLocationState?.();
                 return {
-                    currentPlaceId: context.currentPlaceId ?? fresh?.currentPlaceId ?? null,
-                    currentFeature: context.currentFeature ?? fresh?.currentFeature ?? null,
+                    currentPlaceId: fresh?.currentPlaceId ?? context.currentPlaceId ?? null,
+                    currentFeature: fresh?.currentFeature ?? context.currentFeature ?? null,
                     ledger: live?.locationLedger ?? fresh?.ledger ?? [],
                 };
             }

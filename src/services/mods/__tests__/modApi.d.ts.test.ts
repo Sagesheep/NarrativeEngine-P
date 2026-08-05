@@ -31,6 +31,18 @@ const computeHook: ModComputeHook = (ctx) => {
         readonly ledger: readonly { id: string; name: string }[];
     } = ctx.data.location;
 
+    // Phase 4.0 — `data.chapters` is a projection of `ArchiveChapter`. The
+    // `sealedAt` is normalised to `number | null`; the internal-only fields
+    // stay internal. A mod reads chapters; it never seals one.
+    const chapters: readonly {
+        readonly chapterId: string;
+        readonly title: string;
+        readonly sealedAt: number | null;
+        readonly sceneIds: readonly string[];
+        readonly summary: string;
+    }[] = ctx.data.chapters;
+    void chapters;
+
     // Writes are synchronous and void.
     const writeResult: void = ctx.write.addNpcSuggestions(['probe'], 'exercise');
     void writeResult;
