@@ -34,6 +34,7 @@ No cloud. No subscription. Your campaigns stay on your machine.
    **Or manually:**
    ```bash
    npm install
+   npm run build --prefix packages/engine
    npm run dev
    ```
 
