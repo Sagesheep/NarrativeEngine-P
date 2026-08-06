@@ -12,6 +12,7 @@ import { SwipeIndicator, ContinueButton } from './message/SwipeIndicator';
 import { ReasoningViewer } from './message/ReasoningViewer';
 import { InlineMessageEditor } from './message/InlineMessageEditor';
 import { MessageActionRail } from './message/MessageActionRail';
+import { MessageBelowSlots } from './message/MessageBelowSlots';
 import { SceneImageAttachmentView } from './message/SceneImageAttachmentView';
 
 interface MessageBubbleProps {
@@ -255,6 +256,17 @@ export function MessageBubble({
                         ))}
                     </div>
                 )}
+
+                {/* Phase 4.4 — `message.below` mount region. Mod-claimed
+                    content slots render here: below the prose block and the
+                    attachment list, above the swipe/continue affordance and
+                    the debug view (MOUNTS.md §2.6). Renders `null` when no
+                    mod has claimed the region, so the bubble's DOM is
+                    byte-identical to the pre-4.4 bubble with zero mods
+                    installed (§2.8). The `MessageRef` carries the per-message
+                    identity (id, role, sceneId) the mod needs to act on this
+                    specific message (§8.4). */}
+                <MessageBelowSlots message={{ id: msg.id, role: msg.role, sceneId: msg.sceneId ?? null }} />
 
                 {msg.retryable && !isStreaming && onRetry && (
                     <div className="mt-2 mb-1 flex items-center gap-2 py-2 px-3 bg-void-darker border border-amber-500/30 rounded">

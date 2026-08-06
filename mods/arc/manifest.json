@@ -27,5 +27,12 @@
       "write:updateContext",
       "write:addMessage"
     ]
+  },
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate",
+      "disable": "onDisable"
+    }
   }
 }

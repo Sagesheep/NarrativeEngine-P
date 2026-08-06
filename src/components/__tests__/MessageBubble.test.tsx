@@ -3,6 +3,11 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MessageBubble } from '../MessageBubble';
 import type { ChatMessage } from '../../types';
+import {
+    registerModChrome,
+    registerModMessageBelow,
+    resetMountRegistryForTests,
+} from '../../services/mods/mounts/mountRegistry';
 
 vi.mock('../../store/useAppStore', () => {
     const state = {
@@ -241,6 +246,103 @@ describe('MessageBubble', () => {
             expect(onInlineSubmit).toHaveBeenCalled();
             await user.type(editor, '{Escape}');
             expect(onInlineCancel).toHaveBeenCalled();
+        });
+    });
+
+    // ── Phase 4.4 — message-row affordances (message.actions + message.below) ──
+    //
+    // Proves the zero-mod DOM rule (MOUNTS.md §2.8) and that both mount
+    // points render inside the bubble without disturbing the existing
+    // structure. The rail's mod overlay and the below-body slots each
+    // render `null` when no mod has claimed the region, so the bubble's DOM
+    // is byte-identical to the pre-4.4 bubble with zero mods installed.
+    describe('Phase 4.4 — message-row affordances', () => {
+        beforeEach(() => {
+            resetMountRegistryForTests();
+        });
+
+        it('with zero mods: the bubble has no mod-action buttons and no below-body slot (§2.8)', () => {
+            const { container } = renderBubble(makeMessage({ content: 'Hello world' }));
+            // No mod-action buttons: the rail has only the built-in
+            // edit/rewind/speak/delete buttons. A mod's button would carry
+            // a `mod.mod-a.` qualified id, which we can assert is absent.
+            const buttons = container.querySelectorAll('button');
+            const modButtons = Array.from(buttons).filter((b) =>
+                (b.getAttribute('aria-label') ?? '').startsWith('mod.'));
+            expect(modButtons).toHaveLength(0);
+            // No below-body slot: the `MessageBelowSlots` component renders
+            // `null` when no slot is claimed, so there is no wrapper div with
+            // `overflow-hidden text-text-dim` between the attachments block
+            // and the retry/swipe/continue block.
+            const slotWrappers = container.querySelectorAll('.overflow-hidden.text-text-dim');
+            expect(slotWrappers).toHaveLength(0);
+        });
+
+        it('a mod action button appears in the rail when a mod claims message.actions', () => {
+            registerModChrome('message.actions', { id: 'mod-a', name: 'Mod A' }, {
+                id: 'tag',
+                icon: 'Tag',
+                label: 'Tag',
+                tooltip: 'Tag this message',
+                onSelect: () => undefined,
+            }, 0);
+            renderBubble(makeMessage({ content: 'Hello' }));
+            // The mod's button is present (the aria-label is the namespaced
+            // tooltip, per the i18n lookup in the mod's namespace).
+            const modButton = screen.getByRole('button', { name: 'mod.mod-a.Tag this message' });
+            expect(modButton).toBeInTheDocument();
+        });
+
+        it('a mod below-body slot renders beneath the prose and above the swipe/continue block', async () => {
+            registerModMessageBelow({ id: 'mod-a', name: 'Mod A' }, {
+                id: 'note',
+                mount: (node) => { node.textContent = 'below-body-annotation'; },
+            }, 0, {});
+            renderBubble(makeMessage({ content: 'The dragon roars' }));
+            expect(await screen.findByText('below-body-annotation')).toBeInTheDocument();
+        });
+
+        it('mod action buttons do NOT appear while editing (§2.5)', () => {
+            registerModChrome('message.actions', { id: 'mod-a', name: 'Mod A' }, {
+                id: 'tag',
+                icon: 'Tag',
+                label: 'Tag',
+                tooltip: 'Tag',
+                onSelect: () => undefined,
+            }, 0);
+            renderBubble(makeMessage(), {
+                isEditing: true,
+                inlineDraft: 'draft',
+                onInlineDraftChange: vi.fn(),
+                onInlineSubmit: vi.fn(),
+                onInlineCancel: vi.fn(),
+            });
+            // While editing, the rail is save/cancel only — the mod's button
+            // is absent (MessageActionsOverlay returns null when isEditing).
+            expect(screen.queryByRole('button', { name: 'mod.mod-a.Tag' })).toBeNull();
+            // The save/cancel buttons are present.
+            expect(screen.getByTitle('Save edit (Enter)')).toBeInTheDocument();
+            expect(screen.getByTitle('Cancel (Esc)')).toBeInTheDocument();
+        });
+
+        it('survives a swipe-set message (renders slot without crashing, §8.4)', async () => {
+            registerModMessageBelow({ id: 'mod-a', name: 'Mod A' }, {
+                id: 'note',
+                mount: (node, _ctx, message) => {
+                    node.textContent = `slot-for:${message.id}`;
+                },
+            }, 0, {});
+            const swipeMsg = makeMessage({
+                content: 'Swipe me',
+                pendingCommit: true,
+                swipeSet: [{ content: 'variant 1', streaming: false }],
+                swipeActiveIndex: 0,
+            });
+            renderBubble(swipeMsg);
+            expect(await screen.findByText(`slot-for:${swipeMsg.id}`)).toBeInTheDocument();
+            // The swipe/continue affordance is still present (the slot did
+            // not displace it).
+            expect(screen.getByTitle('Previous variant')).toBeInTheDocument();
         });
     });
 });

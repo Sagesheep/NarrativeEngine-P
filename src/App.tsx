@@ -6,6 +6,8 @@ import { Header } from './components/Header';
 import { ContextDrawer } from './components/ContextDrawer';
 import { ChatArea } from './components/ChatArea';
 import { SettingsModal } from './components/SettingsModal';
+import { ChatRightRail } from './components/ChatRightRail';
+import { WindowManager } from './components/WindowManager';
 import { NPCLedgerModal } from './components/NPCLedgerModal';
 import { EnemyCompendiumModal } from './components/EnemyCompendiumModal';
 import { CharacterLedgerModal } from './components/character/CharacterLedgerModal';
@@ -170,7 +172,13 @@ export default function App() {
       <div className="flex flex-1 overflow-hidden">
         <ContextDrawer />
         <ChatArea />
+        <ChatRightRail />
       </div>
+      {/* Phase 4.5 — `window.layer`. Renders null when no mod has opened a
+          floating window (MOUNTS.md §2.8), so zero-mod DOM is byte-identical
+          to pre-4.5. Sits beside the modals below; pointer-events-none layer
+          so the chat underneath stays interactive. */}
+      <WindowManager />
       {/* <MapPanel /> */}
       <SettingsModal />
       <NPCLedgerModal />

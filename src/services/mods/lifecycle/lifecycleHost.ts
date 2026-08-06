@@ -54,6 +54,7 @@ import {
 import type { NativeLoader, NativeMissingExportError } from '../native/nativeLoader';
 import { disposeAllModSubscriptions, disposeModSubscriptions } from '../reactiveReads';
 import { eventFaultStore, modEventBus } from '../events';
+import { disableModMounts, enableModMounts, clearAllModMounts } from '../mounts/mountRegistry';
 
 /** A mod, as the host needs to see it. A narrow read-only view of `ValidatedMod`. */
 export interface LifecycleMod {
@@ -303,10 +304,24 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
     }): Promise<LoadCycleResult> {
         const ctxForMod = input.ctxForMod;
         const fallbackCtx = input.ctx;
+        // Phase 4.2 / `MOUNTS.md` §3.1 — the load index is the position in
+        // the loader's resolved `mods[]` array. The host receives `mods` in
+        // resolved order (the loader forbids re-sorting, `modTypes.ts:341`),
+        // so the index is the array position. Built once per load cycle and
+        // passed to the context factory so the mount registry can sort mod
+        // entries by `(loadIndex, withinModIndex)` (§3.2).
+        const loadIndexMap = new Map<string, number>();
+        input.mods.forEach((mod, index) => loadIndexMap.set(mod.id, index));
         const ctxFor = (mod: LifecycleMod): ModContext | undefined => {
             if (ctxForMod) {
                 try {
-                    return ctxForMod({ id: mod.id, name: mod.name, version: mod.version, folder: mod.folder });
+                    return ctxForMod({
+                        id: mod.id,
+                        name: mod.name,
+                        version: mod.version,
+                        folder: mod.folder,
+                        loadIndex: loadIndexMap.get(mod.id) ?? 0,
+                    });
                 } catch {
                     // A factory failure must not stop the load cycle; the hook
                     // receives `undefined` and a mod that needs state guards.
@@ -463,6 +478,10 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         readonly ctx?: ModContext;
         readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult> {
+        // Phase 4.2 / `MOUNTS.md` §8.5 — clear the revoked lease before
+        // `activate` runs, so the mod's new `activate` can register its
+        // mounts again. `disable` revoked the lease; `enable` restores it.
+        enableModMounts(input.mod.id);
         const enableResult = await fireUserHook({
             mod: input.mod,
             hookName: 'enable',
@@ -506,6 +525,14 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // and **the host removes them here — the mod is never trusted to call
         // `off`.** Phase 4.9.4 will try deliberately to leak one.
         modEventBus.disposeModListeners(input.mod.id);
+        // Phase 4.2 / `MOUNTS.md` §8.5: the same discipline for mount points.
+        // Every mount the mod registered is removed here — the mod is never
+        // trusted to call `remove()`. This is how 4.2's "no ghost entries" rule
+        // and 4.5's "disabling a mod closes and destroys its windows" both fall
+        // out of the existing teardown site rather than needing their own. The
+        // mod's lease is revoked so a registration call from a stale closure
+        // after disable is a no-op plus a fault.
+        disableModMounts(input.mod.id);
         // Phase 1.5 — unmount CSS after disable, regardless of whether the
         // disable hook itself threw. The mod is being switched off; its CSS
         // must leave the page even if its cleanup hook misbehaved, otherwise
@@ -569,6 +596,8 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
             // a host that has not yet said the app is ready.
             modEventBus.reset();
             eventFaultStore.clear();
+            // Phase 4.2 / `MOUNTS.md` §8.5 — same discipline for mount points.
+            clearAllModMounts();
             nativeLoader?.clear();
             faultStore.clear();
         },

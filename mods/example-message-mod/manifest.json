@@ -1,0 +1,14 @@
+{
+  "id": "example-message-mod",
+  "name": "Example Message Mod",
+  "version": "1.0.0",
+  "description": "Phase 4.4 fixture — a native mod that exercises both message-row mount points: adds a 'tag' action button to every message's action rail (message.actions) and renders a one-line annotation beneath every message (message.below). Used to prove per-message chrome and content mounts work end-to-end. Disable it from Extensions to verify teardown is clean.",
+  "author": "Narrative Engine",
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate",
+      "disable": "onDisable"
+    }
+  }
+}

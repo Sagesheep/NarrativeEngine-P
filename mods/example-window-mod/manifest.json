@@ -1,0 +1,14 @@
+{
+  "id": "example-window-mod",
+  "name": "Example Window Mod",
+  "version": "1.0.0",
+  "description": "Phase 4.5 fixture — a native mod that declares a floating window (window.layer) and opens it from a header button. Used to prove the host-owned window manager works end-to-end: drag, resize, close, reopen with state intact. Disable it from Extensions to verify teardown is clean — the window disappears and no orphan chrome remains.",
+  "author": "Narrative Engine",
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate",
+      "disable": "onDisable"
+    }
+  }
+}

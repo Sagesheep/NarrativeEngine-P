@@ -1,10 +1,27 @@
 import { Edit2, Trash2, Loader2, Check, X, Volume2, Square, RotateCw, Play, Pause, RefreshCw, Rewind } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import { hasSwipeSet } from '../../services/turn/pendingCommit';
+import { MessageActionsOverlay } from './MessageActionsOverlay';
 
 /**
  * Hover action rail beside a message bubble: edit/save, swipe-sheet, rewind,
  * TTS speak/pause, delete. Sticky-centered; hidden until hover on desktop.
+ *
+ * Phase 4.4 — the rail is now the `message.actions` mount region
+ * (`MOUNTS.md` §2.5). The built-in buttons render as before (each with its
+ * own bespoke markup, byte-identical to the pre-4.4 rail); mod entries that
+ * have claimed `message.actions` render through the generic chrome renderer
+ * in `MessageActionsOverlay`, appended after the built-ins. There is no
+ * trailing group on this region (`MOUNTS.md` §3.3) — mod entries sort after
+ * every built-in, including delete.
+ *
+ * Zero-mod rule (`MOUNTS.md` §2.8): `MessageActionsOverlay` renders `null`
+ * when no mod has claimed the region, so the rail's DOM is byte-identical
+ * to the pre-4.4 rail with zero mods installed.
+ *
+ * Mod entries never appear in the editing state (§2.5): while `isEditing`
+ * the rail is save/cancel only; `MessageActionsOverlay` returns `null` when
+ * `isEditing` is true.
  */
 export function MessageActionRail({
     msg,
@@ -100,6 +117,12 @@ export function MessageActionRail({
                     <button title="Delete" onClick={() => onDelete(msg.id)} className="text-text-dim hover:text-red-400 p-1.5 bg-void-lighter rounded">
                         <Trash2 size={14} />
                     </button>
+                    {/* Phase 4.4 — mod entries that claimed `message.actions`.
+                        Renders `null` when no mod has claimed the region or
+                        while editing (MOUNTS.md §2.5/§2.8). Mod entries sort
+                        after every built-in — no trailing group on this
+                        region (§3.3). */}
+                    <MessageActionsOverlay isEditing={isEditing} />
                 </>
             )}
         </div>

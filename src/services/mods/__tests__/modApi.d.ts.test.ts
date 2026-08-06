@@ -82,6 +82,18 @@ const computeHook: ModComputeHook = (ctx) => {
     // `signal` is an AbortSignal.
     const signal: AbortSignal = ctx.signal;
     void signal;
+
+    // Phase 4.2 — `ctx.mounts` is the mount-point surface. Six named methods,
+    // one per region. A `MountHandle` is returned; the host tears it down on
+    // disable. Native-tier only: a sandboxed compute hook's `ctx.mounts`
+    // throws "native-tier only" (the worker prelude stubs it).
+    const headerHandle: () => void = ctx.mounts.header({
+        id: 'injectArc',
+        icon: 'Syringe',
+        label: 'Inject Arc',
+        onSelect: (c) => { void c; },
+    }).remove;
+    void headerHandle;
 };
 
 const nativeHook: NativeHook = (ctx) => {

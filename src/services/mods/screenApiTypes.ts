@@ -7,16 +7,50 @@ export const MAX_INBOUND_MESSAGES = 1000;
 export const MIN_SCREEN_HEIGHT_PX = 120;
 export const MAX_SCREEN_HEIGHT_PX = 1200;
 
-export const SCREEN_THEME = {
-    version: 1,
+export interface ScreenTheme {
+    readonly version: 2;
+    readonly mode: 'light' | 'dark';
+    readonly colors: {
+        readonly background: string;
+        readonly surface: string;
+        readonly border: string;
+        readonly text: string;
+        readonly muted: string;
+        readonly accent: string;
+        readonly danger: string;
+        readonly hover: string;
+        readonly active: string;
+        readonly focus: string;
+        readonly selected: string;
+        readonly disabled: string;
+    };
+    readonly fontSizes: {
+        readonly small: string;
+        readonly body: string;
+        readonly heading: string;
+    };
+    readonly radii: {
+        readonly small: string;
+        readonly medium: string;
+    };
+}
+
+export const DARK_SCREEN_THEME: ScreenTheme = {
+    version: 2,
+    mode: 'dark',
     colors: {
-        background: '#10131a',
-        surface: '#181d27',
-        border: '#3b4658',
-        text: '#e7ebf2',
-        muted: '#9aa6b8',
-        accent: '#a78bfa',
-        danger: '#f87171',
+        background: '#161618',
+        surface: '#1E1E21',
+        border: '#2E2E33',
+        text: '#EBEBEB',
+        muted: '#909090',
+        accent: '#6A9FD4',
+        danger: '#E05555',
+        hover: 'rgba(255, 255, 255, 0.05)',
+        active: 'rgba(255, 255, 255, 0.10)',
+        focus: '#6A9FD4',
+        selected: 'rgba(106, 159, 212, 0.15)',
+        disabled: 'rgba(235, 235, 235, 0.38)',
     },
     fontSizes: {
         small: '11px',
@@ -29,7 +63,51 @@ export const SCREEN_THEME = {
     },
 } as const;
 
-export type ScreenTheme = typeof SCREEN_THEME;
+export const LIGHT_SCREEN_THEME: ScreenTheme = {
+    version: 2,
+    mode: 'light',
+    colors: {
+        background: '#FAFAF8',
+        surface: '#F0EFED',
+        border: '#DEDEDE',
+        text: '#1A1A1A',
+        muted: '#6B6B6B',
+        accent: '#6A9FD4',
+        danger: '#C0392B',
+        hover: 'rgba(0, 0, 0, 0.05)',
+        active: 'rgba(0, 0, 0, 0.10)',
+        focus: '#6A9FD4',
+        selected: 'rgba(106, 159, 212, 0.15)',
+        disabled: 'rgba(26, 26, 26, 0.38)',
+    },
+    fontSizes: {
+        small: '11px',
+        body: '13px',
+        heading: '16px',
+    },
+    radii: {
+        small: '4px',
+        medium: '8px',
+    },
+} as const;
+
+export function getAppThemeMode(): 'light' | 'dark' {
+    if (typeof document !== 'undefined') {
+        const attr = document.documentElement.getAttribute('data-theme');
+        if (attr === 'dark' || attr === 'light') return attr;
+        if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
+            return 'dark';
+        }
+    }
+    return 'dark';
+}
+
+export function resolveScreenTheme(mode?: 'light' | 'dark'): ScreenTheme {
+    const activeMode = mode ?? getAppThemeMode();
+    return activeMode === 'light' ? LIGHT_SCREEN_THEME : DARK_SCREEN_THEME;
+}
+
+export const SCREEN_THEME: ScreenTheme = DARK_SCREEN_THEME;
 
 export interface ScreenApiInitMessage {
     readonly __screenInit: true;

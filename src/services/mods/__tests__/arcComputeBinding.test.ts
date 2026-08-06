@@ -197,6 +197,14 @@ function runArcSourceInWorker(
             once: () => { throw new Error('native tier only'); },
             emit: () => { throw new Error('native tier only'); },
         }),
+        mounts: Object.freeze({
+            header: () => { throw new Error('native tier only'); },
+            composer: () => { throw new Error('native tier only'); },
+            messageAction: () => { throw new Error('native tier only'); },
+            rail: () => { throw new Error('native tier only'); },
+            messageBelow: () => { throw new Error('native tier only'); },
+            window: () => { throw new Error('native tier only'); },
+        }),
     };
 
     // Evaluate the prelude statement(s) via `new Function` so the IIFE

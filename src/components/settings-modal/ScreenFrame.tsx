@@ -8,13 +8,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ValidatedModTable } from '../../services/mods/modTypes';
+import { modEventBus } from '../../services/mods/events/eventBus';
 import {
     isScreenApiRequest,
     isStructuredCloneSafe,
     MAX_INBOUND_MESSAGES,
     MIN_SCREEN_HEIGHT_PX,
     MAX_SCREEN_HEIGHT_PX,
-    SCREEN_THEME,
+    resolveScreenTheme,
     tableAcceptsValue,
     tableDefault,
     type ScreenTableReadResult,
@@ -84,9 +85,43 @@ export function ScreenFrame({
         target.postMessage({
             __screenInit: true,
             nonce: nonceRef.current,
-            theme: SCREEN_THEME,
+            theme: resolveScreenTheme(),
         }, '*');
     }, []);
+
+    const pushTheme = useCallback(() => {
+        const target = iframeRef.current?.contentWindow;
+        if (!target || !initSentRef.current || faultedRef.current) return;
+        target.postMessage({
+            __screenThemeUpdate: true,
+            nonce: nonceRef.current,
+            theme: resolveScreenTheme(),
+        }, '*');
+    }, []);
+
+    useEffect(() => {
+        if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
+            const observer = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    if (mutation.attributeName === 'data-theme') {
+                        pushTheme();
+                        break;
+                    }
+                }
+            });
+            observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+            return () => observer.disconnect();
+        }
+    }, [pushTheme]);
+
+    useEffect(() => {
+        const unsubscribe = modEventBus.on('settings.changed', (payload) => {
+            if (payload.changedKeys.includes('theme')) {
+                pushTheme();
+            }
+        });
+        return () => unsubscribe();
+    }, [pushTheme]);
 
     useEffect(() => {
         const iframe = iframeRef.current;
@@ -158,7 +193,7 @@ export function ScreenFrame({
             }
 
             if (data.capability === 'theme') {
-                sendResponse(target, data.id, true, SCREEN_THEME);
+                sendResponse(target, data.id, true, resolveScreenTheme());
                 return;
             }
 

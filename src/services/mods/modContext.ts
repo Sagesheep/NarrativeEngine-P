@@ -47,6 +47,8 @@ import { trackModSubscription } from './reactiveReads';
 import { reactiveFaultStore, formatReactiveFaultReason } from './reactiveFaults';
 import type { AnyEventName, CoreEventName, ModEventOwner, ModEventPayload, ModEvents, ModScopedEventName } from './events';
 import { modEventBus } from './events';
+import type { ModMountsApi } from './mounts/mountTypes';
+import { buildModMountsApi } from './mounts/mountContextMounts';
 
 /**
  * `API.md` §3.1 — the mod's own identity, as the host sees it. The object is
@@ -231,6 +233,12 @@ export interface ModEventsApi {
 
 /**
  * `API.md` §3 — the full surface handed to a mod.
+ *
+ * Phase 4.2 / `MOUNTS.md` §8.1 — `mounts` is defined here and implemented in
+ * 4.2. Six named methods, one per region, each returning a `MountHandle` the
+ * host also tears down on `disable`. Native-tier only: registration needs a
+ * callback (a closure), a closure needs a module, and a module is `native.js`
+ * (`MOUNTS.md` §8.1 — same ruling `EVENTS.md` §5.1 made for the bus).
  */
 export interface ModContext {
     readonly mod: ModIdentity;
@@ -241,6 +249,7 @@ export interface ModContext {
     readonly model: ModModel;
     readonly table: ModTables;
     readonly events: ModEventsApi;
+    readonly mounts: ModMountsApi;
     readonly signal: AbortSignal;
     subscribe<K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void): () => void;
     refresh(): Promise<ModContext>;
@@ -314,6 +323,22 @@ export interface ModContextBuildOptions {
      * holding a stale closure has one obvious way to get current (`API.md` §6.3).
      */
     readonly refresh?: () => Promise<ModContext>;
+    /**
+     * Phase 4.2 / `MOUNTS.md` §3.1 — the mod's resolved load index. The
+     * loader returns `mods[]` in resolved order; the registry reads an index
+     * it is handed rather than computing one. The mount registry sorts mod
+     * entries by `(loadIndex, withinModIndex)` so a mid-session enable
+     * inserts at its proper place (§3.2). Default `0` — correct for a
+     * single-mod test; production supplies the real index.
+     */
+    readonly loadIndex?: number;
+    /**
+     * Phase 4.2 — injectable `mounts` API for tests. Production builds the
+     * real `ModMountsApi` from the mod identity and `loadIndex` via
+     * `buildModMountsApi`. A test that wants to assert a registration call
+     * passes a spy here.
+     */
+    readonly mounts?: ModMountsApi;
 }
 
 /**
@@ -438,7 +463,23 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         facade: facade.refresh(),
         commitPoint,
         locationState: options.locationState,
+        loadIndex: options.loadIndex,
     })));
+
+    // Phase 4.2 / `MOUNTS.md` §8.1 — `ctx.mounts`. Native-tier only: a
+    // sandboxed compute hook is handed a snapshot and a journal and cannot
+    // hold a closure across a render, so the sandbox binding (Part A of
+    // Phase 4.0) does not construct a `ModMountsApi` and this code does not
+    // run for it. The real API is built from the mod identity and load index
+    // so registrations sort by `(loadIndex, withinModIndex)` (§3.2) and the
+    // host owns teardown on disable (§8.5). A test may inject a spy.
+    const contextRef: { current: ModContext | undefined } = { current: undefined };
+    const mounts: ModMountsApi = options.mounts ?? buildModMountsApi({
+        mod: { id: mod.id, name: mod.name },
+        loadIndex: options.loadIndex ?? 0,
+        faultFile: `mod:${mod.id}`,
+        getContext: () => contextRef.current,
+    });
 
     const context: ModContext = Object.freeze({
         mod: identity,
@@ -449,6 +490,7 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         model,
         table,
         events,
+        mounts,
         signal: facade.signal,
         subscribe: <K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void) => {
             const source = facade.subscribe;
@@ -458,6 +500,7 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         refresh: refreshImpl,
         log: (...args: unknown[]) => facade.log(`[mod:${mod.id}]`, ...args),
     });
+    contextRef.current = context;
     return context;
 }
 

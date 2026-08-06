@@ -227,6 +227,12 @@ export interface ModEventsApi {
  * The object handed to a mod at every lifecycle hook, compute run, and (Phase
  * 4+) render. The host constructs one per mod per lease; `refresh()` returns
  * a new lease with a fresh model budget.
+ *
+ * Phase 4.2 / `MOUNTS.md` §8.1 — `mounts` is the mount-point surface. Six
+ * named methods, one per region. Native-tier only: registration needs a
+ * callback (a closure), a closure needs a module, and a module is `native.js`
+ * — so a sandboxed compute hook's `ctx.mounts` throws "native-tier only"
+ * (`MOUNTS.md` §8.1, same ruling `EVENTS.md` §5.1 made for the bus).
  */
 export interface ModContext {
     readonly mod: ModIdentity;
@@ -237,6 +243,7 @@ export interface ModContext {
     readonly model: ModModel;
     readonly table: ModTables;
     readonly events: ModEventsApi;
+    readonly mounts: ModMountsApi;
     readonly signal: AbortSignal;
     subscribe<K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void): () => void;
     refresh(): Promise<ModContext>;
@@ -342,6 +349,129 @@ export interface ModTables {
     read(name: string): Promise<unknown>;
     write(name: string, rows: unknown): Promise<void>;
     subscribe(name: string, listener: (rows: unknown) => void): () => void;
+}
+
+// ─── Mount points (Phase 4.2 / MOUNTS.md) ───────────────────────────────────
+//
+// `ctx.mounts` — the mount-point surface. A mod registers its UI from its
+// `activate` hook through this object. Six named methods, one per region;
+// each returns a `MountHandle` the host also tears down on disable. The
+// payload shape genuinely differs per region, so the surface is six names
+// rather than one `register(regionId, …)` — an unknown region is a compile
+// error in this `.d.ts` rather than a runtime fault.
+//
+// Native-tier only. Registration needs a callback (a closure), a closure
+// needs a module, and a module is `native.js` — a sandboxed compute hook's
+// `ctx.mounts` throws "native-tier only" (`MOUNTS.md` §8.1). A suite that
+// wants both ships a `native` entry beside its `compute` entry.
+//
+// See `Upgrade/EPIC Project - Full Modularity/MOUNTS.md` for the full
+// contract (regions, ordering, budget, isolation, teardown).
+
+/**
+ * The closed `tone` set. Mapped to host tokens by the host; a chrome entry
+ * may not specify an arbitrary colour.
+ */
+export type ChromeTone = 'default' | 'active' | 'warn' | 'danger';
+
+/**
+ * The state a chrome entry's optional `state()` returns. Re-read on every
+ * render of the row the entry lives in, and on `MountHandle.update()`. Must
+ * be cheap and synchronous. Every field is optional; an entry that has no
+ * dynamic state returns `undefined` (no `state()` at all).
+ */
+export interface ChromeState {
+    readonly icon?: string;
+    readonly label?: string;
+    readonly tooltip?: string;
+    readonly badge?: number | string;
+    readonly active?: boolean;
+    readonly disabled?: boolean;
+    readonly hidden?: boolean;
+    readonly busy?: boolean;
+    readonly tone?: ChromeTone;
+}
+
+/**
+ * A chrome entry. The host renders the element; the mod supplies data and
+ * callbacks. `id` is the only field the mod controls that is visible to the
+ * host's ordering logic; the host qualifies it to `mod.<modId>.<entryId>`,
+ * so two mods cannot collide and a mod cannot impersonate a built-in.
+ *
+ * `icon` is a lucide name (e.g. `'Swords'`, `'Syringe'`), not a component —
+ * the host resolves it, so the entry stays serialisable and the mod's button
+ * is visually native. An unknown name is a fault plus a neutral fallback
+ * glyph, never a blank button.
+ *
+ * `label` / `tooltip` run through the host's i18n lookup in the mod's
+ * namespace (`mod.<modId>.<key>`). A literal string misses the lookup and
+ * renders as itself.
+ */
+export interface ChromeEntry {
+    readonly id: string;
+    readonly icon: string;
+    readonly label: string;
+    readonly tooltip?: string;
+    onSelect(ctx: ModContext): void | Promise<void>;
+    state?(): ChromeState;
+}
+
+/**
+ * The handle a registration call returns. `update()` re-reads `state()`
+ * (cheap; safe to call from a 2.4 subscription). `remove()` unregisters —
+ * also called by the host on disable, so a mod does not need to call it.
+ */
+export interface MountHandle {
+    update(): void;
+    remove(): void;
+}
+
+/**
+ * The mount-point surface. `header` and `composer` are the two chrome rows
+ * (Phase 4.2). `messageAction`, `rail`, `messageBelow` and `window` land in
+ * 4.3–4.5.
+ */
+export interface ModMountsApi {
+    header(entry: ChromeEntry): MountHandle;
+    composer(entry: ChromeEntry): MountHandle;
+    messageAction(entry: ChromeEntry): MountHandle;
+    rail(panel: RailPanel): MountHandle;
+    messageBelow(slot: MessageContentSlot): MountHandle;
+    window(win: WindowDeclaration): WindowHandle;
+}
+
+/** `MOUNTS.md` §8.3 — content mount shapes (4.3–4.5). */
+export interface RailPanel {
+    readonly id: string;
+    readonly title: string;
+    readonly icon?: string;
+    mount(node: HTMLElement, ctx: ModContext): void | (() => void);
+}
+
+export interface MessageRef {
+    readonly id: string;
+    readonly role: 'user' | 'assistant' | 'system' | 'tool';
+    readonly sceneId: string | null;
+}
+
+export interface MessageContentSlot {
+    readonly id: string;
+    mount(node: HTMLElement, ctx: ModContext, message: MessageRef): void | (() => void);
+}
+
+export interface WindowDeclaration {
+    readonly id: string;
+    readonly title: string;
+    readonly defaultSize: { width: number; height: number };
+    readonly minSize?: { width: number; height: number };
+    readonly resizable?: boolean;
+    mount(node: HTMLElement, ctx: ModContext): void | (() => void);
+}
+
+export interface WindowHandle extends MountHandle {
+    open(): void;
+    close(): void;
+    focus(): void;
 }
 
 // ─── Default-export helper ─────────────────────────────────────────────────

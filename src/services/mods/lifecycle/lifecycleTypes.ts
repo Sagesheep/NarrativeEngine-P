@@ -60,12 +60,20 @@ export type { ModContext };
  * mod's namespace). The factory may return `undefined` for a mod whose
  * context cannot be built (e.g. no active campaign at load time); a hook
  * that needs state guards against `undefined` (`MANIFEST.md` §10).
+ *
+ * Phase 4.2 / `MOUNTS.md` §3.1 — `loadIndex` is the mod's resolved load
+ * index (the position in the loader's resolved `mods[]` array). The mount
+ * registry sorts mod entries by `(loadIndex, withinModIndex)` so a
+ * mid-session enable inserts at its proper place (§3.2). Optional in the
+ * factory input because the factory predates 4.2; the bootstrap supplies
+ * it when it has the resolved list.
  */
 export type ModContextFactory = (mod: {
     readonly id: string;
     readonly name: string;
     readonly version: string;
     readonly folder?: string;
+    readonly loadIndex?: number;
 }) => ModContext | undefined;
 
 /**

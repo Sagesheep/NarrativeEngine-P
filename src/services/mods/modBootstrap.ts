@@ -142,13 +142,18 @@ function toLifecycleMod(mod: ValidatedMod): LifecycleMod {
  * `buildCommitCallbacks` wires to `useAppStore.getState()`; without it,
  * `data.location.ledger` is `[]` (`API.md` §4.2).
  *
+ * Phase 4.2 / `MOUNTS.md` §3.1 — `loadIndex` is the mod's resolved load
+ * index, supplied by the bootstrap when it has the resolved `mods[]` array.
+ * The mount registry sorts mod entries by `(loadIndex, withinModIndex)` so
+ * a mid-session enable inserts at its proper place (§3.2).
+ *
  * Returns `undefined` if the live store cannot be read (e.g. no provider
  * yet) — a mod's `activate` should guard against `undefined` (`MANIFEST.md`
  * §10). This is the stop-condition-respecting design: the standing facade
  * uses the same `TurnCallbacks` the commit path uses, not a null-object
  * shim invented for this path.
  */
-function buildNativeModContext(mod: { readonly id: string; readonly name: string; readonly version: string; readonly folder?: string }): ReturnType<ModContextFactory> {
+function buildNativeModContext(mod: { readonly id: string; readonly name: string; readonly version: string; readonly folder?: string; readonly loadIndex?: number }): ReturnType<ModContextFactory> {
     try {
         const store = useAppStore.getState();
         // The native lifecycle fires outside any turn — there is no
@@ -172,6 +177,7 @@ function buildNativeModContext(mod: { readonly id: string; readonly name: string
             facade,
             commitPoint: 'immediate',
             locationState,
+            loadIndex: mod.loadIndex,
         });
     } catch (error) {
         // A failure to build the context must not stop the lifecycle. The
@@ -307,6 +313,27 @@ export async function refreshMods(): Promise<{
 }
 
 /**
+ * Build a `ModContextFactory` that closes over the current load index map.
+ * The lifecycle host calls the factory per-mod on `enable`/`disable`
+ * (mid-session toggles), where the load index is not the array position
+ * (those calls carry one mod, not the whole list). The bootstrap computes
+ * the map from the last known `mods[]` (resolved order) and the factory
+ * reads it, so a mid-session enable inserts at the mod's proper place in
+ * the mount registry's sort (`MOUNTS.md` §3.2).
+ */
+function buildNativeModContextWithLoadIndex(): ModContextFactory {
+    const loadIndexMap = new Map<string, number>();
+    lastResult.mods.forEach((mod, index) => loadIndexMap.set(mod.id, index));
+    return (mod) => buildNativeModContext({
+        id: mod.id,
+        name: mod.name,
+        version: mod.version,
+        folder: mod.folder,
+        loadIndex: loadIndexMap.get(mod.id) ?? 0,
+    });
+}
+
+/**
  * Phase 1.5 — enable a mod's native tier. Called by the Extensions screen
  * when the user toggles a native mod on. The host fires `enable` then
  * `activate`, mounts CSS on success, and forgets the cached module on
@@ -315,7 +342,7 @@ export async function refreshMods(): Promise<{
  */
 export async function enableNativeMod(mod: ValidatedMod): Promise<void> {
     const wiring = getLifecycleWiring();
-    await wiring.host.enable({ mod: toLifecycleMod(mod), ctxForMod: buildNativeModContext });
+    await wiring.host.enable({ mod: toLifecycleMod(mod), ctxForMod: buildNativeModContextWithLoadIndex() });
     // Phase 3.2 / `EVENTS.md` §11 site 2 — after `host.enable(…)` resolves, so
     // the arriving mod's own `activate` has already run and its listeners are
     // registered by the time its siblings are told it is here.
@@ -332,7 +359,7 @@ export async function enableNativeMod(mod: ValidatedMod): Promise<void> {
  */
 export async function disableNativeMod(mod: ValidatedMod): Promise<void> {
     const wiring = getLifecycleWiring();
-    await wiring.host.disable({ mod: toLifecycleMod(mod), ctxForMod: buildNativeModContext });
+    await wiring.host.disable({ mod: toLifecycleMod(mod), ctxForMod: buildNativeModContextWithLoadIndex() });
     // Phase 3.2 / `EVENTS.md` §11 site 3 — after `host.disable(…)` resolves, so
     // the departing mod's listeners are already torn down (`lifecycleHost`'s
     // `disable` calls `modEventBus.disposeModListeners`) and it cannot receive
