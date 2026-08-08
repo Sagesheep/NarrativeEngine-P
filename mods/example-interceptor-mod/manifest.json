@@ -1,0 +1,16 @@
+{
+  "id": "example-interceptor-mod",
+  "name": "Example Interceptor",
+  "version": "1.0.0",
+  "loadOrder": 300,
+  "description": "Phase 5.2 fixture. Declares native.generateInterceptor and exercises every branch of the pre-prompt hook: it contributes a computed block, suppresses a permitted built-in conditionally, and deliberately asks to suppress a protected id so the host's rejection is visible in Extensions. Additive and subtractive only — it never rewrites the player's message.",
+  "author": "Narrative Engine",
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate",
+      "disable": "onDisable"
+    },
+    "generateInterceptor": "interceptPrompt"
+  }
+}

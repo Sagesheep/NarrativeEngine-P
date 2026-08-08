@@ -43,12 +43,17 @@ import type {
     ModelRole,
 } from '../turn/hostFacade';
 import { APP_VERSION } from '../../version';
+import { SUPPRESSIBLE_BUILTIN_IDS } from '../payload/contributions/builtins';
 import { trackModSubscription } from './reactiveReads';
 import { reactiveFaultStore, formatReactiveFaultReason } from './reactiveFaults';
 import type { AnyEventName, CoreEventName, ModEventOwner, ModEventPayload, ModEvents, ModScopedEventName } from './events';
 import { modEventBus } from './events';
 import type { ModMountsApi } from './mounts/mountTypes';
 import { buildModMountsApi } from './mounts/mountContextMounts';
+import type { ModMacrosApi } from './macros/macroTypes';
+import { buildModContextMacros } from './macros/macroContextMacros';
+import type { ModFactsApi } from './facts/factTypes';
+import { buildModContextFacts } from './facts/factContextFacts';
 
 /**
  * `API.md` §3.1 — the mod's own identity, as the host sees it. The object is
@@ -69,10 +74,26 @@ export interface ModIdentity {
  * `commitPoint` says when writes land — `'on-return'` for sandboxed compute
  * hooks (the journal applies atomically on clean return), `'immediate'` for
  * native hooks and native UI.
+ *
+ * Phase 5.3 — `suppressibleIds` publishes the built-in contribution ids a mod
+ * may suppress. It is the complement of `PROTECTED_SUPPRESSION_IDS` and is
+ * derived from the built-in module list (`builtins.ts`'s
+ * `SUPPRESSIBLE_BUILTIN_IDS`), so the published set is always exactly what the
+ * loader and the arbiter enforce. A mod asks this rather than guessing — the
+ * four toggleable blocks today are `writer.cot`, `director.brief`,
+ * `gm.reminder`, `watchdog.nudge`, and extending the set is a deliberate
+ * decision the work order's §2 item 3 governs.
  */
 export interface ModApi {
     readonly version: string;
     readonly commitPoint: 'immediate' | 'on-return';
+    /**
+     * The built-in contribution ids a mod may suppress this session. Frozen.
+     * The loader's `PROTECTED_SUPPRESSION_IDS` is its complement — naming one
+     * of those is still rejected with a reason, and the set here is advisory, not
+     * an enforcement surface: it tells a mod what it may target.
+     */
+    readonly suppressibleIds: readonly string[];
 }
 
 /**
@@ -239,6 +260,15 @@ export interface ModEventsApi {
  * host also tears down on `disable`. Native-tier only: registration needs a
  * callback (a closure), a closure needs a module, and a module is `native.js`
  * (`MOUNTS.md` §8.1 — same ruling `EVENTS.md` §5.1 made for the bus).
+ *
+ * Phase 5.1 — `macros` is defined here and implemented in 5.1. One method
+ * (`register`), per-mod so the host owns the qualification
+ * (`mod.<modId>.<name>`) and the teardown on `disable`. Native-tier only:
+ * registration needs a closure (the resolver), a closure needs a module,
+ * and a module is `native.js` — same ruling mounts/events made. A sandboxed
+ * compute mod is handed one snapshot and one journal and cannot hold a
+ * closure across to prompt assembly, so the sandbox binding does not
+ * construct a `ModMacrosApi` and a call from sandbox code is a `TypeError`.
  */
 export interface ModContext {
     readonly mod: ModIdentity;
@@ -250,6 +280,19 @@ export interface ModContext {
     readonly table: ModTables;
     readonly events: ModEventsApi;
     readonly mounts: ModMountsApi;
+    readonly macros: ModMacrosApi;
+    /**
+     * Phase 5.4 — `facts` is defined here and implemented in 5.4. One
+     * method (`register`), per-mod so the host owns the qualification
+     * (`mod.<modId>.<name>`) and the teardown on `disable`. Native-tier
+     * only: registration needs a closure (the publisher), a closure
+     * needs a module, and a module is `native.js` — same ruling
+     * mounts/macros/events/interceptors made. A sandboxed compute mod is
+     * handed one snapshot and one journal and cannot hold a closure
+     * across to the next turn, so the sandbox binding does not construct
+     * a `ModFactsApi` and a call from sandbox code is a `TypeError`.
+     */
+    readonly facts: ModFactsApi;
     readonly signal: AbortSignal;
     subscribe<K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void): () => void;
     refresh(): Promise<ModContext>;
@@ -339,6 +382,20 @@ export interface ModContextBuildOptions {
      * passes a spy here.
      */
     readonly mounts?: ModMountsApi;
+    /**
+     * Phase 5.1 — injectable `macros` API for tests. Production builds the
+     * real `ModMacrosApi` from the mod identity via
+     * `buildModContextMacros`. A test that wants to assert a registration
+     * call passes a spy here.
+     */
+    readonly macros?: ModMacrosApi;
+    /**
+     * Phase 5.4 — injectable `facts` API for tests. Production builds the
+     * real `ModFactsApi` from the mod identity via
+     * `buildModContextFacts`. A test that wants to assert a registration
+     * call passes a spy here.
+     */
+    readonly facts?: ModFactsApi;
 }
 
 /**
@@ -357,6 +414,10 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
     const api: ModApi = Object.freeze({
         version: APP_VERSION,
         commitPoint,
+        // Phase 5.3 — publish the suppressible set. Frozen at module load by
+        // `builtins.ts`; the freeze here is belt-and-braces so a mod that stashes
+        // `ctx.api` cannot mutate the published list through it.
+        suppressibleIds: SUPPRESSIBLE_BUILTIN_IDS,
     });
 
     const identity: ModIdentity = Object.freeze({
@@ -481,6 +542,30 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         getContext: () => contextRef.current,
     });
 
+    // Phase 5.1 — `ctx.macros`. Native-tier only: a sandboxed compute hook
+    // is handed a snapshot and a journal and cannot hold a closure across
+    // to prompt assembly, so the sandbox binding (Part A of Phase 4.0) does
+    // not construct a `ModMacrosApi` and this code does not run for it. The
+    // real API is built from the mod identity so the host owns the
+    // qualification (`mod.<modId>.<name>`) and the teardown on `disable`. A
+    // test may inject a spy.
+    const macros: ModMacrosApi = options.macros ?? buildModContextMacros({
+        mod: { id: mod.id, name: mod.name },
+        faultFile: `mod:${mod.id}`,
+    });
+
+    // Phase 5.4 — `ctx.facts`. Native-tier only: a sandboxed compute hook
+    // is handed a snapshot and a journal and cannot hold a closure across
+    // to the next turn, so the sandbox binding (Part A of Phase 4.0) does
+    // not construct a `ModFactsApi` and this code does not run for it. The
+    // real API is built from the mod identity and load index so the host
+    // owns the qualification (`mod.<modId>.<name>`) and the teardown on
+    // `disable`. A test may inject a spy.
+    const facts: ModFactsApi = options.facts ?? buildModContextFacts({
+        mod: { id: mod.id, name: mod.name, loadIndex: options.loadIndex ?? 0 },
+        faultFile: `mod:${mod.id}`,
+    });
+
     const context: ModContext = Object.freeze({
         mod: identity,
         api,
@@ -491,6 +576,8 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         table,
         events,
         mounts,
+        macros,
+        facts,
         signal: facade.signal,
         subscribe: <K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void) => {
             const source = facade.subscribe;

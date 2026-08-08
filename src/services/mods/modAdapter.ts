@@ -2,6 +2,7 @@ import type { ContributionModule } from '../payload/contributions/registry';
 import type { FinalUserModuleInput } from '../payload/contributions/builtins';
 import type { ContributionSpec } from '../payload/contributions/types';
 import type { ModContribution, ModFacts, ModWhen, ValidatedMod } from './modTypes';
+import { qualifyMacroName, resolveMacro } from './macros/macroRegistry';
 
 /**
  * Project 2 / WO-P2-04 — mod file → `ContributionModule`.
@@ -93,11 +94,24 @@ export function evaluateWhen(when: ModWhen | undefined, facts: ModFacts | undefi
 const SLOT_PATTERN = /\{\{\s*([^{}]*?)\s*\}\}/g;
 
 /**
- * Substitute `{{location}}` and `{{npcs}}`. Nothing else: no expressions, no property paths,
- * no code. An unknown slot is left EXACTLY as written rather than blanked, so an author sees
- * their typo in the prompt instead of silently losing a sentence.
+ * Substitute `{{location}}` and `{{npcs}}`, plus any mod-registered macros.
+ * Nothing else: no expressions, no property paths, no code. An unknown slot
+ * is left EXACTLY as written rather than blanked, so an author sees their
+ * typo in the prompt instead of silently losing a sentence.
+ *
+ * Phase 5.1 — macro resolution. A mod registers a name and a resolver
+ * through `ctx.macros.register()`; the host qualifies the name to
+ * `mod.<modId>.<name>`. `renderTemplate` consults the registry AFTER the
+ * built-in slots and BEFORE the verbatim fallback. The built-in slots are
+ * checked first so a mod cannot shadow `{{location}}` / `{{npcs}}` even if
+ * the registry's shadow-rejection were bypassed (belt-and-braces — the
+ * registry already rejects shadows).
+ *
+ * `modId` is the mod whose contribution is being rendered. A built-in
+ * caller (no mod) passes `undefined`; the registry lookup is then a no-op
+ * for every slot, which is the pre-5.1 behaviour preserved exactly.
  */
-export function renderTemplate(text: string, facts: ModFacts | undefined): string {
+export function renderTemplate(text: string, facts: ModFacts | undefined, modId?: string): string {
     if (typeof text !== 'string' || !text.includes('{{')) return text;
 
     return text.replace(SLOT_PATTERN, (match, rawKey: string) => {
@@ -109,6 +123,15 @@ export function renderTemplate(text: string, facts: ModFacts | undefined): strin
                     ? facts.onStageNpcNames.filter((n): n is string => typeof n === 'string').join(', ')
                     : '';
             default:
+                // Phase 5.1 — mod macros. The registry contains the
+                // resolver keyed by the qualified name; the bare name is
+                // what the author wrote. `resolveMacro` returns
+                // `undefined` for a slot no mod registered, which falls
+                // through to the verbatim typo fallback.
+                if (modId !== undefined) {
+                    const expanded = resolveMacro(qualifyMacroName(modId, rawKey), rawKey);
+                    if (expanded !== undefined) return expanded;
+                }
                 return match;
         }
     });
@@ -124,7 +147,7 @@ function toSpec(mod: ValidatedMod, contribution: ModContribution, facts: ModFact
 
     let text = '';
     try {
-        text = evaluateWhen(contribution.when, facts) ? renderTemplate(contribution.text, facts) : '';
+        text = evaluateWhen(contribution.when, facts) ? renderTemplate(contribution.text, facts, mod.id) : '';
     } catch {
         // Total by construction; this is the belt-and-braces for a hostile/odd file shape.
         text = '';

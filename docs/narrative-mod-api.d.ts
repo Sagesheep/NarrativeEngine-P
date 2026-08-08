@@ -244,6 +244,16 @@ export interface ModContext {
     readonly table: ModTables;
     readonly events: ModEventsApi;
     readonly mounts: ModMountsApi;
+    readonly macros: ModMacrosApi;
+    /**
+     * Phase 5.4 — `facts` is the fact publication surface. One method
+     * (`register`), per-mod so the host owns the qualification and the
+     * teardown on `disable`. Native-tier only: registration needs a
+     * closure (the publisher), a closure needs a module, and a module
+     * is `native.js` — so `ctx.facts.register` throws "native-tier only"
+     * on the worker side.
+     */
+    readonly facts: ModFactsApi;
     readonly signal: AbortSignal;
     subscribe<K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void): () => void;
     refresh(): Promise<ModContext>;
@@ -262,6 +272,22 @@ export interface ModApi {
     readonly version: string;
     /** `'on-return'` for sandboxed compute, `'immediate'` for native hooks/UI. */
     readonly commitPoint: 'immediate' | 'on-return';
+    /**
+     * Phase 5.3 — the built-in contribution ids a mod may suppress. The
+     * complement of the structural ids (`user.message`, `volatile.block`,
+     * `askgm.brief`, `absolute.command`), which a mod may NEVER suppress.
+     *
+     * Advisory, not an enforcement surface: naming an id outside this list
+     * that is not protected is still applied verbatim — it simply does
+     * nothing because no live contribution carries that id. Naming a
+     * protected id is rejected with a reason. Read this to know what the
+     * host will actually let you remove.
+     *
+     * Frozen. The set grows deliberately, governed by the work order's rules;
+     * a built-in that nothing can survive without is structural and stays
+     * off this list.
+     */
+    readonly suppressibleIds: readonly string[];
 }
 
 /** `API.md` §4 — frozen, cloned reads. Live values arrive through `subscribe`. */
@@ -472,6 +498,179 @@ export interface WindowHandle extends MountHandle {
     open(): void;
     close(): void;
     focus(): void;
+}
+
+// ─── Macros (Phase 5.1) ────────────────────────────────────────────────────
+//
+// A mod registers a name and a resolver through `ctx.macros.register()`; the
+// host expands `{{name}}` during prompt assembly. The host qualifies the
+// name to `mod.<modId>.<name>`, so two mods cannot collide and a mod cannot
+// shadow a built-in slot (`{{location}}`, `{{npcs}}`).
+//
+// Native-tier only — same ruling mounts/events made: registration needs a
+// closure (the resolver), a closure needs a module, and a module is
+// `native.js`. A sandboxed compute mod cannot hold a closure across to
+// prompt assembly, so `ctx.macros.register` throws "native-tier only" on
+// the worker side.
+
+/**
+ * A macro resolver. Pure and synchronous: it runs during prompt assembly,
+ * which is on the hot path of every turn. Reading host state through
+ * `ctx.data.*` is fine; mutating or awaiting is not.
+ *
+ * Returns the string the `{{name}}` slot expands to. Returning `''` is the
+ * defined "inactive this turn" path. Throwing is contained: the slot
+ * expands to `''` plus a surfaced fault naming the mod.
+ */
+export type MacroResolver = () => string;
+
+/**
+ * `ctx.macros` — the macro registration surface. One method. The host
+ * owns the qualification (`mod.<modId>.<name>`) and the teardown on
+ * `disable`; the mod is never trusted to call `unregister()`.
+ */
+export interface ModMacrosApi {
+    /**
+     * Register a macro. Shadowing a built-in slot (`location`, `npcs`) is
+     * rejected with a fault. Never throws: a shadow / duplicate /
+     * revoked-lease registration records a fault and returns a no-op
+     * `unregister`.
+     */
+    register(name: string, resolver: MacroResolver): () => void;
+}
+
+// ─── The pre-prompt interceptor (Phase 5.2) ────────────────────────────────
+//
+// A mod names one exported function in its manifest:
+//
+//   "native": { "js": "index.js", "generateInterceptor": "interceptPrompt" }
+//
+// The host calls it ONCE PER TURN, after it knows every input the prompt
+// consumes and before assembly begins. There is no `ctx.interceptors.
+// register()`: the interceptor is declared, not registered, so the host can
+// see it without running any code.
+//
+// What it may do: ADD blocks and SUPPRESS permitted ones. What it may not do:
+// rewrite the player's message, edit an existing block's text, or reorder
+// assembly. `user.message`, `volatile.block`, `askgm.brief` and
+// `absolute.command` are structural and can never be suppressed — naming one
+// is refused with a reason in Settings → Extensions, and the rest of your
+// interception still lands.
+//
+// Four rules worth knowing before you write one:
+//
+//   1. It gets ONE argument, and it is not a `ModContext`. Building a fresh
+//      context per turn per mod would clone the message list on the hot path.
+//      Subscribe in `activate` (`ctx.subscribe`) and read the closure here.
+//   2. It runs under a hard deadline (1.5 s). It is not the place for a model
+//      call — compute off the turn path, publish to your own table, read the
+//      table here.
+//   3. Its output is budgeted like any other mod contribution. Declare a
+//      `budget` or take the default.
+//   4. It must be deterministic. Two identical turns with the same mods must
+//      produce the same payload; the host guarantees run order, you guarantee
+//      the rest.
+//
+// Throwing, hanging, or returning nonsense is contained: the fault is shown in
+// Extensions and the turn continues with the un-intercepted payload.
+
+/** The frozen view of the turn's inputs handed to `generateInterceptor`. */
+export interface PromptInterceptorInput {
+    /** Correlates with the `turn.start` / `turn.committed` event payloads. */
+    readonly turnId: string;
+    readonly campaignId: string | null;
+    readonly tier: string | undefined;
+    /**
+     * The player's input for this turn, as the prompt will carry it — engine
+     * roll, loot and one-shot injections included. `turn.start`'s
+     * `playerInput` is the raw pre-injection text; these differ on purpose.
+     */
+    readonly playerInput: string;
+    /** True when the Director produced a Brief for this turn. */
+    readonly hasDirectorBrief: boolean;
+    /** True when the deterministic watchdog nudge is armed this turn. */
+    readonly hasWatchdogNudge: boolean;
+    /** True when the player armed an Absolute Command for this turn. */
+    readonly hasAbsoluteCommand: boolean;
+}
+
+/** One block a mod contributes for this turn. */
+export interface PromptContribution {
+    /**
+     * Bare id — letters, digits, `_` and `-`. The host qualifies it to
+     * `mod.<modId>.<id>`, so you cannot collide with a built-in.
+     */
+    readonly id: string;
+    /** The text. `''` means "inactive this turn"; the block is dropped. */
+    readonly text: string;
+    /**
+     * Position in the final user message, ascending. Built-ins are spaced
+     * 100…800 (world state 100, CoT 200, Director Brief 300, GM reminder 400,
+     * watchdog 500, ask-GM 600, player message 700, absolute command 800), so
+     * you can slot between any two. Absent → 0.
+     */
+    readonly order?: number;
+    /** Token ceiling. Absent → the host's default for mod contributions. */
+    readonly budget?: number;
+}
+
+/** What an interceptor may return. Returning nothing is the quiet path. */
+export interface PromptInterception {
+    readonly contributions?: readonly PromptContribution[];
+    /**
+     * Contribution ids to remove from THIS turn's prompt — the point of the
+     * hook, since a manifest's `suppresses` is either always on or always off.
+     * Naming a structural id is refused with a reason.
+     */
+    readonly suppress?: readonly string[];
+}
+
+/** The function `native.generateInterceptor` names. May be async. */
+export type PromptInterceptor = (
+    input: PromptInterceptorInput,
+) => PromptInterception | null | void | Promise<PromptInterception | null | void>;
+
+// ─── Fact publication (Phase 5.4) ──────────────────────────────────────────
+//
+// A mod publishes facts that drive `when` conditions — the same four facts
+// the host computes (`inCombat`, `location`, `sceneTags`, `onStageNpcNames`).
+// The point: when a subsystem leaves core (Phase 8, enemies), the mod that
+// owns it can keep publishing `inCombat` so every other mod's
+// `when: { inCombat }` keeps working.
+//
+// A mod claims a core fact by registering a publisher with `claims:
+// 'inCombat'`. The host must have opened the name for claims (today only
+// `inCombat` is open). Two mods claiming the same fact is a conflict,
+// resolved by `loading_order` and surfaced — not silently picked.
+//
+// Native-tier only — same ruling mounts/macros/interceptors made.
+// A throwing publisher is contained: the fact yields no value (no match)
+// plus a surfaced fault. The turn never breaks.
+
+/** A fact publisher. Pure and synchronous — runs on the hot path. */
+export type FactPublisher = () => unknown;
+
+/**
+ * `ctx.facts` — the fact publication surface. One method. The host owns
+ * the qualification and the teardown on `disable`; the mod is never
+ * trusted to call `unregister()`.
+ */
+export interface ModFactsApi {
+    /**
+     * Register a fact publisher.
+     *
+     * `name` is the fact name. For a namespaced mod fact the host
+     * qualifies it to `mod.<modId>.<name>` (not read by `when` today).
+     *
+     * `claims` is optional. When supplied, it names a core fact this mod
+     * is claiming ownership of (e.g. `'inCombat'`). The host must have
+     * opened the name for claims. Only ONE mod may claim a given core
+     * fact — a second is a conflict, resolved by `loading_order`.
+     *
+     * Never throws: a shadow / conflict / revoked / bad-args registration
+     * records a fault and returns a no-op `unregister`.
+     */
+    register(name: string, publisher: FactPublisher, options?: { claims?: string }): () => void;
 }
 
 // ─── Default-export helper ─────────────────────────────────────────────────

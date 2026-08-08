@@ -115,7 +115,7 @@ function createIdbLifecycleStateStore(): LifecycleStateStore {
  * it, but a test fixture or a future code path might not, and the host's
  * `Object.keys(mod.dependencies)` would throw on `undefined`.
  */
-function toLifecycleMod(mod: ValidatedMod): LifecycleMod {
+function toLifecycleMod(mod: ValidatedMod, loadIndex?: number): LifecycleMod {
     return {
         id: mod.id,
         name: mod.name,
@@ -124,7 +124,23 @@ function toLifecycleMod(mod: ValidatedMod): LifecycleMod {
         dependencies: mod.dependencies ?? {},
         folder: mod.folder,
         native: mod.native,
+        // Phase 5.2 / MANIFEST.md §6.3 — the resolved load index, which decides
+        // prompt-interceptor run order the same way it decides mount order. The
+        // load cycle passes the array position; the enable/disable path looks it
+        // up from the last known resolved list (`loadIndexOf`).
+        loadIndex,
     };
+}
+
+/**
+ * Phase 5.2 — the mod's position in the last known resolved `mods[]` array.
+ * `enableNativeMod` / `disableNativeMod` carry one mod, not the list, so the
+ * index has to come from here. Mirrors `buildNativeModContextWithLoadIndex`,
+ * which does exactly this for the mount registry.
+ */
+function loadIndexOf(modId: string): number {
+    const index = lastResult.mods.findIndex((mod) => mod.id === modId);
+    return index >= 0 ? index : 0;
 }
 
 /**
@@ -275,7 +291,7 @@ export async function refreshMods(): Promise<{
             // store at call time, so a hook fired later in the same load
             // cycle sees the state an earlier hook wrote.
             await wiring.host.runLoadCycle({
-                mods: mods.map(toLifecycleMod),
+                mods: mods.map((mod, index) => toLifecycleMod(mod, index)),
                 enablement,
                 ctxForMod: buildNativeModContext,
             });
@@ -342,7 +358,7 @@ function buildNativeModContextWithLoadIndex(): ModContextFactory {
  */
 export async function enableNativeMod(mod: ValidatedMod): Promise<void> {
     const wiring = getLifecycleWiring();
-    await wiring.host.enable({ mod: toLifecycleMod(mod), ctxForMod: buildNativeModContextWithLoadIndex() });
+    await wiring.host.enable({ mod: toLifecycleMod(mod, loadIndexOf(mod.id)), ctxForMod: buildNativeModContextWithLoadIndex() });
     // Phase 3.2 / `EVENTS.md` §11 site 2 — after `host.enable(…)` resolves, so
     // the arriving mod's own `activate` has already run and its listeners are
     // registered by the time its siblings are told it is here.
@@ -359,7 +375,7 @@ export async function enableNativeMod(mod: ValidatedMod): Promise<void> {
  */
 export async function disableNativeMod(mod: ValidatedMod): Promise<void> {
     const wiring = getLifecycleWiring();
-    await wiring.host.disable({ mod: toLifecycleMod(mod), ctxForMod: buildNativeModContextWithLoadIndex() });
+    await wiring.host.disable({ mod: toLifecycleMod(mod, loadIndexOf(mod.id)), ctxForMod: buildNativeModContextWithLoadIndex() });
     // Phase 3.2 / `EVENTS.md` §11 site 3 — after `host.disable(…)` resolves, so
     // the departing mod's listeners are already torn down (`lifecycleHost`'s
     // `disable` calls `modEventBus.disposeModListeners`) and it cannot receive

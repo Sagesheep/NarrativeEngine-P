@@ -55,6 +55,14 @@ import type { NativeLoader, NativeMissingExportError } from '../native/nativeLoa
 import { disposeAllModSubscriptions, disposeModSubscriptions } from '../reactiveReads';
 import { eventFaultStore, modEventBus } from '../events';
 import { disableModMounts, enableModMounts, clearAllModMounts } from '../mounts/mountRegistry';
+import { disableModMacros, enableModMacros, clearAllModMacros } from '../macros/macroRegistry';
+import { disableModFacts, enableModFacts, clearAllModFacts } from '../facts/factRegistry';
+import {
+    clearAllModInterceptors,
+    disableModInterceptors,
+    enableModInterceptors,
+    registerModInterceptor,
+} from '../interceptors';
 
 /** A mod, as the host needs to see it. A narrow read-only view of `ValidatedMod`. */
 export interface LifecycleMod {
@@ -63,13 +71,30 @@ export interface LifecycleMod {
     readonly version: string;
     readonly file: string;
     readonly dependencies: Record<string, string>;
-    readonly native?: { readonly js: string; readonly css?: string; readonly hooks?: Record<string, string> };
+    readonly native?: {
+        readonly js: string;
+        readonly css?: string;
+        readonly hooks?: Record<string, string>;
+        /**
+         * Phase 5.2 / MANIFEST.md §3 — the name of the exported function the
+         * pre-prompt interceptor calls. Resolved by the native loader after a
+         * clean `activate` and registered with the interceptor registry.
+         */
+        readonly generateInterceptor?: string;
+    };
     /**
      * Phase 1.5 / MANIFEST.md §6.6 — the mod's folder name, so the native
      * loader can build the asset URL that the browser `import()`s. Required
      * for any mod with a `native` block; optional for declarative-only mods.
      */
     readonly folder?: string;
+    /**
+     * Phase 5.2 / MANIFEST.md §6.3 — the mod's resolved load index. The load
+     * cycle derives it from the array position; a mid-session `enable` carries
+     * it here, because that call has one mod, not the whole list. Interceptor
+     * run order is this index, exactly as mount order is (`MOUNTS.md` §3.1).
+     */
+    readonly loadIndex?: number;
 }
 
 export interface LifecycleHostOptions {
@@ -282,6 +307,50 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
     }
 
     /**
+     * Phase 5.2 — resolve and register the mod's `native.generateInterceptor`.
+     *
+     * Called at the same moment `native.css` is mounted: after the mod's
+     * `activate` has had its chance and did not fault. The gate is
+     * `!hooks.activate || activateRan`, NOT bare `activateRan` — a mod may
+     * declare an interceptor and no `activate` hook at all (nothing obliges it
+     * to register anything at runtime), and such a mod must still get its
+     * interceptor. A mod whose `activate` faulted does NOT: it is in a broken
+     * state, and code from a broken mod does not belong in the path that
+     * builds the prompt.
+     *
+     * Never throws. A manifest naming a missing export is surfaced as the same
+     * `missing-export` fault a missing hook export gets, and the mod simply has
+     * no interceptor — the turn path is unaffected.
+     */
+    async function attachInterceptor(mod: LifecycleMod, loadIndex: number): Promise<void> {
+        if (!nativeLoader || !mod.native?.generateInterceptor) return;
+        try {
+            const fn = await nativeLoader.resolveInterceptor(mod);
+            if (fn) {
+                registerModInterceptor({ id: mod.id, name: mod.name, loadIndex, file: mod.file }, fn);
+            }
+        } catch (error) {
+            const isMissingExport = isNativeMissingExportError(error);
+            const kind: LifecycleFaultKind = isMissingExport ? 'missing-export' : 'load';
+            const message = error instanceof Error ? error.message : String(error);
+            faultStore.add({
+                modId: mod.id,
+                file: mod.file,
+                kind,
+                hook: 'generateInterceptor' as never,
+                strikes: 0,
+                latched: false,
+                reason: formatLifecycleFaultReason({
+                    modName: mod.name,
+                    kind,
+                    hook: 'generateInterceptor',
+                    message,
+                }),
+            });
+        }
+    }
+
+    /**
      * The dependency-enabled gate (MANIFEST.md §6.4). A mod whose dependency
      * is present but DISABLED must not activate; this is a runtime fault with
      * its own kind, not a load rejection. The dependency's enablement is read
@@ -419,6 +488,13 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
                 nativeLoader.mountCss(mod);
             }
 
+            // Phase 5.2 — register the pre-prompt interceptor. See
+            // `attachInterceptor` for why the gate is not bare `activateRan`.
+            if (!hooks.activate || activateRan) {
+                enableModInterceptors(mod.id);
+                await attachInterceptor(mod, loadIndexMap.get(mod.id) ?? 0);
+            }
+
             runs.push(...ranInstall.filter((r) => !r.ok || !r.skipped));
 
             // Collect faulted mod ids so a caller can tell which mods failed
@@ -482,6 +558,16 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // `activate` runs, so the mod's new `activate` can register its
         // mounts again. `disable` revoked the lease; `enable` restores it.
         enableModMounts(input.mod.id);
+        // Phase 5.1 — same discipline for macros: clear the revoked lease
+        // before `activate` runs, so the mod's new `activate` can register
+        // its macros again.
+        enableModMacros(input.mod.id);
+        // Phase 5.2 — same discipline for the prompt interceptor: `disable`
+        // revoked the lease, `enable` restores it before `activate` runs.
+        enableModInterceptors(input.mod.id);
+        // Phase 5.4 — same discipline for fact publishers: `disable`
+        // revoked the lease, `enable` restores it before `activate` runs.
+        enableModFacts(input.mod.id);
         const enableResult = await fireUserHook({
             mod: input.mod,
             hookName: 'enable',
@@ -503,6 +589,12 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // the page without the mod's CSS, matching the load-cycle behaviour.
         if (activateResult.ok && !activateResult.skipped && nativeLoader && input.mod.native?.css) {
             nativeLoader.mountCss(input.mod);
+        }
+        // Phase 5.2 — register the interceptor on a mid-session enable, on the
+        // same gate the load cycle uses. `loadIndex` rides on the mod here
+        // because this call carries one mod, not the resolved list.
+        if (activateResult.ok) {
+            await attachInterceptor(input.mod, input.mod.loadIndex ?? 0);
         }
         return activateResult;
     }
@@ -533,6 +625,24 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // mod's lease is revoked so a registration call from a stale closure
         // after disable is a no-op plus a fault.
         disableModMounts(input.mod.id);
+        // Phase 5.1: the same discipline for macros. Every macro the mod
+        // registered is removed here — the mod is never trusted to call
+        // `unregister()`. The mod's lease is revoked so a registration call
+        // from a stale closure after disable is a no-op plus a fault.
+        disableModMacros(input.mod.id);
+        // Phase 5.2: the same discipline for the prompt interceptor, and it is
+        // the one where the lease matters most — a mod switched off mid-turn
+        // must not contribute to the prompt of the turn it was removed during.
+        // `disableModInterceptors` revokes the lease so an in-flight result is
+        // discarded rather than folded in.
+        disableModInterceptors(input.mod.id);
+        // Phase 5.4: the same discipline for fact publishers. Every
+        // publisher the mod registered is removed here — the mod is never
+        // trusted to call `unregister()`. The mod's lease is revoked so a
+        // register call from a stale closure after disable is a no-op plus
+        // a fault, and a publisher in flight when the mod was toggled off
+        // has its result discarded rather than merged.
+        disableModFacts(input.mod.id);
         // Phase 1.5 — unmount CSS after disable, regardless of whether the
         // disable hook itself threw. The mod is being switched off; its CSS
         // must leave the page even if its cleanup hook misbehaved, otherwise
@@ -598,6 +708,12 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
             eventFaultStore.clear();
             // Phase 4.2 / `MOUNTS.md` §8.5 — same discipline for mount points.
             clearAllModMounts();
+            // Phase 5.1 — same discipline for macros.
+            clearAllModMacros();
+            // Phase 5.2 — same discipline for prompt interceptors.
+            clearAllModInterceptors();
+            // Phase 5.4 — same discipline for fact publishers.
+            clearAllModFacts();
             nativeLoader?.clear();
             faultStore.clear();
         },

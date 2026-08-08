@@ -68,7 +68,12 @@ export interface SandboxSnapshot {
      * the host projects and freezes before marshalling).
      */
     readonly mod: { readonly id: string; readonly name: string; readonly version: string };
-    readonly api: { readonly version: string; readonly commitPoint: 'immediate' | 'on-return' };
+    readonly api: {
+        readonly version: string;
+        readonly commitPoint: 'immediate' | 'on-return';
+        /** Phase 5.3 — published suppressible set, same shape as `ModApi`. */
+        readonly suppressibleIds: readonly string[];
+    };
     readonly data: Readonly<Record<string, unknown>>;
     readonly config: Readonly<Record<string, unknown>>;
 }

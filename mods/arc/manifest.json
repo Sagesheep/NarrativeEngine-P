@@ -3,14 +3,6 @@
   "name": "Arc Engine",
   "version": "1.0.0",
   "description": "Tracks the story's long arcs and open threads across scenes, and nudges the GM toward paying them off instead of letting them drift. Switch it off and the story simply stops tracking arcs — nothing else changes.",
-  "contributions": [
-    {
-      "id": "arc-surface",
-      "order": 820,
-      "budget": 200,
-      "text": "{{arcSurface}}"
-    }
-  ],
   "tables": [
     {
       "name": "arcs",

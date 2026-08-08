@@ -40,6 +40,8 @@ import type { GatheredContext } from './contextGatherer';
 import type { TurnState, TurnCallbacks } from './turnOrchestrator';
 import { hasHostModelRole, type HostFacade } from './hostFacade';
 import { emitCoreEvent, emitCoreEventLazy } from '../mods/events';
+import { runPromptInterceptors } from '../mods/interceptors';
+import { runFactPublishers } from '../mods/facts';
 
 const MAX_TOOL_CALLS_PER_TURN = 5;
 
@@ -333,6 +335,90 @@ export async function runDirectorStage(
     ctx.directorBrief = directorBrief ?? undefined;
 }
 
+// ── Stage 5b: runPromptInterception ──────────────────────────────────────
+// Phase 5.2 — the pre-prompt / generation interceptor.
+//
+// THE FIRE POINT, and why it is here and nowhere else. The work order asks
+// for "one well-defined point, before assembly, after the app knows the
+// turn's inputs". This is it:
+//
+//   • AFTER `runDirectorStage`, because the Director Brief and the watchdog
+//     nudge are turn inputs, and an interceptor that wants to suppress the
+//     Brief has to know whether there is one.
+//   • BEFORE `buildTurnPayload`, because assembly is where the arbiter runs
+//     and the whole point is to hand it a bigger set of specs rather than to
+//     reach into it. Nothing in `buildPayload` is reordered to make this
+//     work — the 5.2 §5 stop condition, not fired.
+//
+// The stage NEVER throws. `runPromptInterceptors` contains every per-mod
+// failure (throw, rejection, deadline, malformed return, mid-turn disable)
+// as a surfaced fault and returns whatever the healthy interceptors produced,
+// which may be nothing. The caller guards the call with
+// `hasPromptInterceptors()`, so a zero-interceptor turn does not await at all.
+export async function runPromptInterception(
+    ctx: TurnContext,
+    state: TurnState,
+    facade?: HostFacade,
+): Promise<void> {
+    try {
+        const result = await runPromptInterceptors({
+            turnId: ctx.turnId,
+            campaignId: (facade?.data.activeCampaignId ?? state.activeCampaignId) ?? null,
+            tier: facade?.config.aiTier ?? state.settings.aiTier,
+            // `ctx.finalInput`, not `ctx.input`: the interceptor sees the
+            // string the prompt will carry, engine-roll and one-shot
+            // injections included. `turn.start`'s `playerInput` is the raw
+            // pre-injection text; the two differ on purpose (EVENTS.md §8.3).
+            playerInput: ctx.finalInput,
+            hasDirectorBrief: !!ctx.directorBrief,
+            hasWatchdogNudge: !!ctx.watchdogNudge,
+            hasAbsoluteCommand: !!state.absoluteCommand,
+        });
+        if (result) ctx.interception = result;
+    } catch (err) {
+        // Belt-and-braces. The registry is total by construction; a throw
+        // here would mean the host itself is broken, and even then the turn
+        // proceeds with the un-intercepted payload (5.2 §3).
+        console.warn('[mods] prompt interception failed (suppressed):', err);
+    }
+}
+
+// ── Stage 5c: runFactPublication ─────────────────────────────────────────
+// Phase 5.4 — mod fact publishers run after the interceptor and before
+// contributions are evaluated. The timing is the whole game: the facts
+// must be settled before `buildTurnPayload` calls `buildPayload`, which
+// builds the `facts` object that drives `evaluateWhen` on every mod's
+// `when` conditions.
+//
+// THE FIRE POINT, and why it is here and nowhere else. The work order asks
+// for "publish after the interceptor, before contributions are evaluated":
+//
+//   • AFTER `runPromptInterception`, because an interceptor may want to
+//     read the same facts it influences (and the publication must not race
+//     the interceptor's own reads).
+//   • BEFORE `buildTurnPayload`, because `buildPayload` builds the
+//     `facts` object at line 233 and passes it to the contribution
+//     registry at line 244 — the merged facts must be available by then.
+//
+// The stage NEVER throws. `runFactPublishers` contains every per-mod
+// failure (throw, mid-turn disable, ill-typed value) as a surfaced fault
+// and returns whatever the healthy publishers produced, which may be
+// nothing. The caller guards the call with `hasFactPublishers()`, so a
+// zero-publisher turn does not even enter the stage.
+export function runFactPublication(
+    ctx: TurnContext,
+): void {
+    try {
+        const result = runFactPublishers();
+        if (result) ctx.publishedFacts = result;
+    } catch (err) {
+        // Belt-and-braces. The registry is total by construction; a throw
+        // here would mean the host itself is broken, and even then the
+        // turn proceeds with the host-computed facts only (5.4 §3).
+        console.warn('[mods] fact publication failed (suppressed):', err);
+    }
+}
+
 // ── Stage 6: buildTurnPayload ────────────────────────────────────────────
 // Wraps buildPayload(options) (WO-P1-01 made it an options object). Stashes
 // the assembled payload + trace + debugSections on the bus. Attaches the
@@ -379,6 +465,14 @@ export function buildTurnPayload(
         absoluteCommand: state.absoluteCommand ?? undefined,
         elevatedScenes: ctx.gathered.elevatedScenes,
         slottedRagSnippets: ctx.gathered.slottedRagSnippets,
+        // Phase 5.2 — the interceptor's blocks and suppressions for this turn.
+        // `undefined` when no mod registered one, which is the byte-identical
+        // zero-mod path (`buildPayload` then makes exactly the pre-5.2 calls).
+        interception: ctx.interception,
+        // Phase 5.4 — the mod-published facts overlay for this turn.
+        // `undefined` when no mod registered a publisher, which is the
+        // byte-identical zero-mod path.
+        publishedFacts: ctx.publishedFacts,
     });
 
     ctx.payload = payloadResult.messages;

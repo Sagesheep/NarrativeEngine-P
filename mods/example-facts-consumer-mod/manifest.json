@@ -1,0 +1,17 @@
+{
+  "id": "example-facts-consumer-mod",
+  "name": "Example Facts Consumer",
+  "version": "1.0.0",
+  "loadOrder": 260,
+  "description": "Phase 5.4 fixture. A declarative mod whose `when: { inCombat: true }` condition matches on the fact published by example-facts-mod. Together the two fixture mods prove that a mod-published fact drives another mod's condition — the core deliverable of Phase 5.4.",
+  "author": "Narrative Engine",
+  "contributions": [
+    {
+      "id": "combat-note",
+      "order": 550,
+      "budget": 80,
+      "when": { "inCombat": true },
+      "text": "[COMBAT IS ACTIVE — the encounter is live.]"
+    }
+  ]
+}

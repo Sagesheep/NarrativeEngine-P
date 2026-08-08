@@ -1,0 +1,22 @@
+{
+  "id": "probe-two",
+  "name": "Probe-Two (Checkpoint 2 conflict fixture)",
+  "version": "1.0.0",
+  "loadOrder": 200,
+  "description": "Phase 4.9.3 fixture — a SECOND throwaway mod claiming the SAME Phase 4 mount regions as `mods/probe/`, to verify the conflict rule in `MOUNTS.md` Decision C holds exactly as written: tabs for `chat.rail`, stack for `message.below`, additive (no conflict) for the three chrome regions, and `window.layer` as separate objects. Two mods, one region each, with different `loadOrder` values so the ordering rule (Decision B) can be observed and then swapped. Keep in the repo alongside `mods/probe/`. Written against the shipped .d.ts and API.md only.",
+  "author": "Narrative Engine",
+  "tables": [
+    {
+      "name": "notes",
+      "recordShape": "array",
+      "label": "Probe-Two notes"
+    }
+  ],
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate",
+      "disable": "onDisable"
+    }
+  }
+}

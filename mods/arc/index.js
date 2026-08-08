@@ -27,6 +27,31 @@
 // pending-commit drain (MOUNTS.md §8.8) is handled by the host before
 // `onSelect` fires, so the mod does not commit a turn itself (CONTRACT.md
 // L3).
+//
+// ── Phase 5.1 decision: the `{{arcSurface}}` contribution is removed ──
+// The manifest used to declare a contribution with `text: "{{arcSurface}}"`
+// at order 820. Nothing resolved `{{arcSurface}}` — `renderTemplate`
+// understood only `{{location}}` and `{{npcs}}`, so the literal string
+// `{{arcSurface}}` was being emitted into the prompt at order 820 whenever
+// Arc was enabled. Arc's REAL surfacing path goes through
+// `ctx.write.updateContext({ arcDigest })` in `compute.js:446`, which the
+// world builder reads at `src/services/payload/world.ts:560` and emits as
+// `[WORLD UNDERCURRENT]\n${arcDigest}` — a host-owned, host-coupled path.
+//
+// Phase 5.1's macro registry COULD have registered `arcSurface` as a macro,
+// but doing so would require exposing `context.arcDigest` on `ModData` (a
+// new API surface) just to duplicate the world block `world.ts:560` already
+// emits — emitting `[WORLD UNDERCURRENT]` twice (once from the world
+// builder, once from the macro at order 820) would be a regression, not a
+// fix. The `arcDigest` → `world.ts:560` path is load-bearing AND
+// host-coupled; Phase 8.3 ("logic and prompt move") owns moving that path
+// into the mod. Phase 5.1's job is the macro registry, not pre-empting
+// 8.3's architectural decision.
+//
+// Decision: REMOVE the dead contribution. This fixes the live bug (the
+// literal `{{arcSurface}}` is no longer emitted) and is reversible — when
+// 8.3 moves the surfacing path into the mod, the mod can register an
+// `arcSurface` macro through `ctx.macros.register()` at that point.
 
 // ── Constants (duplicated from compute.js — locked by the WO-01 contract) ──
 const LADDER_MIN = 5;

@@ -371,7 +371,15 @@ function buildSandboxSnapshot(
     });
     return {
         mod: { id: context.mod.id, name: context.mod.name, version: context.mod.version },
-        api: { version: context.api.version, commitPoint: context.api.commitPoint },
+        api: {
+            version: context.api.version,
+            commitPoint: context.api.commitPoint,
+            // Phase 5.3 — publish the suppressible set on the sandbox path
+            // too. A compute mod does not suppress (it has no interceptor), but
+            // the snapshot's `api` shape must agree with the native one so the
+            // `.d.ts`'s `ModApi` is truthful on both paths.
+            suppressibleIds: context.api.suppressibleIds,
+        },
         data: context.data as unknown as Readonly<Record<string, unknown>>,
         config: context.config as unknown as Readonly<Record<string, unknown>>,
     };
@@ -384,8 +392,9 @@ function buildSandboxSnapshot(
  * Phase 4.0 / `API.md` §8.6 item 1 — `mod` is required. The worker receives a
  * `ModContext`-shape snapshot (projected from `facade`), not the raw
  * `FacadeData`; the bare-name own-table alias resolves (`ctx.table.read('arcs')`
- * and `ctx.table.read('mod.arc.arcs')` are the same table); `subscribe` and
- * `events` throw "native tier only" on the worker side (`EVENTS.md` §5.1).
+ * and `ctx.table.read('mod.arc.arcs')` are the same table); `subscribe`,
+ * `events`, `mounts`, and `macros` throw "native tier only" on the worker
+ * side (`EVENTS.md` §5.1 / `MOUNTS.md` §8.1 / Phase 5.1 §2).
  */
 export async function runSandbox(
     modSource: string,

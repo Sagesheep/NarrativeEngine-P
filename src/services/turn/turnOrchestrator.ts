@@ -10,9 +10,13 @@ import {
     gatherTurnContext,
     runIntroEngineStage,
     runDirectorStage,
+    runPromptInterception,
+    runFactPublication,
     buildTurnPayload,
     runGenerationStage,
 } from './turnStages';
+import { hasPromptInterceptors } from '../mods/interceptors';
+import { hasFactPublishers } from '../mods/facts';
 
 export type TurnCallbacks = {
     onCheckingNotes: (checking: boolean) => void;
@@ -193,6 +197,25 @@ export async function runTurn(
 
     await runIntroEngineStage(ctx, state, callbacks, facade);
     await runDirectorStage(ctx, state, callbacks, abortController, facade);
+
+    // Phase 5.2 — the pre-prompt interceptor. Guarded rather than always
+    // awaited: with no mod-registered interceptor this is a synchronous
+    // `Map.size > 0` test and the turn does not yield a microtask, so the
+    // zero-mod payload and the ordered post-turn effect trace the Phase 0.2
+    // gate records are byte-identical. Same discipline as
+    // `emitCoreEventLazy`'s zero-listener early return.
+    if (hasPromptInterceptors()) {
+        await runPromptInterception(ctx, state, facade);
+        if (abortController.signal.aborted) return;
+    }
+
+    // Phase 5.4 — mod fact publishers. Guarded rather than always run: with
+    // no mod-registered publisher this is a synchronous `length > 0` test and
+    // the turn does not yield, so the zero-mod payload stays byte-identical.
+    // Same discipline as `hasPromptInterceptors`'s zero-listener early return.
+    if (hasFactPublishers()) {
+        runFactPublication(ctx);
+    }
 
     const genDeps = buildTurnPayload(ctx, state, callbacks);
     await runGenerationStage(ctx, state, callbacks, abortController, genDeps);

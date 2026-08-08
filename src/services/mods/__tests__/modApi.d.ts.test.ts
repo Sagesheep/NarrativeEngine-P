@@ -15,6 +15,8 @@
 
 import { describe, expect, it } from 'vitest';
 import type { ModContext, ModComputeHook, NativeHook } from '../../../../docs/narrative-mod-api';
+import type { PromptInterceptor as PublishedPromptInterceptor } from '../../../../docs/narrative-mod-api';
+import type { PromptInterceptor as RuntimePromptInterceptor } from '../interceptors';
 
 // A fixture mod's `default` export should match `ModComputeHook`. The fixture
 // mod in `mods/example-surface-mod/index.js` exports `onActivate`, which is a
@@ -64,7 +66,10 @@ const computeHook: ModComputeHook = (ctx) => {
     // `ctx.api.version` equals the app version; `commitPoint` is one of the two.
     const apiVersion: string = ctx.api.version;
     const commitPoint: 'immediate' | 'on-return' = ctx.api.commitPoint;
-    void [apiVersion, commitPoint];
+    // Phase 5.3 — the published suppressible set. A mod reads this to know
+    // what it may target, rather than guessing from a static doc.
+    const suppressibleIds: readonly string[] = ctx.api.suppressibleIds;
+    void [apiVersion, commitPoint, suppressibleIds];
 
     // `subscribe` is declared here and implemented in Phase 2.4. The signature
     // must be available on the type even though calling it throws at runtime.
@@ -94,7 +99,30 @@ const computeHook: ModComputeHook = (ctx) => {
         onSelect: (c) => { void c; },
     }).remove;
     void headerHandle;
+
+    // Phase 5.1 — `ctx.macros` is the macro registration surface. One method
+    // (`register`); the host qualifies the name and tears down on disable.
+    // Native-tier only: a sandboxed compute hook's `ctx.macros.register`
+    // throws "native-tier only" (the worker prelude stubs it).
+    const unregisterMacro: () => void = ctx.macros.register('myMacro', () => 'expansion');
+    void unregisterMacro;
 };
+
+// Phase 5.2 — the `.d.ts`'s `PromptInterceptor` must be assignable to the
+// runtime one. If the published shape drifts from `interceptorTypes.ts`, this
+// assignment fails to compile — which is the whole point of this file.
+const publishedInterceptor: PublishedPromptInterceptor = (input) => {
+    const turnId: string = input.turnId;
+    const hasBrief: boolean = input.hasDirectorBrief;
+    void [turnId, hasBrief, input.campaignId, input.tier, input.playerInput,
+        input.hasWatchdogNudge, input.hasAbsoluteCommand];
+    return {
+        contributions: [{ id: 'scene-ledger', text: 'LEDGER', order: 450, budget: 120 }],
+        suppress: ['gm.reminder'],
+    };
+};
+const runtimeInterceptor: RuntimePromptInterceptor = publishedInterceptor;
+void runtimeInterceptor;
 
 const nativeHook: NativeHook = (ctx) => {
     // The lifecycle-hook shape. A mod's `activate`/`enable`/`disable`/etc.

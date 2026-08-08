@@ -180,6 +180,155 @@ Two rules worth knowing:
 - **An inactive contribution suppresses nothing.** If your `when` doesn't match, your `suppresses`
   doesn't fire either.
 
+### Finding out what you may suppress
+
+The four toggleable ids above are the set today. Rather than hard-coding them, a native mod can
+read the published list from the context:
+
+```js
+export function onActivate(ctx) {
+    // ctx.api.suppressibleIds — frozen array of built-in ids a mod may suppress.
+    // The complement of the protected four; grows deliberately, never silently.
+    const maySuppress = ctx.api.suppressibleIds;
+}
+```
+
+`ctx.api.suppressibleIds` always agrees with what the loader enforces. A Megumin-class mod that
+stands up a parallel system uses this to decide which built-in blocks it may turn off, rather
+than guessing from a static document that goes stale the moment the set grows.
+
+---
+
+## The pre-prompt interceptor — suppressing *conditionally*
+
+`suppresses` in a manifest is either always on or always off. When you need "drop the GM reminder
+**on turns where the Director spoke**", you need code, and code means the native tier.
+
+Name one exported function in your manifest:
+
+```json
+"native": {
+  "js": "index.js",
+  "generateInterceptor": "interceptPrompt"
+}
+```
+
+The host calls it **once per turn**, after it knows every input the prompt consumes and before
+assembly begins:
+
+```js
+export function interceptPrompt(input) {
+    if (input.hasAbsoluteCommand) return;   // nothing to say — the quiet path
+
+    return {
+        contributions: [
+            { id: 'scene-ledger', order: 450, budget: 120, text: `Turn ${input.turnId}.` },
+        ],
+        suppress: input.hasDirectorBrief ? ['gm.reminder'] : [],
+    };
+}
+```
+
+`input` is frozen and carries only this:
+
+| Field | What it is |
+|---|---|
+| `turnId` | Correlates with the `turn.start` / `turn.committed` events |
+| `campaignId` | The active campaign, or `null` |
+| `tier` | The tier this turn runs at |
+| `playerInput` | The player's message **as the prompt will carry it** — dice, loot and one-shot injections included |
+| `hasDirectorBrief` | The Director authored a Brief this turn |
+| `hasWatchdogNudge` | The deterministic watchdog nudge is armed |
+| `hasAbsoluteCommand` | The player armed an Absolute Command |
+
+Returning nothing is normal — a mod with nothing to say this turn says nothing.
+
+**Five rules.**
+
+1. **Add and suppress, nothing else.** There is no field for rewriting a block, replacing the
+   player's message, or reordering assembly.
+2. **The protected four stay protected.** `user.message`, `volatile.block`, `askgm.brief` and
+   `absolute.command` can never be suppressed. Naming one does *not* reject the mod the way the
+   declarative `suppresses` does — it drops that one entry, shows you why in **Settings →
+   Extensions**, and honours the rest of your interception.
+3. **You get one argument, and it is not `ctx`.** Building a fresh mod context every turn would
+   copy the whole message list on the hot path. Subscribe in `activate` and read the closure:
+
+   ```js
+   let messageCount = 0;
+   export function onActivate(ctx) {
+       ctx.subscribe('messages', (messages) => { messageCount = messages.length; });
+   }
+   ```
+
+4. **There is a hard deadline (1.5 seconds).** It is not the place for a model call. Compute off the
+   turn path — a compute hook, or a `turn.committed` listener — write the result to your own table,
+   and read the table here.
+5. **Be deterministic.** Two identical turns with the same mods must produce the same prompt. The
+   host guarantees the order interceptors run in; the rest is yours.
+
+Your text is budgeted exactly like a declarative contribution — declare a `budget` or take the
+default. If your interceptor throws, hangs, or returns something malformed, the fault shows up in
+**Settings → Extensions** and the turn goes ahead with the un-intercepted prompt. It cannot break a
+turn.
+
+---
+
+## Publishing facts — `ctx.facts`
+
+A `when` condition reads four facts the host computes: `npcPresent`, `location`, `inCombat`,
+`sceneTag`. When a subsystem leaves core (Phase 8, enemies), the mod that owns it can keep publishing
+the fact so every other mod's `when` keeps working — that is what `ctx.facts` is for.
+
+Register a publisher in your `activate` hook:
+
+```js
+export function onActivate(ctx) {
+    ctx.facts.register(
+        'inCombat',
+        () => currentEncounterIsActive(),  // return the fact value for this turn
+        { claims: 'inCombat' },
+    );
+}
+```
+
+The publisher runs **once per turn**, after the interceptor and before conditions are evaluated.
+It must be **synchronous** and **pure** — reading `ctx.data` is fine; awaiting or mutating is not.
+
+### Claiming a core fact
+
+`inCombat` is the only core fact open for claims today. You claim it by passing
+`{ claims: 'inCombat' }` — and the `name` you register **must match** the claim. The claim is what
+prevents the footgun: a mod cannot set `inCombat` by accident, only deliberately.
+
+### Conflicts
+
+Two mods claiming the same core fact is a conflict. The one **earlier in `loadOrder`** wins; the
+loser is surfaced in **Settings → Extensions** with both mods named, so you can see who collided.
+
+### Throwing
+
+A throwing publisher yields no fact (no match) plus a surfaced fault. The turn never breaks.
+
+### What is NOT claimable
+
+`location`, `sceneTags`, and `onStageNpcNames` are core facts but are **not open for claims** today.
+Registering a publisher for one of these names (even with `claims:`) is rejected with a fault. The
+host opens a name for claims when a subsystem leaving core owns that domain.
+
+### Namespaced mod facts
+
+A mod may register a fact without a claim — e.g. `ctx.facts.register('mood', () => 'tense')`. The
+host namespaces it to `mod.<modId>.mood`. It is not read by `when` conditions today (the four keys
+above are the only ones `when` understands); the namespacing exists so a future expansion of `when`
+can read mod-owned facts without a second registration surface.
+
+### Zero mods
+
+With no mod registered, facts behave exactly as today — the host computes them. `ctx.facts` is
+native-tier only: a sandboxed compute mod cannot hold a closure across turns, so `ctx.facts` throws
+"native-tier only" on the worker side.
+
 ---
 
 ## `appVersion` — requiring a minimum app version
@@ -196,18 +345,26 @@ than your floor, the mod is rejected with a message naming both versions.
 
 ---
 
-## What mods can't do (yet)
+## What a text-only mod can't do
 
-Being straight with you about the current boundary:
+This list is about the **declarative** tier — a manifest with `contributions[]` and no `native`
+block. That mod adds text, under conditions, in a chosen order, within a budget, and that is its
+whole surface:
 
 - **No code.** No JavaScript, no logic, no loops.
 - **No custom UI.** You can't add a panel, button, or tab.
 - **No algorithms.** Nothing that inspects, scores, or reorders what the engine already built.
 - **No new mechanics.** You can *describe* a rule to the AI; you can't make the engine resolve one.
 - **No post-turn scans.** You can't add something that runs after a turn and writes to a ledger.
-- **No editing existing blocks.** You can add or suppress, not rewrite.
 
-A mod adds text, under conditions, in a chosen order, within a budget. That's the whole surface today.
+A `native` block lifts the first five: it gets you lifecycle hooks, mount points, macros, the event
+bus, and the pre-prompt interceptor above.
+
+One limit survives at **every** tier, and it is a rule rather than a gap:
+
+- **No editing existing blocks.** You can add or suppress, never rewrite — and the player's own
+  message, the world state, the confirmed ask-GM handoff and the player's absolute command cannot
+  even be suppressed.
 
 ---
 

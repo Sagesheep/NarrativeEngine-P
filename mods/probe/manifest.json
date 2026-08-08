@@ -1,0 +1,22 @@
+{
+  "id": "probe",
+  "name": "Probe (Checkpoint 2 fixture)",
+  "version": "1.0.0",
+  "loadOrder": 100,
+  "description": "Phase 4.9.2 probe — a single throwaway mod claiming every Phase 4 mount point at once: a header button, a chat right-rail panel, a message-row action button, a message-below content slot on every message, a floating window opened by the header button, three core event subscriptions, and its own table written from the window and read by the rail. Styled entirely from theme tokens the content mounts inherit in-page. The regression test for every later phase; keep in the repo. Written against the shipped .d.ts and API.md only.",
+  "author": "Narrative Engine",
+  "tables": [
+    {
+      "name": "notes",
+      "recordShape": "array",
+      "label": "Probe notes"
+    }
+  ],
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate",
+      "disable": "onDisable"
+    }
+  }
+}

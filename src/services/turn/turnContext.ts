@@ -23,6 +23,8 @@ import type { SlottedRagSnippet } from '../archive-memory/slottedRag';
 import type { LocationEntry, NPCEntry } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import type { PayloadTrace, DebugSection } from '../../types';
+import type { PromptInterceptionResult } from '../mods/interceptors';
+import type { FactPublicationResult } from '../mods/facts';
 
 /**
  * Phase 3.2 — the `turnId` source. A per-session monotonic counter, **not**
@@ -100,6 +102,36 @@ export type TurnContext = {
     watchdogNudge?: string;
     /** The LLM-authored Director Brief (or undefined on lite tier / failure). */
     directorBrief?: string;
+
+    // ── Prompt interception (set by the interception stage) ───────────────
+    /**
+     * Phase 5.2 — the pre-prompt interceptor's result for this turn: mod
+     * contributions to fold into the final user message, plus the ids they
+     * asked the host to suppress. Written by `runPromptInterception` and read
+     * by `buildTurnPayload`, one stage later.
+     *
+     * `undefined` whenever no mod registered a `native.generateInterceptor` —
+     * and the orchestrator does not even call the stage in that case, so a
+     * zero-interceptor turn does not so much as yield a microtask here. That
+     * is what makes the Phase 0.2 base-app gate byte-identical rather than
+     * merely equivalent.
+     */
+    interception?: PromptInterceptionResult;
+
+    // ── Fact publication (set by the publication stage) ────────────────
+    /**
+     * Phase 5.4 — the fact publisher overlay for this turn: mod-published
+     * facts that merge with the host-computed facts before `evaluateWhen`
+     * runs. Written by `runFactPublication` and read by
+     * `buildTurnPayload`, one stage later.
+     *
+     * `undefined` whenever no mod registered a fact publisher — and the
+     * orchestrator does not even call the stage in that case, so a
+     * zero-publisher turn does not so much as yield a microtask here.
+     * That is what makes the Phase 0.2 base-app gate byte-identical rather
+     * than merely equivalent.
+     */
+    publishedFacts?: FactPublicationResult;
 
     // ── Payload (set by the build-payload stage) ──────────────────────────
     /** The assembled OpenAIMessage array (the cached + volatile payload). */

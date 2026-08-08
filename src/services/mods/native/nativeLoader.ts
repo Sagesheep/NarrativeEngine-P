@@ -42,6 +42,7 @@ import type {
     NativeHookFn,
     NativeModHooks,
 } from '../lifecycle/lifecycleTypes';
+import type { PromptInterceptor } from '../interceptors';
 
 /**
  * Build the URL the browser will `import()` for a mod's `native.js`.
@@ -147,6 +148,26 @@ export interface NativeLoader {
         readonly folder?: string;
     }): Promise<NativeModHooks | undefined>;
     /**
+     * Phase 5.2 / MANIFEST.md §3 — resolve `native.generateInterceptor` against
+     * the module's namespace.
+     *
+     * A separate method rather than a second return value from `load()`,
+     * because the `LoadModHooks` seam is the lifecycle host's contract and an
+     * interceptor is not a lifecycle hook. Both read the SAME module cache, so
+     * this costs no second `import()`.
+     *
+     * Returns `undefined` when the mod declares no `native.generateInterceptor`
+     * (the common case). THROWS `NativeMissingExportError` when the manifest
+     * names an export that is not a function — a manifest naming a missing
+     * export is a bug the author needs to see, exactly as for a hook.
+     */
+    resolveInterceptor(mod: {
+        readonly id: string;
+        readonly name: string;
+        readonly native?: { readonly js: string; readonly generateInterceptor?: string };
+        readonly folder?: string;
+    }): Promise<PromptInterceptor | undefined>;
+    /**
      * Mount the mod's `native.css` as a `<link>` in `<head>`. Idempotent: a
      * second call with the same mod id is a no-op. Returns the href on mount
      * or `null` when the mod declares no css.
@@ -183,13 +204,20 @@ export function createNativeLoader(options: NativeLoaderOptions = {}): NativeLoa
     // Cache of mounted CSS hrefs per mod id, so `mountCss` is idempotent.
     const cssCache = new Map<string, string>();
 
-    async function load(mod: {
+    /**
+     * `import()` the mod's `native.js` once and memoise the namespace.
+     * Shared by `load` (hooks) and `resolveInterceptor` (Phase 5.2), so a mod
+     * declaring both is imported once, not twice — and both see the same
+     * module instance, which matters for any state the module holds between
+     * `activate` and the interceptor call.
+     */
+    async function importExports(mod: {
         readonly id: string;
-        readonly name: string;
-        readonly native?: { readonly js: string; readonly css?: string; readonly hooks?: Record<string, string> };
+        readonly native?: { readonly js: string };
         readonly folder?: string;
-    }): Promise<NativeModHooks | undefined> {
-        if (!mod.native) return undefined;
+    }): Promise<NativeModuleExports> {
+        const cached = moduleCache.get(mod.id);
+        if (cached) return cached;
         if (!mod.folder) {
             // The loader needs the folder to build the URL. A validated mod
             // with a `native` block always carries `folder` (modLoader.js
@@ -197,18 +225,23 @@ export function createNativeLoader(options: NativeLoaderOptions = {}): NativeLoa
             // bug — the caller records a `load` fault and the app continues.
             throw new Error(`[native] mod "${mod.id}" has a native block but no folder`);
         }
+        const url = nativeModuleUrl(mod.folder, mod.native!.js, apiBase);
+        // The Vite-blessed escape hatch for runtime-dynamic specifiers.
+        // See the file header for the full mechanism explanation.
+        const exports = await importModule(/* @vite-ignore */ url);
+        moduleCache.set(mod.id, exports);
+        return exports;
+    }
 
-        const cached = moduleCache.get(mod.id);
-        let exports: NativeModuleExports;
-        if (cached) {
-            exports = cached;
-        } else {
-            const url = nativeModuleUrl(mod.folder, mod.native.js, apiBase);
-            // The Vite-blessed escape hatch for runtime-dynamic specifiers.
-            // See the file header for the full mechanism explanation.
-            exports = await importModule(/* @vite-ignore */ url);
-            moduleCache.set(mod.id, exports);
-        }
+    async function load(mod: {
+        readonly id: string;
+        readonly name: string;
+        readonly native?: { readonly js: string; readonly css?: string; readonly hooks?: Record<string, string> };
+        readonly folder?: string;
+    }): Promise<NativeModHooks | undefined> {
+        if (!mod.native) return undefined;
+
+        const exports = await importExports(mod);
 
         const declaredHooks = mod.native.hooks;
         if (!declaredHooks || Object.keys(declaredHooks).length === 0) {
@@ -240,6 +273,37 @@ export function createNativeLoader(options: NativeLoaderOptions = {}): NativeLoa
             (resolved as Record<string, NativeHookFn>)[hookName] = value as NativeHookFn;
         }
         return resolved;
+    }
+
+    /**
+     * Phase 5.2 / MANIFEST.md §3 — resolve the manifest's
+     * `native.generateInterceptor` against the module's exports.
+     *
+     * Deliberately NOT part of `load()`'s return: the `LoadModHooks` seam is
+     * the lifecycle host's contract for the seven hooks, and an interceptor is
+     * not one of them (it has a return value and it fires per turn, not per
+     * lifecycle event). Sharing `importExports` keeps it free.
+     */
+    async function resolveInterceptor(mod: {
+        readonly id: string;
+        readonly name: string;
+        readonly native?: { readonly js: string; readonly generateInterceptor?: string };
+        readonly folder?: string;
+    }): Promise<PromptInterceptor | undefined> {
+        const exportName = mod.native?.generateInterceptor;
+        if (!mod.native || !exportName) return undefined;
+
+        const exports = await importExports(mod);
+        const value = exports[exportName];
+        if (typeof value !== 'function') {
+            throw new NativeMissingExportError({
+                modId: mod.id,
+                hookName: 'generateInterceptor',
+                exportName,
+                actual: typeof value,
+            });
+        }
+        return value as PromptInterceptor;
     }
 
     function mountCss(mod: {
@@ -286,7 +350,7 @@ export function createNativeLoader(options: NativeLoaderOptions = {}): NativeLoa
         cssCache.clear();
     }
 
-    return { load, mountCss, unmountCss, forget, clear };
+    return { load, resolveInterceptor, mountCss, unmountCss, forget, clear };
 }
 
 /**

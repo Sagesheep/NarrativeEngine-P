@@ -246,6 +246,28 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
 ];
 
 /**
+ * Phase 5.3 — the suppressible built-in ids, derived from the module list rather
+ * than hand-kept. A built-in is suppressible iff it is NOT structural
+ * (`toggleable !== false`), which is the same marker the contribution registry
+ * uses to keep structural modules out of the extensions screen.
+ *
+ * This is the authoritative published list. `modContext.ts` exposes it on
+ * `ctx.api.suppressibleIds`, the loader's `PROTECTED_SUPPRESSION_IDS` is its
+ * complement, and `phase53Subtraction.test.ts` pins both sides together so a
+ * new built-in that forgets to set `toggleable: false` is caught at test time
+ * rather than at "a mod just deleted the player's message" time.
+ *
+ * Derived, not declared: the moment a second list is hand-kept it drifts from
+ * the module array, and the drift is silent. The filter runs once at module
+ * load and the result is frozen.
+ */
+export const SUPPRESSIBLE_BUILTIN_IDS: readonly string[] = Object.freeze(
+    BUILTIN_FINAL_USER_MODULES
+        .filter((m) => m.toggleable !== false)
+        .map((m) => m.id),
+);
+
+/**
  * Build a registry pre-populated with the built-ins.
  *
  * A factory rather than a module-level singleton: a shared mutable registry across tests (and

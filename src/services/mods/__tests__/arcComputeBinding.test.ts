@@ -205,6 +205,9 @@ function runArcSourceInWorker(
             messageBelow: () => { throw new Error('native tier only'); },
             window: () => { throw new Error('native tier only'); },
         }),
+        macros: Object.freeze({
+            register: () => { throw new Error('native tier only'); },
+        }),
     };
 
     // Evaluate the prelude statement(s) via `new Function` so the IIFE

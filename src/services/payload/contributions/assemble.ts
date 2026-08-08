@@ -45,11 +45,31 @@ function trimToBudget(text: string, budget: number): string {
 }
 
 /**
+ * Phase 5.2 — host-supplied suppression, computed rather than declared.
+ *
+ * A contribution states its suppressions on the spec it produces. An
+ * interceptor states them for the whole turn, and may want to remove a block
+ * WITHOUT contributing one (an empty-text spec suppresses nothing, by
+ * design — see step 1 below), so it needs a channel that is not a spec.
+ *
+ * The entries carry their attributor so `AssembledContributions.suppressed`
+ * stays as honest for computed suppression as it is for declared. This
+ * arbiter still never learns WHICH id it is holding: an entry is an opaque
+ * `(id, by)` pair, and the protected-id rule that decides what may appear
+ * here is enforced upstream, in `services/mods/interceptors`. Putting that
+ * list in this file would break the no-feature-names rule at the top of it.
+ */
+export interface AssembleOptions {
+    readonly suppress?: readonly { readonly id: string; readonly by: string }[];
+}
+
+/**
  * Assemble rendered contributions into one block of text plus debug traces.
  *
  * Pipeline, in order:
  *   1. drop inactive (empty `text`) — an inactive contribution suppresses nothing;
- *   2. resolve suppression in a single pass (see `ContributionSpec.suppresses`);
+ *   2. resolve suppression in a single pass (see `ContributionSpec.suppresses`),
+ *      seeded with any host-supplied suppression (`options.suppress`);
  *   3. trim any survivor that declared a budget and exceeds it;
  *   4. sort by `order` (stable — ties keep declaration order);
  *   5. join with a blank line;
@@ -57,12 +77,21 @@ function trimToBudget(text: string, budget: number): string {
  *
  * Pure: no store reads, no I/O, no clock. Given the same specs it returns the same result.
  */
-export function assembleContributions(specs: readonly ContributionSpec[]): AssembledContributions {
+export function assembleContributions(
+    specs: readonly ContributionSpec[],
+    options?: AssembleOptions,
+): AssembledContributions {
     // 1 ── active set
     const active = specs.filter((s) => s.text !== '');
 
     // 2 ── suppression, single pass from the active set (no cascade — see types.ts)
     const suppressedBy = new Map<string, string>();
+    // Host-supplied suppression is seeded first so its attribution wins the
+    // tie, matching the "first suppressor wins the attribution" rule below;
+    // the outcome is identical either way, since suppression is a set.
+    for (const entry of options?.suppress ?? []) {
+        if (!suppressedBy.has(entry.id)) suppressedBy.set(entry.id, entry.by);
+    }
     for (const spec of active) {
         if (!spec.suppresses) continue;
         for (const victimId of spec.suppresses) {

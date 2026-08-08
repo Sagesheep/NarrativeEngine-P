@@ -12,6 +12,9 @@ import { assembleContributions } from './contributions/assemble';
 import { createFinalUserRegistryWithExtensions } from './contributions/extensions';
 import type { FinalUserModuleInput } from './contributions/builtins';
 import type { ContributionRegistry } from './contributions/registry';
+import type { ContributionSpec } from './contributions/types';
+import type { ModFacts } from '../mods/modTypes';
+import type { FactPublicationResult } from '../mods/facts';
 import type { ElevatedScene } from '../archive-memory/dynamicElevation';
 import type { SlottedRagSnippet } from '../archive-memory/slottedRag';
 import { buildRelevantEnemyBlock } from '../enemy/enemyPrompt';
@@ -74,6 +77,30 @@ export type BuildPayloadOptions = {
      *  Callers supply their own once mods can be loaded, so `buildPayload` never learns
      *  what a mod is. */
     finalUserRegistry?: ContributionRegistry<FinalUserModuleInput>;
+    /** Phase 5.2: the pre-prompt interceptor's result for THIS turn, already validated
+     *  and namespaced by the mod layer. Specs are appended to what the registry collected;
+     *  suppression is handed to the arbiter alongside the specs' own `suppresses`.
+     *
+     *  The dependency direction is unchanged: this is a `ContributionSpec[]` plus an
+     *  `(id, by)` list, so `buildPayload` still has no idea what a mod is — exactly as with
+     *  `finalUserRegistry`. Absent (the zero-interceptor case) means both calls below are
+     *  byte-identical to the pre-5.2 ones, which is what keeps the Phase 0.2 gate green. */
+    interception?: {
+        readonly specs?: readonly ContributionSpec[];
+        readonly suppress?: readonly { readonly id: string; readonly by: string }[];
+    };
+    /** Phase 5.4: the mod-published facts overlay for THIS turn, already
+     *  validated and type-checked by the fact registry. A claimed core fact
+     *  (e.g. `inCombat`) overrides the host-computed value; a namespaced
+     *  mod fact is not read by `evaluateWhen` today.
+     *
+     *  The dependency direction is unchanged: `buildPayload` receives a
+     *  `Partial<ModFacts>` overlay and merges it onto the host-computed
+     *  facts, so `buildPayload` still has no idea what a mod is. Absent
+     *  (the zero-publisher case) means the host facts are used as-is, which
+     *  is byte-identical to the pre-5.4 path and keeps the Phase 0.2 gate
+     *  green. */
+    publishedFacts?: FactPublicationResult;
 };
 
 export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMessage[]; trace?: PayloadTrace[]; debugSections?: DebugSection[] } {
@@ -112,6 +139,8 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         slottedRagSnippets,
         absoluteCommand,
         finalUserRegistry,
+        interception,
+        publishedFacts,
     } = options;
     const isDebug = settings.debugMode === true;
     const limit = settings.contextLimit || 8192;
@@ -216,7 +245,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
     // no extra work on the turn path. `location` reuses the same `currentPlaceId` → ledger
     // resolution that `buildLocationBlock` performs, so a mod and the [LOCATION] block can
     // never disagree about where the scene is.
-    const facts = {
+    const facts: ModFacts = {
         onStageNpcNames: onStageNpcIds
             ?.map((id) => npcLedger?.find((n) => n.id === id)?.name)
             .filter((name): name is string => !!name),
@@ -225,6 +254,22 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             : undefined,
         inCombat: activeEncounterBlock !== '',
     };
+
+    // Phase 5.4 — merge the mod-published facts overlay. A claimed core
+    // fact (e.g. `inCombat` from the enemy mod after Phase 8) overrides the
+    // host-computed value. The overlay only contains keys a mod actually
+    // published; absent keys fall through to the host value, preserving
+    // "absence stays false" exactly (`modAdapter.ts:evaluateWhen` is
+    // unchanged). `undefined` in the overlay means "no opinion this turn"
+    // and does NOT overwrite the host value (the registry skips `undefined`
+    // returns, so this branch is belt-and-braces).
+    if (publishedFacts) {
+        const overlay = publishedFacts.facts;
+        if (overlay.inCombat !== undefined) facts.inCombat = overlay.inCombat;
+        if (overlay.location !== undefined) facts.location = overlay.location;
+        if (overlay.sceneTags !== undefined) facts.sceneTags = overlay.sceneTags;
+        if (overlay.onStageNpcNames !== undefined) facts.onStageNpcNames = overlay.onStageNpcNames;
+    }
 
     const registry = finalUserRegistry ?? createFinalUserRegistryWithExtensions();
     const contributions = registry.collect(
@@ -244,7 +289,25 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         // preset, else enabled (the absent-means-enabled convention for contributions).
         { isEnabled: (id) => isBlockEnabled(id, settings.aiTier, settings.moduleEnabled) },
     );
-    const assembled = assembleContributions(contributions);
+
+    // Phase 5.2 — the interceptor's blocks join the collected ones and go
+    // through the SAME arbiter: ordering, budget trimming, suppression and
+    // tracing are one implementation, not two. They are appended rather than
+    // prepended because `order` decides position, not array index — appending
+    // only fixes the tie-break, and a mod losing a tie to a built-in is the
+    // right default.
+    //
+    // Everything here still lands in the `final-user` slot, BELOW the cache
+    // boundary, so the prefix assembled above cannot move
+    // (`payloadCacheStability.test.ts` is the guard and it stays green with
+    // interceptors registered and firing).
+    const withInterception = interception?.specs?.length
+        ? [...contributions, ...interception.specs]
+        : contributions;
+    const assembled = assembleContributions(
+        withInterception,
+        interception?.suppress?.length ? { suppress: interception.suppress } : undefined,
+    );
 
     messages.push({ role: 'user', content: assembled.text });
 
