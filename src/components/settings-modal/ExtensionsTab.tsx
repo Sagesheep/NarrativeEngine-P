@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BookOpen, Loader2, Puzzle, RefreshCw, RotateCcw, Workflow } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, BookOpen, Loader2, Puzzle, RefreshCw, RotateCcw, Settings, Workflow } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // The author's guide, inlined at build time rather than fetched.
@@ -18,16 +18,20 @@ import type { ContributionModule } from '../../services/payload/contributions/re
 import { refreshMods, enableNativeMod, disableNativeMod } from '../../services/mods/modBootstrap';
 import { modToContributionModule } from '../../services/mods/modAdapter';
 import type { ModFault, ValidatedMod } from '../../services/mods/modTypes';
+import { getNativeTrustStore, needsNativeTrustWarning, recordNativeTrustAcceptance } from '../../services/mods/nativeTrustStore';
 import { sandboxFaultStore } from '../../services/mods/sandbox/sandboxFaults';
 import { screenFaultStore } from '../../services/mods/screenFaults';
 import { lifecycleFaultStore } from '../../services/mods/lifecycle/lifecycleFaults';
 import { reactiveFaultStore } from '../../services/mods/reactiveFaults';
 import { eventFaultStore } from '../../services/mods/events';
+import { macroFaultStore } from '../../services/mods/macros/macroFaults';
+import { interceptorFaultStore } from '../../services/mods/interceptors';
 import { ModPanels } from './ModPanels';
 import { ModScreens } from './ModScreens';
+import { NativeTrustDialog } from './NativeTrustDialog';
 
 /**
- * Project 2 / WO-P2-05 — the Extensions screen.
+ * Project 2 / WO-P2-05 — the Extensions screen (Phase 6.1: Mod Management).
  *
  * Lists every prompt-contribution module the user may switch off, built-in and installed,
  * and writes the result to `settings.moduleEnabled`. That map is already the enablement
@@ -45,7 +49,9 @@ import { ModScreens } from './ModScreens';
  *     them — rendering them (even disabled) would advertise a switch that does nothing.
  *  3. FAULTS ARE VISIBLE. A rejected mod file is shown with its reason (acceptance criterion
  *     5). A broken mod that silently disappears is indistinguishable from one that never
- *     installed, which is the failure mode the fail-safe design exists to avoid.
+ *     installed, which is the failure mode the fail-safe design exists to avoid. Phase 6.1
+ *     surfaces the reason INLINE, next to the mod it rejected, not in a separate section a
+ *     user must know to scroll to.
  */
 
 /**
@@ -62,8 +68,68 @@ type ModuleRow = {
     name: string;
     description: string;
     defaultEnabled: boolean;
-    /** Mods only: `v1.2.0 · grimdark.mod.json`, shown under the description. */
+    /** Mods only: `v1.2.0 · file.mod.json`, shown under the description. */
     meta?: string;
+    /** Mods only — the source folder name, shown as `Folder: <folder>`. */
+    folder?: string;
+    /** Mods only — the author string, shown as `by <author>` when present. */
+    author?: string;
+    /** Mods only — the trust tier, shown as a small badge. Built-ins have no tier. */
+    tier?: 'declarative' | 'sandboxed' | 'native';
+    /** Mods only — true when this mod declares at least one panel (its own settings). */
+    hasSettings?: boolean;
+    /** Mods only — the inline fault for this mod, if any load/runtime fault matches its file. */
+    fault?: ModFault;
+};
+
+/**
+ * Every runtime fault store, read as one list.
+ *
+ * Was seven copies of the same spread, one per `subscribe` effect, and each
+ * new store meant editing all of them — which is how `macroFaultStore` (Phase
+ * 5.1) came to exist without ever reaching this screen. One function, one
+ * place to add the eighth.
+ */
+const collectRuntimeFaults = (): ModFault[] => [
+    ...sandboxFaultStore.getFaults(),
+    ...screenFaultStore.getFaults(),
+    ...lifecycleFaultStore.getFaults(),
+    ...reactiveFaultStore.getFaults(),
+    ...eventFaultStore.getFaults(),
+    // Phase 5.1 — the macro registry's faults (a resolver that threw, a mod
+    // shadowing a built-in slot). Wired here by Phase 5.2; 5.1 built the store
+    // but never connected it, so a macro fault was invisible to the user.
+    ...macroFaultStore.getFaults(),
+    // Phase 5.2 — the prompt interceptor's faults: a throw, a deadline
+    // overrun, a malformed return, and the refusal to suppress a structural
+    // block. "Rejected with a reason" means the reason is on this screen.
+    ...interceptorFaultStore.getFaults(),
+];
+
+/** The stores whose changes should refresh the list above. */
+const RUNTIME_FAULT_STORES = [
+    sandboxFaultStore,
+    screenFaultStore,
+    lifecycleFaultStore,
+    reactiveFaultStore,
+    eventFaultStore,
+    macroFaultStore,
+    interceptorFaultStore,
+] as const;
+
+/**
+ * Phase 6.1 — determine a mod's trust tier for the badge.
+ *
+ * `TRUST.md` §B: "a manifest that includes any native entry point is a
+ * native-tier mod for trust and warning purposes." So `native` wins over
+ * `compute` wins over declarative-only. The tier badge is informational; the
+ * trust dialog gates on `mod.native` directly (not on this label), so a mis-
+ * classification here would be a cosmetic bug, not a security one.
+ */
+const tierOf = (mod: ValidatedMod): 'declarative' | 'sandboxed' | 'native' => {
+    if (mod.native) return 'native';
+    if (mod.compute) return 'sandboxed';
+    return 'declarative';
 };
 
 const toRow = (module: ContributionModule<FinalUserModuleInput>, meta?: string): ModuleRow => ({
@@ -74,6 +140,25 @@ const toRow = (module: ContributionModule<FinalUserModuleInput>, meta?: string):
     meta,
 });
 
+/**
+ * Phase 6.1 — build a mod row carrying the new metadata fields. The mod's
+ * `file` is `<folder>/manifest.json`; the folder is what the user dropped and
+ * what they need to see to find it on disk. The fault is matched against the
+ * mod's `file` so a load-time or runtime fault for this exact mod appears
+ * inline rather than only in the bottom "Rejected files" section.
+ */
+const toModRow = (mod: ValidatedMod, faults: readonly ModFault[]): ModuleRow => {
+    const fault = faults.find((f) => f.file === mod.file);
+    return {
+        ...toRow(modToContributionModule(mod), `v${mod.version} · ${mod.file}`),
+        folder: mod.folder,
+        author: mod.author,
+        tier: tierOf(mod),
+        hasSettings: Array.isArray(mod.panels) && mod.panels.length > 0,
+        fault,
+    };
+};
+
 export function ExtensionsTab() {
     const settings = useAppStore((s) => s.settings);
     const updateSettings = useAppStore((s) => s.updateSettings);
@@ -83,19 +168,25 @@ export function ExtensionsTab() {
 
     const [mods, setMods] = useState<ValidatedMod[]>([]);
     const [faults, setFaults] = useState<ModFault[]>([]);
-    const [runtimeFaults, setRuntimeFaults] = useState<ModFault[]>(() => [
-        ...sandboxFaultStore.getFaults(),
-        ...screenFaultStore.getFaults(),
-        ...lifecycleFaultStore.getFaults(),
-        ...reactiveFaultStore.getFaults(),
-        ...eventFaultStore.getFaults(),
-    ]);
+    const [runtimeFaults, setRuntimeFaults] = useState<ModFault[]>(collectRuntimeFaults);
     const [loading, setLoading] = useState(true);
     const [loadFailed, setLoadFailed] = useState(false);
     const [guideOpen, setGuideOpen] = useState(false);
     // Bumped by the rescan button. The server re-reads the folder on every request, so a
     // rescan is all that stands between "drop a file in" and seeing it here — no restart.
     const [reloadToken, setReloadToken] = useState(0);
+
+    // Phase 6.1 — the pending native-tier trust dialog. When set, a native
+    // mod's enable is on hold until the user confirms or cancels. The toggle
+    // does NOT write `moduleEnabled` until confirmation; a cancel leaves the
+    // mod in its prior (off) state, which the checkbox reflects because no
+    // write happened.
+    const [pendingTrust, setPendingTrust] = useState<{ mod: ValidatedMod } | null>(null);
+
+    // Phase 6.1 — a ref to the scroll container so a mod row's "Settings"
+    // link can scroll its ModPanels section into view. The container is the
+    // scrollable content area of SettingsModal (the parent), not this div.
+    const scrollRootRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -124,58 +215,15 @@ export function ExtensionsTab() {
         return () => { cancelled = true; };
     }, [reloadToken]);
 
-    useEffect(() => sandboxFaultStore.subscribe(() => {
-        setRuntimeFaults([
-            ...sandboxFaultStore.getFaults(),
-            ...screenFaultStore.getFaults(),
-            ...lifecycleFaultStore.getFaults(),
-            ...reactiveFaultStore.getFaults(),
-            ...eventFaultStore.getFaults(),
-        ]);
-    }), []);
-
-    useEffect(() => screenFaultStore.subscribe(() => {
-        setRuntimeFaults([
-            ...sandboxFaultStore.getFaults(),
-            ...screenFaultStore.getFaults(),
-            ...lifecycleFaultStore.getFaults(),
-            ...reactiveFaultStore.getFaults(),
-            ...eventFaultStore.getFaults(),
-        ]);
-    }), []);
-
-    useEffect(() => lifecycleFaultStore.subscribe(() => {
-        setRuntimeFaults([
-            ...sandboxFaultStore.getFaults(),
-            ...screenFaultStore.getFaults(),
-            ...lifecycleFaultStore.getFaults(),
-            ...reactiveFaultStore.getFaults(),
-            ...eventFaultStore.getFaults(),
-        ]);
-    }), []);
-
-    useEffect(() => reactiveFaultStore.subscribe(() => {
-        setRuntimeFaults([
-            ...sandboxFaultStore.getFaults(),
-            ...screenFaultStore.getFaults(),
-            ...lifecycleFaultStore.getFaults(),
-            ...reactiveFaultStore.getFaults(),
-            ...eventFaultStore.getFaults(),
-        ]);
-    }), []);
-
-    // Phase 3.2 / `EVENTS.md` §5.3 — the fourth runtime fault store. Strikes and
-    // latching are declined for v1: a throwing listener costs one try/catch, and
-    // surfacing it here is the whole remedy.
-    useEffect(() => eventFaultStore.subscribe(() => {
-        setRuntimeFaults([
-            ...sandboxFaultStore.getFaults(),
-            ...screenFaultStore.getFaults(),
-            ...lifecycleFaultStore.getFaults(),
-            ...reactiveFaultStore.getFaults(),
-            ...eventFaultStore.getFaults(),
-        ]);
-    }), []);
+    // One effect per store, all re-reading the same list. Strikes and latching
+    // are declined for the runtime stores (`EVENTS.md` §5.3): a throwing
+    // listener, a throwing macro resolver and a throwing interceptor each cost
+    // one try/catch, and surfacing them here is the whole remedy.
+    useEffect(() => {
+        const unsubscribes = RUNTIME_FAULT_STORES.map((store) =>
+            store.subscribe(() => setRuntimeFaults(collectRuntimeFaults())));
+        return () => { for (const unsubscribe of unsubscribes) unsubscribe(); };
+    }, []);
 
     const allFaults = useMemo(() => {
         const loadFiles = new Set(faults.map((fault) => fault.file));
@@ -192,6 +240,7 @@ export function ExtensionsTab() {
         }
         return merged;
     }, [faults, runtimeFaults]);
+
     // A factory, not a singleton (see `createFinalUserRegistry`) — built once per mount.
     const builtinRows = useMemo<ModuleRow[]>(
         () => createFinalUserRegistry()
@@ -202,11 +251,8 @@ export function ExtensionsTab() {
     );
 
     const modRows = useMemo<ModuleRow[]>(
-        () => mods.map((mod) => toRow(
-            modToContributionModule(mod),
-            t('settings.extensions.mod.meta', { version: mod.version, file: mod.file }),
-        )),
-        [mods, t],
+        () => mods.map((mod) => toModRow(mod, allFaults)),
+        [mods, allFaults],
     );
 
     const moduleEnabled = settings.moduleEnabled;
@@ -217,27 +263,90 @@ export function ExtensionsTab() {
         [moduleEnabled],
     );
 
+    /**
+     * Phase 6.1 — write enablement AND fire the native lifecycle hooks.
+     *
+     * For a native-tier mod being turned ON, this checks the trust store
+     * first. If the user has not yet accepted the native-tier warning for
+     * this mod id (`needsNativeTrustWarning`), the write is deferred: the
+     * dialog is shown and `pendingTrust` holds the mod. The checkbox stays
+     * in its prior state because no write happened. On confirm, the dialog's
+     * `onConfirm` records acceptance and calls `doEnable` directly, which
+     * skips the check.
+     */
     const setEnabled = (id: string, enabled: boolean) => {
+        // Phase 6.1 — the native-tier gate. Only a mod with a `native` block
+        // triggers the dialog; declarative and sandboxed-compute mods skip it
+        // entirely (TRUST.md §A: they do not receive page-level access).
+        if (enabled && id.startsWith('mod.')) {
+            const modId = id.slice(4);
+            const mod = mods.find((m) => m.id === modId);
+            if (mod?.native) {
+                // The trust check is async; show the dialog when it resolves
+                // true. The toggle is NOT written yet, so the checkbox's
+                // `checked` reflects the prior state until the dialog resolves.
+                needsNativeTrustWarning(getNativeTrustStore(), modId, true)
+                    .then((needs) => {
+                        if (needs) setPendingTrust({ mod });
+                        else doEnable(id, mod, true);
+                    })
+                    .catch(() => {
+                        // A trust-store failure is not a reason to enable a
+                        // native mod without consent. Treat as "needs warning"
+                        // so the user still sees the dialog.
+                        setPendingTrust({ mod });
+                    });
+                return;
+            }
+        }
+        doEnable(id, undefined, enabled);
+    };
+
+    /**
+     * The actual write — split out so the trust dialog's confirm path can call
+     * it directly without re-running the trust check. Fires the native
+     * lifecycle hooks for native-tier mods (Phase 1.5).
+     */
+    const doEnable = (id: string, mod: ValidatedMod | undefined, enabled: boolean) => {
         updateSettings({ moduleEnabled: { ...(moduleEnabled ?? {}), [id]: enabled } });
         // Phase 1.5 — fire the lifecycle enable/disable hooks for native
         // mods. The settings write is the source of truth for enablement;
         // the lifecycle call is the side-effect that mounts/unmounts the
         // mod's code and CSS. A mod whose id starts with `mod.` and has a
-        // `native` block is a native-tier mod; map the row id back to the
-        // mod to pass to the lifecycle functions. The call is fire-and-forget
+        // `native` block is a native-tier mod. The call is fire-and-forget
         // (the host contains faults and surfaces them in the fault list
         // below), so a slow or throwing hook does not block the toggle.
-        if (id.startsWith('mod.')) {
-            const modId = id.slice(4);
-            const mod = mods.find((m) => m.id === modId);
-            if (mod?.native) {
-                if (enabled) {
-                    enableNativeMod(mod).catch((e) => console.warn('[mods] enable failed:', e));
-                } else {
-                    disableNativeMod(mod).catch((e) => console.warn('[mods] disable failed:', e));
-                }
+        if (id.startsWith('mod.') && mod?.native) {
+            if (enabled) {
+                enableNativeMod(mod).catch((e) => console.warn('[mods] enable failed:', e));
+            } else {
+                disableNativeMod(mod).catch((e) => console.warn('[mods] disable failed:', e));
             }
         }
+    };
+
+    /**
+     * Phase 6.1 — the trust dialog's affirmative action. Records acceptance,
+     * clears the dialog, and performs the deferred enable.
+     */
+    const onTrustConfirm = () => {
+        const pending = pendingTrust;
+        if (!pending) return;
+        const id = `mod.${pending.mod.id}`;
+        recordNativeTrustAcceptance(getNativeTrustStore(), pending.mod.id, pending.mod.version)
+            .catch((e) => console.warn('[mods] trust acceptance write failed:', e))
+            .finally(() => {
+                setPendingTrust(null);
+                doEnable(id, pending.mod, true);
+            });
+    };
+
+    /**
+     * Phase 6.1 — the trust dialog's safe action. Clears the dialog without
+     * writing enablement, so the checkbox reverts to its prior (off) state.
+     */
+    const onTrustCancel = () => {
+        setPendingTrust(null);
     };
 
     const allRows = useMemo(() => [...builtinRows, ...modRows], [builtinRows, modRows]);
@@ -259,24 +368,87 @@ export function ExtensionsTab() {
 
     const atDefaults = allRows.every((row) => isEnabled(row.id) === row.defaultEnabled);
 
+    /**
+     * Phase 6.1 — scroll a mod's declared-settings section into view. The
+     * ModPanels component renders one section per (mod × panel) with a
+     * `data-mod-panel` attribute; the first one for this mod id is the
+     * target. `scrollIntoView` is the browser-native, no-library scroll.
+     */
+    const scrollToModSettings = (modId: string) => {
+        const el = scrollRootRef.current?.querySelector(`[data-mod-panel="${modId}"]`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+
     const renderRow = (row: ModuleRow) => {
         const checked = isEnabled(row.id);
         const inputId = `extension-${row.id}`;
         return (
             <div
                 key={row.id}
-                className="flex items-start justify-between gap-3 bg-void p-3 border border-border rounded"
+                className={`flex items-start justify-between gap-3 bg-void p-3 border rounded ${
+                    row.fault ? 'border-danger/50' : 'border-border'
+                }`}
             >
-                <div className="min-w-0">
-                    <label
-                        htmlFor={inputId}
-                        className="chrome-label block text-[11px] text-text-primary uppercase tracking-wider font-bold mb-1 cursor-pointer"
-                    >
-                        {row.name}
-                    </label>
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                        <label
+                            htmlFor={inputId}
+                            className="chrome-label block text-[11px] text-text-primary uppercase tracking-wider font-bold cursor-pointer"
+                        >
+                            {row.name}
+                        </label>
+                        {row.tier && (
+                            <span
+                                className={`text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold ${
+                                    row.tier === 'native'
+                                        ? 'bg-danger/15 text-danger border border-danger/40'
+                                        : row.tier === 'sandboxed'
+                                          ? 'bg-terminal/10 text-terminal border border-terminal/30'
+                                          : 'bg-text-dim/10 text-text-dim border border-text-dim/30'
+                                }`}
+                                title={t(`settings.extensions.mod.tier.${row.tier}`)}
+                            >
+                                {t(`settings.extensions.mod.tier.${row.tier}`)}
+                            </span>
+                        )}
+                    </div>
                     <p className="text-[9px] text-text-dim leading-tight">{row.description}</p>
                     {row.meta && (
                         <p className="text-[9px] text-text-dim/70 font-mono leading-tight mt-1">{row.meta}</p>
+                    )}
+                    {row.author && (
+                        <p className="text-[9px] text-text-dim/70 leading-tight mt-0.5">
+                            {t('settings.extensions.mod.author', { author: row.author })}
+                        </p>
+                    )}
+                    {row.folder && (
+                        <p className="text-[9px] text-text-dim/70 font-mono leading-tight mt-0.5">
+                            {t('settings.extensions.mod.folder', { folder: row.folder })}
+                        </p>
+                    )}
+                    {/* Phase 6.1 — the inline fault. The reason appears next to
+                     * the mod it rejected, not in a separate section the user
+                     * must know to scroll to. The fault is matched to the mod
+                     * by `mod.file` (the manifest label), so a load-time parse
+                     * error or a runtime lifecycle throw both land here. */}
+                    {row.fault && (
+                        <p className="text-[9px] text-danger leading-tight mt-1.5 break-words">
+                            {t('settings.extensions.mod.faultInline', { reason: row.fault.reason })}
+                        </p>
+                    )}
+                    {/* Phase 6.1 — a link to the mod's declared settings. The
+                     * ModPanels section for this mod is rendered below; the
+                     * link scrolls it into view. Only shown when the mod
+                     * declares at least one panel. */}
+                    {row.hasSettings && (
+                        <button
+                            type="button"
+                            onClick={() => scrollToModSettings(row.id.slice(4))}
+                            className="text-[9px] uppercase tracking-wider text-terminal hover:text-terminal/80 mt-1.5 flex items-center gap-1"
+                        >
+                            <Settings size={9} />
+                            {t('settings.extensions.mod.settings')}
+                        </button>
                     )}
                 </div>
                 <input
@@ -292,7 +464,7 @@ export function ExtensionsTab() {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6" ref={scrollRootRef}>
             <div className="flex items-start justify-between gap-3">
                 <div>
                     <label className="chrome-label text-text-dim text-xs uppercase tracking-widest font-bold block mb-1 flex items-center gap-1.5">
@@ -428,6 +600,9 @@ export function ExtensionsTab() {
               * a descriptor and cannot tell a mod panel from a host panel
               * (§4 — the renderer must not learn who owns the panel). Edits
               * round-trip to disk through `setModTable`'s fire-and-forget PUT.
+              *
+              * Phase 6.1 — a mod row's "Settings" link scrolls to its section
+              * here via `data-mod-panel="<modId>"`.
               */}
             {!loading && !loadFailed && <ModPanels mods={mods} />}
 
@@ -447,6 +622,17 @@ export function ExtensionsTab() {
             {!loading && !loadFailed && <ModScreens mods={mods} />}
 
             {/* ── Rejected files ───────────────────────────────────────────── */}
+            {/*
+              * Phase 6.1 — the section still exists, but a fault that matches
+              * a mod now also appears inline in that mod's row (above). This
+              * section shows the faults that have no matching mod row:
+              *  • `<loader>` — the mods endpoint could not be reached.
+              *  • A flat `.mod.json` file — rejected before a mod object exists.
+              *  • A directory with no `manifest.json` — same.
+              *  • A duplicate mod id — the second copy is dropped.
+              * The inline view is the primary surface; this section is the
+              * catch-all so nothing is silently swallowed.
+              */}
             {allFaults.length > 0 && (
                 <div className="space-y-2">
                     <div>
@@ -476,6 +662,17 @@ export function ExtensionsTab() {
                         ))}
                     </div>
                 </div>
+            )}
+
+            {/* Phase 6.1 — the native-tier trust dialog. Rendered last so it
+             * overlays everything (z-[200], above the Settings modal's z-[100]).
+             * Only one dialog at a time; `pendingTrust` is the pending mod. */}
+            {pendingTrust && (
+                <NativeTrustDialog
+                    modName={pendingTrust.mod.name}
+                    onConfirm={onTrustConfirm}
+                    onCancel={onTrustCancel}
+                />
             )}
         </div>
     );

@@ -110,6 +110,24 @@ export const en = {
     'settings.extensions.faults.title': 'Mod faults',
     'settings.extensions.faults.help': 'These files could not run safely, so their changes were not applied. Fix the reason shown and rescan.',
     'settings.extensions.faults.runtime': 'A runtime fault disables a mod for this turn; repeated failures disable it until the app reloads.',
+    // Phase 6.1 — the native-tier trust dialog (TRUST.md §D). The dialog title
+    // and the two action button labels are the only translatable strings; the
+    // warning body is pasted verbatim in NativeTrustDialog.tsx and MUST NOT be
+    // localised (§D: "Phase 6.1 must paste it without editing").
+    'settings.extensions.nativeTrust.title': 'Enable native mod?',
+    'settings.extensions.nativeTrust.confirm': 'Enable native mod',
+    'settings.extensions.nativeTrust.cancel': 'Cancel',
+    // Phase 6.1 — mod row metadata. The tier badge labels map to the three
+    // tiers from TRUST.md §A. `state.enabled`/`state.disabled` are the row's
+    // current enablement summary; `state.rejected` is shown for a mod whose
+    // load or runtime faults match this mod's file.
+    'settings.extensions.mod.tier.declarative': 'declarative',
+    'settings.extensions.mod.tier.sandboxed': 'sandboxed',
+    'settings.extensions.mod.tier.native': 'native',
+    'settings.extensions.mod.author': 'by {{author}}',
+    'settings.extensions.mod.folder': 'Folder: {{folder}}',
+    'settings.extensions.mod.settings': 'Settings',
+    'settings.extensions.mod.faultInline': 'This mod could not run: {{reason}}',
 
     // ── Campaign hub ─────────────────────────────────────────────────────
     'hub.import.tooltip': 'Import Campaign',
