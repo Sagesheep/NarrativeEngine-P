@@ -1,4 +1,5 @@
 import { fetchMods } from './modClient';
+import { clearModData } from './modTables';
 import { modToContributionModule } from './modAdapter';
 import type { LifecycleMod } from './lifecycle/lifecycleHost';
 import { createLifecycleHost } from './lifecycle/lifecycleHost';
@@ -14,6 +15,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { buildHostFacade } from '../turn/hostFacade';
 import { buildCommitCallbacks, rebuildStateFromLiveStore } from '../turn/pendingCommit';
 import { buildModContext } from './modContext';
+import { setRoleModuleEnabled } from '../roles';
 
 /**
  * Project 2 / Phase 1.5 — loads installed mods and registers them as
@@ -124,6 +126,7 @@ function toLifecycleMod(mod: ValidatedMod, loadIndex?: number): LifecycleMod {
         dependencies: mod.dependencies ?? {},
         folder: mod.folder,
         native: mod.native,
+        roles: mod.roles ?? [],
         // Phase 5.2 / MANIFEST.md §6.3 — the resolved load index, which decides
         // prompt-interceptor run order the same way it decides mount order. The
         // load cycle passes the array position; the enable/disable path looks it
@@ -169,7 +172,14 @@ function loadIndexOf(modId: string): number {
  * uses the same `TurnCallbacks` the commit path uses, not a null-object
  * shim invented for this path.
  */
-function buildNativeModContext(mod: { readonly id: string; readonly name: string; readonly version: string; readonly folder?: string; readonly loadIndex?: number }): ReturnType<ModContextFactory> {
+function buildNativeModContext(mod: {
+    readonly id: string;
+    readonly name: string;
+    readonly version: string;
+    readonly folder?: string;
+    readonly loadIndex?: number;
+    readonly roles?: readonly string[];
+}): ReturnType<ModContextFactory> {
     try {
         const store = useAppStore.getState();
         // The native lifecycle fires outside any turn — there is no
@@ -194,6 +204,7 @@ function buildNativeModContext(mod: { readonly id: string; readonly name: string
             commitPoint: 'immediate',
             locationState,
             loadIndex: mod.loadIndex,
+            declaredRoles: mod.roles,
         });
     } catch (error) {
         // A failure to build the context must not stop the lifecycle. The
@@ -217,6 +228,23 @@ function registerComputeTracks(mods: readonly ValidatedMod[]): void {
 }
 
 /**
+ * Phase 6.2 — read the user's load-order override from settings.
+ * `settings.modLoadOrder` is a `string[]` of mod ids in the user's chosen
+ * order. The server's topological sort uses it as the primary tiebreak;
+ * the dependency graph is still a hard constraint. An absent or empty
+ * list is the manifest default — `undefined` is returned so the query
+ * param is omitted entirely, keeping the zero-mod path unchanged.
+ */
+function readUserLoadOrder(): string[] | undefined {
+    try {
+        const order = useAppStore.getState().settings?.modLoadOrder;
+        return Array.isArray(order) && order.length > 0 ? [...order] : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
  * Read the enablement map from the store. `moduleEnabled` is the existing
  * "absent means enabled" map keyed by `mod.<id>` (see `ExtensionsTab.tsx`).
  * Read at call time so a settings change between refreshes takes effect on
@@ -224,11 +252,14 @@ function registerComputeTracks(mods: readonly ValidatedMod[]): void {
  */
 function readEnablement(): ModEnablementMap {
     try {
-        return useAppStore.getState().settings?.moduleEnabled ?? {};
+        const enablement = useAppStore.getState().settings?.moduleEnabled ?? {};
+        setRoleModuleEnabled(enablement);
+        return enablement;
     } catch {
         // In tests without a store provider, every mod is enabled (absent
         // means enabled). This path is defensive — the store is wired before
         // `refreshMods` runs in the running app.
+        setRoleModuleEnabled({});
         return {};
     }
 }
@@ -273,7 +304,12 @@ export async function refreshMods(): Promise<{
     faults: readonly ModFault[];
 }> {
     try {
-        const { mods, faults } = await fetchMods();
+        // Phase 6.2 — pass the user's load-order override so the server's
+        // topological sort uses it as the primary tiebreak. The dependency
+        // graph is still a hard constraint; the override only reorders mods
+        // that are simultaneously ready.
+        const userOrder = readUserLoadOrder();
+        const { mods, faults } = await fetchMods(userOrder);
         setExtensionModules(mods.map(modToContributionModule));
         registerComputeTracks(mods);
         // Phase 1.5 — run the lifecycle load cycle for every enabled mod
@@ -346,6 +382,7 @@ function buildNativeModContextWithLoadIndex(): ModContextFactory {
         version: mod.version,
         folder: mod.folder,
         loadIndex: loadIndexMap.get(mod.id) ?? 0,
+        roles: mod.roles,
     });
 }
 
@@ -384,6 +421,50 @@ export async function disableNativeMod(mod: ValidatedMod): Promise<void> {
         modIds: enabledModIds(lastResult.mods),
         faultCount: lastResult.faults.length,
     });
+}
+
+/**
+ * Phase 6.4 / `DATA_POLICY.md` §3 — the clean action, in the order the
+ * contract fixes (`MANIFEST.md` §7.2):
+ *
+ *   1. the mod's `clean` hook runs, removing data the host does not know it
+ *      owns (context keys, caches, anything outside its declared tables);
+ *   2. **then the host removes the mod's provisioned tables itself,
+ *      unconditionally** — whether `clean` returned, threw, timed out, or was
+ *      never declared. A declarative or sandboxed mod cannot declare hooks at
+ *      all, and still gets a complete clear;
+ *   3. the store drops the mod's in-memory rows so the UI stops serving data
+ *      that is no longer on disk.
+ *
+ * Step 2 does not depend on step 1's result on purpose. A mod that throws in
+ * `clean` must not be able to keep its data alive — that would hand a broken
+ * mod a veto over the user's decision to erase it.
+ *
+ * This is the ONLY caller of `clearModData`, and it is reachable only from an
+ * explicit user action with a confirmation. It is never called from a toggle,
+ * from delete-detection, or from an app update.
+ *
+ * Throws if the server clear fails: the caller must be able to tell the user
+ * the data is still there. A failing `clean` hook does NOT throw — the host
+ * contains it as a surfaced fault, as it does everywhere else.
+ */
+export async function cleanModData(mod: ValidatedMod): Promise<string[]> {
+    const wiring = getLifecycleWiring();
+    try {
+        await wiring.host.clean({
+            mod: toLifecycleMod(mod, loadIndexOf(mod.id)),
+            ctxForMod: buildNativeModContextWithLoadIndex(),
+        });
+    } catch (error) {
+        // `host.clean` contains its own faults; this catch is for a wiring
+        // failure. Either way the host's own clear still has to happen.
+        console.warn(`[mods] clean hook failed for ${mod.id}:`, error);
+    }
+    const campaignId = useAppStore.getState().activeCampaignId;
+    if (!campaignId) return [];
+    const removed = await clearModData(campaignId, mod.id);
+    useAppStore.getState().clearModTables(mod.id);
+    return removed;
 }
 
 /** The last known load result, without re-fetching. For the extensions screen. */

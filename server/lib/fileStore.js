@@ -23,6 +23,21 @@ export const PUBLIC_ASSETS_DIR = process.env.NODE_ENV === 'production'
 export const MODS_DIR = process.env.MODS_DIR || path.join(__projectRoot, 'mods');
 
 /**
+ * Phase 6.3 — bundled mods (ships with the app, on by default).
+ *
+ * Bundled mods live wherever app assets live, NOT in the user's `mods/` folder —
+ * otherwise an app update overwrites a folder the user may have edited. In dev that
+ * is `public/bundled-mods/` (sibling of `public/assets/`); in production it is a
+ * folder inside the app package, never inside `data/`. Overridable via
+ * `BUNDLED_MODS_DIR` for tests and alternate layouts.
+ *
+ * A bundled mod is not special-cased in the loader: same validation, same faults.
+ * The only difference is the `provenance: 'bundled'` tag the loader stamps on it
+ * and the default-enabled convention (absent key = enabled, same as every mod).
+ */
+export const BUNDLED_MODS_DIR = process.env.BUNDLED_MODS_DIR || path.join(__projectRoot, 'public', 'bundled-mods');
+
+/**
  * Host app version, from `package.json` — used for mod `appVersion` compatibility checks.
  *
  * `undefined` when it cannot be read (e.g. a packaged bundle whose layout puts package.json
@@ -59,6 +74,10 @@ export function ensureDirs() {
     if (!fs.existsSync(PUBLIC_ASSETS_DIR)) fs.mkdirSync(PUBLIC_ASSETS_DIR, { recursive: true });
     // Created empty so a user has somewhere obvious to drop a `.mod.json` file.
     if (!fs.existsSync(MODS_DIR)) fs.mkdirSync(MODS_DIR, { recursive: true });
+    // Phase 6.3 — bundled mods ship with the app. The folder is committed, so
+    // it exists in dev; this only creates it in a packaged layout that forgot
+    // to include it, so a missing folder is the normal case and not a fault.
+    if (!fs.existsSync(BUNDLED_MODS_DIR)) fs.mkdirSync(BUNDLED_MODS_DIR, { recursive: true });
 }
 
 export function readJson(filePath, fallback = null) {

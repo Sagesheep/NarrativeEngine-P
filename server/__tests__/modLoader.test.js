@@ -775,6 +775,104 @@ describe('loadMods — Phase 1.3 loadOrder', () => {
     });
 });
 
+// Phase 6.2 — user load-order override. The third argument to `loadMods`
+// is the user-chosen order (array of ids). It is the PRIMARY tiebreak in
+// the topological sort: a mod earlier in `userOrder` emits before a mod
+// later in `userOrder`, regardless of manifest `loadOrder`. The dependency
+// graph is still a hard constraint — a dependency always precedes its
+// dependent — so the override only reorders mods that are simultaneously
+// ready. This is exactly the "override persists and beats the manifest
+// value" rule (Phase 6.2 §2.2).
+describe('loadMods — Phase 6.2 user load-order override', () => {
+    it('with no userOrder, preserves the manifest loadOrder default', () => {
+        write('a', validMod({ id: 'alpha', loadOrder: 100 }));
+        write('b', validMod({ id: 'beta', loadOrder: -5 }));
+        expect(loadMods(dir, '1.0.4').mods.map((m) => m.id))
+            .toEqual(['beta', 'alpha']);
+    });
+
+    it('with an empty userOrder array, preserves the manifest default', () => {
+        write('a', validMod({ id: 'alpha', loadOrder: 100 }));
+        write('b', validMod({ id: 'beta', loadOrder: -5 }));
+        expect(loadMods(dir, '1.0.4', []).mods.map((m) => m.id))
+            .toEqual(['beta', 'alpha']);
+    });
+
+    it('userOrder overrides manifest loadOrder as the primary tiebreak', () => {
+        // Manifest: beta (-5) before alpha (100). User says the opposite.
+        write('a', validMod({ id: 'alpha', loadOrder: 100 }));
+        write('b', validMod({ id: 'beta', loadOrder: -5 }));
+        expect(loadMods(dir, '1.0.4', ['alpha', 'beta']).mods.map((m) => m.id))
+            .toEqual(['alpha', 'beta']);
+    });
+
+    it('userOrder does not violate the dependency graph (dep still first)', () => {
+        // 'need' depends on 'dep'. User puts 'need' first in the override.
+        // The topological sort must still emit 'dep' before 'need'.
+        write('dep', validMod({ id: 'dep', loadOrder: 100 }));
+        write('need', validMod({
+            id: 'need',
+            loadOrder: 0,
+            dependencies: { dep: '*' },
+        }));
+        expect(loadMods(dir, '1.0.4', ['need', 'dep']).mods.map((m) => m.id))
+            .toEqual(['dep', 'need']);
+    });
+
+    it('userOrder reorders mods that are simultaneously ready (no dep between them)', () => {
+        // Two independent mods; user inverts the manifest order.
+        write('a', validMod({ id: 'a', loadOrder: 0 }));
+        write('b', validMod({ id: 'b', loadOrder: 0 }));
+        // Manifest default: ['a', 'b'] (id ascending). User says ['b', 'a'].
+        expect(loadMods(dir, '1.0.4', ['b', 'a']).mods.map((m) => m.id))
+            .toEqual(['b', 'a']);
+    });
+
+    it('mods not in userOrder fall back to loadOrder then id, after listed mods', () => {
+        // Three independent mods. User lists only 'c' first.
+        write('a', validMod({ id: 'a', loadOrder: 0 }));
+        write('b', validMod({ id: 'b', loadOrder: 0 }));
+        write('c', validMod({ id: 'c', loadOrder: 0 }));
+        // 'c' is listed → sorts first. 'a' and 'b' unlisted → fall back to
+        // id ascending among themselves, after 'c'.
+        expect(loadMods(dir, '1.0.4', ['c']).mods.map((m) => m.id))
+            .toEqual(['c', 'a', 'b']);
+    });
+
+    it('a partial userOrder that lists only some mods still respects deps', () => {
+        // 'need' depends on 'dep'. User lists 'dep' but not 'need'.
+        // 'dep' sorts first (it is listed); 'need' follows (unlisted, but
+        // its dep is satisfied).
+        write('dep', validMod({ id: 'dep', loadOrder: 100 }));
+        write('need', validMod({
+            id: 'need',
+            loadOrder: 0,
+            dependencies: { dep: '*' },
+        }));
+        expect(loadMods(dir, '1.0.4', ['dep']).mods.map((m) => m.id))
+            .toEqual(['dep', 'need']);
+    });
+
+    it('userOrder ids not installed are ignored (no fault, no effect)', () => {
+        write('a', validMod({ id: 'a', loadOrder: 0 }));
+        // 'ghost' is not on disk; it should be silently ignored.
+        expect(loadMods(dir, '1.0.4', ['ghost', 'a']).mods.map((m) => m.id))
+            .toEqual(['a']);
+    });
+
+    it('userOrder is the tiebreak BETWEEN ready mods; loadOrder breaks ties among unlisted', () => {
+        // 'a' (loadOrder 0, unlisted), 'b' (loadOrder 10, unlisted),
+        // 'c' (loadOrder 5, listed first).
+        // 'c' is ready and listed → first. 'a' and 'b' are unlisted →
+        // loadOrder ascending: 'a' (0) before 'b' (10).
+        write('a', validMod({ id: 'a', loadOrder: 0 }));
+        write('b', validMod({ id: 'b', loadOrder: 10 }));
+        write('c', validMod({ id: 'c', loadOrder: 5 }));
+        expect(loadMods(dir, '1.0.4', ['c']).mods.map((m) => m.id))
+            .toEqual(['c', 'a', 'b']);
+    });
+});
+
 describe('loadMods — Phase 1.3 dependencies', () => {
     it('rejects a mod whose dependency is not installed, naming the missing dep', () => {
         write('dependent', validMod({
@@ -1234,5 +1332,148 @@ describe('loadMods — Phase 1.3 i18n validation', () => {
         writeI18n({ en: '../outside.json' });
         expect(soleFaultReason(loadMods(dir, '1.0.4')))
             .toMatch(/i18n\["en"\] "\.\.\/outside\.json" must be a relative path inside the mod's own folder/);
+    });
+});
+
+// ── Phase 6.3 — bundled vs installed provenance ───────────────────────────
+//
+// `loadMods` now accepts an optional fourth argument `bundledModsDir`. When
+// supplied, that directory is scanned first and every mod in it is tagged
+// `provenance: 'bundled'`; the installed dir is scanned second and tagged
+// `'installed'`. Both use the same `validateMod` — a bundled mod is not
+// special-cased (§3). A duplicate id across the two dirs faults the second
+// (installed) copy, so the bundled mod wins. The combined set is then
+// topologically sorted together.
+//
+// `write` places a mod in the installed `dir`; `writeBundled` places one in a
+// separate `bundledDir`. Both build the same manifest.json shape.
+describe('loadMods — Phase 6.3 bundled vs installed provenance', () => {
+    let bundledDir;
+
+    beforeEach(() => {
+        bundledDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mod-bundled-'));
+    });
+
+    afterEach(() => {
+        fs.rmSync(bundledDir, { recursive: true, force: true });
+    });
+
+    const writeBundled = (name, contents, siblingFiles = {}) => {
+        let folderName = name;
+        if (name.endsWith('/manifest.json')) {
+            folderName = name.slice(0, -'/manifest.json'.length);
+        }
+        const modFolder = path.join(bundledDir, folderName);
+        fs.mkdirSync(modFolder, { recursive: true });
+        fs.writeFileSync(
+            path.join(modFolder, 'manifest.json'),
+            typeof contents === 'string' ? contents : JSON.stringify(contents, null, 2),
+            'utf-8',
+        );
+        for (const [fileName, fileContent] of Object.entries(siblingFiles)) {
+            const filePath = path.join(modFolder, fileName);
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            fs.writeFileSync(filePath, fileContent, 'utf-8');
+        }
+    };
+
+    it('stamps provenance: "bundled" on bundled-dir mods and "installed" on installed-dir mods', () => {
+        writeBundled('bundled-tone', validMod({ id: 'bundled-tone', name: 'Bundled Tone' }));
+        write('installed-tone', validMod({ id: 'installed-tone', name: 'Installed Tone' }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4', undefined, bundledDir);
+
+        expect(faults).toEqual([]);
+        expect(mods).toHaveLength(2);
+        const bundled = mods.find((m) => m.id === 'bundled-tone');
+        const installed = mods.find((m) => m.id === 'installed-tone');
+        expect(bundled.provenance).toBe('bundled');
+        expect(installed.provenance).toBe('installed');
+    });
+
+    it('without a bundledModsDir argument, stamps every mod as "installed"', () => {
+        write('a', validMod({ id: 'a', name: 'A' }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods).toHaveLength(1);
+        expect(mods[0].provenance).toBe('installed');
+    });
+
+    it('a missing bundled dir is the normal case, not a fault', () => {
+        write('a', validMod({ id: 'a', name: 'A' }));
+        const { mods, faults } = loadMods(dir, '1.0.4', undefined, path.join(bundledDir, 'does-not-exist'));
+        expect(faults).toEqual([]);
+        expect(mods).toHaveLength(1);
+        expect(mods[0].provenance).toBe('installed');
+    });
+
+    it('a duplicate id across bundled and installed faults the installed copy (bundled wins)', () => {
+        writeBundled('shared', validMod({ id: 'shared', name: 'Bundled Shared' }));
+        write('shared', validMod({ id: 'shared', name: 'Installed Shared' }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4', undefined, bundledDir);
+
+        expect(mods).toHaveLength(1);
+        expect(mods[0].name).toBe('Bundled Shared');
+        expect(mods[0].provenance).toBe('bundled');
+        expect(faults).toHaveLength(1);
+        expect(faults[0].file).toBe('shared/manifest.json');
+        expect(faults[0].reason).toMatch(/duplicate mod id "shared"/);
+    });
+
+    it('applies the same validation to bundled mods — a bad bundled mod faults, installed ones still load', () => {
+        writeBundled('bad-bundled', { id: 'bad', name: 'Bad', version: 'not-a-version', contributions: [{ id: 'c', order: 1, text: 'x' }] });
+        write('good-installed', validMod({ id: 'good', name: 'Good' }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4', undefined, bundledDir);
+
+        expect(mods).toHaveLength(1);
+        expect(mods[0].id).toBe('good');
+        expect(faults).toHaveLength(1);
+        expect(faults[0].file).toBe('bad-bundled/manifest.json');
+        expect(faults[0].reason).toMatch(/version/);
+    });
+
+    it('sorts bundled and installed mods together by load order', () => {
+        writeBundled('z-bundled', validMod({ id: 'z-bundled', name: 'Z', loadOrder: 0 }));
+        write('a-installed', validMod({ id: 'a-installed', name: 'A', loadOrder: 10 }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4', undefined, bundledDir);
+        expect(faults).toEqual([]);
+        expect(mods.map((m) => m.id)).toEqual(['z-bundled', 'a-installed']);
+    });
+
+    it('passes the userOrder override to the combined sort', () => {
+        writeBundled('bundled-x', validMod({ id: 'bundled-x', name: 'X', loadOrder: 0 }));
+        write('installed-y', validMod({ id: 'installed-y', name: 'Y', loadOrder: 10 }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4', ['installed-y', 'bundled-x'], bundledDir);
+        expect(faults).toEqual([]);
+        expect(mods.map((m) => m.id)).toEqual(['installed-y', 'bundled-x']);
+    });
+
+    it('a bundled mod with a dependency on an installed mod resolves correctly', () => {
+        writeBundled('depender', validMod({
+            id: 'depender',
+            name: 'Depender',
+            dependencies: { base: '>=1.0.0' },
+        }));
+        write('base', validMod({ id: 'base', name: 'Base', version: '1.0.0' }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4', undefined, bundledDir);
+        expect(faults).toEqual([]);
+        expect(mods.map((m) => m.id)).toEqual(['base', 'depender']);
+        expect(mods[0].provenance).toBe('installed');
+        expect(mods[1].provenance).toBe('bundled');
+    });
+
+    it('an empty bundled dir produces no bundled mods and no fault', () => {
+        write('a', validMod({ id: 'a', name: 'A' }));
+        // bundledDir exists but is empty (mkdtemp created it)
+        const { mods, faults } = loadMods(dir, '1.0.4', undefined, bundledDir);
+        expect(faults).toEqual([]);
+        expect(mods).toHaveLength(1);
+        expect(mods[0].id).toBe('a');
+        expect(mods[0].provenance).toBe('installed');
     });
 });

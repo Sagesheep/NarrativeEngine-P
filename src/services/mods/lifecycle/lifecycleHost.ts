@@ -63,6 +63,7 @@ import {
     enableModInterceptors,
     registerModInterceptor,
 } from '../interceptors';
+import { checkModRoles, clearAllModRoleLeases, disableModRoles, enableModRoles, serviceRoles } from '../../roles';
 
 /** A mod, as the host needs to see it. A narrow read-only view of `ValidatedMod`. */
 export interface LifecycleMod {
@@ -95,6 +96,7 @@ export interface LifecycleMod {
      * run order is this index, exactly as mount order is (`MOUNTS.md` §3.1).
      */
     readonly loadIndex?: number;
+    readonly roles?: readonly string[];
 }
 
 export interface LifecycleHostOptions {
@@ -390,6 +392,7 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
                         version: mod.version,
                         folder: mod.folder,
                         loadIndex: loadIndexMap.get(mod.id) ?? 0,
+                        roles: mod.roles,
                     });
                 } catch {
                     // A factory failure must not stop the load cycle; the hook
@@ -401,6 +404,10 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         };
         const runs: HookRunResult[] = [];
         const faultedModIds: string[] = [];
+        // A refresh is a new resolved mod set. Remove providers belonging to
+        // mods that disappeared or became disabled before replaying activation.
+        clearAllModRoleLeases();
+        serviceRoles.clear();
 
         // Mods arrive in the loader's resolved order (Phase 1.3 §6.3). The
         // host fires hooks in that order, so a dependency activates before
@@ -429,8 +436,17 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
                 continue;
             }
 
+            enableModRoles(mod.id);
+
             const resolvedHooks = await resolveHooks(mod);
-            if (!resolvedHooks) continue;
+            if (!resolvedHooks) {
+                checkModRoles({
+                    mod,
+                    declaredRoles: mod.roles ?? [],
+                    faultFile: mod.file,
+                });
+                continue;
+            }
 
             // install / update / activate fire in this order at every load.
             // `install` fires only the FIRST time a mod id is seen; `update`
@@ -478,6 +494,11 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
                 activateRan = r.ok && !r.skipped;
                 runs.push(r);
             }
+            checkModRoles({
+                mod,
+                declaredRoles: mod.roles ?? [],
+                faultFile: mod.file,
+            });
 
             // Phase 1.5 — mount the mod's CSS after activate succeeds. A
             // faulted activate does NOT mount the stylesheet: the mod is in
@@ -518,7 +539,14 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         const ctx = input.ctxForMod
             ? (() => {
                 try {
-                    return input.ctxForMod!({ id: input.mod.id, name: input.mod.name, version: input.mod.version, folder: input.mod.folder });
+                    return input.ctxForMod!({
+                        id: input.mod.id,
+                        name: input.mod.name,
+                        version: input.mod.version,
+                        folder: input.mod.folder,
+                        loadIndex: input.mod.loadIndex,
+                        roles: input.mod.roles,
+                    });
                 } catch {
                     return undefined;
                 }
@@ -554,6 +582,7 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         readonly ctx?: ModContext;
         readonly ctxForMod?: ModContextFactory;
     }): Promise<HookRunResult> {
+        enableModRoles(input.mod.id);
         // Phase 4.2 / `MOUNTS.md` §8.5 — clear the revoked lease before
         // `activate` runs, so the mod's new `activate` can register its
         // mounts again. `disable` revoked the lease; `enable` restores it.
@@ -574,7 +603,14 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
             ctx: input.ctx,
             ctxForMod: input.ctxForMod,
         });
-        if (!enableResult.ok) return enableResult;
+        if (!enableResult.ok) {
+            checkModRoles({
+                mod: input.mod,
+                declaredRoles: input.mod.roles ?? [],
+                faultFile: input.mod.file,
+            });
+            return enableResult;
+        }
         // `activate` follows `enable` regardless of whether `enable` was
         // skipped (a mod with no `enable` hook still activates on toggle-on).
         const activateResult = await fireUserHook({
@@ -596,6 +632,11 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         if (activateResult.ok) {
             await attachInterceptor(input.mod, input.mod.loadIndex ?? 0);
         }
+        checkModRoles({
+            mod: input.mod,
+            declaredRoles: input.mod.roles ?? [],
+            faultFile: input.mod.file,
+        });
         return activateResult;
     }
 
@@ -643,6 +684,9 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // a fault, and a publisher in flight when the mod was toggled off
         // has its result discarded rather than merged.
         disableModFacts(input.mod.id);
+        // Phase 7.1.1: roles are revoked at this same host-owned teardown
+        // boundary so stale closures cannot answer later asks.
+        disableModRoles(input.mod.id);
         // Phase 1.5 — unmount CSS after disable, regardless of whether the
         // disable hook itself threw. The mod is being switched off; its CSS
         // must leave the page even if its cleanup hook misbehaved, otherwise
@@ -714,6 +758,8 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
             clearAllModInterceptors();
             // Phase 5.4 — same discipline for fact publishers.
             clearAllModFacts();
+            clearAllModRoleLeases();
+            serviceRoles.clear();
             nativeLoader?.clear();
             faultStore.clear();
         },

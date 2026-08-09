@@ -1,0 +1,29 @@
+{
+  "id": "anno-mark",
+  "name": "Anno Mark",
+  "version": "1.0.0",
+  "description": "Per-message annotation mod. Mark a GM message to remember it, marks are stored in their own table, an indicator renders beneath marked messages, marked content is contributed into the prompt through a macro, and a right-rail panel lets you configure how many marks to inject.",
+  "author": "Checkpoint 3",
+  "loadOrder": 50,
+  "tables": [
+    { "name": "marks", "recordShape": "array", "label": "Marks" },
+    { "name": "settings", "recordShape": "single-object", "label": "Anno Mark Settings" }
+  ],
+  "contributions": [
+    {
+      "id": "markedContent",
+      "order": 650,
+      "budget": 600,
+      "text": "{{mod.anno-mark.markedContent}}"
+    }
+  ],
+  "native": {
+    "js": "index.js",
+    "css": "style.css",
+    "hooks": {
+      "install": "onInstall",
+      "activate": "onActivate",
+      "disable": "onDisable"
+    }
+  }
+}

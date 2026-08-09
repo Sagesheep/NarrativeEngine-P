@@ -74,6 +74,7 @@ export type ModContextFactory = (mod: {
     readonly version: string;
     readonly folder?: string;
     readonly loadIndex?: number;
+    readonly roles?: readonly string[];
 }) => ModContext | undefined;
 
 /**

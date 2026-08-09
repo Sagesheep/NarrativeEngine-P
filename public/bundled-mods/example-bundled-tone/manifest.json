@@ -1,0 +1,14 @@
+{
+  "id": "example-bundled-tone",
+  "name": "Default Tone (Bundled)",
+  "version": "1.0.4",
+  "description": "Ships with the app. A baseline narrative tone that every fresh install gets by default. Disable it if you want a blank-slate prompt.",
+  "contributions": [
+    {
+      "id": "tone",
+      "order": 90,
+      "budget": 100,
+      "text": "Tone: grounded and deliberate. The world has weight; actions have consequences that persist."
+    }
+  ]
+}

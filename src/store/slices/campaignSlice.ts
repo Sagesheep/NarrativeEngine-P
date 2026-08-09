@@ -515,6 +515,14 @@ export type CampaignSlice = {
     modTables: Record<string, unknown>;
     setModTable: (name: string, data: unknown) => void;
     getModTable: (name: string) => unknown;
+    /**
+     * Phase 6.4 — drop every in-memory entry belonging to one mod, after its
+     * files have already been removed on the server. Local only: it writes
+     * nothing and deletes nothing on disk, so calling it can never be the
+     * thing that destroys data. The server's DELETE is the destructive act;
+     * this stops the store from serving rows that no longer exist.
+     */
+    clearModTables: (modId: string) => void;
 };
 
 // ── Combined state needed for cross-slice access ───────────────────────
@@ -1364,6 +1372,18 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         return { modTables } as Partial<CampaignDeps>;
     }),
     getModTable: (name) => get().modTables[name],
+    // Phase 6.4 — the local half of the clean action. No fetch here on
+    // purpose: the destructive call is the server's DELETE, made once by
+    // `cleanModData`, and duplicating it in a setter is how a toggle ends up
+    // deleting data (`DATA_POLICY.md` §3 — clean never fires from a toggle).
+    clearModTables: (modId) => set((s) => {
+        const prefix = `mod.${modId}.`;
+        const modTables: Record<string, unknown> = {};
+        for (const [name, data] of Object.entries(s.modTables)) {
+            if (!name.startsWith(prefix)) modTables[name] = data;
+        }
+        return { modTables } as Partial<CampaignDeps>;
+    }),
 
     bookkeepingTurnCounter: 0,
     autoBookkeepingInterval: 5,

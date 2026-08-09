@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, BookOpen, Loader2, Puzzle, RefreshCw, RotateCcw, Settings, Workflow } from 'lucide-react';
+import { AlertTriangle, BookOpen, Loader2, Puzzle, RefreshCw, RotateCcw, Settings, Trash2, Workflow } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // The author's guide, inlined at build time rather than fetched.
@@ -15,7 +15,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { createFinalUserRegistry } from '../../services/payload/contributions/builtins';
 import type { FinalUserModuleInput } from '../../services/payload/contributions/builtins';
 import type { ContributionModule } from '../../services/payload/contributions/registry';
-import { refreshMods, enableNativeMod, disableNativeMod } from '../../services/mods/modBootstrap';
+import { refreshMods, enableNativeMod, disableNativeMod, cleanModData } from '../../services/mods/modBootstrap';
 import { modToContributionModule } from '../../services/mods/modAdapter';
 import type { ModFault, ValidatedMod } from '../../services/mods/modTypes';
 import { getNativeTrustStore, needsNativeTrustWarning, recordNativeTrustAcceptance } from '../../services/mods/nativeTrustStore';
@@ -26,9 +26,12 @@ import { reactiveFaultStore } from '../../services/mods/reactiveFaults';
 import { eventFaultStore } from '../../services/mods/events';
 import { macroFaultStore } from '../../services/mods/macros/macroFaults';
 import { interceptorFaultStore } from '../../services/mods/interceptors';
+import { roleFaultStore, serviceRoles, setRoleModuleEnabled } from '../../services/roles';
 import { ModPanels } from './ModPanels';
 import { ModScreens } from './ModScreens';
 import { NativeTrustDialog } from './NativeTrustDialog';
+import { ModDataDialog } from './ModDataDialog';
+import { LoadOrderSection } from './LoadOrderSection';
 
 /**
  * Project 2 / WO-P2-05 — the Extensions screen (Phase 6.1: Mod Management).
@@ -76,10 +79,23 @@ type ModuleRow = {
     author?: string;
     /** Mods only — the trust tier, shown as a small badge. Built-ins have no tier. */
     tier?: 'declarative' | 'sandboxed' | 'native';
+    /**
+     * Phase 6.3 — where the mod came from. `'bundled'` ships with the app; `'installed'`
+     * the user dropped in. Shown as a small badge next to the tier so a user knows what
+     * came with the app and that deleting a bundled mod is a different act from deleting
+     * their own. Absent for built-ins (they are not mods).
+     */
+    provenance?: 'bundled' | 'installed';
     /** Mods only — true when this mod declares at least one panel (its own settings). */
     hasSettings?: boolean;
     /** Mods only — the inline fault for this mod, if any load/runtime fault matches its file. */
     fault?: ModFault;
+    /** Mods only — roles this mod declares and whether its claimant is active. */
+    roleReplacements?: readonly {
+        name: string;
+        active: boolean;
+        overriddenBy?: string;
+    }[];
 };
 
 /**
@@ -104,6 +120,7 @@ const collectRuntimeFaults = (): ModFault[] => [
     // overrun, a malformed return, and the refusal to suppress a structural
     // block. "Rejected with a reason" means the reason is on this screen.
     ...interceptorFaultStore.getFaults(),
+    ...roleFaultStore.getFaults(),
 ];
 
 /** The stores whose changes should refresh the list above. */
@@ -115,6 +132,7 @@ const RUNTIME_FAULT_STORES = [
     eventFaultStore,
     macroFaultStore,
     interceptorFaultStore,
+    roleFaultStore,
 ] as const;
 
 /**
@@ -148,13 +166,34 @@ const toRow = (module: ContributionModule<FinalUserModuleInput>, meta?: string):
  * inline rather than only in the bottom "Rejected files" section.
  */
 const toModRow = (mod: ValidatedMod, faults: readonly ModFault[]): ModuleRow => {
-    const fault = faults.find((f) => f.file === mod.file);
+    const fault = faults.find((f) => f.file === mod.file || f.file === 'mod:' + mod.id);
+    const roleReplacements = (mod.roles ?? []).flatMap((roleId) => {
+        const role = serviceRoles.list().find((candidate) => candidate.id === roleId);
+        if (!role) return [];
+        const active = serviceRoles.activeProviderFor(roleId);
+        const providerId = 'mod.' + mod.id;
+        if (active?.providerId === providerId) {
+            return [{ name: role.name, active: true }];
+        }
+        if (active?.source === 'mod') {
+            return [{ name: role.name, active: false, overriddenBy: active.modId ?? active.providerId }];
+        }
+        return [{ name: role.name, active: false, overriddenBy: 'core default' }];
+    });
     return {
         ...toRow(modToContributionModule(mod), `v${mod.version} · ${mod.file}`),
         folder: mod.folder,
         author: mod.author,
         tier: tierOf(mod),
+        // Phase 6.3 — tag the row so the renderer can show a "Bundled" badge
+        // and the user can tell what came with the app from what they added.
+        // A server that has not been updated to stamp `provenance` defaults to
+        // `'installed'` (the safe case — shows the delete affordance, which a
+        // bundled mod should not have, but an old server's mods are the user's
+        // own regardless).
+        provenance: mod.provenance === 'bundled' ? 'bundled' : 'installed',
         hasSettings: Array.isArray(mod.panels) && mod.panels.length > 0,
+        roleReplacements,
         fault,
     };
 };
@@ -164,6 +203,9 @@ export function ExtensionsTab() {
     const updateSettings = useAppStore((s) => s.updateSettings);
     const toggleBlockView = useAppStore((s) => s.toggleBlockView);
     const toggleSettings = useAppStore((s) => s.toggleSettings);
+    // Phase 6.4 — mod data is per campaign (`DATA_POLICY.md` §3), so the delete
+    // action needs one open. With none, the button says why instead of failing.
+    const activeCampaignId = useAppStore((s) => s.activeCampaignId);
     const { t } = useTranslation();
 
     const [mods, setMods] = useState<ValidatedMod[]>([]);
@@ -182,6 +224,26 @@ export function ExtensionsTab() {
     // mod in its prior (off) state, which the checkbox reflects because no
     // write happened.
     const [pendingTrust, setPendingTrust] = useState<{ mod: ValidatedMod } | null>(null);
+
+    /**
+     * Phase 6.4 / `DATA_POLICY.md` §5 — the two blocking confirmations.
+     *
+     * `pendingDisable` holds a mod whose toggle-off is on hold. The write is
+     * deferred exactly the way the trust dialog defers an enable: nothing is
+     * written until the user confirms, so a cancel needs no revert — the
+     * checkbox still reflects the state on disk because no write happened.
+     *
+     * `pendingDelete` holds a mod whose data is about to be erased. Confirming
+     * runs `cleanModData` (the mod's `clean` hook, then the host's
+     * unconditional clear); `deleteBusy` blocks a second click while it runs
+     * and `deleteNote` reports the outcome inline on the row — including the
+     * failure case, because "we could not delete it" is something the user has
+     * to be told rather than left to assume.
+     */
+    const [pendingDisable, setPendingDisable] = useState<ValidatedMod | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<ValidatedMod | null>(null);
+    const [deleteBusy, setDeleteBusy] = useState<string | null>(null);
+    const [deleteNote, setDeleteNote] = useState<Record<string, string>>({});
 
     // Phase 6.1 — a ref to the scroll container so a mod row's "Settings"
     // link can scroll its ModPanels section into view. The container is the
@@ -275,6 +337,19 @@ export function ExtensionsTab() {
      * skips the check.
      */
     const setEnabled = (id: string, enabled: boolean) => {
+        // Phase 6.4 / `DATA_POLICY.md` §5 — the disable disclosure. Switching a
+        // mod off keeps its data (§1) but changes how the campaign plays, and
+        // the GM keeps narrating what the mod used to track. There is no
+        // graceful degradation coming (§6): this sentence is the mitigation,
+        // so it blocks. Mods only — a built-in module has no mod data and no
+        // hundreds of scenes written around it.
+        if (!enabled && id.startsWith('mod.')) {
+            const mod = mods.find((m) => m.id === id.slice(4));
+            if (mod) {
+                setPendingDisable(mod);
+                return;
+            }
+        }
         // Phase 6.1 — the native-tier gate. Only a mod with a `native` block
         // triggers the dialog; declarative and sandboxed-compute mods skip it
         // entirely (TRUST.md §A: they do not receive page-level access).
@@ -308,7 +383,9 @@ export function ExtensionsTab() {
      * lifecycle hooks for native-tier mods (Phase 1.5).
      */
     const doEnable = (id: string, mod: ValidatedMod | undefined, enabled: boolean) => {
-        updateSettings({ moduleEnabled: { ...(moduleEnabled ?? {}), [id]: enabled } });
+        const next = { ...(moduleEnabled ?? {}), [id]: enabled };
+        updateSettings({ moduleEnabled: next });
+        setRoleModuleEnabled(next);
         // Phase 1.5 — fire the lifecycle enable/disable hooks for native
         // mods. The settings write is the source of truth for enablement;
         // the lifecycle call is the side-effect that mounts/unmounts the
@@ -347,6 +424,47 @@ export function ExtensionsTab() {
      */
     const onTrustCancel = () => {
         setPendingTrust(null);
+    };
+
+    /**
+     * Phase 6.4 — the disable dialog's affirmative action. Performs the
+     * deferred write; the mod's data is untouched either way (§1 freeze).
+     */
+    const onDisableConfirm = () => {
+        const mod = pendingDisable;
+        if (!mod) return;
+        setPendingDisable(null);
+        doEnable(`mod.${mod.id}`, mod, false);
+    };
+
+    /**
+     * Phase 6.4 — the delete dialog's affirmative action, and the only path in
+     * the app that erases mod data. `cleanModData` fires the mod's `clean`
+     * hook and then clears the mod's provisioned tables unconditionally.
+     */
+    const onDeleteConfirm = () => {
+        const mod = pendingDelete;
+        if (!mod) return;
+        setPendingDelete(null);
+        setDeleteBusy(mod.id);
+        cleanModData(mod)
+            .then((removed) => {
+                setDeleteNote((notes) => ({
+                    ...notes,
+                    [mod.id]: removed.length > 0
+                        ? t('settings.extensions.modData.delete.done', { count: removed.length })
+                        : t('settings.extensions.modData.delete.none'),
+                }));
+            })
+            .catch((error: unknown) => {
+                setDeleteNote((notes) => ({
+                    ...notes,
+                    [mod.id]: t('settings.extensions.modData.delete.failed', {
+                        reason: error instanceof Error ? error.message : String(error),
+                    }),
+                }));
+            })
+            .finally(() => setDeleteBusy(null));
     };
 
     const allRows = useMemo(() => [...builtinRows, ...modRows], [builtinRows, modRows]);
@@ -411,6 +529,14 @@ export function ExtensionsTab() {
                                 {t(`settings.extensions.mod.tier.${row.tier}`)}
                             </span>
                         )}
+                        {row.provenance === 'bundled' && (
+                            <span
+                                className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold bg-ember/10 text-ember border border-ember/30"
+                                title={t('settings.extensions.mod.provenance.bundled')}
+                            >
+                                {t('settings.extensions.mod.provenance.bundled')}
+                            </span>
+                        )}
                     </div>
                     <p className="text-[9px] text-text-dim leading-tight">{row.description}</p>
                     {row.meta && (
@@ -426,6 +552,16 @@ export function ExtensionsTab() {
                             {t('settings.extensions.mod.folder', { folder: row.folder })}
                         </p>
                     )}
+                    {row.roleReplacements?.map((role) => (
+                        <p key={role.name} className="text-[9px] text-text-dim/70 leading-tight mt-0.5">
+                            {t('settings.extensions.mod.roleReplaces', { role: role.name })}
+                            {role.active
+                                ? ' · ' + t('settings.extensions.mod.roleActive')
+                                : role.overriddenBy
+                                    ? ' · ' + t('settings.extensions.mod.roleOverriddenBy', { mod: role.overriddenBy })
+                                    : ''}
+                        </p>
+                    ))}
                     {/* Phase 6.1 — the inline fault. The reason appears next to
                      * the mod it rejected, not in a separate section the user
                      * must know to scroll to. The fault is matched to the mod
@@ -449,6 +585,35 @@ export function ExtensionsTab() {
                             <Settings size={9} />
                             {t('settings.extensions.mod.settings')}
                         </button>
+                    )}
+                    {/* Phase 6.4 — the delete action (`DATA_POLICY.md` §3).
+                      * Mod rows only: a built-in module owns no mod tables.
+                      * Bundled mods included — a bundled mod's data is the
+                      * user's data, and clearing it is not the same act as
+                      * removing the mod, which the app never does at all.
+                      * The dialog is what makes this destructive click legal;
+                      * this button only opens it. */}
+                    {row.tier && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const mod = mods.find((m) => `mod.${m.id}` === row.id);
+                                if (mod) setPendingDelete(mod);
+                            }}
+                            disabled={!activeCampaignId || deleteBusy === row.id.slice(4)}
+                            title={activeCampaignId ? undefined : t('settings.extensions.modData.delete.noCampaign')}
+                            className="text-[9px] uppercase tracking-wider text-danger hover:text-danger/80 disabled:opacity-40 disabled:cursor-not-allowed mt-1.5 flex items-center gap-1"
+                        >
+                            <Trash2 size={9} />
+                            {deleteBusy === row.id.slice(4)
+                                ? t('settings.extensions.modData.delete.busy')
+                                : t('settings.extensions.modData.delete.action')}
+                        </button>
+                    )}
+                    {deleteNote[row.id.slice(4)] && (
+                        <p className="text-[9px] text-text-dim leading-tight mt-1 break-words">
+                            {deleteNote[row.id.slice(4)]}
+                        </p>
                     )}
                 </div>
                 <input
@@ -591,6 +756,20 @@ export function ExtensionsTab() {
                 )}
             </div>
 
+            {/* ── Load order (Phase 6.2) ──────────────────────────────────── */}
+            {/*
+              * The resolved load order with user-reorderable controls. Renders
+              * only when at least one mod is installed. The user's override
+              * persists to `settings.modLoadOrder` and beats the manifest's
+              * `loadOrder` as the primary tiebreak in the server's topological
+              * sort. Conflicts (fact claims) surface on the losing row with
+              * the winner named. Dependency-violating moves are prevented in
+              * the UI rather than allowed and faulted later.
+              */}
+            {!loading && !loadFailed && mods.length > 0 && (
+                <LoadOrderSection mods={mods} />
+            )}
+
             {/* ── Mod panels (WO-P5-16) ─────────────────────────────────── */}
             {/*
               * A mod that declares `panels[]` renders one panel per declaration,
@@ -672,6 +851,26 @@ export function ExtensionsTab() {
                     modName={pendingTrust.mod.name}
                     onConfirm={onTrustConfirm}
                     onCancel={onTrustCancel}
+                />
+            )}
+
+            {/* Phase 6.4 — the two data confirmations. Same layer as the trust
+              * dialog and mutually exclusive with it in practice: the trust
+              * dialog gates an enable, these gate a disable and a delete. */}
+            {pendingDisable && (
+                <ModDataDialog
+                    variant="disable"
+                    modName={pendingDisable.name}
+                    onConfirm={onDisableConfirm}
+                    onCancel={() => setPendingDisable(null)}
+                />
+            )}
+            {pendingDelete && (
+                <ModDataDialog
+                    variant="delete"
+                    modName={pendingDelete.name}
+                    onConfirm={onDeleteConfirm}
+                    onCancel={() => setPendingDelete(null)}
                 />
             )}
         </div>

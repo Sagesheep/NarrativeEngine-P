@@ -26,6 +26,7 @@ import {
     readJson, writeJson, ensureDirs, validateCampaignId,
 } from './fileStore.js';
 import { wrapAsync } from './asyncHandler.js';
+import { scanModTableFilesForMod } from './modTableRegistry.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -287,6 +288,61 @@ export function mountModTableRoutes(registry = serverTableRegistry) {
         if (typeof onAfterWrite === 'function') {
             onAfterWrite({ campaignId: req.params.id, filePath, body });
         }
+    }));
+
+    /**
+     * Phase 6.4 / `DATA_POLICY.md` §3 — remove one mod's provisioned tables
+     * for one campaign. The host half of `hooks.clean`: the mod cleans what
+     * only the mod knows about, then the host removes what the host
+     * provisioned, **unconditionally** (`MANIFEST.md` §7.2). A mod with no
+     * `clean` hook — or no native entry point at all — still gets a complete
+     * data clear, because this route does not consult the mod.
+     *
+     * ┌─ WHAT THIS ROUTE MUST NEVER TOUCH ──────────────────────────────────┐
+     * │ Narrative prose, the archive, host records, anything the mod wrote   │
+     * │ into the story. Those stay, forever (`DATA_POLICY.md` §2). This      │
+     * │ deletes files matching `<campaignId>.mod-<modId>-*.json` and nothing │
+     * │ else — the mod's own ledger, the only thing with no owner once the   │
+     * │ mod is gone.                                                         │
+     * └──────────────────────────────────────────────────────────────────────┘
+     *
+     * DELETE, not a toggle: `clean` never fires from enable/disable, from
+     * delete-detection, or from an app update (§7.2). The confirmation lives
+     * in the UI; the destructive verb lives here.
+     *
+     * `:modId` is validated against the loader's id character set BEFORE any
+     * path is built — the same discipline as the GET/PUT pair above. A dot or
+     * a separator would be a traversal vector into a filename glob.
+     */
+    router.delete('/api/campaigns/:id/mod-data/:modId', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        const modId = req.params.modId;
+        if (typeof modId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(modId)) {
+            return res.status(400).json({ error: 'Invalid mod id' });
+        }
+        const filenames = scanModTableFilesForMod(CAMPAIGNS_DIR, req.params.id, modId, registry);
+        const removed = [];
+        for (const filename of filenames) {
+            try {
+                fs.unlinkSync(path.join(CAMPAIGNS_DIR, filename));
+                removed.push(filename);
+            } catch (err) {
+                // A file that vanished between the scan and the unlink is
+                // already in the state the caller asked for. Anything else is
+                // reported, not thrown: a partial clear must still tell the
+                // client which keys are gone so the store can drop them.
+                if (err.code !== 'ENOENT') {
+                    console.warn(`[mods] could not remove ${filename}: ${err.message}`);
+                }
+            }
+        }
+        // Return the namespaced table names, not filenames — the client keys
+        // its `modTables` map by `mod.<modId>.<name>`.
+        const tables = removed.map((filename) => {
+            const rest = filename.slice(`${req.params.id}.mod-${modId}-`.length, filename.length - '.json'.length);
+            return `mod.${modId}.${rest}`;
+        });
+        res.json({ ok: true, removed: tables });
     }));
 
     return router;

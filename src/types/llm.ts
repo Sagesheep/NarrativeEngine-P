@@ -121,6 +121,13 @@ export type AppSettings = {
      *  so an empty map is today's behaviour. Structural modules ignore this entirely — a stale
      *  or corrupt entry can never delete the player's own message from the prompt. */
     moduleEnabled?: Record<string, boolean>;
+    /** Phase 6.2 — the user's chosen load order for installed mods, as an
+     *  array of mod ids ascending. The server's topological sort uses this
+     *  as the primary tiebreak (before `manifest.loadOrder`); the dependency
+     *  graph is still a hard constraint, so a mod cannot be ordered before
+     *  something it depends on. Absent or empty = manifest default. Mods
+     *  not listed fall back to `loadOrder` then `id` among themselves. */
+    modLoadOrder?: string[];
     aiTier?: AiTier;                 // 'lite' | 'pro' | 'max' — gates which turn stages run (Phase 4)
     uiScale?: number;                // 0.7–1.3, default 1.0 — global UI zoom (ported from mobile settings)
     embeddingModel?: 'standard' | 'high';  // kept for type parity with mobile; mainApp runs a single server-side embedder, so this is informational only

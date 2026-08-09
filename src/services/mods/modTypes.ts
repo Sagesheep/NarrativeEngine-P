@@ -284,6 +284,8 @@ export interface ModDefinition {
     panels?: ModPanelDeclaration[];
     /** Optional. Declared screens — a mod's own UI in an isolated frame (WO-P5-17). */
     screens?: ModScreenDeclaration[];
+    /** Optional. Native service roles claimed by this mod (MANIFEST.md §3). */
+    roles?: string[];
     /**
      * Phase 1.1 / MANIFEST.md §3 — the native tier. Its presence alone makes
      * the mod native-tier for trust and warning purposes (TRUST.md §B); Phase
@@ -342,6 +344,8 @@ export interface ValidatedMod extends ModDefinition {
      * resolved order.
      */
     loadOrder: number;
+    /** Always present on a validated mod; empty when no service role is declared. */
+    roles: string[];
     /**
      * Phase 1.1 / MANIFEST.md §6.4 — the validated dependency map. Always
      * present on a validated mod (default `{}`). The resolver uses this to
@@ -378,6 +382,22 @@ export interface ValidatedMod extends ModDefinition {
     screens: ValidatedModScreen[];
     /** The sibling screen source files, as text, in `screens[]` order (R2). */
     screenSources: string[];
+    /**
+     * Phase 6.3 — where this mod came from.
+     *
+     * `'bundled'` ships with the app (lives in `public/bundled-mods/`, on by
+     * default, version moves with app updates). `'installed'` lives in the
+     * user's `mods/` folder and is never touched by an app update. Both use
+     * the same loader, validation, and lifecycle — the tag is display and
+     * update-behaviour only, never a special case in the validation path.
+     *
+     * Defaults to `'installed'` for backwards compatibility: a server that
+     * has not been updated to stamp the field still produces mods that load,
+     * and the client treats an absent/unknown provenance as installed (the
+     * common case, the safe default, and the one that shows the delete
+     * affordance).
+     */
+    provenance: 'bundled' | 'installed';
 }
 
 /** A file that was rejected, and why. Shown to the user rather than swallowed. */

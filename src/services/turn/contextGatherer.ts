@@ -1,7 +1,14 @@
 import type { ArchiveChapter, TimelineEvent } from '../../types';
 import type { TurnState } from './turnOrchestrator';
 import { gatherSemanticCandidates } from '../context-gatherer/semanticCandidates';
-import { gatherPlannerSceneIds, gatherArchiveRecall, buildExcludeSceneIds } from '../context-gatherer/archiveRecall';
+import {
+    gatherPlannerSceneIds,
+    buildExcludeSceneIds,
+    setMemoryRecallDefaultContext,
+    toMemoryRecallChapters,
+    type MemoryRecallAnswer,
+    type MemoryRecallInput,
+} from '../context-gatherer/archiveRecall';
 import { gatherRecommender } from '../context-gatherer/recommenderGather';
 import { gatherLoreAndRules } from '../context-gatherer/loreRulesGather';
 import { injectPinnedChapters } from '../context-gatherer/pinnedChaptersGather';
@@ -12,6 +19,9 @@ import { beginGatherStage, endGatherStage, clearGatherStages } from './gatherPro
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import type { LoreChunk } from '../../types';
 import type { HostFacade } from './hostFacade';
+import { fetchArchiveScenes } from '../archiveMemory';
+import { EMPTY_REGISTER, getDivergenceSceneIds } from '../campaign-state/divergenceRegister';
+import { formatRoleFaultReason, roleFaultStore, serviceRoles } from '../roles';
 
 // Friendly, user-facing labels for the live step indicator (keyed by internal stage id).
 const STAGE_LABELS: Record<string, string> = {
@@ -54,6 +64,79 @@ type GatherDeps = {
     deepSearchThisTurn: boolean;
     setLoadingStatus?: (status: string | null) => void;
 };
+
+async function gatherMemoryRecallViaRole(
+    state: TurnState,
+    chapters: ArchiveChapter[],
+    semanticArchiveIds: string[] | undefined,
+    plannerSceneIds: string[] | undefined,
+    excludeSceneIds: Set<string> | undefined,
+    signal: AbortSignal | undefined,
+    facade: HostFacade | undefined,
+): Promise<import('../../types').ArchiveScene[] | undefined> {
+    void signal;
+    const data = facade?.data;
+    const archiveIndex = data?.archiveIndex ?? state.archiveIndex;
+    const activeCampaignId = data?.activeCampaignId ?? state.activeCampaignId;
+    if (archiveIndex.length === 0 || !activeCampaignId) return undefined;
+
+    const input: MemoryRecallInput = {
+        campaignId: activeCampaignId,
+        query: data?.input ?? state.input,
+        messages: data?.messages ?? state.messages,
+        archiveIndex,
+        chapters: toMemoryRecallChapters(chapters),
+        npcLedger: data?.npcLedger ?? state.npcLedger,
+        semanticFacts: (data?.semanticFacts ?? state.semanticFacts ?? []).map(({ subject, predicate, object, importance }) => ({
+            subject,
+            predicate,
+            object,
+            importance,
+        })),
+        candidateSceneIds: semanticArchiveIds,
+        plannerSceneIds,
+        excludeSceneIds: [...(excludeSceneIds ?? [])],
+        divergenceSceneIds: [...getDivergenceSceneIds((data?.divergenceRegister ?? state.divergenceRegister) || EMPTY_REGISTER)],
+        depth: facade?.config.archiveRecallDepth ?? state.settings.archiveRecallDepth ?? 'standard',
+        tokenBudget: 3000,
+    };
+
+    setMemoryRecallDefaultContext({
+        chapters,
+        aiTier: facade?.config.aiTier ?? state.settings.aiTier,
+        utilityProvider: facade ? undefined : state.getUtilityEndpoint?.(),
+        modelCall: facade
+            ? (request: import('./hostFacade').ModelRequest) => facade.model.call('utility', request)
+            : undefined,
+    });
+
+    const provider = serviceRoles.activeProviderFor('memory.recall');
+    const answer = await serviceRoles.ask<MemoryRecallInput, MemoryRecallAnswer>('memory.recall', input);
+    if (!answer || answer.sceneIds.length === 0) return answer ? [] : undefined;
+
+    const knownSceneIds = new Set(archiveIndex.map((entry) => entry.sceneId));
+    const unknownSceneIds = answer.sceneIds.filter((sceneId) => !knownSceneIds.has(sceneId));
+    if (unknownSceneIds.length > 0) {
+        const modId = provider?.modId ?? provider?.providerId ?? 'role-registry';
+        roleFaultStore.add({
+            modId,
+            file: provider?.source === 'mod' ? 'mod:' + modId : 'role:memory.recall',
+            kind: 'partial',
+            roleId: 'memory.recall',
+            reason: formatRoleFaultReason({
+                modName: modId,
+                kind: 'partial',
+                roleId: 'memory.recall',
+                message: unknownSceneIds.join(', '),
+            }),
+        });
+    }
+
+    const excluded = new Set(input.excludeSceneIds);
+    const sceneIds = answer.sceneIds.filter((sceneId) => knownSceneIds.has(sceneId) && !excluded.has(sceneId));
+    if (sceneIds.length === 0) return [];
+    return fetchArchiveScenes(input.campaignId, sceneIds, input.tokenBudget);
+}
 
 export async function gatherContext(
     state: TurnState,
@@ -109,7 +192,15 @@ export async function gatherContext(
     // ─── Archive recall — depends on semantic candidates + planner ───
     const archiveRecallPromise = timed('archive-recall', (async () => {
         const [semanticCandidates, plannerSceneIds] = await Promise.all([semanticPromise, plannerPromise]);
-        return gatherArchiveRecall(state, { chapters: deps.chapters }, semanticCandidates, plannerSceneIds, excludeSceneIds, signal, facade);
+        return gatherMemoryRecallViaRole(
+            state,
+            deps.chapters,
+            semanticCandidates.semanticArchiveIds,
+            plannerSceneIds,
+            excludeSceneIds,
+            signal,
+            facade,
+        );
     })());
 
     // ─── Recommender — independent ───

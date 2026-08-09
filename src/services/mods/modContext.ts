@@ -54,6 +54,9 @@ import type { ModMacrosApi } from './macros/macroTypes';
 import { buildModContextMacros } from './macros/macroContextMacros';
 import type { ModFactsApi } from './facts/factTypes';
 import { buildModContextFacts } from './facts/factContextFacts';
+import type { ModRolesApi } from '../roles/roleTypes';
+import { buildModContextRoles } from '../roles/roleContext';
+import { serviceRoles } from '../roles';
 
 /**
  * `API.md` §3.1 — the mod's own identity, as the host sees it. The object is
@@ -293,6 +296,8 @@ export interface ModContext {
      * a `ModFactsApi` and a call from sandbox code is a `TypeError`.
      */
     readonly facts: ModFactsApi;
+    /** Native-tier only role providers; sandbox snapshots deliberately omit this field. */
+    readonly roles: ModRolesApi;
     readonly signal: AbortSignal;
     subscribe<K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void): () => void;
     refresh(): Promise<ModContext>;
@@ -396,6 +401,8 @@ export interface ModContextBuildOptions {
      * call passes a spy here.
      */
     readonly facts?: ModFactsApi;
+    /** Optional declared role ids; the loader supplies these for native mods. */
+    readonly declaredRoles?: readonly string[];
 }
 
 /**
@@ -523,9 +530,10 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         mod,
         facade: facade.refresh(),
         commitPoint,
-        locationState: options.locationState,
-        loadIndex: options.loadIndex,
-    })));
+         locationState: options.locationState,
+         loadIndex: options.loadIndex,
+         declaredRoles: options.declaredRoles,
+     })));
 
     // Phase 4.2 / `MOUNTS.md` §8.1 — `ctx.mounts`. Native-tier only: a
     // sandboxed compute hook is handed a snapshot and a journal and cannot
@@ -565,6 +573,13 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         mod: { id: mod.id, name: mod.name, loadIndex: options.loadIndex ?? 0 },
         faultFile: `mod:${mod.id}`,
     });
+    const roles: ModRolesApi = buildModContextRoles({
+        mod: { id: mod.id, name: mod.name },
+        declaredRoles: options.declaredRoles ?? [],
+        loadIndex: options.loadIndex ?? 0,
+        faultFile: (mod as { file?: string }).file ?? 'mod:' + mod.id,
+        registry: serviceRoles,
+    });
 
     const context: ModContext = Object.freeze({
         mod: identity,
@@ -578,6 +593,7 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         mounts,
         macros,
         facts,
+        roles,
         signal: facade.signal,
         subscribe: <K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void) => {
             const source = facade.subscribe;

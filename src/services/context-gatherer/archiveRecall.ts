@@ -1,12 +1,148 @@
-import type { ArchiveScene, ArchiveChapter } from '../../types';
+import type { ArchiveScene, ArchiveChapter, ArchiveIndexEntry, ChatMessage, NPCEntry, ProviderConfig, EndpointConfig } from '../../types';
 import type { TurnState } from '../turn/turnOrchestrator';
-import { recallArchiveScenes, retrieveArchiveMemory, fetchArchiveScenes } from '../archiveMemory';
-import { rankChapters, recallWithChapterFunnel } from '../archive-memory/archiveChapterEngine';
+import { retrieveArchiveMemory, fetchArchiveScenes } from '../archiveMemory';
+import { rankChapters, selectArchiveSceneIdsWithChapterFunnel } from '../archive-memory/archiveChapterEngine';
 import { runArchivePlanner } from '../archive-memory/archivePlanner';
 import { getDivergenceSceneIds, EMPTY_REGISTER, buildSceneMap } from '../campaign-state/divergenceRegister';
 import { tierAllows } from '../turn/aiTier';
 import type { SemanticCandidates } from './semanticCandidates';
 import { hasHostModelRole, type HostFacade } from '../turn/hostFacade';
+import type { RecallDepth } from '../archive-memory/dynamicMax';
+
+export interface MemoryRecallInput {
+    readonly campaignId: string;
+    readonly query: string;
+    readonly messages: readonly ChatMessage[];
+    readonly archiveIndex: readonly ArchiveIndexEntry[];
+    readonly chapters: readonly {
+        readonly chapterId: string;
+        readonly title: string;
+        readonly sealedAt: number | null;
+        readonly sceneIds: readonly string[];
+        readonly summary: string;
+    }[];
+    readonly npcLedger: readonly NPCEntry[];
+    readonly semanticFacts: readonly { subject: string; predicate: string; object: string; importance: number }[];
+    readonly candidateSceneIds?: readonly string[];
+    readonly plannerSceneIds?: readonly string[];
+    readonly excludeSceneIds: readonly string[];
+    readonly divergenceSceneIds: readonly string[];
+    readonly depth: RecallDepth;
+    readonly tokenBudget: number;
+}
+
+export interface MemoryRecallAnswer {
+    readonly sceneIds: readonly string[];
+}
+
+export interface MemoryRecallCoreContext {
+    readonly chapters: readonly ArchiveChapter[];
+    readonly aiTier: TurnState['settings']['aiTier'];
+    readonly utilityProvider?: EndpointConfig | ProviderConfig;
+    readonly modelCall?: (request: import('../turn/hostFacade').ModelRequest) => Promise<import('../turn/hostFacade').ModelResponse>;
+}
+
+let currentDefaultContext: MemoryRecallCoreContext | undefined;
+
+/** The default provider captures this synchronously at the ask boundary. */
+export function setMemoryRecallDefaultContext(context: MemoryRecallCoreContext): void {
+    currentDefaultContext = context;
+}
+
+export function toMemoryRecallChapters(chapters: readonly ArchiveChapter[]): MemoryRecallInput['chapters'] {
+    return chapters.map((chapter) => ({
+        chapterId: chapter.chapterId,
+        title: chapter.title,
+        sealedAt: typeof chapter.sealedAt === 'number' ? chapter.sealedAt : null,
+        sceneIds: [...chapter.sceneIds],
+        summary: chapter.summary,
+    }));
+}
+
+function flatMemoryRecallIds(
+    input: MemoryRecallInput,
+    sceneRanges?: [string, string][]
+): string[] {
+    return retrieveArchiveMemory(
+        input.archiveIndex as ArchiveIndexEntry[],
+        input.query,
+        input.messages as ChatMessage[],
+        input.npcLedger as NPCEntry[],
+        undefined,
+        input.semanticFacts as { subject: string; predicate: string; object: string; importance: number }[],
+        sceneRanges,
+        undefined,
+        input.candidateSceneIds as string[] | undefined,
+        new Set(input.divergenceSceneIds),
+        new Set(input.excludeSceneIds),
+        input.plannerSceneIds as string[] | undefined,
+        input.depth,
+        input.campaignId,
+    );
+}
+
+/** Select IDs only. The host performs archive fetches after a provider answers. */
+export async function selectMemoryRecallIds(
+    input: MemoryRecallInput,
+    context: MemoryRecallCoreContext,
+): Promise<string[] | undefined> {
+    if (input.archiveIndex.length === 0 || !input.campaignId) return undefined;
+
+    const chapters = context.chapters as ArchiveChapter[];
+    const hasSealedChapters = chapters.some((chapter) => chapter.sealedAt && chapter.summary);
+    if (!hasSealedChapters || !tierAllows(context.aiTier, 'archiveFunnel')) {
+        return flatMemoryRecallIds(input);
+    }
+
+    const rankedChapters = rankChapters(
+        chapters,
+        input.query,
+        input.messages as ChatMessage[],
+        input.npcLedger as NPCEntry[],
+        input.semanticFacts as { subject: string; predicate: string; object: string; importance: number }[],
+    );
+    const funnelPromise = selectArchiveSceneIdsWithChapterFunnel(
+        chapters,
+        input.archiveIndex as ArchiveIndexEntry[],
+        input.query,
+        input.messages as ChatMessage[],
+        input.npcLedger as NPCEntry[],
+        input.semanticFacts as { subject: string; predicate: string; object: string; importance: number }[],
+        context.utilityProvider,
+        new Set(input.excludeSceneIds),
+        context.modelCall,
+    );
+
+    const timeoutPromise = new Promise<string[]>((resolve) => {
+        setTimeout(() => {
+            console.warn('[ChapterFunnel] Timeout - using top-3 fallback');
+            const fallbackRanges: [string, string][] = rankedChapters
+                .slice(0, 3)
+                .map((chapter) => chapter.sceneRange);
+            const openChapter = chapters.find((chapter) => !chapter.sealedAt);
+            if (openChapter) fallbackRanges.push(openChapter.sceneRange);
+            resolve(flatMemoryRecallIds(input, fallbackRanges));
+        }, 8000);
+    });
+
+    let sceneIds = await Promise.race([funnelPromise, timeoutPromise]);
+    if (sceneIds.length === 0) {
+        console.warn('[ChapterFunnel] Empty result - falling back to flat retrieval');
+        sceneIds = flatMemoryRecallIds(input);
+    }
+    return sceneIds;
+}
+
+export async function askDefaultMemoryRecall(
+    input: MemoryRecallInput,
+    signal: AbortSignal,
+): Promise<MemoryRecallAnswer | undefined> {
+    void signal;
+    const context = currentDefaultContext;
+    if (!context) return undefined;
+    const sceneIds = await selectMemoryRecallIds(input, context);
+    return sceneIds === undefined ? undefined : { sceneIds };
+}
 
 export type ArchiveRecallDeps = {
     chapters: ArchiveChapter[];
@@ -42,9 +178,9 @@ export async function gatherArchiveRecall(
     semanticCandidates: SemanticCandidates,
     plannerSceneIds: string[] | undefined,
     excludeSceneIds: Set<string> | undefined,
-    // Accepted for signature symmetry with gatherPlannerSceneIds, but the archive
-    // recall path (recallArchiveScenes / recallWithChapterFunnel) has no AbortSignal
-    // plumbing yet, so cancellation is not wired through here. See follow-up.
+    // Accepted for signature symmetry with gatherPlannerSceneIds. The role
+    // boundary currently has no caller-signal parameter, so cancellation is
+    // not wired through this path yet.
     signal?: AbortSignal,
     facade?: HostFacade
 ): Promise<ArchiveScene[] | undefined> {
@@ -63,88 +199,40 @@ export async function gatherArchiveRecall(
     const { semanticArchiveIds } = semanticCandidates;
     const archiveRecallDepth = facade?.config.archiveRecallDepth ?? state.settings.archiveRecallDepth ?? 'standard';
     const divergenceSceneIds = getDivergenceSceneIds((data?.divergenceRegister ?? state.divergenceRegister) || EMPTY_REGISTER);
-    const chapters = deps.chapters;
-    const hasSealedChapters = chapters.some(c => c.sealedAt && c.summary);
-
-    if (!hasSealedChapters) {
-        return recallArchiveScenes(
-            activeCampaignId, archiveIndex, input, messages, 3000,
-            npcLedger, (data?.semanticFacts ?? state.semanticFacts),
-            undefined, semanticArchiveIds,
-            divergenceSceneIds,
-            excludeSceneIds,
-            plannerSceneIds,
-            archiveRecallDepth
-        );
-    }
-
-    // Lite tier: skip the chapter funnel (LLM-backed) — fall through to flat recall.
-    if (!tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'archiveFunnel')) {
-        return recallArchiveScenes(
-            activeCampaignId, archiveIndex, input, messages, 3000,
-            npcLedger, (data?.semanticFacts ?? state.semanticFacts),
-            undefined, semanticArchiveIds,
-            divergenceSceneIds,
-            excludeSceneIds,
-            plannerSceneIds,
-            archiveRecallDepth
-        );
-    }
-
-    const rankedChapters = rankChapters(
-        chapters, input, messages, npcLedger, (data?.semanticFacts ?? state.semanticFacts)
-    );
-
-    const utilityConfig = facade ? undefined : state.getUtilityEndpoint?.();
-    const modelCall = facade ? (request: import('../turn/hostFacade').ModelRequest) => facade.model.call('utility', request) : undefined;
-    const FUNNEL_TIMEOUT_MS = 8000;
-
-    const funnelPromise = recallWithChapterFunnel(
-        chapters, archiveIndex, input, messages,
-        npcLedger, (data?.semanticFacts ?? state.semanticFacts), utilityConfig,
-        activeCampaignId, 3000, excludeSceneIds, modelCall
-    );
-
-    const timeoutPromise = new Promise<ArchiveScene[]>((resolve) => {
-        setTimeout(() => {
-            console.warn('[ChapterFunnel] Timeout - using top-3 fallback');
-            const fallbackRanges: [string, string][] = rankedChapters
-                .slice(0, 3)
-                .map(ch => ch.sceneRange);
-            const openChapter = chapters.find(c => !c.sealedAt);
-            if (openChapter) fallbackRanges.push(openChapter.sceneRange);
-
-            const matchedIds = retrieveArchiveMemory(
-                archiveIndex, input, messages, npcLedger,
-                undefined, (data?.semanticFacts ?? state.semanticFacts), fallbackRanges,
-                undefined, semanticArchiveIds,
-                divergenceSceneIds,
-                excludeSceneIds,
-                plannerSceneIds,
-                archiveRecallDepth
-            );
-            fetchArchiveScenes(activeCampaignId!, matchedIds, 3000)
-                .then(resolve)
-                .catch(() => resolve([]));
-        }, FUNNEL_TIMEOUT_MS);
+    const recallInput: MemoryRecallInput = {
+        campaignId: activeCampaignId,
+        query: input,
+        messages,
+        archiveIndex,
+        chapters: toMemoryRecallChapters(deps.chapters),
+        npcLedger,
+        semanticFacts: (data?.semanticFacts ?? state.semanticFacts ?? []).map(({ subject, predicate, object, importance }) => ({
+            subject,
+            predicate,
+            object,
+            importance,
+        })),
+        candidateSceneIds: semanticArchiveIds,
+        plannerSceneIds,
+        excludeSceneIds: [...(excludeSceneIds ?? [])],
+        divergenceSceneIds: [...divergenceSceneIds],
+        depth: archiveRecallDepth,
+        tokenBudget: 3000,
+    };
+    setMemoryRecallDefaultContext({
+        chapters: deps.chapters,
+        aiTier: facade?.config.aiTier ?? state.settings.aiTier,
+        utilityProvider: facade ? undefined : state.getUtilityEndpoint?.(),
+        modelCall: facade
+            ? (request: import('../turn/hostFacade').ModelRequest) => facade.model.call('utility', request)
+            : undefined,
     });
-
-    let archiveRecall = await Promise.race([funnelPromise, timeoutPromise]);
-
-    if (archiveRecall.length === 0) {
-        console.warn('[ChapterFunnel] Empty result - falling back to flat retrieval');
-        archiveRecall = await recallArchiveScenes(
-            activeCampaignId, archiveIndex, input, messages, 3000,
-            npcLedger, (data?.semanticFacts ?? state.semanticFacts),
-            undefined, semanticArchiveIds,
-            divergenceSceneIds,
-            excludeSceneIds,
-            plannerSceneIds,
-            archiveRecallDepth
-        );
-    }
-
-    return archiveRecall;
+    const sceneIds = await askDefaultMemoryRecall(recallInput, signal ?? new AbortController().signal);
+    if (!sceneIds || sceneIds.sceneIds.length === 0) return sceneIds ? [] : undefined;
+    const knownSceneIds = new Set(archiveIndex.map((entry) => entry.sceneId));
+    const filteredSceneIds = sceneIds.sceneIds.filter((sceneId) => knownSceneIds.has(sceneId));
+    if (filteredSceneIds.length === 0) return [];
+    return fetchArchiveScenes(activeCampaignId, filteredSceneIds, recallInput.tokenBudget);
 }
 
 export function buildExcludeSceneIds(state: TurnState): Set<string> | undefined {

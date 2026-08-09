@@ -107,3 +107,32 @@ describe('shipped mods load cleanly', () => {
         }
     });
 });
+
+// Phase 6.3 — bundled mods ship in `public/bundled-mods/`, not in `mods/`.
+// This verifies the bundled fixture mod ships, loads, and is tagged `bundled`.
+describe('shipped bundled mods load cleanly (Phase 6.3)', () => {
+    const bundledDir = path.join(projectRoot, 'public', 'bundled-mods');
+
+    it('every manifest in public/bundled-mods/ loads with ZERO faults', () => {
+        const { faults } = loadMods(modsDir, appVersion, undefined, bundledDir);
+        expect(faults.map((f) => `${f.file}: ${f.reason}`)).toEqual([]);
+    });
+
+    it('the bundled fixture mod loads and is tagged provenance: "bundled"', () => {
+        const { mods, faults } = loadMods(modsDir, appVersion, undefined, bundledDir);
+        expect(faults).toEqual([]);
+        const bundled = mods.find((m) => m.id === 'example-bundled-tone');
+        expect(bundled, 'example-bundled-tone must load from public/bundled-mods/').toBeDefined();
+        expect(bundled!.provenance).toBe('bundled');
+    });
+
+    it('the bundled fixture mod is distinct from every installed mod', () => {
+        // No installed mod shares the bundled mod's id.
+        const installedOnly = loadMods(modsDir, appVersion);
+        const bundledIds = loadMods(modsDir, appVersion, undefined, bundledDir)
+            .mods.filter((m) => m.provenance === 'bundled').map((m) => m.id);
+        for (const id of bundledIds) {
+            expect(installedOnly.mods.find((m) => m.id === id)).toBeUndefined();
+        }
+    });
+});

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { ROLE_IDS } from '@narrative/engine/roles/roleIds';
 
 /**
  * Project 2 / WO-P2-04 — the mod file loader + validator.
@@ -121,14 +122,14 @@ const NATIVE_HOOK_NAMES = new Set([
  * (§7.4), with targeted hints for the three ST spellings an author will reach
  * for from muscle memory and targeted messages for the four deliberately
  * declined names (`assets`, `permissions`, `settings`, `events`). Reserved keys
- * (`mounts`, `macros`, `facts`, `roles`) point at the phase that
+ * (`mounts`, `macros`, `facts`) point at the phase that
  * will define them, so an author using a future field gets a precise message
  * rather than a generic "unknown".
  */
 const TOP_LEVEL_KEYS = new Set([
     'id', 'name', 'version', 'description', 'author', 'homepage', 'appVersion',
     'loadOrder', 'dependencies', 'i18n', 'contributions', 'tables', 'panels',
-    'screens', 'compute', 'native',
+    'screens', 'compute', 'native', 'roles',
 ]);
 
 /** ST spellings that get a "this app spells it X" hint, not a bare unknown-key. */
@@ -161,7 +162,6 @@ const RESERVED_KEYS = {
     mounts: '4.1',
     macros: '5.1',
     facts: '5.4',
-    roles: '7.1',
     // `events` moved to DECLINED_KEYS in Phase 3.2 — the phase that would have
     // defined it declined it instead. Should 5.4's facts registry later want
     // declared publishers it can be reintroduced additively (absent = no
@@ -1093,6 +1093,27 @@ function validateDependenciesField(raw, modId) {
     return dependencies;
 }
 
+const KNOWN_ROLE_IDS = new Set(ROLE_IDS);
+
+function validateRoles(raw) {
+    if (raw === undefined) return [];
+    if (!Array.isArray(raw)) reject('roles must be an array of role ids');
+    const seen = new Set();
+    return raw.map((role, index) => {
+        const at = 'roles[' + index + ']';
+        if (typeof role !== 'string' || role.trim() === '') {
+            reject(at + ' must be a non-empty role id');
+        }
+        const id = role.trim();
+        if (!KNOWN_ROLE_IDS.has(id)) {
+            reject(at + ' "' + id + '" is an unknown role id (known roles: ' + ROLE_IDS.join(', ') + ')');
+        }
+        if (seen.has(id)) reject('duplicate role id "' + id + '"');
+        seen.add(id);
+        return id;
+    });
+}
+
 function validateMod(raw, file, appVersion, modDir) {
     if (!isPlainObject(raw)) reject('mod file must contain a JSON object');
 
@@ -1183,6 +1204,7 @@ function validateMod(raw, file, appVersion, modDir) {
     if (raw.dependencies !== undefined) {
         dependencies = validateDependenciesField(raw.dependencies, raw.id);
     }
+    const roles = validateRoles(raw.roles);
 
     // Phase 1.3 / MANIFEST.md §5 — i18n. Optional; absent = {}. Read here so
     // a malformed locale file is a load-time fault naming the locale, not a
@@ -1206,9 +1228,10 @@ function validateMod(raw, file, appVersion, modDir) {
         screens.length === 0 &&
         raw.compute === undefined &&
         raw.native === undefined &&
+        roles.length === 0 &&
         Object.keys(i18n).length === 0
     ) {
-        reject('manifest declares nothing — a mod must declare at least one of contributions, tables, panels, screens, compute, native, i18n');
+        reject('manifest declares nothing — a mod must declare at least one of contributions, tables, panels, screens, compute, native, i18n, roles');
     }
 
     // Phase 1.3 / MANIFEST.md §3 — `native`. Its presence alone makes the mod
@@ -1254,6 +1277,7 @@ function validateMod(raw, file, appVersion, modDir) {
         panels,
         screens,
         screenSources,
+        roles,
         file,
     };
     if (typeof raw.description === 'string') mod.description = raw.description;
@@ -1307,14 +1331,40 @@ function validateMod(raw, file, appVersion, modDir) {
  * and the rejection table in §11. Self-dependency is already caught at
  * `validateDependenciesField` (it is a shape fault, not a relationship one).
  *
+ * Phase 6.2 — the user-visible load order override.
+ *
+ * `userOrder` is an array of mod ids in the user's chosen order, persisted in
+ * `settings.modLoadOrder`. When present, it is the PRIMARY tiebreak among
+ * ready mods in the topological sort: a mod earlier in `userOrder` emits
+ * before a mod later in `userOrder`, regardless of their manifest `loadOrder`.
+ * The dependency graph is still a hard constraint — a dependency always
+ * precedes its dependent — so `userOrder` only reorders mods that are
+ * simultaneously ready (their dependencies already emitted). This is exactly
+ * the "override persists and beats the manifest value" rule (Phase 6.2 §2.2).
+ *
+ * Mods not listed in `userOrder` (newly installed, or removed from the list)
+ * fall back to `loadOrder` then `id`, the manifest default. This keeps the
+ * override partial: the user does not have to rank every mod to reorder any.
+ *
  * @param {object[]} mods - validated mods, in arbitrary order
  * @param {Map<string, string>} idToFile - mod id → manifest file label, for faults
  * @param {{ file: string, reason: string }[]} faults - append faults here
+ * @param {readonly string[]} [userOrder] - Phase 6.2: user-chosen order, ids ascending
  * @returns {object[]} mods in resolved load order; faulted mods removed
  */
-function resolveDependenciesAndSort(mods, idToFile, faults) {
+function resolveDependenciesAndSort(mods, idToFile, faults, userOrder) {
     const byId = new Map(mods.map((m) => [m.id, m]));
     const dropped = new Set();
+    // Phase 6.2 — the user override position map. A mod's position in
+    // `userOrder` is its primary tiebreak; mods absent from `userOrder`
+    // get `Number.MAX_SAFE_INTEGER` so they sort after every listed mod
+    // and fall back to `loadOrder` then `id` among themselves.
+    const userPosition = new Map();
+    if (Array.isArray(userOrder)) {
+        for (let i = 0; i < userOrder.length; i++) {
+            userPosition.set(userOrder[i], i);
+        }
+    }
 
     // ── Step 1: validate every dependency is present, loaded, and version-
     // satisfied. Drop the dependent on any failure. This is a property of
@@ -1431,6 +1481,15 @@ function resolveDependenciesAndSort(mods, idToFile, faults) {
             break;
         }
         ready.sort((a, b) => {
+            // Phase 6.2 — user override is the primary tiebreak. A mod
+            // listed in `userOrder` sorts before an unlisted one, and
+            // before a mod later in the list. The dependency graph is
+            // already satisfied (both are `ready`), so this is the
+            // exact point the override is allowed to act.
+            const ua = userPosition.has(a.id) ? userPosition.get(a.id) : Number.MAX_SAFE_INTEGER;
+            const ub = userPosition.has(b.id) ? userPosition.get(b.id) : Number.MAX_SAFE_INTEGER;
+            if (ua !== ub) return ua - ub;
+            // Fall back to the manifest's `loadOrder`, then `id` (§6.3).
             if (a.loadOrder !== b.loadOrder) return a.loadOrder - b.loadOrder;
             return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
         });
@@ -1484,29 +1543,51 @@ function findCycle(mods) {
 }
 
 /**
- * Load and validate every folder containing `manifest.json` in `modsDir`.
+ * Phase 6.3 — the two provenances a mod may carry.
  *
- * @param {string} modsDir Directory to scan. Missing = `{ mods: [], faults: [] }`.
- * @param {string} [appVersion] Host app version, for `appVersion` compatibility checks.
- * @returns {{ mods: object[], faults: { file: string, reason: string }[] }}
+ * `bundled` mods ship with the app (live in `public/bundled-mods/`, on by default,
+ * version moves with app updates). `installed` mods live in the user's `mods/`
+ * folder and are never touched by an app update. Both use the same loader, the
+ * same validation, and the same lifecycle — the tag is display and update-
+ * behaviour only, never a special case in the validation path.
+ *
+ * Stamped on every validated mod by `loadModsFromDir` so the client can show a
+ * "Bundled" badge in the Extensions screen and hide the delete affordance for
+ * bundled mods (Phase 6.3 §2.5 recommendation).
  */
-export function loadMods(modsDir, appVersion) {
-    const mods = [];
-    const faults = [];
+const PROVENANCE_BUNDLED = 'bundled';
+const PROVENANCE_INSTALLED = 'installed';
 
+/**
+ * Phase 6.3 — scan ONE mods directory and append its validated mods/faults to the
+ * shared `mods`/`faults`/`claimedIds` accumulators, stamping each mod with the
+ * given `provenance` tag.
+ *
+ * Extracted from `loadMods` so `loadMods` can scan two directories (bundled then
+ * installed) without duplicating the per-folder walk. A bundled mod is NOT
+ * special-cased in the validation path (§3): the same `validateMod`, the same
+ * faults, the same `ModRejected` handling. The only difference is the
+ * `provenance` field stamped on the validated mod.
+ *
+ * @param {string} modsDir Directory to scan. Missing = append nothing.
+ * @param {string} appVersion Host app version, for `appVersion` compatibility checks.
+ * @param {object[]} mods Accumulator — validated mods are pushed here.
+ * @param {{ file: string, reason: string }[]} faults Accumulator — faults are pushed here.
+ * @param {Map<string, string>} claimedIds mod id → file label, for duplicate-id detection.
+ * @param {'bundled' | 'installed'} provenance The provenance tag to stamp on each mod.
+ */
+function loadModsFromDir(modsDir, appVersion, mods, faults, claimedIds, provenance) {
     let entries;
     try {
         entries = fs.readdirSync(modsDir, { withFileTypes: true });
     } catch (err) {
         // No mods folder is the normal state of a fresh install, not a fault.
-        if (err && err.code === 'ENOENT') return { mods, faults };
-        return {
-            mods,
-            faults: [{ file: String(modsDir), reason: `mods directory unreadable: ${err?.message ?? String(err)}` }],
-        };
+        // This applies to BOTH the bundled dir (a packaged layout may omit it)
+        // and the installed dir (the user has not added anything yet).
+        if (err && err.code === 'ENOENT') return;
+        faults.push({ file: String(modsDir), reason: `mods directory unreadable: ${err?.message ?? String(err)}` });
+        return;
     }
-
-    const claimedIds = new Map();
 
     const sortedEntries = [...entries].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -1575,6 +1656,11 @@ export function loadMods(modsDir, appVersion) {
                 // the path, not the contents.
                 mod.folder = folderName;
                 mod.folderPath = modDir;
+                // Phase 6.3 — stamp the provenance so the client can show a
+                // "Bundled" badge and hide the delete affordance. The tag is
+                // display + update behaviour only; it is never read by the
+                // validation path (§3: a bundled mod is not special-cased).
+                mod.provenance = provenance;
 
                 mods.push(mod);
             } catch (err) {
@@ -1585,6 +1671,50 @@ export function loadMods(modsDir, appVersion) {
             }
         }
     }
+}
+
+/**
+ * Load and validate every folder containing `manifest.json` in `modsDir`, plus
+ * every folder in `bundledModsDir` (Phase 6.3) when that argument is supplied.
+ *
+ * Phase 6.3 — two provenances, one loader. Bundled mods (from `bundledModsDir`)
+ * are scanned first and tagged `provenance: 'bundled'`; installed mods (from
+ * `modsDir`) are scanned second and tagged `provenance: 'installed'`. Both
+ * use the exact same `validateMod` path — a bundled mod is not special-cased
+ * (§3). A duplicate mod id across the two directories is a fault on the
+ * second one, exactly as it would be within one directory.
+ *
+ * Phase 6.2 — `userOrder` is the optional user-chosen order (array of mod ids)
+ * that overrides the manifest's `loadOrder` as the primary tiebreak in the
+ * topological sort. The dependency graph is still a hard constraint; the
+ * override only reorders mods that are simultaneously ready. See
+ * `resolveDependenciesAndSort` for the exact rule.
+ *
+ * @param {string} modsDir Installed mods directory. Missing = no installed mods.
+ * @param {string} [appVersion] Host app version, for `appVersion` compatibility checks.
+ * @param {readonly string[]} [userOrder] Phase 6.2: user-chosen order, ids ascending.
+ * @param {string} [bundledModsDir] Phase 6.3: bundled mods directory. Missing/absent = no bundled scan.
+ * @returns {{ mods: object[], faults: { file: string, reason: string }[] }}
+ */
+export function loadMods(modsDir, appVersion, userOrder, bundledModsDir) {
+    const mods = [];
+    const faults = [];
+    const claimedIds = new Map();
+
+    // Phase 6.3 — scan the bundled directory first so a bundled mod's id is
+    // claimed before any installed mod with the same id. The bundled mod wins
+    // and the installed duplicate is faulted, which is the right outcome: a
+    // user who drops a folder with the same id as a bundled mod has made a
+    // mistake, and the bundled mod is the one the app depends on. Scanning
+    // bundled first means `claimedIds` already has the bundled id when the
+    // installed dir is walked, so the duplicate is reported on the installed
+    // copy (the user's file), not the bundled one.
+    if (typeof bundledModsDir === 'string' && bundledModsDir.length > 0) {
+        loadModsFromDir(bundledModsDir, appVersion, mods, faults, claimedIds, PROVENANCE_BUNDLED);
+    }
+    if (typeof modsDir === 'string' && modsDir.length > 0) {
+        loadModsFromDir(modsDir, appVersion, mods, faults, claimedIds, PROVENANCE_INSTALLED);
+    }
 
     // Phase 1.3 / MANIFEST.md §6.3 — resolve dependencies and topologically
     // sort. Faults produced here (missing dep, faulted dep, version
@@ -1593,7 +1723,7 @@ export function loadMods(modsDir, appVersion) {
     // contract (§7.4) still holds. The returned `mods` are in resolved load
     // order; callers MUST NOT re-sort.
     const idToFile = new Map(mods.map((m) => [m.id, m.file]));
-    const ordered = resolveDependenciesAndSort(mods, idToFile, faults);
+    const ordered = resolveDependenciesAndSort(mods, idToFile, faults, userOrder);
 
     return { mods: ordered, faults };
 }

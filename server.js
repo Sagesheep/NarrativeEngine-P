@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { KeyVault } from './server/vault.js';
-import { DATA_DIR, CAMPAIGNS_DIR, PUBLIC_ASSETS_DIR, MODS_DIR, APP_VERSION, ensureDirs } from './server/lib/fileStore.js';
+import { DATA_DIR, CAMPAIGNS_DIR, PUBLIC_ASSETS_DIR, MODS_DIR, BUNDLED_MODS_DIR, APP_VERSION, ensureDirs } from './server/lib/fileStore.js';
 import { createVaultRouter } from './server/routes/vault.js';
 import { createSettingsRouter } from './server/routes/settings.js';
 import { createCampaignsRouter } from './server/routes/campaigns.js';
@@ -20,6 +20,8 @@ import { createEmbeddingRouter } from './server/routes/embedding.js';
 import { createTtsRouter } from './server/routes/tts.js';
 import { createSceneImagesRouter } from './server/routes/sceneImages.js';
 import { createModsRouter } from './server/routes/mods.js';
+import { loadMods } from './server/lib/modLoader.js';
+import { registerModTables } from './server/lib/modTableRegistry.js';
 import { mountGenericTableRoutes, mountModTableRoutes, serverTableRegistry } from './server/lib/tableRegistry.js';
 import { registerLocationTable } from './server/lib/locationTable.js';
 import { initDb } from './server/lib/vectorStore.js';
@@ -97,7 +99,27 @@ app.use(createLLMProxyRouter());
 app.use(createEmbeddingRouter());
 app.use(createTtsRouter());
 app.use(createSceneImagesRouter(vault));
-app.use('/api/mods', createModsRouter({ modsDir: MODS_DIR, appVersion: APP_VERSION }));
+app.use('/api/mods', createModsRouter({ modsDir: MODS_DIR, appVersion: APP_VERSION, bundledModsDir: BUNDLED_MODS_DIR }));
+
+// Phase 6.4 — register mod tables ONCE AT BOOT, not only as a side effect of
+// `GET /api/mods`. Every other route that needs to know a mod table exists —
+// the dynamic GET/PUT pair, the campaign-file suffix set, the transfer bundle —
+// was previously blind until something happened to list the mods. A server
+// process that had never served that route exported campaigns with every mod
+// table missing. The mods route still re-registers on each call (that is how an
+// install takes effect without a restart); this is the floor beneath it.
+registerModTablesAtBoot();
+function registerModTablesAtBoot() {
+    try {
+        const result = loadMods(MODS_DIR, APP_VERSION, undefined, BUNDLED_MODS_DIR);
+        registerModTables(serverTableRegistry, result.mods);
+    } catch (err) {
+        // `loadMods` never throws; belt-and-braces. A failure here must not
+        // stop the server from starting — it only means mod tables wait for
+        // the first `GET /api/mods`, which is the old behaviour.
+        console.error('[mods] boot-time table registration failed:', err.message);
+    }
+}
 
 // Generic table routes (WO-P5-03 Step 2.2). Mounted AFTER every bespoke router
 // so a descriptor's generic GET/PUT pair can never shadow archive.js,

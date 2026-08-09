@@ -1,0 +1,20 @@
+{
+  "id": "npc-tagger",
+  "name": "NPC Tagger",
+  "version": "1.0.0",
+  "description": "A header button that opens a window listing every NPC currently on stage, with editable tags stored in this mod's own table.",
+  "author": "Cold Executor",
+  "tables": [
+    {
+      "name": "tags",
+      "recordShape": "array",
+      "label": "NPC Tags"
+    }
+  ],
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate"
+    }
+  }
+}

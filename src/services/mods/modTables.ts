@@ -60,6 +60,25 @@ export async function saveModTable(
 }
 
 /**
+ * Phase 6.4 / `DATA_POLICY.md` §3 — remove every table this mod owns in this
+ * campaign. The host half of the clean action; the mod's own `clean` hook runs
+ * first (see `cleanModData` in `modBootstrap.ts`).
+ *
+ * Unlike the fire-and-forget save above, this one is AWAITED and its failure
+ * is a rejection. A save that silently fails costs the user one edit; a clear
+ * that silently fails leaves them believing data is gone when it is still on
+ * disk — and the UI must be able to say so.
+ *
+ * Returns the namespaced names the server actually removed.
+ */
+export async function clearModData(campaignId: string, modId: string): Promise<string[]> {
+    const res = await fetch(`${API}/campaigns/${campaignId}/mod-data/${modId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`Mod data clear failed: ${res.status}`);
+    const body = await res.json();
+    return Array.isArray(body?.removed) ? body.removed : [];
+}
+
+/**
  * Collect every declared mod table across all loaded mods, as
  * `{ modId, table }` pairs. Used by the hydrator to fetch each table's data.
  */

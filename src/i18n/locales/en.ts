@@ -127,7 +127,58 @@ export const en = {
     'settings.extensions.mod.author': 'by {{author}}',
     'settings.extensions.mod.folder': 'Folder: {{folder}}',
     'settings.extensions.mod.settings': 'Settings',
+    'settings.extensions.mod.roleReplaces': 'Replaces: {{role}}',
+    'settings.extensions.mod.roleActive': 'Active',
+    'settings.extensions.mod.roleOverriddenBy': 'Overridden by {{mod}}',
     'settings.extensions.mod.faultInline': 'This mod could not run: {{reason}}',
+
+    // Phase 6.3 — provenance badge. A bundled mod ships with the app (on by
+    // default, version moves with app updates); an installed mod the user
+    // dropped in. The badge sits next to the tier so a user can tell at a
+    // glance what came with the app and that disabling a bundled mod is the
+    // safe way to remove it from a campaign (deleting the folder on disk is
+    // the user's prerogative and must not break the app).
+    'settings.extensions.mod.provenance.bundled': 'Bundled',
+    'settings.extensions.mod.provenance.installed': 'Installed',
+
+    // Phase 6.4 — the two blocking confirmations (`DATA_POLICY.md` §5). The
+    // bodies are PM-approved copy and are not to be softened: they are the
+    // WHOLE mitigation for removing a deeply-integrated mod mid-campaign, and
+    // no graceful-degradation machinery is coming to back them up. Translate
+    // them, do not rewrite them.
+    'settings.extensions.modData.disable.title': 'Disable this mod?',
+    'settings.extensions.modData.disable.body':
+        'Disabling {{modName}} mid-campaign will change how this campaign plays. Its data is kept and will still be here if you turn it back on, but the story stops tracking whatever it handled — and the GM has hundreds of scenes written as though it does. Expect worse output.',
+    'settings.extensions.modData.disable.confirm': 'Disable anyway',
+    'settings.extensions.modData.delete.title': 'Delete this mod’s data?',
+    'settings.extensions.modData.delete.body':
+        'Deleting {{modName}} permanently removes its data from this campaign. There is no undo. Your story text is untouched, but everything the mod tracked is gone, and the GM will keep referring to things that no longer exist.',
+    'settings.extensions.modData.delete.confirm': 'Delete permanently',
+    'settings.extensions.modData.cancel': 'Cancel',
+    // The row affordance that opens the delete dialog, and the two states it
+    // can be in. Data is per campaign, so with no campaign open there is
+    // nothing to delete and the button says why rather than lying about it.
+    'settings.extensions.modData.delete.action': 'Delete data',
+    'settings.extensions.modData.delete.noCampaign': 'Open a campaign to delete its mod data.',
+    'settings.extensions.modData.delete.busy': 'Deleting…',
+    'settings.extensions.modData.delete.done.one': 'Deleted 1 table for this campaign.',
+    'settings.extensions.modData.delete.done.other': 'Deleted {{count}} tables for this campaign.',
+    'settings.extensions.modData.delete.none': 'This mod had no data in this campaign.',
+    'settings.extensions.modData.delete.failed': 'Could not delete the data: {{reason}}. Nothing was removed.',
+
+    // ── Settings → Extensions → Load order (Phase 6.2) ─────────────────
+    'settings.extensions.loadOrder.title': 'Load order',
+    'settings.extensions.loadOrder.help': 'The order mods load in governs activation, mount-point order, suppression resolution, and fact conflicts. A mod lower in the list loads first and wins conflicts. Dependencies are locked — a mod cannot be moved above something it depends on.',
+    'settings.extensions.loadOrder.position': '#{{n}}',
+    'settings.extensions.loadOrder.moveUp': 'Move up',
+    'settings.extensions.loadOrder.moveDown': 'Move down',
+    'settings.extensions.loadOrder.moveUp.blocked': 'Cannot move up — depends on {{dep}}',
+    'settings.extensions.loadOrder.moveDown.blocked': 'Cannot move down — {{dependent}} depends on it',
+    'settings.extensions.loadOrder.conflict.fact': 'Conflict with {{winner}} — {{winner}} wins (loads first)',
+    'settings.extensions.loadOrder.conflict.role': 'Role conflict with {{winner}} — {{winner}} wins (loads first)',
+    'settings.extensions.loadOrder.winner': 'Winner',
+    'settings.extensions.loadOrder.reset': 'Reset to manifest order',
+    'settings.extensions.loadOrder.violation': 'Cannot reorder: {{message}}',
 
     // ── Campaign hub ─────────────────────────────────────────────────────
     'hub.import.tooltip': 'Import Campaign',
@@ -229,6 +280,8 @@ export const en = {
     'blockview.section.contrib.help': 'Blocks assembled into the final user message below the cache boundary. Built-ins and installed mods.',
     'blockview.section.tracks': 'Post-turn tracks',
     'blockview.section.tracks.help': 'Background work that runs after the scene commits. Tracks are not in the tier matrix; absent means enabled.',
+    'blockview.section.roles': 'Service roles',
+    'blockview.section.roles.help': 'Single-answer host seams. The core provider is shown as a block and an enabled claimant can stand it aside by resolved load order.',
     'blockview.empty': 'No blocks registered.',
     'blockview.tier.label': 'Tier',
     'blockview.tier.help': 'Read-only. Cycle it from the header.',

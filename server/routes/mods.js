@@ -20,13 +20,28 @@ import { serverError } from '../lib/serverError.js';
  * WO-P5-05: after loading, mod-declared tables are registered into the server table registry
  * so the derived campaign-file suffixes, generic routes, and transfer bundle include them.
  * Registration clears the previous batch first so an uninstalled mod's suffix does not linger.
+ *
+ * Phase 6.3 — `bundledModsDir` is the second scan directory. Bundled mods live there (ship with
+ * the app, on by default) and are tagged `provenance: 'bundled'` by the loader. Installed mods
+ * from `modsDir` are tagged `provenance: 'installed'`. The asset route (`/:folder/*path`) tries
+ * the installed dir first, then the bundled dir, so a native mod in either location can be
+ * `import()`ed by the browser.
  */
-export function createModsRouter({ modsDir, appVersion } = {}) {
+export function createModsRouter({ modsDir, appVersion, bundledModsDir } = {}) {
     const router = Router();
 
-    router.get('/', (_req, res) => {
+    router.get('/', (req, res) => {
         try {
-            const result = loadMods(modsDir, appVersion);
+            // Phase 6.2 — `?order=id1,id2,id3` carries the user's chosen load
+            // order from `settings.modLoadOrder`. The server is the authority
+            // for the topological sort (dependencies are a hard constraint),
+            // so the override is applied here rather than re-sorting on the
+            // client. An empty or absent param is the manifest default.
+            const rawOrder = typeof req.query.order === 'string' ? req.query.order : '';
+            const userOrder = rawOrder !== ''
+                ? rawOrder.split(',').map((s) => s.trim()).filter((s) => s !== '')
+                : undefined;
+            const result = loadMods(modsDir, appVersion, userOrder, bundledModsDir);
             registerModTables(serverTableRegistry, result.mods);
             res.json(result);
         } catch (err) {
@@ -42,7 +57,15 @@ export function createModsRouter({ modsDir, appVersion } = {}) {
             // path that `serveModFile` checks.
             const pathSegments = req.params.path;
             const relativePath = Array.isArray(pathSegments) ? pathSegments.join('/') : (pathSegments ?? '');
-            const served = serveModFile(modsDir, folder, relativePath);
+            // Phase 6.3 — try the installed dir first, then the bundled dir. A
+            // folder name is unique across the two (the loader faults duplicates),
+            // so at most one will match. The containment check runs inside
+            // `serveModFile` for every attempt — the folder name in the URL is
+            // attacker-controlled input regardless of which directory it targets.
+            let served = serveModFile(modsDir, folder, relativePath);
+            if (served === null && typeof bundledModsDir === 'string' && bundledModsDir.length > 0) {
+                served = serveModFile(bundledModsDir, folder, relativePath);
+            }
             if (served === null) {
                 return res.status(404).json({ error: 'Not found' });
             }

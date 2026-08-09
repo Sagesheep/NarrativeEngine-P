@@ -5,8 +5,8 @@ import {
     archivePath, archiveIndexPath, chaptersPath, factsPath,
     entitiesPath, timelinePath, validateCampaignId,
 } from '../lib/fileStore.js';
-import { isCampaignMetaFile, getTransferableTables } from '../lib/tableRegistry.js';
-import { modTableSuffix, modTableName } from '../lib/modTableRegistry.js';
+import { isCampaignMetaFile, getTransferableTables, serverTableRegistry } from '../lib/tableRegistry.js';
+import { modTableSuffix, modTableName, scanModTableFiles } from '../lib/modTableRegistry.js';
 import { embedText, buildArchiveText, buildLoreText } from '../lib/embedder.js';
 import { storeArchiveEmbedding, storeLoreEmbedding } from '../lib/vectorStore.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
@@ -119,6 +119,25 @@ export function createTransferRouter() {
                 path.join(CAMPAIGNS_DIR, `${id}${fileSuffix}`),
                 recordShape === 'array' ? [] : null,
             );
+        }
+
+        // Phase 6.4 / `DATA_POLICY.md` §4 — then every mod-table file ON DISK
+        // that the loop above did not already cover.
+        //
+        // The registry is populated as a side effect of `GET /api/mods`, and it
+        // forgets a mod the moment its folder is gone. Export driven by the
+        // registry alone therefore dropped mod tables in two ordinary cases: a
+        // server that had not yet served the mods route, and a campaign whose
+        // mod was uninstalled. Both are silent data loss on the path users
+        // treat as a backup, and both contradict the policy's promise that a
+        // disabled mod's data is kept and comes back intact.
+        //
+        // Import already preserves unknown `mod.<modId>.<name>` keys (§5
+        // below); this is the other half of that symmetry — export must be able
+        // to PRODUCE the key import knows how to keep.
+        for (const { bundleKey, fileSuffix } of scanModTableFiles(CAMPAIGNS_DIR, id, serverTableRegistry)) {
+            if (bundleKey in bundle) continue;
+            bundle[bundleKey] = readJson(path.join(CAMPAIGNS_DIR, `${id}${fileSuffix}`), null);
         }
 
         const safeName = (campaign.name || id).replace(/[^a-z0-9]+/gi, '_').toLowerCase();

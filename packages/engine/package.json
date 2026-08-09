@@ -14,6 +14,10 @@
     "./enemy/enemyShape": {
       "types": "./dist/enemy/enemyShape.d.ts",
       "import": "./dist/enemy/enemyShape.js"
+    },
+    "./roles/roleIds": {
+      "types": "./dist/roles/roleIds.d.ts",
+      "import": "./dist/roles/roleIds.js"
     }
   },
   "files": [

@@ -24,12 +24,13 @@ import { createFinalUserRegistryWithExtensions } from '../../services/payload/co
 import type { ContributionModule, ContributionRegistry } from '../../services/payload/contributions/registry';
 import { postTurnTracks } from '../../services/turn/tracks';
 import type { PostTurnTrack } from '../../services/turn/tracks/types';
+import { serviceRoles } from '../../services/roles';
 
 /** Which kind of compute a block performs — drives the badge colour. */
 export type BlockKind = 'engine' | 'model';
 
 /** Which registry a block came from — drives the section grouping in the view. */
-export type BlockSource = 'tier' | 'contribution' | 'track';
+export type BlockSource = 'tier' | 'contribution' | 'track' | 'role';
 
 /**
  * The one shape the BlockView renders. Every field comes from registry metadata; none is
@@ -114,10 +115,26 @@ const trackToBlock = (tr: PostTurnTrack<unknown>): Block => {
     };
 };
 
+const roleToBlock = (role: ReturnType<typeof serviceRoles.list>[number]): Block => {
+    const active = serviceRoles.activeProviderFor(role.id);
+    const activeMod = active?.source === 'mod' ? active.modId ?? active.providerId : undefined;
+    return {
+        id: role.defaultProvider.providerId,
+        name: role.name,
+        description: role.description,
+        source: 'role',
+        kind: 'model',
+        switchable: true,
+        defaultEnabled: true,
+        meta: activeMod ? 'stood aside for ' + activeMod : undefined,
+    };
+};
+
 export interface EnumeratedBlocks {
     tier: Block[];
     contributions: Block[];
     tracks: Block[];
+    roles: Block[];
 }
 
 /**
@@ -153,6 +170,7 @@ export function enumerateBlocks(): EnumeratedBlocks {
         tracks = [];
     }
     const trackBlocks = tracks.map(trackToBlock);
+    const roles = serviceRoles.list().map(roleToBlock);
 
-    return { tier, contributions, tracks: trackBlocks };
+    return { tier, contributions, tracks: trackBlocks, roles };
 }

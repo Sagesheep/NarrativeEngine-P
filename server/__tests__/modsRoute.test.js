@@ -65,3 +65,64 @@ describe('GET /api/mods', () => {
         expect(res.body.faults[0].reason).toMatch(/invalid JSON/i);
     });
 });
+
+// Phase 6.2 — the `?order=id1,id2,id3` query param carries the user's
+// chosen load order from `settings.modLoadOrder`. The server applies it
+// as the primary tiebreak in the topological sort. The route parses the
+// param and passes it to `loadMods`; the sort behaviour itself is tested
+// in `modLoader.test.js` under "Phase 6.2 user load-order override".
+describe('GET /api/mods?order= — Phase 6.2 user load-order override', () => {
+    const writeMod = (id, loadOrder = 0) => {
+        const folder = path.join(dir, id);
+        fs.mkdirSync(folder, { recursive: true });
+        fs.writeFileSync(path.join(folder, 'manifest.json'), JSON.stringify({
+            id,
+            name: id,
+            version: '1.0.0',
+            loadOrder,
+            contributions: [{ id: 'c', order: 100, text: 'x' }],
+        }), 'utf-8');
+    };
+
+    it('without ?order, uses the manifest loadOrder default', async () => {
+        writeMod('alpha', 100);
+        writeMod('beta', -5);
+        const res = await request.get('/api/mods');
+        expect(res.body.mods.map((m) => m.id)).toEqual(['beta', 'alpha']);
+    });
+
+    it('with ?order=, overrides the manifest loadOrder', async () => {
+        writeMod('alpha', 100);
+        writeMod('beta', -5);
+        const res = await request.get('/api/mods?order=alpha,beta');
+        expect(res.body.mods.map((m) => m.id)).toEqual(['alpha', 'beta']);
+    });
+
+    it('with an empty ?order=, falls back to the manifest default', async () => {
+        writeMod('alpha', 100);
+        writeMod('beta', -5);
+        const res = await request.get('/api/mods?order=');
+        expect(res.body.mods.map((m) => m.id)).toEqual(['beta', 'alpha']);
+    });
+
+    it('with ?order= listing one mod, lists it first and the rest by loadOrder', async () => {
+        writeMod('a', 0);
+        writeMod('b', 10);
+        writeMod('c', 5);
+        const res = await request.get('/api/mods?order=c');
+        expect(res.body.mods.map((m) => m.id)).toEqual(['c', 'a', 'b']);
+    });
+
+    it('?order= ids not installed are ignored', async () => {
+        writeMod('a', 0);
+        const res = await request.get('/api/mods?order=ghost,a');
+        expect(res.body.mods.map((m) => m.id)).toEqual(['a']);
+    });
+
+    it('whitespace in ?order= is trimmed', async () => {
+        writeMod('alpha', 100);
+        writeMod('beta', -5);
+        const res = await request.get('/api/mods?order=%20alpha%20%2C%20beta%20');
+        expect(res.body.mods.map((m) => m.id)).toEqual(['alpha', 'beta']);
+    });
+});

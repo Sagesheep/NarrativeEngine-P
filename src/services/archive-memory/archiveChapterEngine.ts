@@ -343,7 +343,7 @@ export async function iterativeChapterFilter(
  * Phase 4: Scene-level 3D scoring within ranges
  * Phase 5: Fetch scenes within token budget
  */
-export async function recallWithChapterFunnel(
+export async function selectArchiveSceneIdsWithChapterFunnel(
     chapters: ArchiveChapter[],
     index: ArchiveIndexEntry[],
     userMessage: string,
@@ -351,11 +351,9 @@ export async function recallWithChapterFunnel(
     npcLedger?: NPCEntry[],
     semanticFacts?: { subject: string; predicate: string; object: string; importance: number }[],
     utilityProvider?: EndpointConfig | ProviderConfig,
-    campaignId?: string,
-    tokenBudget = 3000,
     excludeSceneIds?: Set<string>,
     modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
-): Promise<ArchiveScene[]> {
+): Promise<string[]> {
     // ─── Phase 1: Chapter-level 3D scoring ───
     const ranked = rankChapters(chapters, userMessage, recentMessages, npcLedger, semanticFacts);
 
@@ -389,6 +387,33 @@ export async function recallWithChapterFunnel(
     if (matchedIds.length === 0) return [];
 
     // ─── Phase 5: Fetch within budget ───
+    return matchedIds;
+}
+
+export async function recallWithChapterFunnel(
+    chapters: ArchiveChapter[],
+    index: ArchiveIndexEntry[],
+    userMessage: string,
+    recentMessages: ChatMessage[],
+    npcLedger?: NPCEntry[],
+    semanticFacts?: { subject: string; predicate: string; object: string; importance: number }[],
+    utilityProvider?: EndpointConfig | ProviderConfig,
+    campaignId?: string,
+    tokenBudget = 3000,
+    excludeSceneIds?: Set<string>,
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
+): Promise<ArchiveScene[]> {
+    const matchedIds = await selectArchiveSceneIdsWithChapterFunnel(
+        chapters,
+        index,
+        userMessage,
+        recentMessages,
+        npcLedger,
+        semanticFacts,
+        utilityProvider,
+        excludeSceneIds,
+        modelCall,
+    );
     if (!campaignId) return [];
     return fetchArchiveScenes(campaignId, matchedIds, tokenBudget);
 }

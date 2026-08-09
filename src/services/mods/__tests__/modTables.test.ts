@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { modTableName, collectDeclaredModTables, hydrateModTables, getModTable, saveModTable } from '../modTables';
+import { modTableName, collectDeclaredModTables, hydrateModTables, getModTable, saveModTable, clearModData } from '../modTables';
 import type { ValidatedMod } from '../modTypes';
 
 const mod = (overrides: Partial<ValidatedMod> = {}): ValidatedMod => ({
@@ -79,6 +79,31 @@ describe('saveModTable', () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify([{ id: 'a' }]),
         });
+    });
+});
+
+// Phase 6.4 / `DATA_POLICY.md` §3 — the client half of the clean action.
+describe('clearModData', () => {
+    beforeEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('DELETEs the mod-data route and returns the removed names', async () => {
+        const fetchMock = vi.fn(async () => ({
+            ok: true,
+            json: async () => ({ ok: true, removed: ['mod.compendium.powers'] }),
+        }));
+        vi.stubGlobal('fetch', fetchMock);
+        const removed = await clearModData('c1', 'compendium');
+        expect(removed).toEqual(['mod.compendium.powers']);
+        expect(fetchMock).toHaveBeenCalledWith('/api/campaigns/c1/mod-data/compendium', { method: 'DELETE' });
+    });
+
+    it('rejects on a non-ok response rather than reporting an empty clear', async () => {
+        // A save that silently fails costs one edit; a clear that silently
+        // fails leaves the user believing data is gone when it is not.
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
+        await expect(clearModData('c1', 'compendium')).rejects.toThrow('Mod data clear failed: 500');
     });
 });
 

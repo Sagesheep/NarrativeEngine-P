@@ -18,6 +18,7 @@
 // │ hooks. A mod table is data only.                                       │
 // └────────────────────────────────────────────────────────────────────────┘
 
+import fs from 'fs';
 import { BUILTIN_CAMPAIGN_FILE_SUFFIXES } from './fileStore.js';
 
 /**
@@ -75,6 +76,113 @@ export function buildModTableDescriptor(modId, table) {
         // hydrator + slice are wired client-side (Step 4); the server descriptor
         // does not carry function touchpoints.
     };
+}
+
+/**
+ * Phase 6.4 / `DATA_POLICY.md` §4 — every mod-table file on disk for one
+ * campaign, whether or not the owning mod is currently registered.
+ *
+ * ┌─ WHY THIS EXISTS (Phase 6.4 §0.6, the one open verification) ────────────┐
+ * │ Export used to read the registry alone. The registry is populated as a   │
+ * │ side effect of `GET /api/mods`, so a server that had never served that   │
+ * │ route exported a bundle with EVERY mod table missing — silently, on the  │
+ * │ path users treat as a backup. The policy says a disabled mod's data is   │
+ * │ kept and returns intact; an export that drops it says otherwise. Two     │
+ * │ answers about user data is how data gets lost, so export is now driven   │
+ * │ by what is on disk, and the registry only refines the key.               │
+ * └──────────────────────────────────────────────────────────────────────────┘
+ *
+ * The namespace IS the provenance (§0.3): a file named
+ * `<campaignId>.mod-<modId>-<name>.json` is mod-owned by construction, and
+ * nothing else can produce that shape (the `mod-` prefix is computed by
+ * `modTableSuffix`, never supplied by a modder).
+ *
+ * Splitting `<modId>-<name>` back apart is ambiguous — both halves may contain
+ * `-`. That ambiguity is harmless HERE and only here, because the round trip
+ * is by *suffix*, not by split: import re-derives the filename from the key by
+ * re-joining the two segments with `-`, so any split that re-joins to the same
+ * string writes the same file. A registered descriptor with a matching
+ * `fileSuffix` still wins, so an installed mod's key is always the real one.
+ *
+ * Returns `[{ bundleKey, fileSuffix }]`. Never throws: an unreadable directory
+ * yields `[]`, because a failed scan must degrade to the old registry-only
+ * behaviour rather than fail the export.
+ */
+export function scanModTableFiles(campaignsDir, campaignId, registry) {
+    const prefix = `${campaignId}.mod-`;
+    let filenames;
+    try {
+        filenames = fs.readdirSync(campaignsDir);
+    } catch {
+        return [];
+    }
+    const out = [];
+    for (const filename of filenames) {
+        if (!filename.startsWith(prefix) || !filename.endsWith('.json')) continue;
+        const fileSuffix = filename.slice(campaignId.length);
+        // A registered descriptor is the authority on how this suffix splits.
+        const registered = registry
+            ? registry.list().find((d) => d.fileSuffix === fileSuffix)
+            : undefined;
+        if (registered) {
+            out.push({ bundleKey: registered.name, fileSuffix });
+            continue;
+        }
+        // No descriptor: split at the first `-` after the `mod-` prefix. See
+        // the ambiguity note above — the file round-trips regardless.
+        const rest = filename.slice(prefix.length, filename.length - '.json'.length);
+        const dash = rest.indexOf('-');
+        if (dash <= 0 || dash === rest.length - 1) continue;
+        const modId = rest.slice(0, dash);
+        const name = rest.slice(dash + 1);
+        if (!/^[a-zA-Z0-9_-]+$/.test(modId) || !/^[a-zA-Z0-9_-]+$/.test(name)) continue;
+        out.push({ bundleKey: modTableName(modId, name), fileSuffix });
+    }
+    return out;
+}
+
+/**
+ * Phase 6.4 — every mod-table file on disk belonging to ONE mod, for one
+ * campaign. The delete path's whole implementation (`DATA_POLICY.md` §3):
+ * *"delete the files with that prefix."*
+ *
+ * Prefix-matched rather than declaration-matched on purpose. `MANIFEST.md`
+ * §7.2 says the host removes the mod's provisioned tables **unconditionally**,
+ * and a table the mod declared in v1 and dropped in v2 is still the mod's data
+ * — it has no owner but this mod, so leaving it behind would create exactly
+ * the orphan the policy says cannot exist.
+ *
+ * ┌─ THE ONE PLACE THE SPLIT AMBIGUITY BITES ────────────────────────────────┐
+ * │ `<modId>-<name>` may contain `-` on both sides, so cleaning mod `my`     │
+ * │ would prefix-match `…mod-my-mod-powers.json`, which belongs to mod       │
+ * │ `my-mod`. Harmless for export (the file round-trips either way);         │
+ * │ NOT harmless here, where the file is deleted. So a prefix match is       │
+ * │ dropped when it is a registered descriptor of a DIFFERENT mod — the      │
+ * │ registry knows every installed mod's real suffixes.                      │
+ * │ Residual gap, recorded in `DATA_POLICY.md` §3: an *undeclared leftover*  │
+ * │ file of a longer-named mod that is not currently installed cannot be     │
+ * │ told apart from this mod's own leftovers, and is removed with them.      │
+ * └──────────────────────────────────────────────────────────────────────────┘
+ */
+export function scanModTableFilesForMod(campaignsDir, campaignId, modId, registry) {
+    const prefix = `${campaignId}.mod-${modId}-`;
+    let filenames;
+    try {
+        filenames = fs.readdirSync(campaignsDir);
+    } catch {
+        return [];
+    }
+    // Suffixes owned by some OTHER installed mod — never this mod's to remove.
+    const foreign = new Set(
+        (registry ? registry.list() : [])
+            .filter((d) => typeof d.name === 'string'
+                && d.name.startsWith('mod.')
+                && d.name.slice('mod.'.length).split('.')[0] !== modId)
+            .map((d) => d.fileSuffix),
+    );
+    return filenames.filter((f) => f.startsWith(prefix)
+        && f.endsWith('.json')
+        && !foreign.has(f.slice(campaignId.length)));
 }
 
 /**

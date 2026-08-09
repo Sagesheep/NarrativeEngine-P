@@ -8,6 +8,7 @@ import type { AiTier } from '../../types';
 import { enumerateBlocks, type Block, type BlockSource } from './blockModel';
 import { BlockCard } from './BlockCard';
 import { TierPresetBar } from './TierPresetBar';
+import { setRoleModuleEnabled } from '../../services/roles';
 
 /**
  * WORKORDER-P5-02 — the Block View modal.
@@ -31,7 +32,7 @@ export function BlockViewModal() {
     // Enumerate once per open. The registries are stable across a turn, and rebuilding on
     // every render would call the mod loader's accessor needlessly. `useMemo([])` mirrors
     // the ExtensionsTab's `builtinRows` pattern.
-    const blocks = useMemo(() => enumerateBlocks(), []);
+    const blocks = useMemo(() => enumerateBlocks(), [settings?.moduleEnabled]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -62,6 +63,7 @@ export function BlockViewModal() {
             next[id] = preset[id];
         }
         updateSettings({ moduleEnabled: next });
+        setRoleModuleEnabled(next);
     };
 
     // Clear every explicit override for a TierFeature id, so the tier preset decides again.
@@ -74,10 +76,13 @@ export function BlockViewModal() {
             if (!presetIds.has(id)) next[id] = val;
         }
         updateSettings({ moduleEnabled: next });
+        setRoleModuleEnabled(next);
     };
 
     const setEnabled = (id: string, enabled: boolean) => {
-        updateSettings({ moduleEnabled: { ...(moduleEnabled ?? {}), [id]: enabled } });
+        const next = { ...(moduleEnabled ?? {}), [id]: enabled };
+        updateSettings({ moduleEnabled: next });
+        setRoleModuleEnabled(next);
     };
 
     const renderSection = (source: BlockSource, list: Block[]) => {
@@ -86,11 +91,13 @@ export function BlockViewModal() {
         const titleKey =
             source === 'tier' ? 'blockview.section.tier'
             : source === 'contribution' ? 'blockview.section.contrib'
-            : 'blockview.section.tracks';
+            : source === 'track' ? 'blockview.section.tracks'
+            : 'blockview.section.roles';
         const helpKey =
             source === 'tier' ? 'blockview.section.tier.help'
             : source === 'contribution' ? 'blockview.section.contrib.help'
-            : 'blockview.section.tracks.help';
+            : source === 'track' ? 'blockview.section.tracks.help'
+            : 'blockview.section.roles.help';
         return (
             <section className="space-y-2">
                 <div>
@@ -204,6 +211,7 @@ export function BlockViewModal() {
                     {renderSection('tier', blocks.tier)}
                     {renderSection('contribution', blocks.contributions)}
                     {renderSection('track', blocks.tracks)}
+                    {renderSection('role', blocks.roles ?? [])}
                 </div>
             </div>
         </div>

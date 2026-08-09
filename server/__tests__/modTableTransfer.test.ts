@@ -110,6 +110,108 @@ describe('WO-P5-05 Step 5 — mod table transfer', () => {
         expect(JSON.parse(fs.readFileSync(importedPath, 'utf-8'))).toEqual(powers);
     });
 
+    // ── Phase 6.4 / `DATA_POLICY.md` §4 ────────────────────────────────
+    //
+    // §0.6 of the phase left one thing unverified: whether the transfer path
+    // already contradicted the policy. It did. Export read the registry alone,
+    // and the registry is populated as a side effect of `GET /api/mods` — so a
+    // server that had never served that route, or a campaign whose mod had been
+    // uninstalled, exported a bundle with the mod data silently missing. These
+    // three cases are the reconciliation, and they are the policy's promise
+    // that a disabled mod's data is kept and comes back intact.
+
+    it('exports a mod table with the registry empty — the mods route was never called', async () => {
+        const { serverTableRegistry } = await import('../lib/tableRegistry.js');
+        serverTableRegistry.clear();
+
+        const id = 'cold-start';
+        const powers = [{ id: 'fireball', damage: '8d6' }];
+        fs.writeFileSync(path.join(campaignsDir, `${id}.json`), JSON.stringify({ id, name: 'Cold Start' }));
+        fs.writeFileSync(path.join(campaignsDir, `${id}.mod-compendium-powers.json`), JSON.stringify(powers));
+
+        const { createTransferRouter } = await import('../routes/transfer.js');
+        const app = express();
+        app.use(express.json());
+        app.use(createTransferRouter());
+
+        const exported = await request(app).get(`/api/campaigns/${id}/export`).expect(200);
+        expect(exported.body['mod.compendium.powers']).toEqual(powers);
+
+        // And it round-trips onto disk under the same filename.
+        const imported = await request(app).post('/api/campaigns/import').send(exported.body).expect(200);
+        const importedPath = path.join(campaignsDir, `${imported.body.id}.mod-compendium-powers.json`);
+        expect(JSON.parse(fs.readFileSync(importedPath, 'utf-8'))).toEqual(powers);
+    });
+
+    it('exports data belonging to a mod that is no longer installed', async () => {
+        const { serverTableRegistry } = await import('../lib/tableRegistry.js');
+        serverTableRegistry.clear();
+
+        const id = 'uninstalled';
+        const arcs = [{ id: 'arc-1' }];
+        fs.writeFileSync(path.join(campaignsDir, `${id}.json`), JSON.stringify({ id, name: 'Uninstalled' }));
+        // `arc` is not registered anywhere — its folder is gone. Under §1/§2 the
+        // data is still the user's, so a backup that omitted it would be lying.
+        fs.writeFileSync(path.join(campaignsDir, `${id}.mod-arc-arcs.json`), JSON.stringify(arcs));
+
+        const { createTransferRouter } = await import('../routes/transfer.js');
+        const app = express();
+        app.use(express.json());
+        app.use(createTransferRouter());
+
+        const exported = await request(app).get(`/api/campaigns/${id}/export`).expect(200);
+        expect(exported.body['mod.arc.arcs']).toEqual(arcs);
+    });
+
+    it('round-trips a hyphenated mod id to the same file despite the ambiguous split', async () => {
+        const { serverTableRegistry } = await import('../lib/tableRegistry.js');
+        serverTableRegistry.clear();
+
+        const id = 'hyphenated';
+        const rows = [{ id: 'row-1' }];
+        fs.writeFileSync(path.join(campaignsDir, `${id}.json`), JSON.stringify({ id, name: 'Hyphenated' }));
+        // Mod `my-mod`, table `powers`. With no descriptor to consult, the scan
+        // splits at the first `-` and calls it `mod.my.mod-powers`. §4: the
+        // split is ambiguous and harmless, because import re-joins the two
+        // segments and writes the SAME file.
+        fs.writeFileSync(path.join(campaignsDir, `${id}.mod-my-mod-powers.json`), JSON.stringify(rows));
+
+        const { createTransferRouter } = await import('../routes/transfer.js');
+        const app = express();
+        app.use(express.json());
+        app.use(createTransferRouter());
+
+        const exported = await request(app).get(`/api/campaigns/${id}/export`).expect(200);
+        const imported = await request(app).post('/api/campaigns/import').send(exported.body).expect(200);
+
+        const importedPath = path.join(campaignsDir, `${imported.body.id}.mod-my-mod-powers.json`);
+        expect(JSON.parse(fs.readFileSync(importedPath, 'utf-8'))).toEqual(rows);
+    });
+
+    it('prefers the registered descriptor\'s key when the mod IS installed', async () => {
+        const { serverTableRegistry } = await import('../lib/tableRegistry.js');
+        const { registerModTables } = await import('../lib/modTableRegistry.js');
+        serverTableRegistry.clear();
+        registerModTables(serverTableRegistry, [{
+            id: 'my-mod',
+            tables: [{ name: 'powers', recordShape: 'array' }],
+        }]);
+
+        const id = 'registered-hyphen';
+        const rows = [{ id: 'row-1' }];
+        fs.writeFileSync(path.join(campaignsDir, `${id}.json`), JSON.stringify({ id, name: 'Registered' }));
+        fs.writeFileSync(path.join(campaignsDir, `${id}.mod-my-mod-powers.json`), JSON.stringify(rows));
+
+        const { createTransferRouter } = await import('../routes/transfer.js');
+        const app = express();
+        app.use(express.json());
+        app.use(createTransferRouter());
+
+        const exported = await request(app).get(`/api/campaigns/${id}/export`).expect(200);
+        expect(exported.body['mod.my-mod.powers']).toEqual(rows);
+        expect(exported.body['mod.my.mod-powers']).toBeUndefined();
+    });
+
     it('does not invent a suffix for a non-mod-table unknown key', async () => {
         // A bundle key that does NOT match the mod.<modId>.<name> pattern must
         // not be written to disk — we do not invent a suffix for it.
