@@ -65,7 +65,13 @@ type GatherDeps = {
     setLoadingStatus?: (status: string | null) => void;
 };
 
-async function gatherMemoryRecallViaRole(
+/**
+ * The `memory.recall` ask site. Exported for the Phase 7.1.1 claim test, which
+ * drives the real post-conditions (unknown ids faulted and dropped, exclusions
+ * dropped, host fetch under the token budget) rather than reimplementing them.
+ * `gatherContext` remains the only production caller.
+ */
+export async function gatherMemoryRecallViaRole(
     state: TurnState,
     chapters: ArchiveChapter[],
     semanticArchiveIds: string[] | undefined,

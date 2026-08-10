@@ -410,8 +410,12 @@ describe('Phase 4.9.4 — Item 8: no emit in the commit path beyond EVENTS.md §
         const { fileURLToPath } = await import('url');
         const { dirname, join } = await import('path');
         const here = dirname(fileURLToPath(import.meta.url));
-        const filePath = join(here, '..', '..', 'turn', 'postTurnPipeline.ts');
-        const source = readFileSync(filePath, 'utf-8');
+        const pipelinePath = join(here, '..', '..', 'turn', 'postTurnPipeline.ts');
+        const chapterSealPath = join(here, '..', '..', 'turn', 'tracks', 'postCommit', 'chapterSealTrack.ts');
+        const source = [
+            readFileSync(pipelinePath, 'utf-8'),
+            readFileSync(chapterSealPath, 'utf-8'),
+        ].join('\\n');
 
         // Extract every emit call in the file. The two allowed are
         // `archive.sceneAppended` and `archive.chapterSealed`.

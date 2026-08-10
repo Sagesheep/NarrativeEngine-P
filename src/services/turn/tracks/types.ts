@@ -1,6 +1,19 @@
-import type { ChatMessage, NPCEntry } from '../../../types';
+import type {
+    ArchiveChapter,
+    ArchiveIndexEntry,
+    CharacterProfile,
+    ChatMessage,
+    EndpointConfig,
+    GameContext,
+    InventoryItem,
+    LocationEntry,
+    LocationSuggestion,
+    NPCEntry,
+    PlayerCharacter,
+    ProviderConfig,
+} from '../../../types';
 import type { TurnState, TurnCallbacks } from '../turnOrchestrator';
-import type { HostFacade } from '../hostFacade';
+import type { HostFacade, ModelRequest, ModelResponse } from '../hostFacade';
 
 /**
  * Project 2 / WO-P2-03 — the post-turn track contract.
@@ -87,4 +100,61 @@ export interface PostTurnTrackContext {
     allMsgs: ChatMessage[];
     npcLedger: NPCEntry[];
     activeCampaignId: string;
+}
+
+/** The prologue runs synchronously before Stage A starts. */
+export interface PrologueTrackContext {
+    state: TurnState;
+    callbacks: TurnCallbacks;
+    npcLedger: NPCEntry[];
+}
+
+/**
+ * Stage B mutable hand-off context. onStageIds starts empty at the stage
+ * boundary; the first track fills it for the repression track that follows.
+ */
+export interface SequentialTrackContext {
+    state: TurnState;
+    facade: HostFacade;
+    callbacks: TurnCallbacks;
+    lastAssistantContent: string;
+    onStageIds: string[];
+    npcLedger: NPCEntry[];
+    settings: TurnState['settings'];
+    activeCampaignId: string;
+}
+
+/**
+ * Stage C post-commit hand-off context. The bookkeeping fields are populated
+ * once by the host at the existing read sites and are intentionally shared by
+ * all five future scan tracks.
+ */
+export interface PostCommitTrackContext {
+    state: TurnState;
+    facade?: HostFacade;
+    callbacks: TurnCallbacks;
+    displayInput: string;
+    lastAssistantContent: string;
+    activeCampaignId: string;
+    sceneId: string;
+    freshIndex: ArchiveIndexEntry[];
+    freshChapters: ArchiveChapter[];
+    entry: ArchiveIndexEntry | undefined;
+    eventExtractionProvider: EndpointConfig | ProviderConfig | undefined;
+    bookkeepingDue: boolean;
+    bkProvider: EndpointConfig | ProviderConfig | undefined;
+    bkAvailable: boolean;
+    snapshotContext: GameContext | undefined;
+    freshContext: GameContext;
+    inventoryItems: InventoryItem[];
+    profileData: CharacterProfile;
+    scanMessages: ChatMessage[];
+    storyModelCall: ((request: ModelRequest) => Promise<ModelResponse>) | undefined;
+    guardedUpdateContext: (patch: Partial<GameContext>) => void;
+    guardedSetCharacterProfileData: (profile: CharacterProfile) => void;
+    guardedSetInventoryItems: (items: InventoryItem[]) => void;
+    guardedSetLocationLedger: (locations: LocationEntry[]) => void;
+    guardedAddLocationSuggestions: (suggestions: LocationSuggestion[]) => void;
+    pc?: PlayerCharacter | null;
+    guardedUpdatePlayerCharacter?: (patch: Partial<PlayerCharacter>) => void;
 }

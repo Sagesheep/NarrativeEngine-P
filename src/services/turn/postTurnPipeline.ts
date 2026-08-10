@@ -1,35 +1,26 @@
-import type { ChatMessage, NPCEntry, EndpointConfig, ProviderConfig } from '../../types';
+import type { ChatMessage, EndpointConfig, ProviderConfig } from '../../types';
 import type { TurnState, TurnCallbacks } from './turnOrchestrator';
 import { useAppStore } from '../../store/useAppStore';
 import { api } from '../llm/apiClient';
-import { CHAPTER_SCENE_SOFT_CAP } from '../../types';
 import { rateImportance } from '../archive-memory/importanceRater';
 import { sealChapterCombined, type SealModelCall } from '../saveFileEngine';
-import { backgroundQueue } from '../infrastructure/backgroundQueue';
-import { extractSceneEvents } from '../archive-memory/sceneEventExtractor';
-import { scanCharacterProfile } from '../characterProfileParser';
-import { scanCharacterTraits } from '../characterTraitParser';
-import { scanInventory } from '../inventoryParser';
-import { mergeLocationScanLedger, scanLocation } from '../locationParser';
-import { resolveLocationHeader } from '../locationHeader';
 import { toast } from '../../components/Toast';
-import { mergeLifecycleEntries, EMPTY_REGISTER } from '../campaign-state/divergenceRegister';
+import { mergeLifecycleEntries } from '../campaign-state/divergenceRegister';
 import { saveDivergenceRegister } from '../../store/campaignStore';
 import { tierAllows } from './aiTier';
-// WO-P2-03 — post-turn track registry. The optional scans live in `tracks/`; the archive
-// commit path deliberately does not (see `tracks/index.ts`).
 import { startPostTurnTracks } from './tracks';
-import type { PostTurnTrackContext } from './tracks/types';
+import { startPostCommitTracks } from './tracks/postCommit';
+import { startPrologueTracks } from './tracks/prologue';
+import { startSequentialTracks } from './tracks/sequential';
+import type { PostCommitTrackContext, PostTurnTrackContext } from './tracks/types';
 import { buildHostFacade, hasHostModelRole, type HostFacade } from './hostFacade';
-import { emitCoreEvent, emitCoreEventLazy } from '../mods/events';
+import { emitCoreEventLazy } from '../mods/events';
 
 // WO-P2-03: the enemy-discovery single-flight map moved to `tracks/enemySuggestionTrack.ts`
 // along with the track body. Re-exported here so the campaign-switch caller
 // (`campaignSlice.ts:569`, a dynamic `import('.../turn/postTurnPipeline')`) keeps working
 // against the same module instance and the same map.
 export { clearEnemyDiscoveryState } from './tracks/enemySuggestionTrack';
-
-const PRESENT_HEADER_RE = /👥\s*\[Present\]\s*(.+)/i;
 
 // ── Durable-commit v1: "did this turn already land?" ───────────────────────
 // `appendScene` writes the prose to `.archive.md` synchronously, before it can
@@ -94,41 +85,7 @@ function makeGuarded<T extends (...args: any[]) => void>(
     }) as T;
 }
 
-/** Drop the entire background closure if the campaign switched before it
- *  starts running (cheap fast-fail). Re-check after each significant await
- *  via `assertStillActive` for closures with multiple awaited steps. */
-function assertStillActive(activeCampaignId: string, label: string): boolean {
-    const currentId = useAppStore.getState().activeCampaignId;
-    if (currentId !== activeCampaignId) {
-        console.warn(`[PostTurn] Aborting ${label} — campaign switched (${activeCampaignId} → ${currentId})`);
-        return false;
-    }
-    return true;
-}
 
-function parsePresentHeader(content: string): string[] | null {
-    const match = content.match(PRESENT_HEADER_RE);
-    if (!match) return null;
-    return match[1].split(/[,;]/).map(n => n.trim()).filter(Boolean);
-}
-
-function resolveNPCIds(
-    names: string[],
-    npcLedger: NPCEntry[]
-): string[] {
-    const nameToId = new Map<string, string>();
-    for (const npc of npcLedger) {
-        const nameLower = npc.name.toLowerCase();
-        nameToId.set(nameLower, npc.id);
-        if (npc.aliases) {
-            npc.aliases.split(',').map(a => a.trim().toLowerCase()).filter(Boolean)
-                .forEach(a => nameToId.set(a, npc.id));
-        }
-    }
-    return names
-        .map(n => nameToId.get(n.toLowerCase()))
-        .filter((id): id is string => !!id);
-}
 
 export async function runPostTurnPipeline(
     state: TurnState,
@@ -155,23 +112,7 @@ export async function runPostTurnPipeline(
     const activeCampaignId = state.activeCampaignId!;
     const { displayInput, npcLedger } = state;
 
-    // B3 — a PC built in chat never flips characterProfileActive (only the PC Creation
-    // Wizard did). Auto-enable the moment a campaign has an isPC NPC, and seed the profile
-    // name from it. Idempotent: once the gate is true this is a no-op. Never clobbers an
-    // existing name (|| guard) — a profile the scan already built must survive. Only name is
-    // mappable from NPCEntry (race/class/level are NOT on the entry); scanCharacterProfile
-    // enriches the rest over the next few turns, preserving identity as it goes.
-    autoEnableCharacterProfile(state, callbacks, npcLedger);
-
-    // ── Phase 2/3: clear agency + arc digests at the top so each is consumed exactly once ──
-    // The previous turn's digests were folded into the GM call we just made; clear them
-    // before fresh digests accumulate from this turn's agency + arc ticks.
-    if (state.context.agencyDigest) {
-        callbacks.updateContext({ agencyDigest: '' });
-    }
-    if (state.context.arcDigest) {
-        callbacks.updateContext({ arcDigest: '' });
-    }
+    startPrologueTracks({ state, callbacks, npcLedger });
 
     // WO-P2-03: the optional post-turn scans are registered tracks now (see
     // `tracks/index.ts`). `startPostTurnTracks` does not await — it starts the enabled
@@ -201,47 +142,16 @@ export async function runPostTurnPipeline(
     const archiveResult = results[0];
     const archived = archiveResult.status === 'fulfilled' && archiveResult.value === true;
 
-    // ── On-Stage NPC Tracking ──
-    const presentNames = parsePresentHeader(lastAssistantContent);
-    const onStageIds = presentNames && presentNames.length > 0
-        ? resolveNPCIds(presentNames, npcLedger)
-        : [];
-    callbacks.setOnStageNpcIds?.(onStageIds);
-
-    // ── Location Header Tracking (hot path) ──
-    // Sibling of the 👥 [Present] parse above: the GM's 📍 [Location] header is the
-    // authoritative per-turn location self-report (requested by defaultRules.ts:51).
-    // Engine regex, zero LLM, every tier. The interval-gated scanLocation call in
-    // runArchiveTrack stays the cold path (features/connections enrichment). Header
-    // absent or unusable → no-op; the last known pointer stands. Unknown places are
-    // suggested, never auto-added (same trust model as NPC suggestions).
-    try {
-        const sNow = useAppStore.getState();
-        if (sNow.activeCampaignId === activeCampaignId) {
-            const outcome = resolveLocationHeader(
-                lastAssistantContent,
-                sNow.locationLedger ?? [],
-                sNow.context.currentPlaceId ?? null,
-            );
-            if (outcome.kind === 'resolved') {
-                callbacks.updateContext({ currentPlaceId: outcome.placeId, currentFeature: outcome.feature });
-                if (outcome.appendFeature && outcome.feature) {
-                    const entry = sNow.locationLedger.find(l => l.id === outcome.placeId);
-                    if (entry) sNow.updateLocation(outcome.placeId, { features: [...entry.features, outcome.feature], lastSeenScene: String(Date.now()) });
-                }
-            } else if (outcome.kind === 'feature-only') {
-                callbacks.updateContext({ currentFeature: outcome.feature });
-                if (outcome.appendFeature && sNow.context.currentPlaceId) {
-                    const entry = sNow.locationLedger.find(l => l.id === sNow.context.currentPlaceId);
-                    if (entry) sNow.updateLocation(entry.id, { features: [...entry.features, outcome.feature] });
-                }
-            } else if (outcome.kind === 'unknown') {
-                sNow.addLocationSuggestions([outcome.suggestion]);
-            }
-        }
-    } catch (err) {
-        console.warn('[LocationHeader] Parse failed (non-fatal):', err);
-    }
+    const sequentialTrackPromises = startSequentialTracks({
+        state,
+        facade,
+        callbacks,
+        lastAssistantContent,
+        onStageIds: [],
+        npcLedger,
+        settings: state.settings,
+        activeCampaignId,
+    });
 
     for (const r of results) {
         if (r.status === 'rejected') {
@@ -249,96 +159,14 @@ export async function runPostTurnPipeline(
         }
     }
 
-    // ── NPC Agency Tick (Phase 2 port) ──
-    // Runs after archive/NPC/pressure tracks settle so newly-detected NPCs have profiles
-    // before they're ticked. Mutates NPC agency state in-place via callbacks.updateNPC;
-    // folds a digest into context.agencyDigest for the next GM call. Gated by aiTier in Phase 4.
-    // Also bumps activity for every NPC that was on-stage last turn so the deep tier tracks the
-    // player's active social circle (bumpOnStageActivity is unconditional — same pattern as the
-    // short-want lifecycle).
-    try {
-        const { runAgencyTick, bumpOnStageActivity } = await import('../npc/agency/agencyEngine');
-        bumpOnStageActivity(state, facade ? { ...callbacks, updateNPC: facade.write.updateNPC } : callbacks, facade?.data.npcLedger ?? npcLedger);
-        if (tierAllows(state.settings.aiTier, 'heartbeatTick')) {
-            // Guard only addMessage — it's the only callback invoked from a
-            // backgroundQueue.push closure inside runAgencyTick (Timeskip-Narration,
-            // agencyEngine.ts:341). The synchronous updateContext/updateNPC calls in
-            // runAgencyTick run in the same microtask as this line, so they don't need
-            // guarding (same reasoning as the synchronous pipeline calls at L68/111).
-            const agencyCallbacks: TurnCallbacks = {
-                ...callbacks,
-                addMessage: makeGuarded(callbacks.addMessage, activeCampaignId, 'addMessage (Timeskip-Narration)'),
-            };
-            runAgencyTick(state, agencyCallbacks, facade?.data.npcLedger ?? npcLedger, displayInput, facade);
-        }
-    } catch (err) {
-        console.warn('[AgencyTick] Failed (non-fatal):', err);
-    }
-
-    // ── Inner Repression booking (parity 30/06 WO-3) — the once-per-turn pressure accrual ──
-    // The payload reaction menu (world.ts read path) MASKS a hostile impulse on every render but
-    // intentionally drops the repression `event`, because payload assembly re-runs within a turn
-    // and would double-count. THIS is the single authoritative booking site: roll repression once
-    // per on-stage hex NPC and persist the pressure delta, so the build-up → burst dynamic actually
-    // fires (without this, repressionPressure never accrues and the feature is inert). Zero LLM;
-    // pure dice. Ungated (mirrors the menu, which is shown on every tier). Never inside payload.
-    try {
-        const { buildReactionMenu } = await import('../npc/reactionMenu');
-        const { applyRepressionToMenu, bookRepression } = await import('../npc/reactionRepression');
-        const onStageSet = new Set(onStageIds);
-        const matureMode = state.settings.matureMode ?? false;
-        for (const npc of npcLedger) {
-            if (!onStageSet.has(npc.id) || !npc.personalityHex) continue;
-            const rng = Math.random; // one fresh roll per turn per NPC — that IS the once-per-turn accrual
-            const menu = buildReactionMenu(npc, 'peaceful', rng, matureMode);
-            const { event } = applyRepressionToMenu(menu, npc, 'peaceful', rng);
-            if (!event) continue; // nothing repressible this turn
-            const patch = bookRepression(npc, event);
-            if (Object.keys(patch).length > 0) callbacks.updateNPC(npc.id, patch);
-        }
-    } catch (err) {
-        console.warn('[RepressionBooking] Failed (non-fatal):', err);
-    }
+    await Promise.allSettled(sequentialTrackPromises);
 
     // ── Arc Engine Tick ──
-    // WO-P5-12 §7 Step 2: moved into the track registry (`tracks/arcTickTrack.ts`),
-    // inheriting the `allSettled` containment WO-P5-10 hardened. The inline
-    // try/catch that used to wrap it here is deleted — a small, concrete measure
-    // of the architecture paying for itself (WO-P5-12 §5). The track reads arcs
-    // from the store's `mod.arc.arcs` table (Step 1) and persists its writes
-    // through the host facade.
+    // Arc tick has no in-tree track; it is registered dynamically (see tracks/index.ts:29-34).
 
     return { archived };
 }
 
-// B3 — Auto-enable characterProfileActive for chat-made PCs. The flag was flipped true ONLY by
-// the PC Creation Wizard, so PCs built conversationally never engaged the structured-profile
-// subsystem (scan, payload injection). Fires at the top of runPostTurnPipeline with npcLedger
-// in scope, before runArchiveTrack's bookkeeping scan so the scan can fire the same turn.
-// Idempotent: once characterProfileActive is true, this is a no-op. Never clobbers an existing
-// profile name (|| guard) — a profile the scan already built must survive. Only name is mappable
-// from NPCEntry (race/class/level are NOT on the entry); scanCharacterProfile enriches the rest.
-function autoEnableCharacterProfile(
-    state: TurnState,
-    callbacks: TurnCallbacks,
-    npcLedger: NPCEntry[],
-): void {
-    if (state.context.characterProfileActive) return;
-    // WO-A rewrite 2 §2: PC lives at `context.playerCharacter`. Defensive
-    // fallback to a legacy `isPC` ledger row (post-migration this is empty).
-    const pc = state.context.playerCharacter ?? npcLedger.find(n => n.isPC);
-    if (!pc) return;
-    const existing = state.context.characterProfileData || { name: '', race: '', class: '', level: 1, hp: { current: 20, max: 20 }, stats: {}, skills: [], abilities: [], traits: [], notes: '' };
-    const seeded: typeof existing = {
-        ...existing,
-        name: existing.name || pc.name,
-    };
-    callbacks.updateContext({
-        characterProfileActive: true,
-        characterProfileData: seeded,
-    });
-    console.log(`[B3] Auto-enabled characterProfileActive; seeded characterProfileData.name from PC "${pc.name}"`);
-}
 
 /** Returns true when the turn is in long-term memory (freshly appended, or already
  *  there from a previous attempt whose response was lost). False means the scene did
@@ -452,235 +280,92 @@ async function runArchiveTrack(
     }
 
     const entry = freshIndex.find(e => e.sceneId === appendedSceneId);
-    const bkProvider = state.getFreshProvider();
-    if (entry && !entry.events && bkProvider) {
-        const sceneText = `${displayInput}\n\n${lastAssistantContent}`;
-        const guardedSetArchiveIndex = makeGuarded(callbacks.setArchiveIndex, activeCampaignId, 'setArchiveIndex (Event-Extraction)');
-        backgroundQueue.push(`Event-Extraction:${appendedSceneId}`, async () => {
-            if (!assertStillActive(activeCampaignId, 'Event-Extraction')) return;
-            const events = await extractSceneEvents(bkProvider, sceneText);
-            if (events && events.length > 0) {
-                await api.archive.patchEvents(activeCampaignId, [{ sceneId: entry.sceneId, events }]);
-                const updatedIndex = await api.archive.getIndex(activeCampaignId);
-                guardedSetArchiveIndex(updatedIndex);
-                console.log(`[Archive] Post-turn events extracted for scene #${entry.sceneId}`);
-            }
-        }).catch(err => console.warn('[PostTurn] Background event extraction failed:', err));
-    }
 
-    const openChapter = freshChapters.find(c => !c.sealedAt);
-    if (openChapter && openChapter.sceneCount >= CHAPTER_SCENE_SOFT_CAP) {
-        console.log(`[Auto-Seal] Chapter "${openChapter.title}" hit ${openChapter.sceneCount} scenes — sealing...`);
-        const guardedSetChapters = makeGuarded(state.setChapters, activeCampaignId, 'setChapters (Auto-Seal)');
-        const guardedSealCallbacks: TurnCallbacks = {
-            ...callbacks,
-            setDivergenceRegister: callbacks.setDivergenceRegister
-                ? makeGuarded(callbacks.setDivergenceRegister, activeCampaignId, 'setDivergenceRegister (Auto-Seal)')
-                : undefined,
-            setArchiveIndex: makeGuarded(callbacks.setArchiveIndex, activeCampaignId, 'setArchiveIndex (Auto-Seal)'),
-        };
-        backgroundQueue.push('Chapter-AutoSeal', async () => {
-            if (!assertStillActive(activeCampaignId, 'Chapter-AutoSeal')) return;
-            const sealResult = await api.chapters.seal(activeCampaignId);
-            if (!assertStillActive(activeCampaignId, 'Chapter-AutoSeal')) return;
-            if (!sealResult) return;
-            const sealedChapters = await api.chapters.list(activeCampaignId);
-            if (!assertStillActive(activeCampaignId, 'Chapter-AutoSeal')) return;
-            guardedSetChapters(sealedChapters);
-            // Phase 3.2 / `EVENTS.md` §4.3 + §6.5 — inside the `Chapter-AutoSeal`
-            // background closure, after `api.chapters.seal` succeeded and
-            // `guardedSetChapters` applied the result: the seal is durable
-            // before any listener sees it. **No ordering guarantee relative to
-            // the turn sequence** — this closure runs on `backgroundQueue` and
-            // can land after the next `turn.start` (§7.3).
-            emitCoreEvent('archive.chapterSealed', {
-                campaignId: activeCampaignId,
-                chapterId: sealResult.sealedChapter.chapterId,
-                title: sealResult.sealedChapter.title,
-                trigger: 'auto',
-            });
-            toast.info(`Chapter "${sealResult.sealedChapter.title}" auto-sealed (${CHAPTER_SCENE_SOFT_CAP} scenes)`);
-
-            const sealProvider = facade ? undefined : state.getFreshProvider();
-            const sealModelCall: SealModelCall | undefined = facade && hasHostModelRole(facade, 'story')
-                ? (request) => facade.model.call('story', request).then(result => result.content)
-                : undefined;
-            if ((sealProvider || sealModelCall) && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'sealChapter')) {
-                // WO-P1-03: pass the 5 formerly-coupling reads as explicit params.
-                // These are read from the store here at the call site (still on
-                // the post-turn path), but the seal function itself no longer
-                // reaches into getState() — its inputs are now honest.
-                await runCombinedSeal(
-                    sealProvider,
-                    sealResult.sealedChapter,
-                    activeCampaignId,
-                    state,
-                    guardedSealCallbacks,
-                    true,
-                    {
-                        npcLedger: facade?.data.npcLedger ?? state.npcLedger ?? [],
-                        archiveIndex: facade?.data.archiveIndex ?? state.archiveIndex ?? [],
-                        divergenceScanBudget: facade?.config.divergenceScanBudget ?? state.settings.divergenceScanBudget ?? 0,
-                        contextLimit: facade?.config.contextLimit ?? state.settings.contextLimit ?? 4096,
-                        divergenceRegister: facade?.data.divergenceRegister ?? state.divergenceRegister ?? EMPTY_REGISTER,
-                    },
-                    sealModelCall,
-                );
-            }
-        }).catch(err => console.warn('[Auto-Seal] Failed:', err));
-    }
-
+    // Trap 1: Evaluate bookkeeping gate once
     const turnCount = state.incrementBookkeepingTurnCounter();
-    const interval = state.autoBookkeepingInterval;
-    if (turnCount >= interval && appendedSceneId) {
-        console.log(`[Auto Bookkeeping] Turn ${turnCount} >= interval ${interval} — queuing profile + inventory scan (scene #${appendedSceneId})`);
+    const bookkeepingDue = turnCount >= state.autoBookkeepingInterval && Boolean(appendedSceneId);
+    if (bookkeepingDue) {
         state.resetBookkeepingTurnCounter();
-
-        const bkProvider = state.getFreshProvider();
-        const bkAvailable = facade ? hasHostModelRole(facade, 'story') : Boolean(bkProvider);
-        if (bkAvailable) {
-            const sceneId = appendedSceneId;
-            const snapshotContext = facade?.data.context;
-            const freshContext = snapshotContext?.characterProfileActive ? snapshotContext : state.getFreshContext();
-            const inventoryItems = freshContext.inventoryItems || [];
-            const profileData = freshContext.characterProfileData || { name: '', race: '', class: '', level: 1, hp: { current: 20, max: 20 }, stats: {}, skills: [], abilities: [], traits: [], notes: '' };
-            const scanMessages = facade?.data.messages ?? state.getMessages();
-            const storyModelCall = facade ? (request: import('./hostFacade').ModelRequest) => facade.model.call('story', request) : undefined;
-
-            const guardedUpdateContext = makeGuarded(facade?.write.updateContext ?? callbacks.updateContext, activeCampaignId, 'updateContext (bookkeeping scan)');
-            const guardedSetCharacterProfileData = makeGuarded(
-                callbacks.setCharacterProfileData,
-                activeCampaignId,
-                'setCharacterProfileData (Profile-Scan)',
-            );
-            const guardedSetInventoryItems = makeGuarded(
-                callbacks.setInventoryItems,
-                activeCampaignId,
-                'setInventoryItems (Inventory-Scan)',
-            );
-            const guardedSetLocationLedger = makeGuarded(
-                callbacks.setLocationLedger,
-                activeCampaignId,
-                'setLocationLedger (Location-Scan)',
-            );
-            const guardedAddLocationSuggestions = makeGuarded(
-                callbacks.addLocationSuggestions,
-                activeCampaignId,
-                'addLocationSuggestions (Location-Scan)',
-            );
-
-            if (tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'profileScan')) {
-                backgroundQueue.push('Profile-Scan', async () => {
-                    if (!assertStillActive(activeCampaignId, 'Profile-Scan')) return;
-                    const newProfile = await scanCharacterProfile(facade ? undefined : bkProvider, scanMessages, profileData, storyModelCall);
-                    if (!assertStillActive(activeCampaignId, 'Profile-Scan')) return;
-                    guardedUpdateContext({
-                        characterProfileData: newProfile,
-                        characterProfileLastScene: sceneId,
-                    });
-                    (facade?.write.setCharacterProfileData ?? guardedSetCharacterProfileData)(newProfile);
-                    console.log(`[Auto Bookkeeping] Profile sheet updated at scene #${sceneId}`);
-                }).catch(err => console.warn('[Auto Bookkeeping] Profile scan failed:', err));
-            }
-
-            // WO-G: structured trait scan (sibling of the sheet scan). Maintains the
-            // CharacterProfileState (identity + bounded activeTraits with supersession).
-            // WO-J (5be8695): gate on characterProfileActive — skip the LLM call when the
-            // toggle is off, since the result is never injected.
-            if (freshContext.characterProfileActive && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'profileScan')) {
-                const traitProfile = freshContext.characterProfile || { identity: {}, activeTraits: [] };
-                backgroundQueue.push('Trait-Scan', async () => {
-                    if (!assertStillActive(activeCampaignId, 'Trait-Scan')) return;
-                    const newTraits = await scanCharacterTraits(facade ? undefined : bkProvider, scanMessages, traitProfile, storyModelCall);
-                    if (!assertStillActive(activeCampaignId, 'Trait-Scan')) return;
-                    guardedUpdateContext({
-                        characterProfile: newTraits,
-                    });
-                    console.log(`[Auto Bookkeeping] Traits updated at scene #${sceneId} (${newTraits.activeTraits.filter(t => !t.superseded).length} active)`);
-                }).catch(err => console.warn('[Auto Bookkeeping] Trait scan failed:', err));
-            }
-
-            if (bkAvailable && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'inventoryScan')) {
-                backgroundQueue.push('Inventory-Scan', async () => {
-                    if (!assertStillActive(activeCampaignId, 'Inventory-Scan')) return;
-                    const newItems = await scanInventory(facade ? undefined : bkProvider, scanMessages, inventoryItems, storyModelCall);
-                    if (!assertStillActive(activeCampaignId, 'Inventory-Scan')) return;
-                    guardedUpdateContext({
-                        inventory: newItems.map(it => `- ${it.qty > 1 ? `${it.qty}x ` : ''}${it.name}`).join('\n'),
-                        inventoryItems: newItems,
-                        inventoryLastScene: sceneId,
-                    });
-                    (facade?.write.setInventoryItems ?? guardedSetInventoryItems)(newItems);
-                    console.log(`[Auto Bookkeeping] Inventory updated at scene #${sceneId}`);
-                }).catch(err => console.warn('[Auto Bookkeeping] Inventory scan failed:', err));
-            }
-
-            // WO-Location: structured location estimator — the place-analogue of the
-            // inventory scan. Sibling block, same background queue + guards + tier gate
-            // class as inventoryScan. Resolves the PC's current place + merges features/
-            // connections into existing ledger entries + emits new-place suggestions for
-            // player review. Never auto-adds entries. Pointer rides callbacks.updateContext
-            // (currentPlaceId/currentFeature); ledger + suggestions ride the store setters.
-            if (bkAvailable && tierAllows(facade?.config.aiTier ?? state.settings.aiTier, 'locationScan')) {
-                backgroundQueue.push('Location-Scan', async () => {
-                    if (!assertStillActive(activeCampaignId, 'Location-Scan')) return;
-                    const before = callbacks.getFreshLocationState();
-                    const baselineLedger = before.locationLedger ?? [];
-                    const baselinePlaceId = before.context.currentPlaceId ?? null;
-                    const baselineFeature = before.context.currentFeature ?? null;
-                    const scan = await scanLocation(
-                        facade ? undefined : bkProvider,
-                        scanMessages,
-                        baselineLedger,
-                        baselinePlaceId,
-                        baselineFeature,
-                        storyModelCall,
-                    );
-                    if (!assertStillActive(activeCampaignId, 'Location-Scan')) return;
-                    const after = callbacks.getFreshLocationState();
-                    if (after.activeCampaignId !== activeCampaignId) return;
-
-                    // A manual/header pointer change made while the LLM was in flight wins.
-                    if (after.context.currentPlaceId === baselinePlaceId && (after.context.currentFeature ?? null) === baselineFeature
-                        && (scan.currentPlaceId !== baselinePlaceId || scan.currentFeature !== baselineFeature)) {
-                        guardedUpdateContext({ currentPlaceId: scan.currentPlaceId, currentFeature: scan.currentFeature });
-                    }
-
-                    const mergedLedger = mergeLocationScanLedger(baselineLedger, scan.ledger, after.locationLedger ?? []);
-                    if (mergedLedger !== after.locationLedger) {
-                        (facade?.write.setLocationLedger ?? guardedSetLocationLedger)(mergedLedger);
-                    }
-                    if (scan.suggestions.length > 0) {
-                        (facade?.write.addLocationSuggestions ?? guardedAddLocationSuggestions)(scan.suggestions);
-                    }
-                    console.log(`[Auto Bookkeeping] Location scan at scene #${sceneId}: current=${scan.currentPlaceId ?? '(unclear)'}, suggestions=${scan.suggestions.length}`);
-                }).catch(err => console.warn('[Auto Bookkeeping] Location scan failed:', err));
-            }
-
-            // ── PC Drift Check (WO-A2 §3) — sibling of the bookkeeping scan, on the
-            // same `autoBookkeepingInterval` cadence. Kit changes are rare and a
-            // per-turn call is wasted most turns, so this gates on the same interval
-            // used by the profile/inventory scans. Forked from npc-generation/update.ts
-            // with a narrower whitelist (personalityHex/traits/relations/pcRelation
-            // are blocked — see §0). Host-facade story broker per §2.2 chain.
-            const pc = state.getFreshContext().playerCharacter;
-            if (facade && hasHostModelRole(facade, 'story') && pc && tierAllows(facade.config.aiTier ?? state.settings.aiTier, 'npcUpdate')) {
-                const guardedUpdatePlayerCharacter = makeGuarded(
-                    (patch: Partial<typeof pc>) => useAppStore.getState().updatePlayerCharacter(patch),
-                    activeCampaignId,
-                    'updatePlayerCharacter (PC-Drift)',
-                );
-                backgroundQueue.push('PC-Drift:' + pc.name, async () => {
-                    if (!assertStillActive(activeCampaignId, 'PC-Drift')) return;
-                    const { checkCharacterDrift } = await import('../character/pcUpdater');
-                    await checkCharacterDrift((request) => facade.model.callJson('story', request, { retries: 1 }), state.getMessages(), pc, guardedUpdatePlayerCharacter);
-                    console.log('[Auto Bookkeeping] PC drift check completed at scene #' + sceneId);
-                }).catch(err => console.warn('[PC Updater] Background drift check failed:', err));
-            }
-        }
     }
 
-    // The scene is in long-term memory — the caller may safely retire the turn.
+    // Trap 2: Compute shared scan inputs once
+    const bkProvider = state.getFreshProvider();
+    const bkAvailable = facade ? hasHostModelRole(facade, 'story') : Boolean(bkProvider);
+    const snapshotContext = facade?.data.context;
+    const freshContext = snapshotContext?.characterProfileActive ? snapshotContext : state.getFreshContext();
+    const inventoryItems = freshContext.inventoryItems || [];
+    const profileData = freshContext.characterProfileData || { name: '', race: '', class: '', level: 1, hp: { current: 20, max: 20 }, stats: {}, skills: [], abilities: [], traits: [], notes: '' };
+    const scanMessages = facade?.data.messages ?? state.getMessages();
+    const storyModelCall = facade ? (request: import('./hostFacade').ModelRequest) => facade.model.call('story', request) : undefined;
+
+    const guardedUpdateContext = makeGuarded(facade?.write.updateContext ?? callbacks.updateContext, activeCampaignId, 'updateContext (bookkeeping scan)');
+    const guardedSetCharacterProfileData = makeGuarded(
+        callbacks.setCharacterProfileData,
+        activeCampaignId,
+        'setCharacterProfileData (Profile-Scan)',
+    );
+    const guardedSetInventoryItems = makeGuarded(
+        callbacks.setInventoryItems,
+        activeCampaignId,
+        'setInventoryItems (Inventory-Scan)',
+    );
+    const guardedSetLocationLedger = makeGuarded(
+        callbacks.setLocationLedger,
+        activeCampaignId,
+        'setLocationLedger (Location-Scan)',
+    );
+    const guardedAddLocationSuggestions = makeGuarded(
+        callbacks.addLocationSuggestions,
+        activeCampaignId,
+        'addLocationSuggestions (Location-Scan)',
+    );
+    
+    // PC Drift check context
+    const pc = state.getFreshContext().playerCharacter;
+    const guardedUpdatePlayerCharacter = makeGuarded(
+        (patch: Partial<import('../../types').PlayerCharacter>) => useAppStore.getState().updatePlayerCharacter(patch),
+        activeCampaignId,
+        'updatePlayerCharacter (PC-Drift)',
+    );
+
+    const postCommitContext: PostCommitTrackContext = {
+        state,
+        facade,
+        callbacks,
+        displayInput,
+        lastAssistantContent,
+        activeCampaignId,
+        sceneId: appendedSceneId,
+        freshIndex,
+        freshChapters,
+        entry,
+        eventExtractionProvider: facade ? undefined : state.getFreshProvider(),
+        bookkeepingDue,
+        bkProvider,
+        bkAvailable,
+        snapshotContext,
+        freshContext,
+        inventoryItems,
+        profileData,
+        scanMessages,
+        storyModelCall,
+        guardedUpdateContext,
+        guardedSetCharacterProfileData,
+        guardedSetInventoryItems,
+        guardedSetLocationLedger,
+        guardedAddLocationSuggestions,
+        pc,
+        guardedUpdatePlayerCharacter,
+    };
+
+    const postCommitPromises = startPostCommitTracks(postCommitContext, state.settings);
+    // Handle rejections to avoid unhandled promise rejection warnings in the background
+    for (const p of postCommitPromises) {
+        p.catch(err => {
+            console.warn('[PostTurn] Post-commit track background execution failed:', err);
+        });
+    }
+
     return true;
 }
 

@@ -1,0 +1,16 @@
+{
+  "id": "role-claimant",
+  "name": "Role Claimant Fixture",
+  "version": "1.0.0",
+  "loadOrder": 10,
+  "description": "Phase 7.1.1 fixture. Declares and provides the `memory.recall` service role, returning archived scene ids in reverse index order so its answer is trivially distinguishable from core's relevance ranking. Deliberately NOT shipped in `mods/`: that directory is the installed set, it is loaded live by the running app, and enablement is absent-means-enabled — a role claimant there would replace real users' memory recall on next load.",
+  "author": "Narrative Engine",
+  "roles": ["memory.recall"],
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate",
+      "disable": "onDisable"
+    }
+  }
+}

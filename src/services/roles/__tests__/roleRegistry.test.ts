@@ -72,6 +72,94 @@ describe('createServiceRoleRegistry', () => {
         ]));
     });
 
+    /**
+     * `ROLES.md` §1.2 — the name-blindness pin, and it has to be a DOUBLE run.
+     *
+     * An opaque-ids-only run proves the registry tolerates opaque ids. The
+     * actual claim is stronger: behaviour is *identical* whether the ids are
+     * production names or gibberish, because the registry may never branch on
+     * which role it is holding. So run one corpus twice — once with the real
+     * `memory.recall` vocabulary, once with every id replaced — and compare the
+     * traces after substituting the names back.
+     *
+     * This is `runner.test.ts`'s discipline, which `tracks/runner.ts:8-17` calls
+     * "enforced, not merely asked for". 7.1.1 shipped the opaque half only;
+     * `ROLES.md` §13 records the gap this closes.
+     */
+    it('behaves identically with real ids and with opaque ids', async () => {
+        type Names = { role: string; core: string; winner: string; loser: string };
+        const REAL: Names = {
+            role: 'memory.recall',
+            core: 'role.memory.recall.core',
+            winner: 'vector-memory',
+            loser: 'summary-memory',
+        };
+        const OPAQUE: Names = { role: 'q7.x2', core: 'k9.q7.x2.z', winner: 'aaa', loser: 'bbb' };
+
+        async function runCorpus(n: Names): Promise<string[]> {
+            roleFaultStore.clear();
+            const trace: string[] = [];
+            const registry = createServiceRoleRegistry();
+            registry.register({
+                ...makeRole(9),
+                id: n.role,
+                defaultProvider: {
+                    providerId: n.core,
+                    source: 'builtin',
+                    loadIndex: Number.POSITIVE_INFINITY,
+                    ask: () => ({ result: 9 }),
+                },
+            });
+
+            // Conflict: the higher load index registers first and must lose.
+            registry.provide(n.role, provider(n.loser, 5, () => ({ result: 5 })));
+            registry.provide(n.role, provider(n.winner, 1, () => {
+                throw new Error('provider failed');
+            }));
+            trace.push(`active=${registry.activeProviderFor(n.role)?.providerId}`);
+
+            // No per-ask fallback, then the latch on the third strike. Note the
+            // fourth ask resolves to the LOSER, not to core: the latch demotes
+            // one provider and the registry walks the ordered list, it does not
+            // jump to the default.
+            for (let i = 0; i < 4; i++) {
+                trace.push(`ask${i}=${JSON.stringify(await registry.ask(n.role, { value: i }))}`);
+            }
+            // Snapshot the faults HERE. Later revokes replace a mod's record,
+            // so an end-of-corpus snapshot would silently lose the strike
+            // history this corpus exists to compare.
+            trace.push(`faultsAfterAsks=${roleFaultStore.getRecords().map((r) => `${r.modId}:${r.kind}:${r.latched ?? false}`).join('|')}`);
+
+            // An answer the validator rejects is a breach, not an answer.
+            registry.revoke(n.winner);
+            registry.revoke(n.loser);
+            registry.provide(n.role, provider(n.winner, 1, () => ({ nope: true }) as never));
+            trace.push(`invalid=${JSON.stringify(await registry.ask(n.role, { value: 9 }))}`);
+
+            registry.revoke(n.winner);
+            trace.push(`final=${JSON.stringify(await registry.ask(n.role, { value: 10 }))}`);
+            trace.push(`faultsFinal=${roleFaultStore.getRecords().map((r) => `${r.modId}:${r.kind}`).join('|')}`);
+            return trace;
+        }
+
+        const realTrace = await runCorpus(REAL);
+        const opaqueTrace = await runCorpus(OPAQUE);
+
+        const substituted = realTrace.map((line) => line
+            .split(REAL.core).join(OPAQUE.core)
+            .split(REAL.role).join(OPAQUE.role)
+            .split(REAL.winner).join(OPAQUE.winner)
+            .split(REAL.loser).join(OPAQUE.loser));
+
+        expect(substituted).toEqual(opaqueTrace);
+        // Guard the guard: a corpus that exercised nothing would pass trivially.
+        // Assert the run actually reached a conflict, a strike and the latch.
+        const realText = realTrace.join('\n');
+        expect(realText).toContain(':conflict');
+        expect(realText).toContain(':threw:');
+        expect(realText).toContain(':threw:true');
+    });
+
     it('applies enablement and revokes stale providers without throwing', async () => {
         const enabled = new Map<string, boolean>();
         const registry = createServiceRoleRegistry({
