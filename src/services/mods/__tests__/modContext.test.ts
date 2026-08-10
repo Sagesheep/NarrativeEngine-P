@@ -21,6 +21,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildHostFacade, type HostFacade } from '../../turn/hostFacade';
 import { buildModContext, type ModContext } from '../modContext';
+import { budgetClaims } from '../../payload/budgetClaims';
 import type {
     AppSettings,
     EndpointConfig,
@@ -143,7 +144,7 @@ describe('Phase 2.3 — buildModContext', () => {
                 facade: makeFacade(),
             });
             expect(Object.keys(ctx).sort()).toEqual(
-                ['api', 'config', 'data', 'events', 'facts', 'log', 'macros', 'mod', 'model', 'mounts', 'refresh', 'roles', 'signal', 'subscribe', 'table', 'write'].sort(),
+                ['api', 'budgets', 'config', 'data', 'events', 'facts', 'log', 'macros', 'mod', 'model', 'mounts', 'refresh', 'roles', 'signal', 'subscribe', 'table', 'tokens', 'write'].sort(),
             );
         });
 
@@ -586,5 +587,56 @@ describe('Phase 2.3 — buildModContext', () => {
             const { onActivate } = await import('../../../../mods/example-surface-mod/index.js');
             expect(() => onActivate(undefined)).not.toThrow();
         });
+    });
+});
+
+describe('Phase 7.4 — ctx.tokens and ctx.budgets', () => {
+    it('ctx.tokens.count returns the same count as the host tokenizer', () => {
+        const ctx = buildModContext({
+            mod: { id: 'm', name: 'M', version: '1.0.0' },
+            facade: makeFacade(),
+        });
+        expect(typeof ctx.tokens.count).toBe('function');
+        expect(ctx.tokens.count('Hello world')).toBeGreaterThan(0);
+        expect(ctx.tokens.count('')).toBe(0);
+        // The tokenizer is pure and deterministic — same input, same count.
+        expect(ctx.tokens.count('Hello world')).toBe(ctx.tokens.count('Hello world'));
+    });
+
+    it('ctx.tokens is frozen', () => {
+        const ctx = buildModContext({
+            mod: { id: 'm', name: 'M', version: '1.0.0' },
+            facade: makeFacade(),
+        });
+        expect(Object.isFrozen(ctx.tokens)).toBe(true);
+    });
+
+    it('ctx.budgets.claim is a function', () => {
+        const ctx = buildModContext({
+            mod: { id: 'm', name: 'M', version: '1.0.0' },
+            facade: makeFacade(),
+        });
+        expect(typeof ctx.budgets.claim).toBe('function');
+    });
+
+    it('ctx.budgets is frozen', () => {
+        const ctx = buildModContext({
+            mod: { id: 'm', name: 'M', version: '1.0.0' },
+            facade: makeFacade(),
+        });
+        expect(Object.isFrozen(ctx.budgets)).toBe(true);
+    });
+
+    it('ctx.budgets.claim registers a budget and the unregister removes it', () => {
+        const ctx = buildModContext({
+            mod: { id: 'claim-test', name: 'Claim Test', version: '1.0.0' },
+            facade: makeFacade(),
+        });
+        const unregister = ctx.budgets.claim('myBudget', () => 150);
+        const map = budgetClaims.compute(10_000, undefined, false);
+        expect(map.get('mod.claim-test.myBudget')).toBe(150);
+        unregister();
+        const mapAfter = budgetClaims.compute(10_000, undefined, false);
+        expect(mapAfter.get('mod.claim-test.myBudget')).toBe(0);
     });
 });

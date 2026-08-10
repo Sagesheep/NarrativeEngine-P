@@ -1,0 +1,19 @@
+{
+  "id": "tier-entry-fixture",
+  "name": "Tier Entry Fixture",
+  "version": "1.0.0",
+  "description": "Phase 7.3 fixture: declares a tier entry so the block view and tierAllows can be tested against a mod-declared feature.",
+  "tierEntries": [
+    {
+      "id": "beacon",
+      "name": "Beacon Scanner",
+      "description": "Scans the scene for beacon signals and adds them to the compendium under a cooldown.",
+      "toggleable": true,
+      "trigger": "automatic",
+      "defaultEnabled": true,
+      "callsModel": true,
+      "matrix": { "lite": false, "pro": true, "max": true },
+      "cooldown": { "pro": 3, "max": 0 }
+    }
+  ]
+}

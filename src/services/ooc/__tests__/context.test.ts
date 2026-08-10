@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildOocContext } from '../context';
+// Phase 7.5 — the enemy sections are registered, not inlined. This suite keeps
+// asserting them from here on purpose: it is the only place that proves a
+// registered section lands in the RIGHT PART of the brief (after the ledgers,
+// before the verified facts), which a unit test of the section alone cannot.
+// `oocService.ts` does the same import on the production path.
+import '../../enemy/enemyOocSection';
 import type { OocCampaignSnapshot } from '../types';
 
 const snapshot = {

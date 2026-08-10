@@ -57,6 +57,7 @@ import { eventFaultStore, modEventBus } from '../events';
 import { disableModMounts, enableModMounts, clearAllModMounts } from '../mounts/mountRegistry';
 import { disableModMacros, enableModMacros, clearAllModMacros } from '../macros/macroRegistry';
 import { disableModFacts, enableModFacts, clearAllModFacts } from '../facts/factRegistry';
+import { disableModBudgets, enableModBudgets, clearAllModBudgets } from '../budgets/budgetRegistry';
 import {
     clearAllModInterceptors,
     disableModInterceptors,
@@ -597,6 +598,9 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // Phase 5.4 — same discipline for fact publishers: `disable`
         // revoked the lease, `enable` restores it before `activate` runs.
         enableModFacts(input.mod.id);
+        // Phase 7.4 — same discipline for budget claims: `disable`
+        // revoked the lease, `enable` restores it before `activate` runs.
+        enableModBudgets(input.mod.id);
         const enableResult = await fireUserHook({
             mod: input.mod,
             hookName: 'enable',
@@ -684,6 +688,13 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // a fault, and a publisher in flight when the mod was toggled off
         // has its result discarded rather than merged.
         disableModFacts(input.mod.id);
+        // Phase 7.4: the same discipline for budget claims. Every claim
+        // the mod registered is removed here — the mod is never trusted
+        // to call `unregister()`. The mod's lease is revoked so a claim
+        // call from a stale closure after disable is a no-op plus a
+        // fault, and the budget map stops including the mod's allocation
+        // from the next `buildPayload`.
+        disableModBudgets(input.mod.id);
         // Phase 7.1.1: roles are revoked at this same host-owned teardown
         // boundary so stale closures cannot answer later asks.
         disableModRoles(input.mod.id);
@@ -758,6 +769,8 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
             clearAllModInterceptors();
             // Phase 5.4 — same discipline for fact publishers.
             clearAllModFacts();
+            // Phase 7.4 — same discipline for budget claims.
+            clearAllModBudgets();
             clearAllModRoleLeases();
             serviceRoles.clear();
             nativeLoader?.clear();

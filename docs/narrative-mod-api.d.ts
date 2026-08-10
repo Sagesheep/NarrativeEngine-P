@@ -254,6 +254,26 @@ export interface ModContext {
      * on the worker side.
      */
     readonly facts: ModFactsApi;
+    /**
+     * Phase 7.4 — `budgets` is the budget claim surface. One method
+     * (`claim`), per-mod so the host owns the qualification
+     * (`mod.<modId>.<id>`) and the teardown on `disable`. Native-tier only:
+     * registration needs a closure (the allocator), a closure needs a
+     * module, and a module is `native.js` — so `ctx.budgets.claim` throws
+     * "native-tier only" on the worker side.
+     */
+    readonly budgets: ModBudgetsApi;
+    /**
+     * Phase 7.4 — `tokens` is the tokenizer surface. One method (`count`),
+     * exposing the host's tokenizer (cl100k_base BPE) so a mod can do
+     * token-accurate trimming of its own contributions. Native-tier only:
+     * the tokenizer is a pure function, but exposing it through the
+     * sandbox boundary would require an RPC per call (the `js-tiktoken`
+     * encoder cannot be marshalled to a Worker), which is too expensive
+     * for the line-by-line trim pattern that needs it — so
+     * `ctx.tokens.count` throws "native-tier only" on the worker side.
+     */
+    readonly tokens: ModTokensApi;
     readonly signal: AbortSignal;
     subscribe<K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void): () => void;
     refresh(): Promise<ModContext>;
@@ -671,6 +691,68 @@ export interface ModFactsApi {
      * records a fault and returns a no-op `unregister`.
      */
     register(name: string, publisher: FactPublisher, options?: { claims?: string }): () => void;
+}
+
+// ─── Phase 7.4 — Budget claims and the tokenizer ──────────────────────────
+//
+// A budget is claimed by id, not hardcoded. Built-in claims (`stable`,
+// `world`, `volatile`, `npc`, `enemy`) register at module load; mods claim
+// through `ctx.budgets.claim`. The host qualifies the id to
+// `mod.<modId>.<id>` so a mod cannot collide with a built-in or another
+// mod. The allocator is a pure function of `(limit, remainingAfterRules,
+// hasDeepContext)` and runs once per `buildPayload`.
+//
+// The tokenizer (`ctx.tokens.count`) exposes the host's `countTokens`
+// (cl100k_base BPE) so a mod can do token-accurate trimming of its own
+// contributions — the priority-trim pattern `fitEnemyRecordsToBudget`
+// established. Native-tier only: the encoder cannot be marshalled to a
+// Worker, so a sandboxed mod calling `ctx.tokens.count` throws.
+
+/**
+ * The inputs every budget allocation function receives. Exactly the three
+ * values `computeBudgets` used to compute the five built-in budgets from.
+ * A claim that needs none of these ignores the argument entirely.
+ */
+export interface BudgetAllocationContext {
+    /** `settings.contextLimit`, the provider's context window. */
+    readonly limit: number;
+    /** `limit - rulesBudget`, where `rulesBudget = floor(limit * (rulesBudgetPct ?? 0.10))`. */
+    readonly remainingAfterRules: number;
+    /** Whether a deep-context summary is present. */
+    readonly hasDeepContext: boolean;
+}
+
+/** A budget allocation function. Pure: reads only the context and closed-over constants. */
+export type BudgetAllocator = (ctx: BudgetAllocationContext) => number;
+
+/**
+ * `ctx.budgets` — the budget claim surface. One method. The host owns the
+ * qualification and the teardown on `disable`; the mod is never trusted to
+ * call `unregister()`.
+ */
+export interface ModBudgetsApi {
+    /**
+     * Claim a budget by id. The host qualifies it to `mod.<modId>.<id>`.
+     * The allocator runs once per `buildPayload`; its result is exposed
+     * through the budget map. Never throws: a shadow (claiming a built-in
+     * id), duplicate, revoked, or bad-args registration records a fault
+     * and returns a no-op `unregister`.
+     */
+    claim(
+        id: string,
+        allocator: BudgetAllocator,
+        options?: { name?: string; description?: string },
+    ): () => void;
+}
+
+/**
+ * `ctx.tokens` — the tokenizer surface. One method. Exposes the host's
+ * tokenizer (cl100k_base BPE) so a mod can do token-accurate trimming of
+ * its own contributions.
+ */
+export interface ModTokensApi {
+    /** Count the tokens in `text` using the host's tokenizer. Returns 0 for empty input. Pure and synchronous. */
+    count(text: string): number;
 }
 
 // ─── Default-export helper ─────────────────────────────────────────────────

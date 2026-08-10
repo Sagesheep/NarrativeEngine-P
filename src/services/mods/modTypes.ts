@@ -10,6 +10,7 @@
  */
 
 import type { PanelInputControl } from '@narrative/engine';
+import type { AiTier } from '../../types';
 
 /**
  * Facts about the current scene that mod conditions and templates may read.
@@ -287,6 +288,14 @@ export interface ModDefinition {
     /** Optional. Native service roles claimed by this mod (MANIFEST.md §3). */
     roles?: string[];
     /**
+     * Phase 7.3 — optional. Mod-declared tier entries that the tier matrix
+     * resolves alongside its built-in features. A mod that calls a model is
+     * invisible to the tier system until it declares an entry here; the
+     * user's Lite/Pro/Max setting then governs it (§4 "a tier gates
+     * automation, not capability").
+     */
+    tierEntries?: ModTierEntryDeclaration[];
+    /**
      * Phase 1.1 / MANIFEST.md §3 — the native tier. Its presence alone makes
      * the mod native-tier for trust and warning purposes (TRUST.md §B); Phase
      * 6.1 shows the verbatim warning before first enablement. `js`/`css` paths
@@ -319,6 +328,62 @@ export interface ModCompute {
     capabilities: string[];
 }
 
+/**
+ * Phase 7.3 — a mod-declared tier entry. The manifest shape mirrors
+ * `TierBlock` in `aiTier.ts` (id, name, description, toggleable, trigger,
+ * defaultEnabled, callsModel) PLUS a per-tier `matrix` (the gate values that
+ * `tierAllows` resolves) and an optional per-tier `cooldown` (the scene-gap
+ * throttle pattern that `enemyDiscovery` established).
+ *
+ * `matrix` is the per-tier gate. `tierAllows(tier, id)` returns
+ * `matrix[tier]`, so the user's Lite/Pro/Max setting governs a mod feature
+ * exactly as it governs a built-in. A mod that wants "never at Lite" sets
+ * `matrix.lite = false` — there is no `Infinity` cooldown for "never"
+ * (JSON has no `Infinity`); the tier gate is the "never" mechanism.
+ *
+ * `cooldown` is optional. A mod that needs a scene-gap throttle (the
+ * `enemyDiscovery` pattern) declares one; its controller resolves it through
+ * the tier block registry's `cooldownFor`. A mod that does not need one
+ * omits the field — the controller simply never throttles. This is the
+ * "explicitly decide not to" path for `enemyDiscovery`: its built-in cooldown
+ * stays on the standalone `ENEMY_DISCOVERY_COOLDOWN` constant; when enemies
+ * moves to a mod (Phase 8), the cooldown moves here with it.
+ */
+export interface ModTierEntryDeclaration {
+    /** Required. ID_REGEX (`/^[a-zA-Z0-9_-]+$/`). Unique within the mod. */
+    id: string;
+    /** Required. Display name for the block view. */
+    name: string;
+    /** Optional. One-line description for the block view. */
+    description?: string;
+    /** Required. Whether the user may switch this entry off. */
+    toggleable: boolean;
+    /** Required. Whether this entry fires automatically, from a button, or is a reserved slot. */
+    trigger: 'automatic' | 'manual' | 'unwired';
+    /** Required. Whether this entry is on for a user who has never touched the extensions screen. */
+    defaultEnabled: boolean;
+    /** Optional. Whether this entry calls a language model. Defaults to `false` (engine only). */
+    callsModel?: boolean;
+    /** Required. Per-tier gate values. `tierAllows(tier, id)` returns `matrix[tier]`. */
+    matrix: Record<AiTier, boolean>;
+    /** Optional. Per-tier cooldown (scene gap). Mirrors `ENEMY_DISCOVERY_COOLDOWN`. */
+    cooldown?: Partial<Record<AiTier, number>>;
+}
+
+/** A validated tier entry declaration. Same shape — the server has checked it. */
+export interface ValidatedModTierEntry {
+    id: string;
+    name: string;
+    /** Always present on a validated entry (defaulted to `''` by the loader). */
+    description: string;
+    toggleable: boolean;
+    trigger: 'automatic' | 'manual' | 'unwired';
+    defaultEnabled: boolean;
+    callsModel?: boolean;
+    matrix: Record<AiTier, boolean>;
+    cooldown?: Partial<Record<AiTier, number>>;
+}
+
 export interface ValidatedMod extends ModDefinition {
     description: string;
     /** Source filename inside the mods folder. Diagnostics and the extensions UI. */
@@ -346,6 +411,8 @@ export interface ValidatedMod extends ModDefinition {
     loadOrder: number;
     /** Always present on a validated mod; empty when no service role is declared. */
     roles: string[];
+    /** Phase 7.3 — validated tier entry declarations. Always present (default `[]`). */
+    tierEntries: ValidatedModTierEntry[];
     /**
      * Phase 1.1 / MANIFEST.md §6.4 — the validated dependency map. Always
      * present on a validated mod (default `{}`). The resolver uses this to

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { listTierBlocks, MATRIX, type TierFeature } from '../aiTier';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { listTierBlocks, MATRIX, modTierBlocks, type TierFeature } from '../aiTier';
 
 /**
  * WORKORDER-P5-01 §4 Step 5 — the declaration table tests.
@@ -28,6 +28,12 @@ const TIER_FEATURE_IDS: TierFeature[] = [
 ];
 
 describe('WORKORDER-P5-01 — listTierBlocks declaration table', () => {
+    beforeEach(() => {
+        // Phase 7.3 — ensure no mod-declared tier entries leak in from other
+        // test files. The declaration table tests expect exactly 27 built-ins.
+        modTierBlocks.clear();
+    });
+
     const blocks = listTierBlocks();
 
     it('returns one entry per TierFeature id (27 in, 27 out)', () => {

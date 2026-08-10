@@ -129,7 +129,7 @@ const NATIVE_HOOK_NAMES = new Set([
 const TOP_LEVEL_KEYS = new Set([
     'id', 'name', 'version', 'description', 'author', 'homepage', 'appVersion',
     'loadOrder', 'dependencies', 'i18n', 'contributions', 'tables', 'panels',
-    'screens', 'compute', 'native', 'roles',
+    'screens', 'compute', 'native', 'roles', 'tierEntries',
 ]);
 
 /** ST spellings that get a "this app spells it X" hint, not a bare unknown-key. */
@@ -1114,6 +1114,138 @@ function validateRoles(raw) {
     });
 }
 
+/**
+ * Phase 7.3 — validate a mod's declared `tierEntries` array. A tier entry is a
+ * DECLARATION, never code: the mod says "I have a feature that calls a model,
+ * here is how the user's Lite/Pro/Max setting should gate it." The app's tier
+ * matrix is the source of truth for built-in features; this lets a mod add its
+ * own features to that matrix without core knowing about them.
+ *
+ * The shape mirrors `TierBlock` in `aiTier.ts` (id, name, description,
+ * toggleable, trigger, defaultEnabled, callsModel) PLUS a per-tier `matrix`
+ * (the gate values that `tierAllows` resolves) and an optional per-tier
+ * `cooldown` (the scene-gap throttle pattern that `enemyDiscovery`
+ * established).
+ *
+ * Validation follows the same shape as `validateTables` / `validatePanels`:
+ * allow-listed keys, ID_REGEX on ids, reject with a ModFault rather than
+ * fail silently. A malformed entry rejects THIS mod (not others).
+ *
+ * `cooldown` values are non-negative numbers. There is no `Infinity` in JSON;
+ * a mod that wants "never" at a tier sets `matrix[tier] = false` (the tier
+ * gate blocks it), not a cooldown. This is the "explicitly decide not to"
+ * path for `enemyDiscovery` — its built-in cooldown stays on the standalone
+ * `ENEMY_DISCOVERY_COOLDOWN` constant; when enemies moves to a mod (Phase 8),
+ * the cooldown moves here with it.
+ */
+const TIER_TRIGGER_VALUES = new Set(['automatic', 'manual', 'unwired']);
+const TIER_NAMES = ['lite', 'pro', 'max'];
+
+function validateTierMatrix(raw, at) {
+    if (!isPlainObject(raw)) reject(at + '.matrix must be an object with lite, pro, max boolean values');
+    const matrix = {};
+    for (const tier of TIER_NAMES) {
+        if (typeof raw[tier] !== 'boolean') {
+            reject(at + '.matrix.' + tier + ' must be a boolean');
+        }
+        matrix[tier] = raw[tier];
+    }
+    for (const key of Object.keys(raw)) {
+        if (!TIER_NAMES.includes(key)) {
+            reject(at + '.matrix has unknown tier "' + key + '" — only lite, pro, max are allowed');
+        }
+    }
+    return matrix;
+}
+
+function validateTierCooldown(raw, at) {
+    if (!isPlainObject(raw)) reject(at + '.cooldown must be an object with lite, pro, max number values');
+    const cooldown = {};
+    for (const tier of TIER_NAMES) {
+        if (raw[tier] === undefined) continue;
+        if (typeof raw[tier] !== 'number' || !Number.isFinite(raw[tier]) || raw[tier] < 0) {
+            reject(at + '.cooldown.' + tier + ' must be a non-negative finite number');
+        }
+        cooldown[tier] = raw[tier];
+    }
+    for (const key of Object.keys(raw)) {
+        if (!TIER_NAMES.includes(key)) {
+            reject(at + '.cooldown has unknown tier "' + key + '" — only lite, pro, max are allowed');
+        }
+    }
+    return Object.keys(cooldown).length > 0 ? cooldown : undefined;
+}
+
+function validateTierEntries(raw, modId) {
+    if (raw === undefined) return [];
+    if (!Array.isArray(raw)) reject('tierEntries must be an array of tier entry declarations');
+
+    const seen = new Set();
+    return raw.map((entry, index) => {
+        const at = 'tierEntries[' + index + ']';
+        if (!isPlainObject(entry)) reject(at + ' must be an object');
+
+        requireNonEmptyString(entry.id, at + '.id');
+        if (!ID_REGEX.test(entry.id)) {
+            reject(at + '.id "' + entry.id + '" may contain only letters, digits, "_" and "-"');
+        }
+        if (seen.has(entry.id)) reject(at + '.id "' + entry.id + '" is declared more than once in mod "' + modId + '"');
+        seen.add(entry.id);
+
+        requireNonEmptyString(entry.name, at + '.name');
+        if (entry.description !== undefined && typeof entry.description !== 'string') {
+            reject(at + '.description must be a string');
+        }
+
+        if (typeof entry.toggleable !== 'boolean') reject(at + '.toggleable must be a boolean');
+
+        requireNonEmptyString(entry.trigger, at + '.trigger');
+        if (!TIER_TRIGGER_VALUES.has(entry.trigger)) {
+            reject(at + '.trigger "' + entry.trigger + '" must be one of ' + [...TIER_TRIGGER_VALUES].join(', '));
+        }
+
+        if (typeof entry.defaultEnabled !== 'boolean') reject(at + '.defaultEnabled must be a boolean');
+
+        if (entry.callsModel !== undefined && typeof entry.callsModel !== 'boolean') {
+            reject(at + '.callsModel must be a boolean');
+        }
+
+        const matrix = validateTierMatrix(entry.matrix, at);
+
+        let cooldown;
+        if (entry.cooldown !== undefined) {
+            cooldown = validateTierCooldown(entry.cooldown, at);
+        }
+
+        // Forbidden keys: anything that would carry code or a path.
+        const forbidden = ['fileSuffix', 'filePath', 'path', 'hooks', 'compute', 'native', 'file'];
+        for (const key of forbidden) {
+            if (entry[key] !== undefined) {
+                reject(at + '.' + key + ' is not allowed on a tier entry — a tier entry is a declaration, not code');
+            }
+        }
+        const allowed = new Set(['id', 'name', 'description', 'toggleable', 'trigger', 'defaultEnabled', 'callsModel', 'matrix', 'cooldown']);
+        for (const key of Object.keys(entry)) {
+            if (!allowed.has(key)) {
+                reject(at + ' has unknown field "' + key + '" — only ' + [...allowed].join(', ') + ' are allowed');
+            }
+        }
+
+        const tierEntry = {
+            id: entry.id,
+            name: entry.name,
+            description: typeof entry.description === 'string' ? entry.description : '',
+            toggleable: entry.toggleable,
+            trigger: entry.trigger,
+            defaultEnabled: entry.defaultEnabled,
+            matrix,
+        };
+        if (entry.callsModel !== undefined) tierEntry.callsModel = entry.callsModel;
+        if (cooldown !== undefined) tierEntry.cooldown = cooldown;
+        return tierEntry;
+    });
+}
+
 function validateMod(raw, file, appVersion, modDir) {
     if (!isPlainObject(raw)) reject('mod file must contain a JSON object');
 
@@ -1205,6 +1337,7 @@ function validateMod(raw, file, appVersion, modDir) {
         dependencies = validateDependenciesField(raw.dependencies, raw.id);
     }
     const roles = validateRoles(raw.roles);
+    const tierEntries = validateTierEntries(raw.tierEntries, raw.id);
 
     // Phase 1.3 / MANIFEST.md §5 — i18n. Optional; absent = {}. Read here so
     // a malformed locale file is a load-time fault naming the locale, not a
@@ -1229,9 +1362,10 @@ function validateMod(raw, file, appVersion, modDir) {
         raw.compute === undefined &&
         raw.native === undefined &&
         roles.length === 0 &&
+        tierEntries.length === 0 &&
         Object.keys(i18n).length === 0
     ) {
-        reject('manifest declares nothing — a mod must declare at least one of contributions, tables, panels, screens, compute, native, i18n, roles');
+        reject('manifest declares nothing — a mod must declare at least one of contributions, tables, panels, screens, compute, native, i18n, roles, tierEntries');
     }
 
     // Phase 1.3 / MANIFEST.md §3 — `native`. Its presence alone makes the mod
@@ -1278,6 +1412,7 @@ function validateMod(raw, file, appVersion, modDir) {
         screens,
         screenSources,
         roles,
+        tierEntries,
         file,
     };
     if (typeof raw.description === 'string') mod.description = raw.description;

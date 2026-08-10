@@ -178,6 +178,15 @@ const toModRow = (mod: ValidatedMod, faults: readonly ModFault[]): ModuleRow => 
         if (active?.source === 'mod') {
             return [{ name: role.name, active: false, overriddenBy: active.modId ?? active.providerId }];
         }
+        // Phase 7.5 §3 item 4 — distinguish "core's default is running" from
+        // "nothing is running". This branch used to report `core default`
+        // unconditionally, so a user who had switched the default off AND whose
+        // mod had not claimed the role was told a provider was answering that
+        // was not. The absence is deliberate and harmless in the turn; saying
+        // the wrong thing about it on the screen is not.
+        if (!active) {
+            return [{ name: role.name, active: false }];
+        }
         return [{ name: role.name, active: false, overriddenBy: 'core default' }];
     });
     return {
@@ -559,7 +568,7 @@ export function ExtensionsTab() {
                                 ? ' · ' + t('settings.extensions.mod.roleActive')
                                 : role.overriddenBy
                                     ? ' · ' + t('settings.extensions.mod.roleOverriddenBy', { mod: role.overriddenBy })
-                                    : ''}
+                                    : ' · ' + t('settings.extensions.mod.roleNoProvider')}
                         </p>
                     ))}
                     {/* Phase 6.1 — the inline fault. The reason appears next to

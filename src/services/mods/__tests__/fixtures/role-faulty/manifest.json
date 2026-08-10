@@ -1,0 +1,16 @@
+{
+  "id": "role-faulty",
+  "name": "Role Faulty Fixture",
+  "version": "1.0.0",
+  "loadOrder": 20,
+  "description": "Phase 7.9.3 fixture. Claims `memory.recall` and then throws on every ask, so checkpoint item 5 can measure the shipped behaviour against `ROLES.md` §5: no per-ask fallback to core's default, one strike and a surfaced fault per breach, and a latched demotion only on the third consecutive failure. Deliberately NOT shipped in `mods/`.",
+  "author": "Narrative Engine",
+  "roles": ["memory.recall"],
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate",
+      "disable": "onDisable"
+    }
+  }
+}

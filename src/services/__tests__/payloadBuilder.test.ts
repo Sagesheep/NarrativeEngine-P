@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { buildPayload } from '../payload/payloadBuilder';
 import { DEFAULT_RULES } from '../rules/defaultRules';
 import { DEFAULT_ENEMY_COMBAT_CONFIG } from '../enemy/enemyCombat';
+import { buildEnemyVolatileSegment } from '../enemy/enemyPayloadSegment';
 import type {
     GameContext,
     AppSettings,
@@ -1494,9 +1495,14 @@ describe('buildPayload — active encounter roster', () => {
             context: baseContext(),
             history: [],
             userMessage: 'I remember the Reserve Gunner.',
-            enemyCompendium: [mentionedReserve],
-            enemyInstances: [activeInstance],
-            enemyEncounters: [encounter],
+            // Phase 7.5 — the subsystem renders its own segment; `buildPayload`
+            // no longer carries enemy-shaped option fields. The assertions below
+            // are unchanged, which is the point: the prompt text is identical.
+            volatileSegments: [buildEnemyVolatileSegment({
+                enemyCompendium: [mentionedReserve],
+                enemyInstances: [activeInstance],
+                enemyEncounters: [encounter],
+            })],
         });
         const finalUser = [...result.messages].reverse().find(message => message.role === 'user')?.content ?? '';
 
@@ -1514,8 +1520,10 @@ describe('buildPayload — active encounter roster', () => {
             context: baseContext(),
             history: [],
             userMessage: 'The Orc Warrior attacks.',
-            enemyCompendium: [mentioned],
-            enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, promptContextEnabled: false },
+            volatileSegments: [buildEnemyVolatileSegment({
+                enemyCompendium: [mentioned],
+                enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, promptContextEnabled: false },
+            })],
         });
         const finalUser = [...result.messages].reverse().find(message => message.role === 'user')?.content ?? '';
 

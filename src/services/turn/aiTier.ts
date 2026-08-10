@@ -1,5 +1,6 @@
 import type { AiTier } from '../../types';
 import { isBlockEnabled } from './blockEnablement';
+import { createTierBlockRegistry } from './tierBlockRegistry';
 
 export type TierFeature =
   | 'introEngine' | 'planner' | 'expandQuery' | 'reranker' | 'archiveFunnel'
@@ -13,6 +14,17 @@ export type TierFeature =
   | 'lodDynamicElevation'
   | 'lodSlottedRag'
   | 'enemyDiscovery';
+
+/**
+ * Phase 7.3 — the mod-declared tier block registry. Module-level singleton,
+ * like `postTurnTracks` (`tracks/index.ts`). Built-in tier features are NOT
+ * registered here — they live in `MATRIX` + `TIER_BLOCKS` below. This registry
+ * holds ONLY mod-declared entries. `tierAllows` consults `MATRIX` first
+ * (byte-identical for the 27 built-in ids) and falls through to this registry
+ * for any other id.
+ */
+export const modTierBlocks = createTierBlockRegistry();
+export type { ModTierEntry } from './tierBlockRegistry';
 
 export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
     lite: {
@@ -57,13 +69,16 @@ export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
 };
 
 export function tierAllows(tier: AiTier | undefined, f: TierFeature): boolean {
-    // The resolver returns `true` for ids not in the matrix (the "absent means enabled"
-    // convention for contributions/tracks). `tierAllows` is typed to `TierFeature` and its
-    // historical contract is "unknown id → false" (the `?? false` in the old body), so guard
-    // the fallthrough here. The 31 call sites only ever pass valid `TierFeature` literals,
-    // so this branch is unreachable in production — it preserves the typed contract.
-    if (!(f in MATRIX[tier ?? 'pro'])) return false;
-    return isBlockEnabled(f, tier, undefined);
+    const t = tier ?? 'pro';
+    // Built-in features: byte-identical resolution (the 27 TierFeature ids).
+    // The MATRIX lookup and isBlockEnabled call are the same body this
+    // function has had since WORKORDER-P5-01 — no call site sees a change.
+    if (f in MATRIX[t]) return isBlockEnabled(f, tier, undefined);
+    // Phase 7.3 — mod-declared tier entries: resolve through the mod's
+    // declared per-tier matrix. An id not in the built-in MATRIX and not
+    // registered as a mod entry returns `false`, preserving the "unknown →
+    // false" characterization contract.
+    return modTierBlocks.allows(t, f as string);
 }
 
 // 0 = every turn (Max), Infinity = never (Lite)
@@ -96,7 +111,13 @@ export const ENEMY_DISCOVERY_COOLDOWN: Record<AiTier, number> = { lite: Infinity
 export type TierBlockTrigger = 'automatic' | 'manual' | 'unwired';
 
 export interface TierBlock {
-    id: TierFeature;
+    /**
+     * Stable unique id. Built-in entries use a `TierFeature` literal; mod
+     * entries use a namespaced string (`mod.<modId>.<entryId>`). Widened from
+     * `TierFeature` to `string` in Phase 7.3 so mod-declared entries share
+     * the `TierBlock` shape without the compile-time union having to list them.
+     */
+    id: string;
     name: string;
     description: string;
     toggleable: boolean;
@@ -110,6 +131,12 @@ export interface TierBlock {
      * answer to give a user who is trying to understand what costs them tokens.
      */
     callsModel?: boolean;
+    /**
+     * Phase 7.3 — provenance. Present (set to the mod id) on mod-declared
+     * entries; absent on built-ins. The block view renders this under the
+     * description so a user can see which mod contributed the feature.
+     */
+    modId?: string;
 }
 
 const TIER_BLOCKS: readonly TierBlock[] = [
@@ -143,5 +170,8 @@ const TIER_BLOCKS: readonly TierBlock[] = [
 ];
 
 export function listTierBlocks(): readonly TierBlock[] {
-    return [...TIER_BLOCKS];
+    // Phase 7.3 — built-ins first (stable order, matching the declaration
+    // table), then mod-declared entries in registration order. The block
+    // view walks one list; mod entries appear alongside built-ins.
+    return [...TIER_BLOCKS, ...modTierBlocks.list()];
 }

@@ -1,0 +1,16 @@
+{
+  "id": "role-rival",
+  "name": "Role Rival Fixture",
+  "version": "1.0.0",
+  "loadOrder": 50,
+  "description": "Phase 7.9.3 fixture. A SECOND claimant for `memory.recall`, existing only so checkpoint item 4 has two mods contending for one role. Its `loadOrder` (50) is deliberately higher than `role-claimant`'s (10), so it loses arbitration and must never be asked; it counts its own asks so \"the loser is not run\" is an assertion rather than a hope. Deliberately NOT shipped in `mods/` — that directory is the installed set and is loaded live by the running app.",
+  "author": "Narrative Engine",
+  "roles": ["memory.recall"],
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "activate": "onActivate",
+      "disable": "onDisable"
+    }
+  }
+}

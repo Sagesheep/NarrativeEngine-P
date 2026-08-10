@@ -83,6 +83,9 @@ const tierBlockToBlock = (b: TierBlock): Block => {
         switchable: lockReason === undefined,
         lockReason,
         defaultEnabled: b.defaultEnabled,
+        // Phase 7.3 — mod-declared tier entries carry their mod id as
+        // provenance. Built-ins have no `modId`; their `meta` is undefined.
+        meta: b.modId ? 'mod: ' + b.modId : undefined,
     };
 };
 
@@ -115,9 +118,30 @@ const trackToBlock = (tr: PostTurnTrack<unknown>): Block => {
     };
 };
 
+/**
+ * A role's row says who would answer the ask right now. Three states, and the
+ * third is the one Phase 7.5 added:
+ *
+ *   - core's default is answering — no `meta`, the ordinary case;
+ *   - a mod displaced it — `stood aside for <mod>`, so the user can find the
+ *     thing that stopped running (`ROLES.md` §4.2);
+ *   - **nothing is answering** — the default is switched off and no mod claimed
+ *     the role, so the ask returns no answer and the app is simply smaller.
+ *
+ * The third state used to render identically to the first, which is precisely
+ * the confusion Phase 7.5 §3 item 4 forbids: *"quiet in the code, obvious in
+ * the UI… the user is never left wondering where a feature went."* Quiet is the
+ * correct behaviour for the turn (`ask` returns `undefined` and the gather
+ * finishes empty); silent is not the correct behaviour for the screen.
+ */
 const roleToBlock = (role: ReturnType<typeof serviceRoles.list>[number]): Block => {
     const active = serviceRoles.activeProviderFor(role.id);
     const activeMod = active?.source === 'mod' ? active.modId ?? active.providerId : undefined;
+    const meta = activeMod
+        ? 'stood aside for ' + activeMod
+        : active
+            ? undefined
+            : 'switched off — nothing answers this, and the turn proceeds without it';
     return {
         id: role.defaultProvider.providerId,
         name: role.name,
@@ -126,7 +150,7 @@ const roleToBlock = (role: ReturnType<typeof serviceRoles.list>[number]): Block 
         kind: 'model',
         switchable: true,
         defaultEnabled: true,
-        meta: activeMod ? 'stood aside for ' + activeMod : undefined,
+        meta,
     };
 };
 

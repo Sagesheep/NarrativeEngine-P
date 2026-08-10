@@ -43,7 +43,7 @@ export interface TurnFacts {
     onStageNpcNames?: string[];
     /** Name of the current place, resolved from `context.currentPlaceId`. */
     location?: string;
-    /** True when an enemy encounter is active this turn. */
+    /** True when a combat encounter is running this turn. Established by a segment or a mod (7.5 / 5.4). */
     inCombat?: boolean;
     /** Reserved for v1 — see the note above. */
     sceneTags?: string[];
@@ -54,7 +54,7 @@ export interface FinalUserModuleInput {
     settings: AppSettings;
     /** The player's message for this turn. */
     userMessage: string;
-    /** Pre-composed rules + world + enemy + volatile block. Its parts trace themselves. */
+    /** Pre-composed rules + world + segments + volatile block. Its parts trace themselves. */
     volatileBlock: string;
     directorBrief?: string;
     watchdogNudge?: string;
@@ -102,15 +102,15 @@ const hasAbsolute = (input: FinalUserModuleInput): boolean =>
 
 export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
     /**
-     * Rules + world + enemy + volatile state. Structural, not a feature — and its constituent
-     * parts already emit their own traces from `buildWorld`/`buildVolatile`/the enemy block, so
-     * it declares none of its own.
+     * Rules + world + any registered volatile segments + volatile state. Structural, not a
+     * feature — and its constituent parts already emit their own traces from
+     * `buildWorld` / `buildVolatile` / each segment, so it declares none of its own.
      */
     single(
         {
             id: BUILTIN_IDS.volatileBlock,
             name: 'World State',
-            description: 'Retrieved rules, world context, enemies, and volatile scene state.',
+            description: 'Retrieved rules, world context, subsystem context, and volatile scene state.',
             toggleable: false,
         },
         (input) => ({ id: BUILTIN_IDS.volatileBlock, order: 100, text: input.volatileBlock }),

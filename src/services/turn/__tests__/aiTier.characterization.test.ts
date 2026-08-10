@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { tierAllows, NPC_UPDATE_COOLDOWN, ENEMY_DISCOVERY_COOLDOWN, type TierFeature } from '../aiTier';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { tierAllows, NPC_UPDATE_COOLDOWN, ENEMY_DISCOVERY_COOLDOWN, modTierBlocks, type TierFeature } from '../aiTier';
 import type { AiTier } from '../../../types';
 
 /**
@@ -84,6 +84,13 @@ const EXPECTED: Record<AiTier, Record<TierFeature, boolean>> = {
 };
 
 describe('WORKORDER-P5-01 — tierAllows characterization (golden)', () => {
+    beforeEach(() => {
+        // Phase 7.3 — ensure no mod-declared tier entries leak in from other
+        // test files. The golden tests capture TODAY's built-in behaviour;
+        // a stray mod entry must not change the answers.
+        modTierBlocks.clear();
+    });
+
     for (const tier of TIERS) {
         it(`tierAllows('${tier}', f) returns today's value for every TierFeature`, () => {
             for (const feature of FEATURES) {

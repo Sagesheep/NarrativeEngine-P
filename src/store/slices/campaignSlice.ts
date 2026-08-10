@@ -595,7 +595,7 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
             // the old campaign's in-flight flag so a reopened campaign is not
             // permanently blocked by a stale flag from a closed/switched-away one.
             try {
-                const { clearEnemyDiscoveryState } = await import('../../services/turn/postTurnPipeline');
+                const { clearEnemyDiscoveryState } = await import('../../services/turn/tracks/enemySuggestionTrack');
                 clearEnemyDiscoveryState(currentId);
             } catch (e) {
                 console.warn('[CampaignSwitch] clearEnemyDiscoveryState failed:', e);

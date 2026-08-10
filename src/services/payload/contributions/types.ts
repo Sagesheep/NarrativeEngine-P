@@ -76,9 +76,9 @@ export interface ContributionSpec {
      *
      * Unbounded is the honest default for built-ins: today the directive blocks (Director
      * Brief, watchdog, Absolute Command) have NO ceiling — `computeBudgets` allocates only
-     * stable/world/volatile/npc/enemy. Leaving built-ins unbounded is what keeps the
-     * migration byte-identical. Mod-authored contributions are required to declare a budget
-     * (enforced at load time, not here).
+     * to registered claims, and these are not among them. Leaving built-ins unbounded is
+     * what keeps the migration byte-identical. Mod-authored contributions are required to
+     * declare a budget (enforced at load time, not here).
      */
     budget?: number;
 

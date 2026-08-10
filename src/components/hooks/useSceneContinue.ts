@@ -13,6 +13,8 @@ import { rebuildStateFromLiveStoreLike } from './sceneContinueFallback';
 import { toast } from '../Toast';
 import { debouncedSaveCampaignState } from '../../store/slices/campaignSlice';
 import { emitCoreEvent } from '../../services/mods/events';
+// Phase 7.5 — enemy-subsystem plumbing, deleted with the subsystem in Phase 8.3.
+import { buildEnemyVolatileSegment } from '../../services/enemy/enemyPayloadSegment';
 import type { ChatMessage } from '../../types';
 
 /**
@@ -340,10 +342,9 @@ async function buildFallbackPayload(opts: {
             condensedUpToIndex: store.condenser.condensedUpToIndex,
             relevantLore: gathered.relevantLore,
             npcLedger: store.npcLedger,
-            enemyCompendium: store.enemyCompendium,
-            enemyInstances: store.enemyInstances,
-            enemyEncounters: store.enemyEncounters,
-            enemyCombatConfig: store.enemyCombatConfig,
+            // Phase 7.5 — see `turnStages.ts`: the enemy block is a segment the
+            // subsystem renders itself. Deleted with the subsystem in Phase 8.3.
+            volatileSegments: [buildEnemyVolatileSegment(store)],
             archiveRecall: gathered.archiveRecall,
             // _sceneNumber dropped (WO-P1-01) — was unread.
             recommendedNPCNames: gathered.recommendedNPCNames,

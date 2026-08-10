@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyCombatConfig, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import { createTraceCollector } from './traceCollector';
 import { computeBudgets } from './budgets';
@@ -7,7 +7,7 @@ import { buildWorld } from './world';
 import { buildVolatile } from './volatile';
 import { buildHistory } from './history';
 import { buildPinnedMemoriesBlock } from './pinnedMemories';
-import { countTokens } from '../infrastructure/tokenizer';
+import { composeVolatileBlock, renderVolatileSegments, type VolatileSegment } from './volatileSegments';
 import { assembleContributions } from './contributions/assemble';
 import { createFinalUserRegistryWithExtensions } from './contributions/extensions';
 import type { FinalUserModuleInput } from './contributions/builtins';
@@ -17,8 +17,6 @@ import type { ModFacts } from '../mods/modTypes';
 import type { FactPublicationResult } from '../mods/facts';
 import type { ElevatedScene } from '../archive-memory/dynamicElevation';
 import type { SlottedRagSnippet } from '../archive-memory/slottedRag';
-import { buildRelevantEnemyBlock } from '../enemy/enemyPrompt';
-import { buildActiveEncounterBlock } from '../enemy/enemyEncounter';
 import { isBlockEnabled } from '../turn/blockEnablement';
 
 export type BuildPayloadOptions = {
@@ -29,10 +27,6 @@ export type BuildPayloadOptions = {
     condensedUpToIndex?: number;
     relevantLore?: LoreChunk[];
     npcLedger?: NPCEntry[];
-    enemyCompendium?: EnemyEntry[];
-    enemyInstances?: EnemyInstance[];
-    enemyEncounters?: EnemyEncounter[];
-    enemyCombatConfig?: EnemyCombatConfig;
     archiveRecall?: ArchiveScene[];
     recommendedNPCNames?: string[];
     semanticFactText?: string;
@@ -77,6 +71,17 @@ export type BuildPayloadOptions = {
      *  Callers supply their own once mods can be loaded, so `buildPayload` never learns
      *  what a mod is. */
     finalUserRegistry?: ContributionRegistry<FinalUserModuleInput>;
+    /** Phase 7.5: subsystem-rendered segments folded into the composed volatile block.
+     *
+     *  Each carries `{ id, order, render }` and nothing else, so `buildPayload` never
+     *  learns which feature produced one — the same discipline `interception` and
+     *  `finalUserRegistry` follow. A segment's `id` is also its budget claim id, so an
+     *  unclaimed budget and an absent block are one event (`volatileSegments.ts`).
+     *
+     *  Absent (the zero-segment case) means the composed block is
+     *  `[rules, world, state]` exactly as it was before this option existed, which is
+     *  what keeps the Phase 0.2 gate byte-identical. */
+    volatileSegments?: readonly VolatileSegment[];
     /** Phase 5.2: the pre-prompt interceptor's result for THIS turn, already validated
      *  and namespaced by the mod layer. Specs are appended to what the registry collected;
      *  suppression is handed to the arbiter alongside the specs' own `suppresses`.
@@ -112,10 +117,6 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         condensedUpToIndex,
         relevantLore,
         npcLedger,
-        enemyCompendium,
-        enemyInstances,
-        enemyEncounters,
-        enemyCombatConfig,
         archiveRecall,
         recommendedNPCNames,
         semanticFactText,
@@ -141,31 +142,48 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         finalUserRegistry,
         interception,
         publishedFacts,
+        volatileSegments,
     } = options;
     const isDebug = settings.debugMode === true;
     const limit = settings.contextLimit || 8192;
     const collector = createTraceCollector(isDebug);
+    // Phase 7.4 — the budget map is keyed by claim id, not by feature name.
+    // `computeBudgets` runs every registered claim (core's four structural
+    // ones plus whatever a subsystem or a mod claimed) and returns a
+    // `BudgetMap` whose `get(id)` returns the allocation. An unregistered id
+    // returns `0` — the absent-means-zero contract — which is how a claim
+    // going away stays quiet here (Phase 7.5 §3). The four ids read below are
+    // core's own structural parts; every other allocation is resolved through
+    // a segment's id, so this file names no feature.
     const { rulesBudget, budgetMap } = computeBudgets(limit, settings.rulesBudgetPct, !!deepContextSummary);
-    const { stableContent, stableTokens, retrievedRulesContent } = buildStable({ settings, context, relevantRules, rulesManifest, rulesBudget, budgetStable: budgetMap.stable, collector });
-    const { worldContent, currentWorldTokens, divergenceContent, divergenceTokens, plannerEventTypes: resolvedEventTypes } = buildWorld({ history, userMessage, condensedUpToIndex, relevantLore, npcLedger, archiveRecall, recommendedNPCNames, semanticFactText, archiveIndex, timelineEvents, deepContextSummary, divergenceRegister, chapters, onStageNpcIds, loreRaw: context.loreRaw, agencyDigest: context.agencyDigest, arcDigest: context.arcDigest, budgetWorld: budgetMap.world, npcBudgetFloor: budgetMap.npc, plannerEventTypes, matureMode: settings.matureMode, isDebug, collector, elevatedScenes, slottedRagSnippets });
-    const { volatileContent, volatileTokens } = buildVolatile({ context, inventoryCategories, profileFields, budgetVolatile: budgetMap.volatile, collector, plannerEventTypes: resolvedEventTypes, userMessage, history, npcLedger, locationLedger });
-    const enemyContextEnabled = enemyCombatConfig?.promptContextEnabled !== false;
-    const activeEncounterBlock = enemyContextEnabled
-        ? buildActiveEncounterBlock(enemyEncounters, enemyInstances, enemyCombatConfig, budgetMap.enemy)
-        : '';
-    const enemyBlock = activeEncounterBlock || (enemyContextEnabled
-        ? buildRelevantEnemyBlock(enemyCompendium, history, userMessage, budgetMap.enemy)
-        : '');
-    const enemyTokens = countTokens(enemyBlock);
-    if (enemyBlock) {
+    const stableBudget = budgetMap.get('stable');
+    const worldBudget = budgetMap.get('world');
+    const volatileBudget = budgetMap.get('volatile');
+    const npcFloor = budgetMap.get('npc');
+    const { stableContent, stableTokens, retrievedRulesContent } = buildStable({ settings, context, relevantRules, rulesManifest, rulesBudget, budgetStable: stableBudget, collector });
+    const { worldContent, currentWorldTokens, divergenceContent, divergenceTokens, plannerEventTypes: resolvedEventTypes } = buildWorld({ history, userMessage, condensedUpToIndex, relevantLore, npcLedger, archiveRecall, recommendedNPCNames, semanticFactText, archiveIndex, timelineEvents, deepContextSummary, divergenceRegister, chapters, onStageNpcIds, loreRaw: context.loreRaw, agencyDigest: context.agencyDigest, arcDigest: context.arcDigest, budgetWorld: worldBudget, npcBudgetFloor: npcFloor, plannerEventTypes, matureMode: settings.matureMode, isDebug, collector, elevatedScenes, slottedRagSnippets });
+    const { volatileContent, volatileTokens } = buildVolatile({ context, inventoryCategories, profileFields, budgetVolatile: volatileBudget, collector, plannerEventTypes: resolvedEventTypes, userMessage, history, npcLedger, locationLedger });
+    // Phase 7.5 — subsystem segments. `buildPayload` hands each one its budget
+    // (resolved by the segment's own id) plus the two relevance inputs, and
+    // gets back text, an optional trace and any facts the segment establishes.
+    // Nothing here knows what a segment renders. Zero segments is the quiet
+    // path: no text, no trace, no fact, no error.
+    const renderedSegments = renderVolatileSegments(volatileSegments, (segmentId) => ({
+        budget: budgetMap.get(segmentId),
+        history,
+        userMessage,
+    }));
+    const segmentTokens = renderedSegments.reduce((sum, segment) => sum + segment.tokens, 0);
+    for (const segment of renderedSegments) {
+        if (!segment.trace || !segment.text) continue;
         collector.addTrace({
-            source: activeEncounterBlock ? 'Active Enemy Encounter' : 'Enemy Compendium',
-            classification: 'volatile_state',
-            tokens: enemyTokens,
-            reason: `Priority-trimmed enemy context (budget ${budgetMap.enemy} tokens)`,
+            source: segment.trace.source,
+            classification: segment.trace.classification,
+            tokens: segment.tokens,
+            reason: segment.trace.reason,
             included: true,
             position: 'user',
-            preview: enemyBlock,
+            preview: segment.text,
         });
     }
     const fitted = buildHistory({
@@ -175,7 +193,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         limit,
         stableTokens: stableTokens + divergenceTokens,
         currentWorldTokens,
-        volatileTokens: volatileTokens + enemyTokens,
+        volatileTokens: volatileTokens + segmentTokens,
         context,
         collector,
         // WO-09: plumb the existing `chapters`, `archiveIndex`, `onStageNpcIds`
@@ -227,7 +245,14 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
     // RAG-retrieved rules are per-turn dynamic (re-selected by semantic match to user input),
     // so they ride in the volatile block below the cache boundary — not in stable. Mirrors
     // mobileApp. Only verbatim full-rules fallback stays in stable (byte-identical across turns).
-    const volatileBlock = [retrievedRulesContent, worldContent, enemyBlock, volatileContent].filter(Boolean).join('\n\n');
+    // Phase 7.5 — the composition is ordered rather than hand-written: core's
+    // three parts sit at their published anchors (100 / 200 / 400) and any
+    // segment sorts among them by its declared `order`. With no segments this
+    // is byte-identical to the old `[rules, world, volatile]` expression.
+    const volatileBlock = composeVolatileBlock(
+        { rules: retrievedRulesContent, world: worldContent, state: volatileContent },
+        renderedSegments,
+    );
 
     // Project 2 / WO-P2-02: the final user message is assembled by the contribution registry
     // rather than a hand-written array. Every block that used to be open-coded here — the
@@ -252,12 +277,29 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         location: context.currentPlaceId
             ? locationLedger?.find((l) => l.id === context.currentPlaceId)?.name
             : undefined,
-        inCombat: activeEncounterBlock !== '',
+        // Phase 7.5 — `inCombat` used to be derived here from whether a
+        // feature's rendered text came out non-empty. It is now a
+        // default that a segment may override below. With no segment the value
+        // is `false`, which is 5.4's "absence stays false" rule holding by
+        // construction rather than by a conditional.
+        inCombat: false,
     };
 
+    // Phase 7.5 — facts established by subsystem segments. Merged key-by-key
+    // and name-blind (`Object.entries`, no `if (key === …)`), skipping
+    // `undefined` so a segment with no opinion leaves the host default alone.
+    // Applied BEFORE the mod overlay below, so a mod that claims a fact still
+    // wins over the subsystem that computed it — the precedence 5.4 declared.
+    for (const segment of renderedSegments) {
+        if (!segment.facts) continue;
+        for (const [key, value] of Object.entries(segment.facts)) {
+            if (value !== undefined) (facts as Record<string, unknown>)[key] = value;
+        }
+    }
+
     // Phase 5.4 — merge the mod-published facts overlay. A claimed core
-    // fact (e.g. `inCombat` from the enemy mod after Phase 8) overrides the
-    // host-computed value. The overlay only contains keys a mod actually
+    // fact overrides both the host default and any segment value. The
+    // overlay only contains keys a mod actually
     // published; absent keys fall through to the host value, preserving
     // "absence stays false" exactly (`modAdapter.ts:evaluateWhen` is
     // unchanged). `undefined` in the overlay means "no opinion this turn"

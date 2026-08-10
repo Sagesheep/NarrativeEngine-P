@@ -85,6 +85,31 @@ export interface FacadeData {
     readonly input: string;
     readonly loreChunks: LoreChunk[];
     readonly onStageNpcIds: string[];
+    /**
+     * Phase 7.5 §3 item 1 — **ruled: deleted with the subsystem, not made
+     * role-provided.** The question the phase poses is whether these two become
+     * reads through the service-role registry (7.1) or stay a feature-shaped
+     * surface. Neither, in the end:
+     *
+     *   - A role is *"a named ask core makes and consumes an answer to, where
+     *     two answers would be incoherent"* (`ROLES.md` §1). Core makes no ask
+     *     here — one post-turn track reads its own subsystem's state. Publishing
+     *     a role id would be permanent (9.2) and unused, which `ROLES.md` §6.3
+     *     rules out explicitly for anything enemy-shaped.
+     *   - Keeping a *feature-shaped* surface indefinitely is the thing this
+     *     phase exists to end.
+     *
+     * So they stay only as long as their sole reader does. That reader is
+     * `tracks/enemySuggestionTrack.ts` — the whole reader set, measured, and
+     * **pinned by `facadeReaderSurface.test.ts`**, which fails if any file
+     * outside the enemy subsystem starts reading them. `ModData` (the mod-facing
+     * projection) already excludes them, so no mod can depend on them either.
+     *
+     * **Assigned to Phase 8.3**, which deletes the track and these two fields in
+     * the same change. The stop condition in Phase 7.5 §5 — *"if removing a
+     * feature name from the facade breaks a consumer that is not a mod, stop"* —
+     * did not fire: the one consumer is the departing subsystem itself.
+     */
     readonly enemyCompendium: EnemyEntry[];
     readonly enemyCombatConfig: EnemyCombatConfig | undefined;
     readonly divergenceRegister: DivergenceRegister;
@@ -187,10 +212,27 @@ type FacadeSettings = {
 
 const facadeModelAvailability = new WeakMap<object, ReadonlySet<ModelRole>>();
 
+/**
+ * Host-owned table routes, for a `facade.table.read(name)` whose `name` is not
+ * `mod.`-prefixed.
+ *
+ * **Phase 7.5 removed the `enemies` route.** It was one of the two rows the
+ * phase names; the other half — `COMPUTE_TABLE_READS` / `COMPUTE_TABLE_WRITES`
+ * in `server/lib/modLoader.js` — was already emptied when host table routes
+ * left the capability grammar (`API.md` §8.1), so a mod cannot name a host
+ * table at all: `modContext.ts`'s `resolveOwnTableName` rewrites every mod
+ * request to `mod.<own-id>.<name>` and throws on anything else.
+ *
+ * **Finding, recorded rather than acted on:** with the compute allowlist empty
+ * and the mod surface own-table-only, none of the remaining four routes has a
+ * production consumer either. Deleting the whole map is a wider cleanup than
+ * this phase's row and it belongs with whoever next owns the facade's table
+ * surface (8.2 decides mod-table validation and will be in this file); it is
+ * noted here so the next reader knows the emptiness is measured, not assumed.
+ */
 const TABLE_ROUTES: Record<string, string> = {
     archive: 'archive/index',
     divergence: 'divergence',
-    enemies: 'enemies',
     locations: 'locations',
     npcs: 'npcs',
 };

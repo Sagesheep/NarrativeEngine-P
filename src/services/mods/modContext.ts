@@ -52,11 +52,14 @@ import type { ModMountsApi } from './mounts/mountTypes';
 import { buildModMountsApi } from './mounts/mountContextMounts';
 import type { ModMacrosApi } from './macros/macroTypes';
 import { buildModContextMacros } from './macros/macroContextMacros';
-import type { ModFactsApi } from './facts/factTypes';
-import { buildModContextFacts } from './facts/factContextFacts';
+import type { ModFactsApi } from '../mods/facts/factTypes';
+import { buildModContextFacts } from '../mods/facts/factContextFacts';
+import type { ModBudgetsApi } from '../mods/budgets/budgetTypes';
+import { buildModContextBudgets } from '../mods/budgets/budgetContextBudgets';
 import type { ModRolesApi } from '../roles/roleTypes';
 import { buildModContextRoles } from '../roles/roleContext';
 import { serviceRoles } from '../roles';
+import { countTokens } from '../infrastructure/tokenizer';
 
 /**
  * `API.md` §3.1 — the mod's own identity, as the host sees it. The object is
@@ -216,6 +219,27 @@ export interface ModModel {
 }
 
 /**
+ * Phase 7.4 — the tokenizer surface. Exposes the host's `countTokens`
+ * (`js-tiktoken` cl100k_base) so a mod can do token-accurate trimming of
+ * its own contributions. Available on BOTH bindings (sandbox + native):
+ * `countTokens` is pure, stateless, and leaks nothing about the host.
+ *
+ * The priority-trim pattern `fitEnemyRecordsToBudget` established (line-
+ * by-line trim within a budget) needs token counts to match the host's
+ * trim logic. Without this, a mod trimming its own block to a budget
+ * would under- or over-shoot depending on a character-count heuristic,
+ * and the mod's block would not fit the budget the host's arbiter
+ * enforces. Exposing the same primitive keeps them aligned.
+ */
+export interface ModTokensApi {
+    /**
+     * Count the tokens in `text` using the host's tokenizer (cl100k_base
+     * BPE). Returns 0 for empty/undefined input. Pure and synchronous.
+     */
+    count(text: string): number;
+}
+
+/**
  * `API.md` §6.2 — tables. Confirmed carried over unchanged in grammar and
  * shape, with one scoping decision and one narrowing:
  *
@@ -296,6 +320,40 @@ export interface ModContext {
      * a `ModFactsApi` and a call from sandbox code is a `TypeError`.
      */
     readonly facts: ModFactsApi;
+    /**
+     * Phase 7.4 — `budgets` is defined here and implemented in 7.4. One
+     * method (`claim`), per-mod so the host owns the qualification
+     * (`mod.<modId>.<id>`) and the teardown on `disable`. Native-tier
+     * only: registration needs a closure (the allocator), a closure
+     * needs a module, and a module is `native.js` — same ruling
+     * mounts/macros/events/interceptors/facts made. A sandboxed compute
+     * mod is handed one snapshot and one journal and cannot hold a
+     * closure across turns, so the sandbox binding does not construct
+     * a `ModBudgetsApi` and a call from sandbox code is a `TypeError`.
+     */
+    readonly budgets: ModBudgetsApi;
+    /**
+     * Phase 7.4 — `tokens` is defined here and implemented in 7.4. One
+     * method (`count`), exposing the host's tokenizer (`countTokens` from
+     * `infrastructure/tokenizer.ts`, `js-tiktoken` cl100k_base) so a mod
+     * can do token-accurate trimming of its own contributions. The
+     * priority-trim pattern `fitEnemyRecordsToBudget` established (line-
+     * by-line trim within a budget) needs `countTokens`; when enemies
+     * leaves core (Phase 8) the mod gets the same primitive core had.
+     *
+     * Native-tier only — same ruling mounts/macros/events/interceptors/
+     * facts made: the tokenizer is a pure function, but exposing it
+     * through the sandbox boundary would require an RPC per call (the
+     * `js-tiktoken` encoder cannot be marshalled to a Worker), which is
+     * too expensive for the line-by-line trim pattern that needs it. A
+     * sandboxed mod calling `ctx.tokens.count(...)` throws a `TypeError`,
+     * contained as a fault. The enemy mod (Phase 8) is native-tier, so
+     * the extraction use case is covered. This is the deliberate
+     * decision the work order §2 item 3 asked for: expose the tokenizer
+     * to the mods that need it (native), rather than accept character-
+     * count trimming for the mod that will replace the enemy subsystem.
+     */
+    readonly tokens: ModTokensApi;
     /** Native-tier only role providers; sandbox snapshots deliberately omit this field. */
     readonly roles: ModRolesApi;
     readonly signal: AbortSignal;
@@ -401,6 +459,13 @@ export interface ModContextBuildOptions {
      * call passes a spy here.
      */
     readonly facts?: ModFactsApi;
+    /**
+     * Phase 7.4 — injectable `budgets` API for tests. Production builds the
+     * real `ModBudgetsApi` from the mod identity via
+     * `buildModContextBudgets`. A test that wants to assert a claim call
+     * passes a spy here.
+     */
+    readonly budgets?: ModBudgetsApi;
     /** Optional declared role ids; the loader supplies these for native mods. */
     readonly declaredRoles?: readonly string[];
 }
@@ -573,6 +638,31 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         mod: { id: mod.id, name: mod.name, loadIndex: options.loadIndex ?? 0 },
         faultFile: `mod:${mod.id}`,
     });
+    // Phase 7.4 — `ctx.budgets`. Native-tier only: a sandboxed compute hook
+    // is handed a snapshot and a journal and cannot hold a closure across
+    // turns, so the sandbox binding does not construct a `ModBudgetsApi`
+    // and this code does not run for it. The real API is built from the
+    // mod identity so the host owns the qualification
+    // (`mod.<modId>.<id>`) and the teardown on `disable`. A test may
+    // inject a spy.
+    const budgets: ModBudgetsApi = options.budgets ?? buildModContextBudgets({
+        mod: { id: mod.id, name: mod.name },
+        faultFile: `mod:${mod.id}`,
+    });
+    // Phase 7.4 — `ctx.tokens`. Native-tier only: the tokenizer is a pure
+    // function, but exposing it through the sandbox boundary would require
+    // an RPC per call (the `js-tiktoken` encoder cannot be marshalled to
+    // a Worker), which is too expensive for the line-by-line trim pattern
+    // that needs it. A sandboxed mod calling `ctx.tokens.count(...)`
+    // throws a `TypeError`, contained as a fault. The enemy mod (Phase 8)
+    // is native-tier, so the extraction use case is covered. Exposing
+    // the host's tokenizer lets a native mod do token-accurate trimming
+    // of its own contributions — the priority-trim pattern
+    // `fitEnemyRecordsToBudget` established. Frozen so a mod cannot
+    // reassign the method.
+    const tokens: ModTokensApi = Object.freeze({
+        count: (text: string): number => countTokens(text),
+    });
     const roles: ModRolesApi = buildModContextRoles({
         mod: { id: mod.id, name: mod.name },
         declaredRoles: options.declaredRoles ?? [],
@@ -593,6 +683,8 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         mounts,
         macros,
         facts,
+        budgets,
+        tokens,
         roles,
         signal: facade.signal,
         subscribe: <K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void) => {

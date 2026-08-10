@@ -9,7 +9,9 @@ import { createNativeLoader } from './native/nativeLoader';
 import type { ModFault, ValidatedMod } from './modTypes';
 import { setExtensionModules } from '../payload/contributions/extensions';
 import { postTurnTracks } from '../turn/tracks';
+import { modTierBlocks } from '../turn/aiTier';
 import { modToComputeTrack } from './computeTrack';
+import { modToTierEntries } from './tierEntryAdapter';
 import { emitCoreEvent } from './events';
 import { useAppStore } from '../../store/useAppStore';
 import { buildHostFacade } from '../turn/hostFacade';
@@ -228,6 +230,32 @@ function registerComputeTracks(mods: readonly ValidatedMod[]): void {
 }
 
 /**
+ * Phase 7.3 — register mod-declared tier entries from every validated mod.
+ *
+ * Unlike `registerComputeTracks` (which must filter because `postTurnTracks`
+ * holds both built-in and mod tracks), `modTierBlocks` holds ONLY mod entries
+ * — built-ins live in the `TIER_BLOCKS` constant in `aiTier.ts`. So a full
+ * clear is correct and simpler than filtering: every entry in the registry
+ * came from a mod, and re-registration starts from a clean slate.
+ *
+ * Enablement is a separate layer, exactly as it is for compute tracks: a
+ * disabled mod's tier entry stays registered (so the block view can show it)
+ * but its automation does not run. `tierAllows` answers the tier gate only;
+ * the `moduleEnabled` toggle is consulted elsewhere (§4 "a tier gates
+ * automation, not capability").
+ */
+function registerTierEntries(mods: readonly ValidatedMod[]): void {
+    modTierBlocks.clear();
+    for (const mod of mods) {
+        if (Array.isArray(mod.tierEntries) && mod.tierEntries.length > 0) {
+            for (const entry of modToTierEntries(mod)) {
+                modTierBlocks.register(entry);
+            }
+        }
+    }
+}
+
+/**
  * Phase 6.2 — read the user's load-order override from settings.
  * `settings.modLoadOrder` is a `string[]` of mod ids in the user's chosen
  * order. The server's topological sort uses it as the primary tiebreak;
@@ -312,6 +340,7 @@ export async function refreshMods(): Promise<{
         const { mods, faults } = await fetchMods(userOrder);
         setExtensionModules(mods.map(modToContributionModule));
         registerComputeTracks(mods);
+        registerTierEntries(mods);
         // Phase 1.5 — run the lifecycle load cycle for every enabled mod
         // with a `native` block. The host fires install/update/activate in
         // the loader's resolved order, contains faults per-mod, and mounts

@@ -130,6 +130,11 @@ export const en = {
     'settings.extensions.mod.roleReplaces': 'Replaces: {{role}}',
     'settings.extensions.mod.roleActive': 'Active',
     'settings.extensions.mod.roleOverriddenBy': 'Overridden by {{mod}}',
+    // Phase 7.5 — the third state: neither this mod nor anything else is
+    // providing the role, so the ask returns nothing and the turn goes on
+    // without it. Previously this rendered as "Overridden by core default",
+    // which was untrue whenever the default had been switched off.
+    'settings.extensions.mod.roleNoProvider': 'Not provided — this feature is off',
     'settings.extensions.mod.faultInline': 'This mod could not run: {{reason}}',
 
     // Phase 6.3 — provenance badge. A bundled mod ships with the app (on by

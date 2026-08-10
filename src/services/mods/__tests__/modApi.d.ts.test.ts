@@ -106,6 +106,27 @@ const computeHook: ModComputeHook = (ctx) => {
     // throws "native-tier only" (the worker prelude stubs it).
     const unregisterMacro: () => void = ctx.macros.register('myMacro', () => 'expansion');
     void unregisterMacro;
+
+    // Phase 7.4 — `ctx.tokens` is the tokenizer surface. One method
+    // (`count`); exposes the host's tokenizer (cl100k_base) so a mod can do
+    // token-accurate trimming of its own contributions. Native-tier only:
+    // a sandboxed compute hook's `ctx.tokens.count` throws "native-tier
+    // only" (the worker prelude stubs it).
+    const tokenCount: number = ctx.tokens.count('Hello world');
+    void tokenCount;
+
+    // Phase 7.4 — `ctx.budgets` is the budget claim surface. One method
+    // (`claim`); a mod registers a budget allocation function, the host
+    // runs it during `buildPayload` and exposes the result through the
+    // budget map. Native-tier only.
+    const unregisterBudget: () => void = ctx.budgets.claim('myBudget', (allocCtx) => {
+        const limit: number = allocCtx.limit;
+        const remainingAfterRules: number = allocCtx.remainingAfterRules;
+        const hasDeepContext: boolean = allocCtx.hasDeepContext;
+        void [limit, remainingAfterRules, hasDeepContext];
+        return 200;
+    }, { name: 'My Budget', description: 'A mod budget.' });
+    void unregisterBudget;
 };
 
 // Phase 5.2 — the `.d.ts`'s `PromptInterceptor` must be assignable to the

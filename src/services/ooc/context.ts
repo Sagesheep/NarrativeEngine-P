@@ -1,13 +1,12 @@
-import type { ChatMessage, EnemyEntry, EnemyInstance, LocationEntry, NPCEntry, SemanticFact } from '../../types';
+import type { ChatMessage, LocationEntry, NPCEntry, SemanticFact } from '../../types';
 import { relationBand } from '../npc/agency/agencyBands';
+import { oocSections } from './sections';
 import type { OocCampaignSnapshot, OocSource } from './types';
 
 /** Ledger entries are cheap individually but unbounded in aggregate, so every ledger is capped. */
 const MAX_NPCS = 6;
 const MAX_PLACES = 4;
 const MAX_PC_TRAITS = 8;
-const MAX_ENEMIES = 4;
-const MAX_ENEMY_INSTANCES = 8;
 
 const excerpt = (value: string, max = 500) => value.trim().replace(/\s+/g, ' ').slice(0, max);
 
@@ -95,37 +94,6 @@ function selectNpcs(ledger: NPCEntry[], question: string, recentText: string): N
     const onStage = ledger.filter(npc =>
         !npc.archived && !asked.includes(npc) && namedIn(recentText, npc.name, npc.aliases));
     return [...asked, ...onStage].slice(0, MAX_NPCS);
-}
-
-function enemyLine(enemy: EnemyEntry): string {
-    const bits: string[] = [];
-    if (enemy.aliases?.trim()) bits.push(`aka ${excerpt(enemy.aliases, 80)}`);
-    if (enemy.classification?.trim()) bits.push(`type: ${excerpt(enemy.classification, 60)}`);
-    if (enemy.threatTier?.trim()) bits.push(`threat: ${excerpt(enemy.threatTier, 40)}`);
-    if (enemy.faction?.trim()) bits.push(`faction: ${excerpt(enemy.faction, 60)}`);
-    if (enemy.stats?.length) bits.push(`stats: ${excerpt(enemy.stats.map(stat => `${stat.name} ${stat.value}`).join(', '), 160)}`);
-    if (enemy.actions?.length) bits.push(`actions: ${excerpt(enemy.actions.map(action => action.name).join(', '), 140)}`);
-    if (enemy.specialBehaviors?.length) bits.push(`special: ${excerpt(enemy.specialBehaviors.join(', '), 140)}`);
-    if (enemy.weaknesses?.length) bits.push(`weaknesses: ${excerpt(enemy.weaknesses.join(', '), 120)}`);
-    if (enemy.resistances?.length) bits.push(`resistances: ${excerpt(enemy.resistances.join(', '), 120)}`);
-    if (enemy.passiveTraits?.length) bits.push(`passives: ${excerpt(enemy.passiveTraits.join(', '), 120)}`);
-    if (enemy.tactics?.trim()) bits.push(`tactics: ${excerpt(enemy.tactics, 160)}`);
-    if (enemy.description?.trim()) bits.push(excerpt(enemy.description, 200));
-    if (enemy.loot?.trim()) bits.push(`rewards: ${excerpt(enemy.loot, 100)}`);
-    if (enemy.gmNotes?.trim()) bits.push(`notes: ${excerpt(enemy.gmNotes, 160)}`);
-    return bits.join('; ');
-}
-
-/** Live per-instance state. Numbers are reported as-is; OOC never adjudicates combat. */
-function enemyInstanceLine(instance: EnemyInstance): string {
-    const bits = [`HP ${instance.currentHp}/${instance.maxHp}`];
-    if (instance.maxBarrier > 0) bits.push(`barrier ${instance.currentBarrier}/${instance.maxBarrier}`);
-    bits.push(instance.defeated ? 'defeated' : 'active');
-    if (instance.conditions.length) bits.push(`conditions: ${excerpt(instance.conditions.join(', '), 120)}`);
-    if (instance.temporaryModifiers.length) {
-        bits.push(`modifiers: ${excerpt(instance.temporaryModifiers.map(modifier => `${modifier.name} ${modifier.value}`).join(', '), 120)}`);
-    }
-    return bits.join('; ');
 }
 
 function selectPlaces(ledger: LocationEntry[], question: string, currentPlaceId: string | null | undefined): LocationEntry[] {
@@ -249,45 +217,16 @@ export function buildOocContext(snapshot: OocCampaignSnapshot, question: string)
         }
     }
 
-    // ── Enemy Compendium — the live encounter roster, then any template the question names. ──
-    // The `promptContextEnabled` / `promptEnabled` toggles gate *narrative* prompt
-    // injection on incidental mention; both selections here are explicit (the player
-    // asked, or the enemy is on the field), so those gates do not apply.
-    const activeEncounter = (snapshot.enemyEncounters ?? []).find(encounter => encounter.status === 'active');
-    const activeWave = activeEncounter?.waves.find(wave => wave.id === activeEncounter.activeWaveId);
-    const instancesById = new Map((snapshot.enemyInstances ?? []).map(instance => [instance.id, instance]));
-    const liveInstances = (activeWave?.activeInstanceIds ?? [])
-        .map(id => instancesById.get(id))
-        .filter((instance): instance is EnemyInstance => !!instance)
-        .slice(0, MAX_ENEMY_INSTANCES);
-    if (activeEncounter && liveInstances.length > 0) {
-        parts.push(`Active encounter: ${excerpt(activeEncounter.name, 80)}${activeWave ? ` - wave ${excerpt(activeWave.name, 60)}` : ''}`);
-        for (const instance of liveInstances) {
-            const line = `${instance.displayName} (${instance.templateSnapshot.name}): ${enemyInstanceLine(instance)}`;
-            parts.push(`- ${line}`);
-            sources.push({ kind: 'enemy', id: instance.id, label: `On the field: ${instance.displayName}`, excerpt: excerpt(line, 500) });
-        }
-    }
-
-    // Question-named templates win over the frozen snapshots behind live instances,
-    // so an explicit lookup always reads the compendium's current version.
-    const askedEnemies = (snapshot.enemyCompendium ?? []).filter(enemy => namedIn(question, enemy.name, enemy.aliases));
-    const seenTemplateIds = new Set(askedEnemies.map(enemy => enemy.id));
-    const liveTemplates: EnemyEntry[] = [];
-    for (const { templateSnapshot } of liveInstances) {
-        if (seenTemplateIds.has(templateSnapshot.id)) continue;
-        seenTemplateIds.add(templateSnapshot.id);
-        liveTemplates.push(templateSnapshot);
-    }
-    const enemies = [...askedEnemies, ...liveTemplates].slice(0, MAX_ENEMIES);
-    if (enemies.length > 0) {
-        parts.push('Enemy records (compendium):');
-        for (const enemy of enemies) {
-            const details = enemyLine(enemy);
-            const line = `${enemy.name}${details ? ` - ${details}` : ''}`;
-            parts.push(`- ${line}`);
-            sources.push({ kind: 'enemy', id: enemy.id, label: `Enemy: ${enemy.name}`, excerpt: excerpt(line, 500) });
-        }
+    // ── The extension point (Phase 7.5) ──────────────────────────────────────
+    // Registered sections render here, between the ledgers and the verified
+    // facts, ordered among themselves. This is where the enemy sections used to
+    // be written inline; they now register from `enemy/enemyOocSection.ts`, so
+    // this function no longer knows they exist and none of it changes when they
+    // leave. Zero registered sections adds nothing — the brief is shorter, not
+    // broken. See `sections.ts` for why this is a registry and not a role.
+    for (const section of oocSections.collect({ snapshot, question, recentText, excerpt, namedIn })) {
+        for (const line of section.lines) parts.push(line);
+        for (const source of section.sources) sources.push(source);
     }
 
     const facts = snapshot.semanticFacts

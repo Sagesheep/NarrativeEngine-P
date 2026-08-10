@@ -16,11 +16,12 @@ import type { PostCommitTrackContext, PostTurnTrackContext } from './tracks/type
 import { buildHostFacade, hasHostModelRole, type HostFacade } from './hostFacade';
 import { emitCoreEventLazy } from '../mods/events';
 
-// WO-P2-03: the enemy-discovery single-flight map moved to `tracks/enemySuggestionTrack.ts`
-// along with the track body. Re-exported here so the campaign-switch caller
-// (`campaignSlice.ts:569`, a dynamic `import('.../turn/postTurnPipeline')`) keeps working
-// against the same module instance and the same map.
-export { clearEnemyDiscoveryState } from './tracks/enemySuggestionTrack';
+// Phase 7.5 — the discovery-track single-flight re-export is gone. WO-P2-03 moved
+// that map into the track's own module and left a re-export here so the
+// campaign-switch caller kept working; that made core's post-turn pipeline the
+// published address of one feature's internal state, which is precisely what
+// Phase 8 has to be able to delete. The caller (`campaignSlice.ts`) now imports
+// the track module directly, so removing the track removes the whole thread.
 
 // ── Durable-commit v1: "did this turn already land?" ───────────────────────
 // `appendScene` writes the prose to `.archive.md` synchronously, before it can
