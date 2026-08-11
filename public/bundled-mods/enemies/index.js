@@ -72,7 +72,7 @@ import {
     repairConfig,
     DEFAULT_ENEMY_COMBAT_CONFIG,
 } from './validator.js';
-import { mountEnemyCompendium } from './ui.js';
+import { mountEnemyCompendium, repaintEnemyWindows } from './ui.js';
 
 // ── Constants (duplicated from src/services/enemy/* — locked by the
 //    WO-01 contract: a mod never imports from src/, so the logic that lived
@@ -1233,7 +1233,16 @@ function registerEnemyMounts(ctx) {
     // anyway: `ctx.table.read` resolves against whatever the host has now.
     ctx.events?.on('campaign.opened', () => {
         enemyData.hydrate(ctx)
-            .then(() => headerHandle.update())
+            .then(() => {
+                headerHandle.update();
+                // Phase 9.9.2 — the header was the only thing this told. A
+                // window mounted before the hydrate resolved kept whatever it
+                // had painted: nothing on a cold start, the PREVIOUS campaign's
+                // monsters after a switch. The window's own subscriptions
+                // cannot cover this — the host revokes every table lease when
+                // the campaign id changes (`ui.js`, `repaintEnemyWindows`).
+                repaintEnemyWindows();
+            })
             .catch(error => logHydrateFailure(ctx, error));
     });
 }

@@ -45,6 +45,32 @@ const blankEnemy = (name = '') => {
     return { id: makeId(), name, aliases: '', classification: '', description: '', threatTier: '', tags: [], faction: '', stats: [], actions: [], passiveTraits: [], specialBehaviors: [], weaknesses: [], resistances: [], tactics: '', loot: '', gmNotes: '', promptEnabled: true, createdAt: now, updatedAt: now };
 };
 
+// Phase 9.9.2 — every live window's repaint, so the mod can redraw one when its
+// data arrives from somewhere the window cannot see.
+//
+// The window's own `sync()` subscriptions cover writes, and they are not enough
+// on their own: `createReactiveReadHub` REVOKES every one of a mod's leases the
+// moment the campaign id changes (`reactiveReads.ts` flush — "campaign data is
+// not portable between campaigns"), and a fresh lease only delivers on the NEXT
+// store change. A campaign open is therefore invisible to them: `state` is
+// filled by `enemyData.hydrate` on `campaign.opened`, which used to update the
+// header and nothing else. The window had already painted — from an empty
+// `state` on a cold start, or from the PREVIOUS campaign's records after a
+// switch — and stayed that way until the user happened to click a tab.
+//
+// What that looked like: open a campaign whose compendium has just been
+// adopted, open the compendium, and the roster is EMPTY. The monsters are on
+// disk and in memory; only the DOM is stale. Which is indistinguishable, to the
+// person looking at it, from the migration having eaten their compendium.
+const painters = new Set();
+
+/** Redraw every mounted compendium window. Called after `hydrate` (index.js). */
+export function repaintEnemyWindows() {
+    for (const paint of [...painters]) {
+        try { paint(); } catch { /* one window's paint must not stop the others */ }
+    }
+}
+
 export function mountEnemyCompendium(root, ctx, api) {
     let tab = 'templates';
     let templateId = null;
@@ -295,9 +321,11 @@ export function mountEnemyCompendium(root, ctx, api) {
     sync('config', api.repairConfig, value => { state.config = value; });
     const locale = () => paint();
     globalThis.addEventListener?.('narrative:locale-changed', locale);
+    painters.add(paint);
     paint();
     return () => {
         alive = false;
+        painters.delete(paint);
         stops.splice(0).forEach(stop => { try { stop(); } catch {} });
         globalThis.removeEventListener?.('narrative:locale-changed', locale);
         root.replaceChildren();
