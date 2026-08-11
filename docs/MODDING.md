@@ -281,6 +281,7 @@ anywhere, never validated, never read by the app.
 | `appVersion` | `">=X[.Y[.Z]]"` or `"*"` | no | `"*"` | Minimum app version — the feature floor. Rejected on mismatch *before any mod code runs*. |
 | `apiVersion` | positive integer | no | `1` | The mod API generation you wrote against. Higher than the app's → refused, naming both. Lower → loads, flagged. See §"Compatibility and the frozen surface". |
 | `loadOrder` | integer (may be negative) | no | `0` | One number governs load order, hook order, mount-point render order, interceptor order. Lower runs first. A dependency always precedes its dependent even when its `loadOrder` is higher. |
+| `dev` | boolean | no | `false` | Marks a development fixture. **Inverts the enablement default**: a normal mod is on unless switched off, a `dev` mod is off unless switched on. Nothing else changes. See §"Development fixtures". |
 | `dependencies` | `{ "<modId>": "<range>" }` | no | `{}` | A map so adding version ranges is never a shape change. Missing → fault on the dependent. Cycle → fault naming both. Self-dependency → fault. |
 | `i18n` | `{ "<locale>": "<path>" }` | no | `{}` | Locale → flat-JSON translation file. Keys are namespaced `mod.<id>.<key>` on merge. A literal string misses the lookup and renders as itself. |
 | `contributions` | `ModContribution[]` | no | `[]` | Declarative prompt text. Optional for native-only mods. |
@@ -297,6 +298,44 @@ A manifest must declare at least one of `contributions`, `tables`, `panels`,
 `screens`, `compute`, `native`, `i18n`, `roles`, `tierEntries`. A manifest
 that declares none of them is a mod that does nothing, which is a typo, not
 an intention.
+
+### Development fixtures — `dev`
+
+```jsonc
+"dev": true
+```
+
+A fixture is a mod that exists to exercise this API, not to be played with.
+This repo ships thirteen: the `example-*` mods, `probe`, `probe-two`, and
+`template-mod`. Between them they annotate every message, claim header
+buttons, open windows, and write probe records into campaign tables — all
+correct behaviour for a regression test, and all of it noise in somebody's
+campaign.
+
+`dev: true` **inverts the enablement default, and does nothing else.**
+
+| | absent from `moduleEnabled` | explicit `false` | explicit `true` |
+|---|---|---|---|
+| normal mod | **enabled** | disabled | enabled |
+| `dev` mod | **disabled** | disabled | enabled |
+
+Everything else is identical. A dev mod validates, sorts, resolves as a
+dependency, fires hooks, and mounts exactly like any other, because a fixture
+that behaved specially would stop being a useful test of the real path. In
+**Settings → Extensions** they are collected under a closed *Developer
+fixtures* disclosure that shows how many are switched on, so one left running
+is never hidden.
+
+Set it on anything whose output you would not want a player to see. If you
+copy `template-mod` as a starting point, **delete the flag** — your mod wants
+the normal default.
+
+> **Compatibility.** Unknown manifest fields are rejected outright, so a mod
+> carrying `dev` will not load on an app build older than the one that
+> introduced it — it fails with `unknown field "dev"` rather than ignoring it.
+> That is the general rule for every field in this table, not something
+> specific to this one, but it is the first field most authors will be tempted
+> to add to an existing published mod.
 
 ### `native` — the native tier
 
@@ -662,6 +701,30 @@ Built-in entries render first in their fixed order. A region may declare a
 `header.actions`, `archive` in `composer.actions`. Mod entries insert between
 the leading built-ins and the trailing group. This is a host-side per-region
 fact; a mod cannot ask to be in it.
+
+In `header.actions` the trailing group is also pinned *outside* the row's
+scroll container, so "leave the campaign" stays reachable at any window width.
+
+### How many entries actually render
+
+`header.actions` is an open region, so the host bounds it rather than trusting
+mods to be sparing. **Two mod buttons render inline; the rest collapse into a
+single overflow control** that lists them by label and owning mod name. The
+header's width is therefore bounded by the built-ins plus a constant however
+many mods are installed.
+
+Two consequences worth designing around:
+
+- **One header button per mod is the shape that always renders inline.** A mod
+  that claims four will usually be found in the overflow menu. If your mod has
+  several actions, prefer one button that opens a window or rail panel holding
+  the rest — that is also what the enemy compendium does.
+- **Your `label` is read in the menu, not just on the button.** In the row a
+  label is optional next to the icon; in the menu it is the primary affordance.
+  An entry with no label falls back to the mod's name.
+
+`chat.rail` is bounded the same way: up to three panels render as a tab strip,
+beyond that the strip becomes a picker showing the active panel's full title.
 
 ### Dispatch: the host drains a pending commit first
 
