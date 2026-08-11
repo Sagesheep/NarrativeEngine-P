@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildModBudgetsApi, registerModBudgetClaim, disableModBudgets, enableModBudgets, clearAllModBudgets, listModBudgetClaims, isModBudgetsRevoked, qualifyBudgetClaimId } from '../budgetRegistry';
 import { budgetClaims } from '../../../payload/budgetClaims';
-import { ensureEnemyBudgetClaim } from '../../../enemy/enemyPayloadSegment';
 import { budgetFaultStore } from '../budgetFaults';
 import type { BudgetRegistryMod } from '../budgetTypes';
 
@@ -10,6 +9,13 @@ import type { BudgetRegistryMod } from '../budgetTypes';
  *
  * Mirrors the shape of `factRegistry.test.ts`: the registry qualifies ids,
  * contains faults, tears down on disable, and never throws.
+ *
+ * Phase 8.3 — the `'enemy'` claim that was this suite's fixture for "a mod
+ * may not shadow a built-in id" left core with the enemy subsystem. The
+ * fixture is re-pointed to `'world'` (one of the four structural claims
+ * `budgetClaims.ts` still registers at module load), so the shadow invariant
+ * is still exercised against a real built-in. The `ensureEnemyBudgetClaim`
+ * import is gone; `resetState` no longer calls it.
  */
 
 const MOD: BudgetRegistryMod = { id: 'test-mod', name: 'Test Mod' };
@@ -17,10 +23,6 @@ const MOD: BudgetRegistryMod = { id: 'test-mod', name: 'Test Mod' };
 function resetState(): void {
     clearAllModBudgets();
     budgetFaultStore.clear();
-    // Phase 7.5 — the subsystem claim registers from its own module now, so
-    // this suite asks for it. It is the fixture for "a mod may not shadow an id
-    // a non-mod owner holds", which is no longer a hardcoded list.
-    ensureEnemyBudgetClaim();
     // Re-register built-in claims (cleared by `clearAllModBudgets`? No —
     // `clearAllModBudgets` only removes `source: 'mod'` claims. Built-ins
     // survive. But the module-level singleton may have stale state from
@@ -56,13 +58,18 @@ describe('Phase 7.4 — registerModBudgetClaim', () => {
     });
 
     it('namespaces the id so a mod cannot collide with a built-in', () => {
-        // A mod claiming 'enemy' (a built-in id) is rejected with a shadow fault.
-        const unregister = registerModBudgetClaim(MOD, 'enemy', () => 999);
+        // Phase 8.3 — the fixture was `'enemy'` (a subsystem claim that
+        // registered from outside `budgetClaims.ts`). The enemy claim left
+        // core with the subsystem, so the fixture is re-pointed to `'world'`
+        // (one of the four structural claims `budgetClaims.ts` registers at
+        // module load). The invariant is the same: a mod claiming a built-in
+        // id is rejected with a shadow fault.
+        const unregister = registerModBudgetClaim(MOD, 'world', () => 999);
         const map = budgetClaims.compute(10_000, undefined, false);
-        // The built-in 'enemy' claim is untouched.
-        expect(map.get('enemy')).toBe(Math.min(1024, Math.floor(10_000 * 0.025)));
-        // The mod's claim was rejected; no 'mod.test-mod.enemy' was registered.
-        expect(map.get('mod.test-mod.enemy')).toBe(0);
+        // The built-in 'world' claim is untouched.
+        expect(map.get('world')).toBeGreaterThan(0);
+        // The mod's claim was rejected; no 'mod.test-mod.world' was registered.
+        expect(map.get('mod.test-mod.world')).toBe(0);
         expect(typeof unregister).toBe('function');
         // A shadow fault was surfaced.
         const records = budgetFaultStore.getRecords();
@@ -165,26 +172,25 @@ describe('Phase 7.4 — budget allocator receives the correct context', () => {
 });
 
 describe('Phase 7.4 — built-in claims are untouched by mod operations', () => {
-    // Phase 7.5 moved the subsystem claim out of `budgetClaims.ts` (see
-    // `resetState`). That makes these assertions stronger rather than weaker:
-    // mod teardown must leave alone BOTH core's structural claims and a claim
-    // some other non-mod owner registered.
+    // Phase 8.3 — the subsystem claim that registered from outside
+    // `budgetClaims.ts` left core with the enemy subsystem. These assertions
+    // now cover the four structural claims `budgetClaims.ts` registers at
+    // module load (`stable`, `world`, `volatile`, `npc`).
     it('clearAllModBudgets does not remove built-in claims', () => {
-        // Core's four plus the subsystem claim should all survive.
+        // Core's four structural claims should all survive.
         clearAllModBudgets();
         const map = budgetClaims.compute(16_384, undefined, false);
         expect(map.get('stable')).toBeGreaterThan(0);
         expect(map.get('world')).toBeGreaterThan(0);
         expect(map.get('volatile')).toBeGreaterThan(0);
         expect(map.get('npc')).toBeGreaterThan(0);
-        expect(map.get('enemy')).toBeGreaterThan(0);
     });
 
     it('disableModBudgets does not affect built-in claims', () => {
         disableModBudgets('test-mod');
         const map = budgetClaims.compute(16_384, undefined, false);
         expect(map.get('stable')).toBeGreaterThan(0);
-        expect(map.get('enemy')).toBe(Math.min(1024, Math.floor(16_384 * 0.025)));
+        expect(map.get('world')).toBeGreaterThan(0);
         enableModBudgets('test-mod');
     });
 });

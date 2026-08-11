@@ -86,10 +86,33 @@ export interface ChromeEntry {
     readonly label: string;
     /** Same as `label`. Optional; absent → no tooltip. */
     readonly tooltip?: string;
-    /** Fired on click. The host drains a pending commit first in chat-scoped regions (§8.8). */
-    onSelect(ctx: unknown): void | Promise<void>;
-    /** Re-read on render and on `handle.update()`. Optional; absent → no dynamic state. */
-    state?(): ChromeState;
+    /**
+     * Fired on click. The host drains a pending commit first in chat-scoped
+     * regions (§8.8).
+     *
+     * Phase 9.2 — `ctx` is the mod's live `ModContext`. Before 9.2 the host
+     * passed `undefined` here while the shipped `.d.ts` declared `ModContext`;
+     * a mod that used the parameter instead of closing over its `activate`
+     * lease crashed. The context is now threaded from the registration.
+     *
+     * Phase 9.2 / 6.9.2 — `message` is the row the button was rendered on, and
+     * is present **only** for `message.actions` registrations. `header.actions`
+     * and `composer.actions` are not message-scoped and receive `undefined`.
+     * Without it, a per-row rail button could only ever act on "the latest
+     * message", which is not what a rail of one-button-per-row promises.
+     */
+    onSelect(ctx: unknown, message?: MessageRef): void | Promise<void>;
+    /**
+     * Re-read on render and on `handle.update()`. Optional; absent → no
+     * dynamic state.
+     *
+     * Phase 9.2 / 6.9.2 — receives the same `MessageRef` as `onSelect` for
+     * `message.actions`, so a row's button can be `active` because **that row**
+     * is marked. `ChromeState` was previously one object for the whole mod
+     * while the rail renders one button per message, which made every row light
+     * up the moment any row qualified.
+     */
+    state?(message?: MessageRef): ChromeState;
 }
 
 /**

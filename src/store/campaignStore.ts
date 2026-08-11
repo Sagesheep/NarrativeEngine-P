@@ -1,4 +1,4 @@
-import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyCombatConfig, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt } from '../types';
+import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt } from '../types';
 import { affinityToPcRelation } from '../services/npc/agency/agencyBands';
 
 import { API_BASE as API } from '../lib/apiBase';
@@ -155,90 +155,6 @@ export async function getNPCLedger(campaignId: string): Promise<NPCEntry[]> {
     return npcs;
 }
 
-// ─── Enemy Compendium ───
-
-export async function saveEnemyCompendium(campaignId: string, enemies: EnemyEntry[]): Promise<void> {
-    await fetch(`${API}/campaigns/${campaignId}/enemies`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(enemies),
-    });
-}
-
-export async function getEnemyCompendium(campaignId: string): Promise<EnemyEntry[]> {
-    const res = await fetch(`${API}/campaigns/${campaignId}/enemies`);
-    return res.ok ? res.json() : [];
-}
-
-// ─── Enemy Instances ───
-
-export async function getEnemyInstances(campaignId: string): Promise<EnemyInstance[]> {
-    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-instances`);
-    return res.ok ? res.json() : [];
-}
-
-/** Persists the live instance pool after an atomic encounter resolution. */
-export async function saveEnemyInstances(campaignId: string, instances: EnemyInstance[]): Promise<void> {
-    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-instances`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(instances),
-    });
-    if (!res.ok) throw new Error(`Failed to save enemy instances (${res.status})`);
-}
-
-// ─── Enemy Encounters ───
-
-export async function getEnemyEncounters(campaignId: string): Promise<EnemyEncounter[]> {
-    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-encounters`);
-    return res.ok ? res.json() : [];
-}
-
-/** Persists encounter lifecycle changes after an atomic resolution. */
-export async function saveEnemyEncounters(campaignId: string, encounters: EnemyEncounter[]): Promise<void> {
-    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-encounters`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(encounters),
-    });
-    if (!res.ok) throw new Error(`Failed to save enemy encounters (${res.status})`);
-}
-
-// ─── Enemy Encounter Resolutions ─────────────────────────────────────────────
-
-/** Loads immutable Phase 5 encounter outcomes and optional instance archives. */
-export async function getEnemyResolutions(campaignId: string): Promise<EnemyEncounterResolution[]> {
-    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-resolutions`);
-    return res.ok ? res.json() : [];
-}
-
-/** Persists the complete immutable encounter-resolution ledger. */
-export async function saveEnemyResolutions(
-    campaignId: string,
-    resolutions: EnemyEncounterResolution[],
-): Promise<void> {
-    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-resolutions`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(resolutions),
-    });
-    if (!res.ok) throw new Error(`Failed to save enemy resolutions (${res.status})`);
-}
-
-// ─── Optional Enemy Combat Configuration ─────────────────────────────────────
-
-/** Loads the campaign's optional combat rules; missing files are normalized by the hydrator. */
-export async function getEnemyCombatConfig(campaignId: string): Promise<Partial<EnemyCombatConfig> | null> {
-    const res = await fetch(`${API}/campaigns/${campaignId}/enemy-combat`);
-    return res.ok ? res.json() : null;
-}
-
-// ─── Location Ledger ───
-
-
-// ─── Archive Index (Tier 4) ───
-
-/** Load the archive search index from disk. Built automatically by the server on every turn. */
 export async function loadArchiveIndex(campaignId: string): Promise<ArchiveIndexEntry[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/archive/index`);
     if (!res.ok) return [];

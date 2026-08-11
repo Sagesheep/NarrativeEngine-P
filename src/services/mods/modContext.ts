@@ -43,6 +43,7 @@ import type {
     ModelRole,
 } from '../turn/hostFacade';
 import { APP_VERSION } from '../../version';
+import { MOD_API_VERSION } from '@narrative/engine/mods/apiVersion';
 import { SUPPRESSIBLE_BUILTIN_IDS } from '../payload/contributions/builtins';
 import { trackModSubscription } from './reactiveReads';
 import { reactiveFaultStore, formatReactiveFaultReason } from './reactiveFaults';
@@ -60,6 +61,8 @@ import type { ModRolesApi } from '../roles/roleTypes';
 import { buildModContextRoles } from '../roles/roleContext';
 import { serviceRoles } from '../roles';
 import { countTokens } from '../infrastructure/tokenizer';
+import type { ModOocSectionsApi } from '../ooc/oocSectionRegistry';
+import { buildModOocSectionsApi } from '../ooc/oocSectionRegistry';
 
 /**
  * `API.md` §3.1 — the mod's own identity, as the host sees it. The object is
@@ -92,6 +95,19 @@ export interface ModIdentity {
  */
 export interface ModApi {
     readonly version: string;
+    /**
+     * Phase 9.2 — the mod API **generation** this build implements. One
+     * integer, deliberately not the app version: the app version moves for
+     * reasons that have nothing to do with the mod surface.
+     *
+     * Inside a generation the frozen surface is additive only. A breaking
+     * change bumps this number, and the bump IS the announcement — there is no
+     * deprecation window and no compatibility shim. A mod declaring a higher
+     * generation than this one was already refused by the loader before this
+     * object existed; a mod declaring a lower one loaded, and can compare
+     * against its own `apiVersion` here if it wants to degrade deliberately.
+     */
+    readonly apiVersion: number;
     readonly commitPoint: 'immediate' | 'on-return';
     /**
      * The built-in contribution ids a mod may suppress this session. Frozen.
@@ -200,6 +216,17 @@ export interface ModWrites {
     setLocationLedger(locations: LocationEntry[]): void;
     addLocationSuggestions(suggestions: LocationSuggestion[]): void;
     setDivergenceRegister(register: DivergenceRegister): void;
+    /**
+     * Phase 8.2 §3 — request a pre-operation backup of the whole campaign.
+     * Fires the same POST `/campaigns/:id/backup` with `{ trigger, isAuto:
+     * true }` that the host's `preOpBackup` fires for its own delete paths.
+     * The host keeps the endpoint, the `isAuto` flag and any rate limiting.
+     *
+     * Synchronous and void, like every other write on this surface: the
+     * POST is fire-and-forget, and a promise here would promise a durability
+     * we do not deliver (API.md §1.2).
+     */
+    requestBackup(trigger: string): void;
 }
 
 /**
@@ -255,7 +282,13 @@ export interface ModTokensApi {
  * so Phase 2.4 implements a decision rather than invents one.
  */
 export interface ModTables {
-    read(name: string): Promise<unknown>;
+    /**
+     * Phase 9.2 (6.9.2 List 2 #6) — `T` defaults to `unknown`, so every
+     * existing call site is unchanged. The host cannot know a mod's row shape;
+     * the parameter lets the mod state it instead of hand-casting the result.
+     * A claim, not a check — nothing validates the table against `T`.
+     */
+    read<T = unknown>(name: string): Promise<T>;
     write(name: string, rows: unknown): Promise<void>;
     subscribe(name: string, listener: (rows: unknown) => void): () => void;
 }
@@ -356,6 +389,19 @@ export interface ModContext {
     readonly tokens: ModTokensApi;
     /** Native-tier only role providers; sandbox snapshots deliberately omit this field. */
     readonly roles: ModRolesApi;
+    /**
+     * Phase 8.3 — `oocSections` is defined here and implemented in 8.3.
+     * One method (`register`), per-mod so the host owns the qualification
+     * (`mod.<modId>.<id>`) and the teardown on `disable`. Native-tier
+     * only: registration needs a closure (the `build` function), a
+     * closure needs a module, and a module is `native.js` — same ruling
+     * mounts/macros/events/interceptors/facts/budgets made. A sandboxed
+     * compute mod is handed one snapshot and one journal and cannot hold
+     * a closure across to the next Ask-GM call, so the sandbox binding
+     * does not construct a `ModOocSectionsApi` and a call from sandbox
+     * code is a `TypeError`.
+     */
+    readonly oocSections: ModOocSectionsApi;
     readonly signal: AbortSignal;
     subscribe<K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void): () => void;
     refresh(): Promise<ModContext>;
@@ -466,6 +512,13 @@ export interface ModContextBuildOptions {
      * passes a spy here.
      */
     readonly budgets?: ModBudgetsApi;
+    /**
+     * Phase 8.3 — injectable `oocSections` API for tests. Production
+     * builds the real `ModOocSectionsApi` from the mod identity via
+     * `buildModOocSectionsApi`. A test that wants to assert a
+     * registration call passes a spy here.
+     */
+    readonly oocSections?: ModOocSectionsApi;
     /** Optional declared role ids; the loader supplies these for native mods. */
     readonly declaredRoles?: readonly string[];
 }
@@ -485,6 +538,7 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
 
     const api: ModApi = Object.freeze({
         version: APP_VERSION,
+        apiVersion: MOD_API_VERSION,
         commitPoint,
         // Phase 5.3 — publish the suppressible set. Frozen at module load by
         // `builtins.ts`; the freeze here is belt-and-braces so a mod that stashes
@@ -536,7 +590,12 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
     };
 
     const table: ModTables = Object.freeze({
-        read: (name: string) => facade.table.read(resolveOwnTableName(mod.id, name)),
+        // Phase 9.2 — the generic is the CALLER's claim about their own row
+        // shape; the host reads the same bytes either way. One cast, here, at
+        // the single point where the host admits it cannot know the shape,
+        // rather than one in every mod that wanted its types back.
+        read: <T = unknown>(name: string): Promise<T> =>
+            facade.table.read(resolveOwnTableName(mod.id, name)) as Promise<T>,
         write: (name: string, rows: unknown) => facade.table.write(resolveOwnTableName(mod.id, name), rows),
         subscribe: (name: string, listener: (rows: unknown) => void) => {
             const resolved = resolveOwnTableName(mod.id, name);
@@ -670,6 +729,17 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         faultFile: (mod as { file?: string }).file ?? 'mod:' + mod.id,
         registry: serviceRoles,
     });
+    // Phase 8.3 — `ctx.oocSections`. Native-tier only: a sandboxed compute
+    // hook is handed one snapshot and one journal and cannot hold a closure
+    // across to the next Ask-GM call, so the sandbox binding does not
+    // construct a `ModOocSectionsApi` and this code does not run for it.
+    // The real API is built from the mod identity so the host owns the
+    // qualification (`mod.<modId>.<id>`) and the teardown on `disable`. A
+    // test may inject a spy.
+    const oocSections: ModOocSectionsApi = options.oocSections ?? buildModOocSectionsApi({
+        mod: { id: mod.id, name: mod.name },
+        faultFile: `mod:${mod.id}`,
+    });
 
     const context: ModContext = Object.freeze({
         mod: identity,
@@ -686,6 +756,7 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         budgets,
         tokens,
         roles,
+        oocSections,
         signal: facade.signal,
         subscribe: <K extends keyof ModData>(key: K, listener: (value: ModData[K]) => void) => {
             const source = facade.subscribe;
@@ -759,12 +830,15 @@ function buildModData(
 }
 
 /**
- * Build the `ModWrites` view from the facade's `FacadeWrites`. Twelve of the
- * facade's fourteen writes — `addEnemySuggestions` and `onDirectorBriefPhase`
- * are deliberately absent (`API.md` §5.1). The two renamed writes
- * (`setCharacterProfileData` → `setCharacterSheet`, `setInventoryItems` →
- * `setInventory`) map to the same callbacks, so the capability string, the
- * write, and the read all agree (`API.md` §8.2).
+ * Build the `ModWrites` view from the facade's `FacadeWrites`. Eleven of the
+ * facade's twelve writes — `onDirectorBriefPhase` is deliberately absent
+ * (`API.md` §5.1). The two renamed writes (`setCharacterProfileData` →
+ * `setCharacterSheet`, `setInventoryItems` → `setInventory`) map to the
+ * same callbacks, so the capability string, the write, and the read all
+ * agree (`API.md` §8.2). Phase 8.2 §3 added `requestBackup` (twelfth),
+ * wrapping the host's `preOpBackup` endpoint. Phase 8.3 removed
+ * `addEnemySuggestions` from the facade (deleted with the enemy suggestion
+ * track); it was never on `ModWrites`, and the count above reflects that.
  */
 function buildModWrites(facade: HostFacade): ModWrites {
     return {
@@ -780,6 +854,7 @@ function buildModWrites(facade: HostFacade): ModWrites {
         setLocationLedger: (locations) => facade.write.setLocationLedger(locations),
         addLocationSuggestions: (suggestions) => facade.write.addLocationSuggestions(suggestions),
         setDivergenceRegister: (register) => facade.write.setDivergenceRegister(register),
+        requestBackup: (trigger) => facade.write.requestBackup(trigger),
     };
 }
 

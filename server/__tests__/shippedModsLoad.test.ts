@@ -25,6 +25,7 @@ import { loadMods } from '../lib/modLoader.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const modsDir = path.join(projectRoot, 'mods');
+const bundledModsDir = path.join(projectRoot, 'public', 'bundled-mods');
 const appVersion = JSON.parse(
     fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
 ).version as string;
@@ -35,6 +36,35 @@ describe('shipped mods load cleanly', () => {
         // Print the reason, not just a count — a bare `toHaveLength(0)` tells
         // the next person nothing about which manifest broke or why.
         expect(faults.map((f) => `${f.file}: ${f.reason}`)).toEqual([]);
+    });
+
+    // Phase 8.5 — the gate above scanned ONE directory, and the mod this whole
+    // epic exists to extract now lives in the other one. A bundled mod is the
+    // mod a user is least able to fix and most likely to have: it ships in the
+    // box, on by default, and a manifest fault in it is a broken install rather
+    // than a broken download. It belongs under the same gate, for the reason
+    // the file header gives about `arc.mod.json`.
+    it('every manifest in public/bundled-mods/ loads with ZERO faults', () => {
+        const { faults } = loadMods(modsDir, appVersion, undefined, bundledModsDir);
+        expect(faults.map((f) => `${f.file}: ${f.reason}`)).toEqual([]);
+    });
+
+    it('enemies ships bundled, and adopts the five retired campaign files', () => {
+        const { mods } = loadMods(modsDir, appVersion, undefined, bundledModsDir);
+        const enemies = mods.find((m) => m.id === 'enemies');
+        expect(enemies, 'the enemies mod must ship — Phase 8.5 §2, bundled and default-on').toBeDefined();
+        expect(enemies!.provenance).toBe('bundled');
+        // Every retired enemy file has exactly one adopter. A missing row here
+        // is a campaign whose data never arrives.
+        expect(
+            enemies!.tables.map((t: { name: string; migrateFrom?: string }) => `${t.migrateFrom ?? '—'} → ${t.name}`).sort(),
+        ).toEqual([
+            '.enemies.json → compendium',
+            '.enemy-combat.json → config',
+            '.enemy-encounters.json → encounters',
+            '.enemy-instances.json → instances',
+            '.enemy-resolutions.json → resolutions',
+        ]);
     });
 
     it('loads every manifest present on disk', () => {

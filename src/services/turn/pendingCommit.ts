@@ -2,6 +2,7 @@ import type { ChatMessage, NPCEntry, SceneStakes, PipelinePhase } from '../../ty
 import type { TurnCallbacks, TurnState } from './turnOrchestrator';
 import type { TurnContext } from './turnContext';
 import type { OpenAIMessage } from '../llm/llmService';
+import type { PromptInterceptionResult } from '../mods/interceptors';
 import { runPostTurnPipeline } from './postTurnPipeline';
 import { classifySceneStakes } from './sceneStakesTag';
 import { tierAllows } from './aiTier';
@@ -9,6 +10,7 @@ import { shouldCondense, computeTrimIndex, getCondenseBudgetRatio } from '../arc
 import { toast } from '../../components/Toast';
 import { useAppStore } from '../../store/useAppStore';
 import { saveCampaignState } from '../../store/campaignStore';
+import { API_BASE } from '../../lib/apiBase';
 import { buildHostFacade, hasHostModelRole } from './hostFacade';
 import { emitCoreEvent, emitCoreEventLazy } from '../mods/events';
 
@@ -31,6 +33,19 @@ interface PendingTurnSnapshot {
     // pass it leave it undefined (the post-turn pipeline falls back to its
     // existing reads, preserving byte-identical behaviour).
     turnContext?: TurnContext;
+    /**
+     * Phase 8.3 — the turn's prompt interception result, cached for swipe
+     * and scene-continue reuse. The PM decision (2026-08-10): a
+     * continuation reuses the turn's blocks — Scene Continue carries
+     * whatever the original turn's interceptors produced, cached
+     * alongside the turn — NOT a second interceptor fire point. This is
+     * the rule swipe already follows (`swipeGeneration.ts` re-sends the
+     * captured payload rather than rebuilding one). Captured from
+     * `ctx.interception` at the same `capturePendingTurnSnapshot` call
+     * that captures the swipe payload, so a continuation's fallback
+     * payload build passes it straight through to `buildPayload`.
+     */
+    interception?: PromptInterceptionResult;
 }
 
 let pendingSnapshot: PendingTurnSnapshot | null = null;
@@ -53,6 +68,11 @@ export function capturePendingTurnSnapshot(
         activeCampaignId: state.activeCampaignId ?? '',
         npcLedger: state.npcLedger,
         turnContext,
+        // Phase 8.3 — cache the turn's interception result for scene-continue
+        // reuse. `turnContext.interception` is set by `runPromptInterception`
+        // when a mod registered one; absent on the zero-mod path (byte-
+        // identical with the pre-8.3 snapshot).
+        interception: turnContext?.interception,
     };
 }
 
@@ -66,6 +86,24 @@ export function getPendingTurnSnapshot(): PendingTurnSnapshot | null {
 
 export function getCachedSwipePayload(): OpenAIMessage[] | null {
     return pendingSnapshot?.cachedPayload ?? null;
+}
+
+/**
+ * Phase 8.3 — the turn's cached prompt interception result, for scene-
+ * continue reuse. Returns `undefined` when the turn had no interception
+ * (no mod registered one, or the turn pre-dated the snapshot). A
+ * continuation's fallback payload build passes this straight through to
+ * `buildPayload`'s `interception` option so the mod's contributed blocks
+ * land in the continuation's prompt exactly as they landed in the turn's.
+ *
+ * The snapshot path (swipe + continue with a live snapshot) does not
+ * need this: it re-sends `getCachedSwipePayload()` verbatim, which already
+ * contains the interceptor's blocks. This getter is for the fallback
+ * path — when the snapshot's `cachedPayload` is gone (app relaunched mid-
+ * browse) and the continue rebuilds the payload from the live store.
+ */
+export function getCachedSwipeInterception(): PromptInterceptionResult | undefined {
+    return pendingSnapshot?.interception;
 }
 
 // ── Durable-commit v1 ──────────────────────────────────────────────────
@@ -210,7 +248,6 @@ export function buildCommitCallbacks(
         updateNPC: (id, patch) => useAppStore.getState().updateNPC(id, patch),
         addNPC: (npc) => useAppStore.getState().addNPC(npc),
         addNpcSuggestions: (names, ctx) => useAppStore.getState().addNpcSuggestions(names, ctx),
-        addEnemySuggestions: (suggestions, ctx) => useAppStore.getState().addEnemySuggestions(suggestions, ctx),
         setCondensed: (upToIndex) => useAppStore.getState().setCondensed(upToIndex),
         setStreaming: () => {},
         setLastPayloadTrace: useAppStore.getState().setLastPayloadTrace,
@@ -227,6 +264,25 @@ export function buildCommitCallbacks(
         setOnStageNpcIds: (ids) => useAppStore.getState().setOnStageNpcIds(ids),
         archiveNPC: (id, turn, reason) => useAppStore.getState().archiveNPC(id, turn, reason),
         restoreNPC: (id) => useAppStore.getState().restoreNPC(id),
+        // Phase 8.2 §3 — wire the host's preOpBackup endpoint into the
+        // facade's requestBackup callback. The host keeps the endpoint, the
+        // isAuto flag and any rate limiting; the mod just triggers it. Same
+        // trigger strings the host's own delete paths use
+        // ('pre-delete-enemy', 'pre-resolve-enemy-encounter') so a backup's
+        // `trigger` field records a mod-origin the same way it records a
+        // core-origin. Inlined rather than dynamic-importing `preOpBackup`
+        // because that function is module-local in campaignSlice.ts and
+        // exporting it would widen the slice's surface for one four-line
+        // fetch; the fetch is identical to campaignSlice.ts:47-54.
+        requestBackup: (trigger) => {
+            const campaignId = useAppStore.getState().activeCampaignId;
+            if (!campaignId) return;
+            fetch(`${API_BASE}/campaigns/${campaignId}/backup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ trigger, isAuto: true }),
+            }).catch(e => console.warn('[requestBackup] Failed:', e));
+        },
         stageInventoryProposal: (proposal) => {
             // No direct store slot; surface via a custom event the ChatArea listens to.
             // For the commit path this is unlikely (swipes send tools: undefined), but

@@ -10,7 +10,7 @@
 // NOT normalize, redact, or weaken the comparison (Phase 0.5 §2): a changed
 // byte is a changed base-app behavior.
 
-import type { ChatMessage, NPCEntry, PipelinePhase, GameContext, ArchiveIndexEntry, TimelineEvent, DivergenceRegister, CharacterProfile, InventoryItem, LocationEntry, LocationSuggestion, EnemySuggestion } from '../../../../types';
+import type { ChatMessage, NPCEntry, PipelinePhase, GameContext, ArchiveIndexEntry, TimelineEvent, DivergenceRegister, CharacterProfile, InventoryItem, LocationEntry, LocationSuggestion } from '../../../../types';
 import type { TurnCallbacks } from '../../turnOrchestrator';
 import type { PayloadTrace } from '../../../../types';
 import type { OpenAIMessage } from '../../llm/llmService';
@@ -147,7 +147,6 @@ export function wrapCallbacksWithRecorder(
         setDivergenceRegister: wrapOptional('setDivergenceRegister', inner.setDivergenceRegister),
         setOnStageNpcIds: wrapOptional('setOnStageNpcIds', inner.setOnStageNpcIds),
         addNpcSuggestions: wrapOptional('addNpcSuggestions', inner.addNpcSuggestions),
-        addEnemySuggestions: wrapOptional('addEnemySuggestions', inner.addEnemySuggestions),
         archiveNPC: wrap('archiveNPC', inner.archiveNPC),
         restoreNPC: wrap('restoreNPC', inner.restoreNPC),
         stageInventoryProposal: wrapOptional('stageInventoryProposal', inner.stageInventoryProposal),
@@ -169,5 +168,4 @@ export type {
     InventoryItem,
     LocationEntry,
     LocationSuggestion,
-    EnemySuggestion,
 };

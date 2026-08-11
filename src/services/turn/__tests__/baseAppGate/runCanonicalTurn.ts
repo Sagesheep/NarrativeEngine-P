@@ -369,7 +369,6 @@ function buildCallbacks() {
         setDivergenceRegister: (r: any) => useAppStore.getState().setDivergenceRegister(r),
         setOnStageNpcIds: (ids: string[]) => useAppStore.getState().setOnStageNpcIds(ids),
         addNpcSuggestions: (names: string[], ctx?: string) => useAppStore.getState().addNpcSuggestions(names, ctx),
-        addEnemySuggestions: (s: any, ctx?: string) => useAppStore.getState().addEnemySuggestions(s, ctx),
         archiveNPC: (id: string, turn: number, reason: string) => useAppStore.getState().archiveNPC(id, turn, reason),
         restoreNPC: (id: string) => useAppStore.getState().restoreNPC(id),
         stageInventoryProposal: () => {},

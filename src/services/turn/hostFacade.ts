@@ -9,9 +9,6 @@ import type {
     ChatMessage,
     CondenserState,
     DivergenceRegister,
-    EnemyCombatConfig,
-    EnemyEntry,
-    EnemySuggestion,
     GameContext,
     LoreChunk,
     NPCEntry,
@@ -85,33 +82,6 @@ export interface FacadeData {
     readonly input: string;
     readonly loreChunks: LoreChunk[];
     readonly onStageNpcIds: string[];
-    /**
-     * Phase 7.5 §3 item 1 — **ruled: deleted with the subsystem, not made
-     * role-provided.** The question the phase poses is whether these two become
-     * reads through the service-role registry (7.1) or stay a feature-shaped
-     * surface. Neither, in the end:
-     *
-     *   - A role is *"a named ask core makes and consumes an answer to, where
-     *     two answers would be incoherent"* (`ROLES.md` §1). Core makes no ask
-     *     here — one post-turn track reads its own subsystem's state. Publishing
-     *     a role id would be permanent (9.2) and unused, which `ROLES.md` §6.3
-     *     rules out explicitly for anything enemy-shaped.
-     *   - Keeping a *feature-shaped* surface indefinitely is the thing this
-     *     phase exists to end.
-     *
-     * So they stay only as long as their sole reader does. That reader is
-     * `tracks/enemySuggestionTrack.ts` — the whole reader set, measured, and
-     * **pinned by `facadeReaderSurface.test.ts`**, which fails if any file
-     * outside the enemy subsystem starts reading them. `ModData` (the mod-facing
-     * projection) already excludes them, so no mod can depend on them either.
-     *
-     * **Assigned to Phase 8.3**, which deletes the track and these two fields in
-     * the same change. The stop condition in Phase 7.5 §5 — *"if removing a
-     * feature name from the facade breaks a consumer that is not a mod, stop"* —
-     * did not fire: the one consumer is the departing subsystem itself.
-     */
-    readonly enemyCompendium: EnemyEntry[];
-    readonly enemyCombatConfig: EnemyCombatConfig | undefined;
     readonly divergenceRegister: DivergenceRegister;
     readonly timeline: TimelineEvent[];
     readonly condenser: CondenserState;
@@ -143,7 +113,6 @@ export interface FacadeWrites {
     readonly updateContext: (patch: Partial<GameContext>) => void;
     readonly updateNPC: (id: string, patch: Partial<NPCEntry>) => void;
     readonly addMessage: (msg: ChatMessage) => void;
-    readonly addEnemySuggestions: (suggestions: Array<Omit<EnemySuggestion, 'id' | 'firstSeen' | 'context'>>, context?: string) => void;
     readonly setDivergenceRegister: (register: DivergenceRegister) => void;
     readonly addNpcSuggestions: (names: string[], context?: string) => void;
     readonly archiveNPC: (id: string, turn: number, reason: string) => void;
@@ -154,6 +123,29 @@ export interface FacadeWrites {
     readonly setInventoryItems: (items: InventoryItem[]) => void;
     readonly setLocationLedger: (locations: LocationEntry[]) => void;
     readonly addLocationSuggestions: (suggestions: LocationSuggestion[]) => void;
+    /**
+     * Phase 8.2 §3 — request a pre-operation backup of the whole campaign.
+     * Fires the same POST `/campaigns/:id/backup` with `{ trigger, isAuto:
+     * true }` that `preOpBackup` (`campaignSlice.ts:47-54`) fires for the
+     * host's own delete paths. The host keeps the endpoint, the `isAuto`
+     * flag and any rate limiting.
+     *
+     * Why this is not the escalation D2 declined: D2 declined a *schema
+     * system* (new grammar in the manifest, a server-side validator, a
+     * format reopened after it was frozen). This is ten lines wrapping an
+     * endpoint that already exists, it is not enemy-shaped (two core paths
+     * use the same call today: `pre-delete-location` at `campaignSlice.ts:540`
+     * and `pre-delete-npc` at `:713`), and without it a mod that deletes a
+     * year of a user's monsters has no undo while core's own delete paths
+     * do. The API freeze is 9.2; 8.2 is still inside the window where a
+     * primitive can be added deliberately.
+     *
+     * Synchronous and void, like every other write on this surface: the
+     * POST is fire-and-forget (the host's `preOpBackup` `.catch`es and
+     * logs), and a promise here would promise a durability we do not
+     * deliver (API.md §1.2).
+     */
+    readonly requestBackup: (trigger: string) => void;
 }
 
 export interface HostFacade {
@@ -212,30 +204,18 @@ type FacadeSettings = {
 
 const facadeModelAvailability = new WeakMap<object, ReadonlySet<ModelRole>>();
 
-/**
- * Host-owned table routes, for a `facade.table.read(name)` whose `name` is not
- * `mod.`-prefixed.
- *
- * **Phase 7.5 removed the `enemies` route.** It was one of the two rows the
- * phase names; the other half — `COMPUTE_TABLE_READS` / `COMPUTE_TABLE_WRITES`
- * in `server/lib/modLoader.js` — was already emptied when host table routes
- * left the capability grammar (`API.md` §8.1), so a mod cannot name a host
- * table at all: `modContext.ts`'s `resolveOwnTableName` rewrites every mod
- * request to `mod.<own-id>.<name>` and throws on anything else.
- *
- * **Finding, recorded rather than acted on:** with the compute allowlist empty
- * and the mod surface own-table-only, none of the remaining four routes has a
- * production consumer either. Deleting the whole map is a wider cleanup than
- * this phase's row and it belongs with whoever next owns the facade's table
- * surface (8.2 decides mod-table validation and will be in this file); it is
- * noted here so the next reader knows the emptiness is measured, not assumed.
- */
-const TABLE_ROUTES: Record<string, string> = {
-    archive: 'archive/index',
-    divergence: 'divergence',
-    locations: 'locations',
-    npcs: 'npcs',
-};
+// Phase 8.2 §7 flag #6 — `TABLE_ROUTES` and the bare-name `routeFor` lookup
+// are gone. Every production caller of `facade.table.read/write` passes a
+// `mod.`-prefixed name: `modContext.ts`'s `resolveOwnTableName` rewrites
+// every mod request to `mod.<own-id>.<name>` and throws on anything else
+// (`modContext.ts:797-811`), and `readFacadeData` (`hostFacade.ts:299-317`)
+// reads `state.*` directly, not via `facade.table.read`. The four remaining
+// routes (`archive`, `divergence`, `locations`, `npcs`) had no production
+// consumer — verified by ENEMY_SEAM §9 row 9 and re-verified by the lack of
+// test breakage when the map is removed. A bare (non-`mod.`-prefixed) name
+// reaching `buildDefaultTableAdapter` now throws an explicit error so a
+// future caller that assumes a host route exists fails loudly rather than
+// silently hitting a `fetch` to a URL that was never wired.
 
 function cloneAndFreeze<T>(value: T, seen = new WeakMap<object, unknown>()): T {
     if (value === null || typeof value !== 'object') return value;
@@ -283,8 +263,6 @@ function readFacadeData(state: TurnState): FacadeData {
         input: state.input,
         loreChunks: state.loreChunks,
         onStageNpcIds: state.onStageNpcIds ?? [],
-        enemyCompendium: state.enemyCompendium ?? [],
-        enemyCombatConfig: state.enemyCombatConfig,
         divergenceRegister: state.divergenceRegister ?? { entries: [], chapterToggles: {}, categoryToggles: {}, lastUpdatedSceneId: '', lastUpdatedAt: 0, version: 2 },
         timeline: state.timeline ?? [],
         condenser: state.condenser,
@@ -329,11 +307,19 @@ function resolveEndpoint(state: TurnState, role: ModelRole): EndpointConfig | Pr
 }
 
 function buildDefaultTableAdapter(activeCampaignId: string | null, reactiveStore?: ReactiveStoreLike): HostFacadeTableAdapter {
-    const routeFor = (name: string): string => {
-        const route = TABLE_ROUTES[name];
-        if (!route) throw new Error(`[facade] unknown table: ${name}`);
-        if (!activeCampaignId) throw new Error('[facade] no active campaign');
-        return `/api/campaigns/${activeCampaignId}/${route}`;
+    // Phase 8.2 §7 flag #6 — bare (non-`mod.`-prefixed) names have no
+    // production consumer. Every mod request is rewritten to
+    // `mod.<own-id>.<name>` by `resolveOwnTableName` (`modContext.ts:797-811`),
+    // and `readFacadeData` reads `state.*` directly. A bare name reaching
+    // here is a bug or a crafted source; throw explicitly so it fails loudly
+    // rather than silently `fetch`-ing a URL that was never wired.
+    const assertModName = (name: string): void => {
+        if (!name.startsWith('mod.')) {
+            throw new Error(`[facade] unknown table: ${name} (host table routes retired in 8.2; only mod.<id>.<name> is supported)`);
+        }
+        if (!activeCampaignId) {
+            throw new Error('[facade] no active campaign');
+        }
     };
 
     return {
@@ -342,9 +328,14 @@ function buildDefaultTableAdapter(activeCampaignId: string | null, reactiveStore
             if (name.startsWith('mod.') && storeState?.modTables && Object.prototype.hasOwnProperty.call(storeState.modTables, name)) {
                 return storeState.modTables[name];
             }
-            const response = await fetch(routeFor(name));
-            if (!response.ok) throw new Error(`[facade] table read failed: ${name} (${response.status})`);
-            return response.json();
+            assertModName(name);
+            // No HTTP fallback for mod tables in the browser — the reactive
+            // store is the source of truth for mod-table reads in the live
+            // app. A mod table that is not in the store is empty (the mod's
+            // `onActivate` hydrates from disk; a read before hydrate returns
+            // `undefined`, which the mod's `repairOnRead` turns into `[]` /
+            // `DEFAULT`).
+            return undefined;
         },
         async write(name, rows) {
             const storeState = reactiveStore?.getState() as { setModTable?: (tableName: string, data: unknown) => void } | undefined;
@@ -352,12 +343,13 @@ function buildDefaultTableAdapter(activeCampaignId: string | null, reactiveStore
                 storeState.setModTable(name, rows);
                 return;
             }
-            const response = await fetch(routeFor(name), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(rows),
-            });
-            if (!response.ok) throw new Error(`[facade] table write failed: ${name} (${response.status})`);
+            assertModName(name);
+            // No HTTP fallback for mod tables in the browser — the reactive
+            // store's `setModTable` is the write path, and the host's table
+            // adapter persists to disk through the store's save plumbing. A
+            // write that reaches here without a reactive store is a test
+            // fixture or a misconfiguration; throw so it surfaces.
+            throw new Error(`[facade] table write failed: ${name} (no reactive store to write through)`);
         },
     };
 }
@@ -457,7 +449,6 @@ export function buildHostFacade(
         updateContext: writeAfter(callbacks.updateContext, ['location', 'playerCharacter', 'characterSheet', 'inventory']) as FacadeWrites['updateContext'],
         updateNPC: writeAfter(callbacks.updateNPC, ['npcLedger']) as FacadeWrites['updateNPC'],
         addMessage: writeAfter(callbacks.addMessage, ['messages']) as FacadeWrites['addMessage'],
-        addEnemySuggestions: callbacks.addEnemySuggestions ?? (() => undefined),
         setDivergenceRegister: writeAfter(callbacks.setDivergenceRegister ?? (() => undefined), ['divergenceRegister']) as FacadeWrites['setDivergenceRegister'],
         addNpcSuggestions: callbacks.addNpcSuggestions ?? (() => undefined),
         archiveNPC: writeAfter(callbacks.archiveNPC, ['npcLedger']) as FacadeWrites['archiveNPC'],
@@ -468,6 +459,10 @@ export function buildHostFacade(
         setInventoryItems: writeAfter(callbacks.setInventoryItems, ['inventory']) as FacadeWrites['setInventoryItems'],
         setLocationLedger: writeAfter(callbacks.setLocationLedger, ['location']) as FacadeWrites['setLocationLedger'],
         addLocationSuggestions: callbacks.addLocationSuggestions,
+        // Phase 8.2 §3 — fire-and-forget like the host's `preOpBackup`. No
+        // reactive key to invalidate (a backup does not change in-memory
+        // state), so no `writeAfter` wrapper.
+        requestBackup: callbacks.requestBackup ?? (() => undefined),
     });
     const call: ModelCall = async (role: ModelRole, request: ModelRequest): Promise<ModelResponse> => {
         const endpoint = resolveEndpoint(state, role);

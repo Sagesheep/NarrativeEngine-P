@@ -1,4 +1,4 @@
-import type { StateCreator } from 'zustand';
+﻿import type { StateCreator } from 'zustand';
 import type { PayloadTrace, PipelinePhase, StreamingStats, LoreCheckResult, LoreCheckSelection, ArmedLoot } from '../../types';
 import type { OneShotEventId } from '../../services/oneshot/oneShotEvents';
 
@@ -10,7 +10,6 @@ export type UISlice = {
     settingsOpen: boolean;
     drawerOpen: boolean;
     npcLedgerOpen: boolean;
-    enemyCompendiumOpen: boolean;
     pcPanelOpen: boolean;
     locationLedgerOpen: boolean;
     blockViewOpen: boolean;
@@ -26,7 +25,6 @@ export type UISlice = {
     toggleSettings: () => void;
     toggleDrawer: () => void;
     toggleNPCLedger: () => void;
-    toggleEnemyCompendium: () => void;
     togglePCPanel: () => void;
     toggleLocationLedger: () => void;
     toggleBlockView: () => void;
@@ -99,7 +97,6 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     settingsOpen: false,
     drawerOpen: true,
     npcLedgerOpen: false,
-    enemyCompendiumOpen: false,
     pcPanelOpen: false,
     locationLedgerOpen: false,
     blockViewOpen: false,
@@ -114,7 +111,6 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
     toggleDrawer: () => set((s) => ({ drawerOpen: !s.drawerOpen })),
     toggleNPCLedger: () => set((s) => ({ npcLedgerOpen: !s.npcLedgerOpen })),
-    toggleEnemyCompendium: () => set((s) => ({ enemyCompendiumOpen: !s.enemyCompendiumOpen })),
     togglePCPanel: () => set((s) => ({ pcPanelOpen: !s.pcPanelOpen })),
     toggleLocationLedger: () => set((s) => ({ locationLedgerOpen: !s.locationLedgerOpen })),
     toggleBlockView: () => set((s) => ({ blockViewOpen: !s.blockViewOpen })),

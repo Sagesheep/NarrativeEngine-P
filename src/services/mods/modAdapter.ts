@@ -2,7 +2,7 @@ import type { ContributionModule } from '../payload/contributions/registry';
 import type { FinalUserModuleInput } from '../payload/contributions/builtins';
 import type { ContributionSpec } from '../payload/contributions/types';
 import type { ModContribution, ModFacts, ModWhen, ValidatedMod } from './modTypes';
-import { qualifyMacroName, resolveMacro } from './macros/macroRegistry';
+import { qualifyMacroName, resolveMacro, reportUnresolvedMacroSlot } from './macros/macroRegistry';
 
 /**
  * Project 2 / WO-P2-04 — mod file → `ContributionModule`.
@@ -131,6 +131,9 @@ export function renderTemplate(text: string, facts: ModFacts | undefined, modId?
                 if (modId !== undefined) {
                     const expanded = resolveMacro(qualifyMacroName(modId, rawKey), rawKey);
                     if (expanded !== undefined) return expanded;
+                    // Phase 9.2 — the slot is still left verbatim, but it is no
+                    // longer silent. See `reportUnresolvedMacroSlot`.
+                    reportUnresolvedMacroSlot(modId, rawKey);
                 }
                 return match;
         }

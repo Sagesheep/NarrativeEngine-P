@@ -143,8 +143,10 @@ describe('Phase 2.3 — buildModContext', () => {
                 mod: { id: 'm', name: 'M', version: '1.0.0' },
                 facade: makeFacade(),
             });
+            // Phase 8.3 — `oocSections` added (the mod-facing Ask-GM section
+            // registration API, mirroring `macros`/`facts`/`budgets`).
             expect(Object.keys(ctx).sort()).toEqual(
-                ['api', 'budgets', 'config', 'data', 'events', 'facts', 'log', 'macros', 'mod', 'model', 'mounts', 'refresh', 'roles', 'signal', 'subscribe', 'table', 'tokens', 'write'].sort(),
+                ['api', 'budgets', 'config', 'data', 'events', 'facts', 'log', 'macros', 'mod', 'model', 'mounts', 'oocSections', 'refresh', 'roles', 'signal', 'subscribe', 'table', 'tokens', 'write'].sort(),
             );
         });
 
@@ -158,13 +160,13 @@ describe('Phase 2.3 — buildModContext', () => {
             );
         });
 
-        it('enumerates the stable ModWrites fields (the twelve carried over)', () => {
+        it('enumerates the stable ModWrites fields (the twelve carried over, plus requestBackup added by 8.2)', () => {
             const ctx = buildModContext({
                 mod: { id: 'm', name: 'M', version: '1.0.0' },
                 facade: makeFacade(),
             });
             expect(Object.keys(ctx.write).sort()).toEqual(
-                ['addLocationSuggestions', 'addMessage', 'addNpcSuggestions', 'archiveNPC', 'restoreNPC', 'setCharacterSheet', 'setDivergenceRegister', 'setInventory', 'setLocationLedger', 'updateContext', 'updateNPC', 'updatePlayerCharacter'].sort(),
+                ['addLocationSuggestions', 'addMessage', 'addNpcSuggestions', 'archiveNPC', 'requestBackup', 'restoreNPC', 'setCharacterSheet', 'setDivergenceRegister', 'setInventory', 'setLocationLedger', 'updateContext', 'updateNPC', 'updatePlayerCharacter'].sort(),
             );
         });
 

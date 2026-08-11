@@ -14,7 +14,7 @@
       "id": "markedContent",
       "order": 650,
       "budget": 600,
-      "text": "{{mod.anno-mark.markedContent}}"
+      "text": "{{markedContent}}"
     }
   ],
   "native": {

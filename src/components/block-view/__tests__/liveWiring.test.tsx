@@ -61,7 +61,11 @@ describe('WORKORDER-P5-02 §9 — live wiring (real registries, not mocked)', ()
             ...screen.getAllByText('ENGINE'),
             ...screen.getAllByText('MODEL'),
         ];
-        expect(allEngineModel.length).toBeGreaterThanOrEqual(38);
+        // Phase 8.3 — 26 tier + 8 contributions + 2 tracks = 36 (was 38 pre-8.3:
+        // enemyDiscovery left the built-ins and enemySuggestionTrack left the
+        // track registry). The bound is `>= 36` so a future mod that registers
+        // a tier entry or a track raises the count without breaking this test.
+        expect(allEngineModel.length).toBeGreaterThanOrEqual(36);
     });
 
     it('manual blocks render visible with a MANUAL badge (not omitted)', () => {

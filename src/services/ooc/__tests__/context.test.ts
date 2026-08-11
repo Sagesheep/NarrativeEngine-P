@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { buildOocContext } from '../context';
-// Phase 7.5 — the enemy sections are registered, not inlined. This suite keeps
-// asserting them from here on purpose: it is the only place that proves a
-// registered section lands in the RIGHT PART of the brief (after the ledgers,
-// before the verified facts), which a unit test of the section alone cannot.
-// `oocService.ts` does the same import on the production path.
-import '../../enemy/enemyOocSection';
 import type { OocCampaignSnapshot } from '../types';
+
+/**
+ * Phase 8.3 — the enemy OOC section left core with the rest of the enemy
+ * logic. The mod (8.5) registers its own OOC section through
+ * `ctx.oocSections.register(...)`, which `buildOocContext` splices in
+ * through the generic registry. The three enemy-specific assertions that
+ * were here (the live encounter roster, the compendium lookup, the
+ * word-boundary guard) retired with the in-tree section; the mod's own
+ * test suite will cover them post-8.5.
+ */
 
 const snapshot = {
     campaignId: 'campaign-1', provider: undefined, messages: [], semanticFacts: [], loreChunks: [], archiveIndex: [], npcLedger: [], locationLedger: [],
-    enemyCompendium: [], enemyInstances: [], enemyEncounters: [],
     context: {
         canonStateActive: false, canonState: '', sceneNoteActive: false, sceneNote: '', currentFeature: null, worldVibe: '',
         characterProfile: { identity: { name: 'Ari', race: 'Elf', class: 'Ranger', level: 4 }, stats: { dex: 16, wis: 14 }, activeTraits: [], legacyNotes: 'Do not include me.' },
@@ -28,25 +31,6 @@ const npc = (id: string, name: string, extra: Record<string, unknown> = {}) => (
 const place = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
     id, name, aliases: '', broadLocation: '', features: [], connections: [], description: '',
     firstSeenScene: '1', lastSeenScene: '1', source: 'manual', ...extra,
-});
-
-const enemy = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
-    id, name, aliases: '', classification: '', description: '', threatTier: '', tags: [], faction: '',
-    stats: [], actions: [], passiveTraits: [], specialBehaviors: [], weaknesses: [], resistances: [],
-    tactics: '', loot: '', gmNotes: '', promptEnabled: true, createdAt: 1, updatedAt: 1, ...extra,
-});
-
-const instance = (id: string, displayName: string, template: ReturnType<typeof enemy>, extra: Record<string, unknown> = {}) => ({
-    id, templateId: template.id, templateSnapshot: template, displayName,
-    currentHp: 12, maxHp: 20, currentBarrier: 0, maxBarrier: 0, conditions: [], temporaryModifiers: [],
-    defeated: false, initiative: null, actionsRemaining: 1, actionsPerTurn: 1, cooldowns: [], resources: [],
-    createdAt: 1, updatedAt: 1, ...extra,
-});
-
-const encounter = (waveInstanceIds: string[], extra: Record<string, unknown> = {}) => ({
-    id: 'enc-1', name: 'Bridge Ambush', status: 'active', activeWaveId: 'wave-1', createdAt: 1, updatedAt: 1,
-    waves: [{ id: 'wave-1', name: 'First Wave', instanceIds: waveInstanceIds, activeInstanceIds: waveInstanceIds, createdAt: 1, updatedAt: 1 }],
-    ...extra,
 });
 
 const withLedgers = (patch: Partial<OocCampaignSnapshot>, contextPatch: Record<string, unknown> = {}) => ({
@@ -137,48 +121,12 @@ describe('buildOocContext', () => {
         expect(result.sources).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'place', id: 'loc-1' })]));
     });
 
-    it('reports the live encounter roster and the templates behind it', () => {
-        const goblin = enemy('tpl-1', 'Goblin Scout', { weaknesses: ['fire'], threatTier: 'minor' });
-        const result = buildOocContext(withLedgers({
-            enemyCompendium: [goblin, enemy('tpl-2', 'Idle Wyrm')],
-            enemyInstances: [
-                instance('inst-1', 'Scout A', goblin, { currentHp: 4, conditions: ['bleeding'] }),
-                instance('inst-2', 'Scout B', goblin, { defeated: true, currentHp: 0 }),
-                instance('inst-3', 'Reserve', goblin),
-            ],
-            enemyEncounters: [encounter(['inst-1', 'inst-2'])],
-        }), 'How is the fight going?');
-        expect(result.text).toContain('Active encounter: Bridge Ambush - wave First Wave');
-        expect(result.text).toContain('Scout A (Goblin Scout): HP 4/20; active; conditions: bleeding');
-        expect(result.text).toContain('Scout B (Goblin Scout): HP 0/20; defeated');
-        expect(result.text).not.toContain('Reserve');
-        // One shared template record for both instances, and nothing off the field.
-        expect(result.text).toContain('Goblin Scout - threat: minor; weaknesses: fire');
-        expect(result.text.match(/Goblin Scout - threat/g)).toHaveLength(1);
-        expect(result.text).not.toContain('Idle Wyrm');
-        expect(result.sources).toEqual(expect.arrayContaining([
-            expect.objectContaining({ kind: 'enemy', id: 'inst-1' }),
-            expect.objectContaining({ kind: 'enemy', id: 'tpl-1' }),
-        ]));
-    });
-
-    it('looks up a compendium enemy the question names, with no encounter running', () => {
-        const result = buildOocContext(withLedgers({
-            enemyCompendium: [enemy('tpl-1', 'Hollow Warden', { aliases: 'the Warden', resistances: ['piercing'] })],
-        }), 'What resists piercing on the Warden?');
-        expect(result.text).toContain('Hollow Warden - aka the Warden');
-        expect(result.text).toContain('resistances: piercing');
-        expect(result.text).not.toContain('Active encounter');
-    });
-
     it('does not match ledger names embedded inside longer words', () => {
         const result = buildOocContext(withLedgers({
             npcLedger: [npc('npc-1', 'Ari')],
             locationLedger: [place('loc-1', 'Mar')],
-            enemyCompendium: [enemy('tpl-1', 'Orc')],
         }), 'What are the marching orders for the orchid?');
         expect(result.text).not.toContain('Known characters');
         expect(result.text).not.toContain('Known places');
-        expect(result.text).not.toContain('Enemy records');
     });
 });

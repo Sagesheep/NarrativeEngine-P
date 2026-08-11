@@ -1,11 +1,6 @@
 import type { OpenAIMessage } from '../llm/llmService';
 import { sendMessage } from '../llm/llmService';
 import { buildOocContext } from './context';
-// Phase 7.5 — registers the enemy subsystem's OOC sections. Imported here, at
-// the one production entry point, so the brief never depends on some other
-// module happening to have pulled the subsystem in first. Deleted in Phase 8.3
-// along with the section itself; `buildOocContext` is unaffected either way.
-import '../enemy/enemyOocSection';
 import { searchCampaignRecords, shouldSearchOoc } from './retrieval';
 import type { OocAnswer, OocAnswerRequest, OocCampaignSnapshot, OocMessage, OocSource } from './types';
 

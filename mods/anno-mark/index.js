@@ -16,7 +16,7 @@
 //   - ctx.table      (API.md §6.2)    — own tables: marks, settings
 //   - ctx.subscribe  (API.md §6.4)    — live reads on marks / settings / messages
 //   - ctx.events     (EVENTS.md)      — campaign.opened (sticky), message.deleted
-//   - ctx.macros     (Phase 5.1)      — {{mod.anno-mark.markedContent}} expansion
+//   - ctx.macros     (Phase 5.1)      — {{markedContent}} expansion
 //
 // Design notes / findings are collected in PROGRESS.md.
 
@@ -210,12 +210,12 @@ export async function onActivate(ctx) {
         if (marks.length !== before) void persistMarks(ctx);
     }));
 
-    // ── Macro: {{mod.anno-mark.markedContent}} ────────────────────────────
-    // Phase 5.1 (narrative-mod-api.d.ts §Macros). The host qualifies the
-    // registered name to mod.<modId>.<name>, so the manifest contribution's
-    // `{{mod.anno-mark.markedContent}}` slot expands to our text. Pure and
-    // synchronous: runs on the hot path of every turn. Returning '' is the
-    // defined "inactive this turn" path.
+    // ── Macro: {{markedContent}} ──────────────────────────────────────────
+    // Phase 5.1 (narrative-mod-api.d.ts §Macros). A mod references its own
+    // macro by the BARE name: the host namespaces on its side, and the
+    // qualified spelling resolves to nothing (Phase 9.2 — it is now a load
+    // rejection). Pure and synchronous: runs on the hot path of every turn.
+    // Returning '' is the defined "inactive this turn" path.
     unsubs.push(ctx.macros.register('markedContent', () => buildMacroText()));
 
     // ── Mount: message.actions — chrome bookmark button ───────────────────
@@ -418,7 +418,7 @@ function mountRail(node, modCtx) {
         const help = document.createElement('div');
         help.className = 'anno-mark-help';
         help.textContent =
-            `Macro {{mod.anno-mark.markedContent}} expands to the first ${settings.maxInject} mark(s). ` +
+            `Macro {{markedContent}} expands to the first ${settings.maxInject} mark(s). ` +
             `Currently ${marks.length} mark(s) stored.`;
         settingsBox.append(help);
 

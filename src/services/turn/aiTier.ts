@@ -12,8 +12,22 @@ export type TierFeature =
   | 'arcTick' | 'arcSpawn'
   | 'directorBrief'
   | 'lodDynamicElevation'
-  | 'lodSlottedRag'
-  | 'enemyDiscovery';
+  | 'lodSlottedRag';
+
+/**
+ * Phase 8.3 — `tierAllows`'s parameter is widened to `string` so a mod's
+ * declared tier entry (e.g. `mod.<modId>.enemyDiscovery`) passes the type
+ * check at the call site. 7.3 forbade touching the signature because
+ * removing `'enemyDiscovery'` from the `TierFeature` union would have
+ * broken the one enemy call site before the mod's replacement existed.
+ * 8.3 is the phase that may, and does this as one deliberate widening
+ * rather than as a side effect of a delete. `tierAllows`'s logic is
+ * unchanged: the built-in `MATRIX` lookup runs first for the 26 built-in
+ * ids (byte-identical with the pre-8.3 behaviour), and any other id
+ * falls through to `modTierBlocks.allows()`, which an id absent from
+ * `MATRIX` and not registered as a mod entry resolves to `false`
+ * (the "unknown → false" characterization contract).
+ */
 
 /**
  * Phase 7.3 — the mod-declared tier block registry. Module-level singleton,
@@ -38,7 +52,6 @@ export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
         directorBrief: false,
         lodDynamicElevation: false,
         lodSlottedRag: false,
-        enemyDiscovery: false,
     },
     pro: {
         introEngine: false, planner: true, expandQuery: false, reranker: false, archiveFunnel: true,
@@ -51,7 +64,6 @@ export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
         directorBrief: true,
         lodDynamicElevation: true,
         lodSlottedRag: false,
-        enemyDiscovery: true,
     },
     max: {
         introEngine: true, planner: true, expandQuery: true, reranker: true, archiveFunnel: true,
@@ -64,46 +76,46 @@ export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
         directorBrief: true,
         lodDynamicElevation: true,
         lodSlottedRag: true,
-        enemyDiscovery: true,
     },
 };
 
-export function tierAllows(tier: AiTier | undefined, f: TierFeature): boolean {
+export function tierAllows(tier: AiTier | undefined, f: string): boolean {
     const t = tier ?? 'pro';
-    // Built-in features: byte-identical resolution (the 27 TierFeature ids).
+    // Built-in features: byte-identical resolution (the 26 TierFeature ids).
     // The MATRIX lookup and isBlockEnabled call are the same body this
     // function has had since WORKORDER-P5-01 — no call site sees a change.
-    if (f in MATRIX[t]) return isBlockEnabled(f, tier, undefined);
+    if (f in MATRIX[t]) return isBlockEnabled(f as TierFeature, tier, undefined);
     // Phase 7.3 — mod-declared tier entries: resolve through the mod's
     // declared per-tier matrix. An id not in the built-in MATRIX and not
     // registered as a mod entry returns `false`, preserving the "unknown →
     // false" characterization contract.
-    return modTierBlocks.allows(t, f as string);
+    return modTierBlocks.allows(t, f);
 }
 
 // 0 = every turn (Max), Infinity = never (Lite)
 export const NPC_UPDATE_COOLDOWN: Record<AiTier, number> = { lite: Infinity, pro: 5, max: 0 };
 
-// Enemy discovery cooldown: Lite is runtime-blocked (Infinity). Pro scans at most
-// once every 5 committed turns. Max may scan after every committed turn (0).
-// The cooldown is a minimum gap between the scene number of the last accepted scan
-// and the scene number of the next eligible turn.
-export const ENEMY_DISCOVERY_COOLDOWN: Record<AiTier, number> = { lite: Infinity, pro: 5, max: 0 };
-
 /**
- * WORKORDER-P5-01 §4 Step 5 — the 27 tier features as listable blocks.
+ * WORKORDER-P5-01 §4 Step 5 — the 26 tier features as listable blocks.
  *
  * `TierFeature` is a string-literal union plus a boolean matrix, not objects, so it has
  * nothing to list. This declaration table gives each feature the metadata the block view
  * (WO-P5-02) renders: `id`, `name`, `description`, `toggleable`, and `trigger`.
  *
- * `trigger` exists because a tier gates automation, not capability (§3): 24 of the 27
+ * `trigger` exists because a tier gates automation, not capability (§3): 23 of the 26
  * features fire from the turn pipeline (`automatic`); `arcSpawn` fires only from a button
  * (`manual`), so its matrix value is never read and a toggle for it would do nothing.
  * `witnessAux` and `npcProfileGen` have no service-side call site at all — no pipeline
  * step and no button. They are `unwired`: present in the matrix as reserved slots, inert
  * in the graph, shown to the user as "no call site exists yet" so a reader does not hunt
  * for a control that is not there.
+ *
+ * Phase 8.3 — the 27th built-in (`enemyDiscovery`) is gone. The enemies mod
+ * (8.5) declares its own tier entry (`mod.enemies.enemyDiscovery`) through
+ * `tierEntries` in its manifest, which `modTierBlocks` resolves exactly as a
+ * built-in MATRIX row would. The `ENEMY_DISCOVERY_COOLDOWN` constant retired
+ * with the literal; the mod declares its own cooldown through the 7.3
+ * registry's `cooldown` field on the tier entry.
  *
  * `listTierBlocks()` mirrors the shape `ContributionRegistry.list()` and
  * `PostTurnTrackRegistry.list()` already return, so one consumer can walk all three.
@@ -166,7 +178,6 @@ const TIER_BLOCKS: readonly TierBlock[] = [
     { id: 'directorBrief', name: 'Director Brief', description: 'Asks a utility model for scene directives that steer the next GM reply.', toggleable: true, trigger: 'automatic', defaultEnabled: true, callsModel: true },
     { id: 'lodDynamicElevation', name: 'Dynamic Scene Elevation', description: 'Elevates synopsis-tier scenes verbatim below the cache boundary when they are highly relevant.', toggleable: true, trigger: 'automatic', defaultEnabled: true, callsModel: false },
     { id: 'lodSlottedRag', name: 'Slotted RAG Snippets', description: 'Injects one-line snippets from synopsis-tier scenes that had search hits but were not elevated.', toggleable: true, trigger: 'automatic', defaultEnabled: false, callsModel: false },
-    { id: 'enemyDiscovery', name: 'Enemy Discovery', description: 'Scans committed scenes for new enemy entries and adds them to the compendium under a cooldown.', toggleable: true, trigger: 'automatic', defaultEnabled: true, callsModel: true },
 ];
 
 export function listTierBlocks(): readonly TierBlock[] {

@@ -93,5 +93,11 @@ export function formatMacroFaultReason(input: {
             return `${where}${named} resolver threw (${input.message ?? 'error'})`;
         case 'revoked':
             return `${input.modName}: macro registration attempted after disable${named}`;
+        case 'unresolved':
+            // Phase 9.2 / 6.9.2 awkward moment #3. The slot text still ships
+            // verbatim — an author who reads the prompt sees their typo, which
+            // is the pre-9.2 behaviour and is deliberate. What changes is that
+            // an author who does NOT read the prompt now finds out too.
+            return `${where} slot${named} matched no registered macro — the literal text was sent to the model`;
     }
 }

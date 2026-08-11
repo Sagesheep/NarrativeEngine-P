@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { getCampaignFileSuffixes } from './tableRegistry.js';
+import { RETIRED_CAMPAIGN_FILE_SUFFIXES } from './legacyTables.js';
 
 const __fileDir = path.dirname(fileURLToPath(import.meta.url));
 const __projectRoot = path.join(__fileDir, '../..');
@@ -199,6 +200,22 @@ export function createDefaultChapter(chapterId, title, sceneRangeStart, sceneCou
 }
 
 /**
+ * Phase 8.5 — the per-campaign migration ledger.
+ *
+ * Records that a retired campaign file has been adopted into a mod's table, so
+ * adoption happens exactly once no matter how many times the campaign is
+ * opened. It is a campaign file like any other, deliberately: it must be
+ * backed up with the campaign, restored with it, exported with it and deleted
+ * with it. A ledger that did not travel with a restore would let a restored
+ * pre-migration backup silently keep the post-migration tables.
+ *
+ * Written only by `legacyAdoption.js`, and only for a campaign that actually
+ * has a retired file on disk — a campaign created after the extraction never
+ * grows one.
+ */
+export const MIGRATION_LEDGER_SUFFIX = '.migrations.json';
+
+/**
  * The built-in campaign file suffixes. Source-of-truth fallback for the derived
  * `getCampaignFileSuffixes()` in tableRegistry.js (WO-P5-03 §5 Step 2.1). When
  * no descriptors are registered the derived set is exactly this list; when a
@@ -207,12 +224,22 @@ export function createDefaultChapter(chapterId, title, sceneRangeStart, sceneCou
  *
  * Kept here (not in tableRegistry.js) so fileStore.js has zero inbound imports
  * from the registry — tableRegistry.js imports fileStore.js, never the reverse.
+ *
+ * Phase 8.5 — the five enemy suffixes are no longer spelled out here; they come
+ * from `legacyTables.js`, which is now the one place that knows a file was
+ * retired. Their POSITION in this array is unchanged, because the order feeds
+ * `computeCampaignHash` and reordering it would invalidate every auto-backup's
+ * dedupe hash at once. `.migrations.json` is appended at the end for the same
+ * reason.
  */
 export const BUILTIN_CAMPAIGN_FILE_SUFFIXES = Object.freeze([
-    '.json', '.state.json', '.lore.json', '.npcs.json', '.enemies.json', '.enemy-instances.json', '.enemy-encounters.json', '.enemy-resolutions.json', '.enemy-combat.json', '.locations.json',
+    '.json', '.state.json', '.lore.json', '.npcs.json',
+    ...RETIRED_CAMPAIGN_FILE_SUFFIXES,
+    '.locations.json',
     '.archive.md', '.archive.index.json', '.archive.chapters.json',
     '.timeline.json', '.entities.json', '.facts.json',
     '.overworld.json', '.divergence.json',
+    MIGRATION_LEDGER_SUFFIX,
 ]);
 
 export function campaignFileNames(id) {

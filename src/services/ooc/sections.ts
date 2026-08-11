@@ -6,15 +6,15 @@
  * The Ask-GM brief is a **second prompt-assembly path**. It never went through
  * the contribution registry: `buildOocContext` walks a fixed list of sections —
  * context facts, the PC sheet, inventory, notebook, places, characters,
- * **enemies**, verified facts, recent transcript — with its own mention matcher,
- * its own caps and its own excerpting. `OocSourceKind` even carried `'enemy'` as
- * a member of a string union.
+ * verified facts, recent transcript — with its own mention matcher, its own
+ * caps and its own excerpting. `OocSourceKind` even carried `'enemy'` as a
+ * member of a string union.
  *
  * That made the enemy extraction quietly wrong in a way no gate would catch:
- * when the subsystem leaves, the OOC brief silently loses its enemy sections
- * and a union member becomes dead. `ROLES.md` flagged it loudly because Phase
- * 7.9.4's grep gate cannot see it — that gate walks the *payload* path, and this
- * is not the payload path.
+ * when the subsystem left, the OOC brief silently lost its enemy sections and
+ * a union member became dead. `ROLES.md` flagged it loudly because Phase
+ * 7.9.4's grep gate cannot see it — that gate walks the *payload* path, and
+ * this is not the payload path.
  *
  * ## What this is, and what it is not
  *
@@ -29,7 +29,7 @@
  * ## Where registered sections land
  *
  * At one **extension point**, after the NPC ledger and before verified campaign
- * facts — exactly where the enemy sections sit today, which is what keeps the
+ * facts — exactly where the enemy sections used to sit, which is what keeps the
  * brief byte-identical through this refactor. Core's own sections keep their
  * fixed order; registered sections order among *themselves* by `order`, ties
  * broken by registration index.
@@ -39,6 +39,13 @@
  * the player can ask about, and they all belong in the same neighbourhood as the
  * ledgers. A second point can be added when something needs one; inventing five
  * now would be guessing.
+ *
+ * ## Mod-facing surface (Phase 8.3)
+ *
+ * A mod registers its section through `ctx.oocSections.register(...)` (Phase
+ * 8.3, `oocSectionRegistry.ts`), which qualifies the id to
+ * `mod.<modId>.<id>` and owns teardown on `disable`. A host-adjacent
+ * subsystem can register directly against this registry with a bare id.
  *
  * ## Absence
  *
@@ -163,8 +170,10 @@ export function createOocSectionRegistry(): OocSectionRegistry {
 }
 
 /**
- * The production registry. A subsystem registers its section from its own
- * module (`enemy/enemyOocSection.ts`); when the subsystem leaves, its
- * registration leaves with it and `buildOocContext` needs no edit.
+ * The production registry. A host-adjacent subsystem or a mod registers its
+ * section; the mod-facing `ctx.oocSections` API (Phase 8.3,
+ * `oocSectionRegistry.ts`) qualifies mod-registered ids to
+ * `mod.<modId>.<id>` and tears them down on `disable`. `buildOocContext`
+ * walks the registry without knowing what any section describes.
  */
 export const oocSections = createOocSectionRegistry();

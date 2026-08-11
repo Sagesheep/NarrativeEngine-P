@@ -1,4 +1,4 @@
-/**
+﻿/**
  * i18n core — deliberately dependency-free.
  *
  * This module must NOT import the Zustand store: `settingsHelpers.ts` calls
@@ -39,6 +39,15 @@ export const LOCALES: Record<LocaleCode, LocalePack> = {
 export const LOCALE_ORDER: LocaleCode[] = ['en', 'ko', 'ru', 'pl', 'id', 'pseudo'];
 
 export const DEFAULT_LOCALE: LocaleCode = 'en';
+
+const modTranslations = new Map<string, Record<string, Record<string, string>>>();
+
+export function registerModTranslations(
+    mods: readonly { readonly id: string; readonly i18nStrings?: Record<string, Record<string, string>> }[],
+): void {
+    modTranslations.clear();
+    for (const mod of mods) modTranslations.set(mod.id, mod.i18nStrings ?? {});
+}
 
 export function isLocaleCode(value: unknown): value is LocaleCode {
     return typeof value === 'string' && value in LOCALES;
@@ -82,6 +91,14 @@ function interpolate(template: string, vars?: TranslateVars): string {
  * renders something visible and greppable rather than an empty control.
  */
 function lookup(locale: LocaleCode, key: string): string {
+    const modMatch = /^mod\.([a-zA-Z0-9_-]+)\.(.+)$/.exec(key);
+    if (modMatch) {
+        const [, modId, modKey] = modMatch;
+        const maps = modTranslations.get(modId);
+        const translated = maps?.[locale]?.[modKey] ?? maps?.en?.[modKey];
+        if (typeof translated === 'string' && translated.length > 0) return translated;
+        return key;
+    }
     const pack = LOCALES[locale];
     const translated = pack?.strings[key as TranslationKey];
     if (typeof translated === 'string' && translated.length > 0) return translated;
@@ -145,6 +162,8 @@ export function translateIn(locale: LocaleCode, key: TranslateKey, vars?: Transl
  * For non-React callers (services, toasts, store code). React components should
  * use `useTranslation()` so they re-render when the language changes.
  */
+(globalThis as { __narrativeTranslate?: typeof translateIn }).__narrativeTranslate = translateIn;
+
 export function t(key: TranslateKey, vars?: TranslateVars): string {
     return translateIn(currentLocale, key, vars);
 }
@@ -187,6 +206,7 @@ export function chromeTextStyle(
  */
 export function applyLocale(locale: LocaleCode): void {
     currentLocale = isLocaleCode(locale) ? locale : DEFAULT_LOCALE;
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('narrative:locale-changed'));
 
     if (typeof document === 'undefined') return;
     const html = document.documentElement;

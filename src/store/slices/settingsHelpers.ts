@@ -148,6 +148,45 @@ if (typeof window !== 'undefined' && window.matchMedia) {
 }
 
 /**
+ * Phase 8.3 → 8.5 — rekey module toggles whose id moved when a feature became
+ * a mod.
+ *
+ * `moduleEnabled` is keyed by block id, and a mod's tier entry is namespaced
+ * (`mod.<modId>.<entryId>`), so a feature leaving core renames its key. The
+ * user's deliberate override — enemy discovery turned ON at `lite`, or OFF at
+ * `pro` — is stored under the old name and would be silently ignored, quietly
+ * reverting a setting they chose. `isBlockEnabled` treats an absent key as
+ * "fall back to the tier preset", so the revert is invisible: nothing warns,
+ * nothing logs, the switch just moves back on its own.
+ *
+ * Rename-only, and never clobbering: an explicit entry under the new key wins,
+ * because that one was written by this build and is newer by construction. The
+ * old key is dropped so the rename runs once.
+ *
+ * This is a table because it will grow — every extraction that moves a tier
+ * entry out of core adds a row. Phase 8.3 recorded the enemy row rather than
+ * absorbing it silently, and left it for the phase that was already here.
+ */
+const MODULE_KEY_RENAMES: ReadonlyArray<readonly [from: string, to: string]> = [
+    ['enemyDiscovery', 'mod.enemies.enemyDiscovery'],
+];
+
+function migrateModuleEnabled(raw: unknown): Record<string, boolean> | undefined {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const source = raw as Record<string, unknown>;
+    const out: Record<string, boolean> = {};
+    for (const [key, value] of Object.entries(source)) {
+        if (typeof value === 'boolean') out[key] = value;
+    }
+    for (const [from, to] of MODULE_KEY_RENAMES) {
+        if (!(from in out)) continue;
+        if (!(to in out)) out[to] = out[from];
+        delete out[from];
+    }
+    return out;
+}
+
+/**
  * Migrate settings to the two-tier (providers[] + presets with *AIProviderId) model.
  * Handles three input shapes:
  *  1. Already two-tier (has providers[] + presets with *AIProviderId) — pass through.
@@ -346,6 +385,22 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         lodImportanceBonus: (raw.lodImportanceBonus as number) ?? 2,
         lodElevateScenes: (raw.lodElevateScenes as number) ?? 2,
         lodSlottedMaxPerScene: (raw.lodSlottedMaxPerScene as number) ?? 2,
+
+        // ── Mod state (Phase 8.5) ──────────────────────────────────────────
+        //
+        // These two were WRITTEN by `updateSettings` and DROPPED here on every
+        // load: this function returns a field-by-field literal, and neither had
+        // a line. Disabling a mod, or dragging one up the load order, survived
+        // until the next reload and then silently reverted.
+        //
+        // Found while wiring the bundled `enemies` mod, whose whole
+        // disable/re-enable story (`DATA_POLICY.md` §1, Phase 6.3 "disabling it
+        // works and is remembered") rests on `moduleEnabled` persisting. The
+        // data was never at risk — only the user's choice about it was.
+        moduleEnabled: migrateModuleEnabled(raw.moduleEnabled),
+        modLoadOrder: Array.isArray(raw.modLoadOrder)
+            ? (raw.modLoadOrder as unknown[]).filter((id): id is string => typeof id === 'string')
+            : undefined,
     };
 }
 

@@ -1,0 +1,76 @@
+{
+    "id": "enemies",
+    "name": "Enemy Compendium",
+    "version": "1.0.0",
+    "description": "The enemy compendium, instances, encounters, combat and discovery — the subsystem that used to live in core, now a bundled mod that ships on by default. Its five tables adopt the five retired .enemy*.json campaign files once, on first open, so a campaign created before the extraction opens with its monsters and its owner notices nothing (Phase 8.5). Phase 8.3 — the enemy subsystem's prompt block, Ask-GM sections, budget claim, tier entry and inCombat fact, owned by the mod. The block lands at contribution order ~150 in the final user message (immediately after the composed volatile block, before the first directive built-in at 200) — the closest reachable position to the segment's pre-8.3 order 300. The interceptor fires once per turn; its output is reused verbatim by any swipe or continuation of that turn (MODDING.md). The tier entry (mod.enemies.enemyDiscovery) gates the discovery scan at lite/pro/max as the built-in MATRIX rows did. Native-tier only — the tokenizer, the interceptor and the budget claim are all native-tier surfaces.",
+    "author": "Narrative Engine",
+    "i18n": {
+        "en": "i18n/en.json",
+        "pl": "i18n/pl.json",
+        "ko": "i18n/ko.json",
+        "ru": "i18n/ru.json",
+        "id": "i18n/id.json"
+    },
+    "tables": [
+        {
+            "name": "compendium",
+            "recordShape": "array",
+            "label": "Enemy Compendium",
+            "migrateFrom": ".enemies.json"
+        },
+        {
+            "name": "instances",
+            "recordShape": "array",
+            "label": "Enemy Instances",
+            "migrateFrom": ".enemy-instances.json"
+        },
+        {
+            "name": "encounters",
+            "recordShape": "array",
+            "label": "Enemy Encounters",
+            "migrateFrom": ".enemy-encounters.json"
+        },
+        {
+            "name": "resolutions",
+            "recordShape": "array",
+            "label": "Enemy Resolutions",
+            "migrateFrom": ".enemy-resolutions.json"
+        },
+        {
+            "name": "config",
+            "recordShape": "single-object",
+            "label": "Enemy Combat Config",
+            "migrateFrom": ".enemy-combat.json"
+        }
+    ],
+    "tierEntries": [
+        {
+            "id": "enemyDiscovery",
+            "name": "Enemy Discovery",
+            "description": "Scans committed scenes for new enemy entries and adds them to the compendium under a cooldown.",
+            "toggleable": true,
+            "trigger": "automatic",
+            "defaultEnabled": true,
+            "callsModel": true,
+            "matrix": {
+                "lite": false,
+                "pro": true,
+                "max": true
+            },
+            "cooldown": {
+                "lite": 2147483647,
+                "pro": 5,
+                "max": 0
+            }
+        }
+    ],
+    "native": {
+        "js": "index.js",
+        "css": "style.css",
+        "hooks": {
+            "activate": "onActivate",
+            "disable": "onDisable"
+        },
+        "generateInterceptor": "interceptPrompt"
+    }
+}

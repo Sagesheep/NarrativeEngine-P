@@ -1,5 +1,5 @@
 import { useAppStore } from '../../store/useAppStore';
-import type { AppSettings, GameContext, ChatMessage, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyCombatConfig, EnemySuggestion, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact } from '../../types';
+import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact } from '../../types';
 import type { OneShotEventId } from '../oneshot/oneShotEvents';
 import { createTurnContext } from './turnContext';
 import { buildHostFacade } from './hostFacade';
@@ -56,7 +56,6 @@ export type TurnCallbacks = {
     setDivergenceRegister?: (register: DivergenceRegister) => void;
     setOnStageNpcIds?: (ids: string[]) => void;
     addNpcSuggestions?: (names: string[], context?: string) => void;
-    addEnemySuggestions?: (suggestions: Array<Omit<EnemySuggestion, 'id' | 'firstSeen' | 'context'>>, context?: string) => void;
     archiveNPC: (id: string, turn: number, reason: string) => void;
     restoreNPC: (id: string) => void;
     /** Stage a GM-proposed inventory change for user confirmation (Phase 6). The
@@ -78,6 +77,15 @@ export type TurnCallbacks = {
      *  Optional so callers that build their own callbacks (commit path, tests)
      *  can omit it. */
     persistTurnState?: () => void;
+    /**
+     * Phase 8.2 §3 — request a pre-operation backup of the whole campaign.
+     * Fires the same POST `/campaigns/:id/backup` with `{ trigger, isAuto:
+     * true }` that `preOpBackup` (`campaignSlice.ts:47-54`) fires for the
+     * host's own delete paths. Optional so callers that build their own
+     * callbacks (commit path, tests) can omit it; the facade falls back to
+     * a no-op when it is absent.
+     */
+    requestBackup?: (trigger: string) => void;
 };
 
 export type TurnState = {
@@ -89,10 +97,6 @@ export type TurnState = {
     condenser: CondenserState;
     loreChunks: LoreChunk[];
     npcLedger: NPCEntry[];
-    enemyCompendium?: EnemyEntry[];
-    enemyInstances?: EnemyInstance[];
-    enemyEncounters?: EnemyEncounter[];
-    enemyCombatConfig?: EnemyCombatConfig;
     archiveIndex: ArchiveIndexEntry[];
     activeCampaignId: string | null;
     provider: EndpointConfig | ProviderConfig | undefined;

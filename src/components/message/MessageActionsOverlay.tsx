@@ -27,7 +27,7 @@
 import { useSyncExternalStore } from 'react';
 import { readRegion, subscribeToRegion, type RegisteredChromeEntry } from '../../services/mods/mounts/mountRegistry';
 import { renderMessageActionModEntry } from '../../services/mods/mounts/chromeRenderers';
-import type { ChromeState } from '../../services/mods/mounts/mountTypes';
+import type { ChromeState, MessageRef } from '../../services/mods/mounts/mountTypes';
 
 /**
  * Subscribe to the `message.actions` region so the rail re-renders on
@@ -67,7 +67,7 @@ async function drainPendingCommit(): Promise<void> {
  * to the pre-4.4 rail in that case (`MOUNTS.md` §2.8). Renders nothing while
  * `isEditing` (§2.5).
  */
-export function MessageActionsOverlay({ isEditing }: { readonly isEditing?: boolean }) {
+export function MessageActionsOverlay({ isEditing, message }: { readonly isEditing?: boolean; readonly message: MessageRef }) {
     const ordered = useMessageActions();
     // `MOUNTS.md` §2.5: mod entries never appear in the editing state. The
     // rail is save/cancel only while editing; a mod button there would sit
@@ -78,7 +78,7 @@ export function MessageActionsOverlay({ isEditing }: { readonly isEditing?: bool
     return (
         <>
             {modEntries.map((entry) => (
-                <ModMessageActionButton key={entry.qualifiedId} entry={entry} />
+                <ModMessageActionButton key={entry.qualifiedId} entry={entry} message={message} />
             ))}
         </>
     );
@@ -90,7 +90,7 @@ export function MessageActionsOverlay({ isEditing }: { readonly isEditing?: bool
  * The §8.8 pending-commit drain is injected into the renderer through
  * `drainPendingCommit` so the renderer stays free of the turn pipeline.
  */
-function ModMessageActionButton({ entry }: { readonly entry: RegisteredChromeEntry }) {
+function ModMessageActionButton({ entry, message }: { readonly entry: RegisteredChromeEntry; readonly message: MessageRef }) {
     const lastGoodRef = { current: undefined as ChromeState | undefined };
     // The host's `t` is not needed for the message-action rail: the built-in
     // buttons render only an icon (no label), and a mod's `label` is only
@@ -101,5 +101,5 @@ function ModMessageActionButton({ entry }: { readonly entry: RegisteredChromeEnt
     // keep the rail free of the i18n context, and the tooltip is the only
     // consumer. A literal label misses the lookup and renders as itself.
     const t = (key: string) => key;
-    return <>{renderMessageActionModEntry(entry, t, lastGoodRef, drainPendingCommit)}</>;
+    return <>{renderMessageActionModEntry(entry, t, lastGoodRef, drainPendingCommit, message)}</>;
 }

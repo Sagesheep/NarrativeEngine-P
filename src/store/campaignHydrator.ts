@@ -1,6 +1,6 @@
 import { useAppStore } from './useAppStore';
 import {
-    loadCampaignState, getLoreChunks, getNPCLedger, getEnemyCompendium, getEnemyInstances, getEnemyEncounters, getEnemyResolutions, getEnemyCombatConfig,
+    loadCampaignState, getLoreChunks, getNPCLedger,
     loadArchiveIndex, loadTimeline, loadChapters, loadEntities,
     loadDivergenceRegister, saveDivergenceRegister, saveChapters,
     saveNPCLedger, saveCampaignState,
@@ -10,10 +10,6 @@ import { migrateLegacyContext } from '../types';
 import type { GameContext, ArchiveChapter, ArchiveIndexEntry, DivergenceRegister, DivergenceEntry, ChatMessage } from '../types';
 import { migrateV1ToV2 } from '../services/campaign-state/divergenceRegister';
 import { migratePCIntoContext } from '../services/character/migratePC';
-import { normalizeEnemyCombatConfig, normalizeEnemyInstance } from '../services/enemy/enemyCombat';
-import { normalizeEnemyEntries } from '../services/enemy/enemySchema';
-import { normalizeEnemyEncounters } from '../services/enemy/enemyEncounter';
-import { normalizeEnemyResolutions } from '../services/enemy/enemyResolution';
 import { loadLocationTable } from '../services/tables/locationTable';
 import { hydrateModTables, saveModTable } from '../services/mods/modTables';
 import { fetchMods } from '../services/mods/modClient';
@@ -262,15 +258,10 @@ export function rebuildSceneStamps(
 }
 
 export async function hydrateCampaign(campaignId: string) {
-    const [state, chunks, npcs, enemies, enemyInstances, enemyEncounters, enemyResolutions, enemyCombatConfig, locations, archiveIndex, timeline, chapters, entities, divReg, modTables] = await Promise.all([
+    const [state, chunks, npcs, locations, archiveIndex, timeline, chapters, entities, divReg, modTables] = await Promise.all([
         loadCampaignState(campaignId),
         getLoreChunks(campaignId),
         getNPCLedger(campaignId),
-        getEnemyCompendium(campaignId),
-        getEnemyInstances(campaignId),
-        getEnemyEncounters(campaignId),
-        getEnemyResolutions(campaignId),
-        getEnemyCombatConfig(campaignId),
         loadLocationTable(campaignId),
         loadArchiveIndex(campaignId),
         loadTimeline(campaignId),
@@ -375,12 +366,6 @@ export async function hydrateCampaign(campaignId: string) {
         condenser: { ...(state?.condenser ?? DEFAULT_CONDENSER) },
         loreChunks: chunks,
         npcLedger: finalNpcLedger,
-        enemyCompendium: normalizeEnemyEntries(enemies).entries,
-        enemySuggestions: [],
-        enemyInstances: (enemyInstances ?? []).map(normalizeEnemyInstance),
-        enemyEncounters: normalizeEnemyEncounters(enemyEncounters),
-        enemyResolutions: normalizeEnemyResolutions(enemyResolutions),
-        enemyCombatConfig: normalizeEnemyCombatConfig(enemyCombatConfig),
         locationLedger: locations ?? [],
         archiveIndex: archiveIndex ?? [],
         timeline: timeline ?? [],

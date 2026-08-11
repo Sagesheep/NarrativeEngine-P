@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
-import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Users, Archive, Save, Pin, Cpu, MapPin, UserCircle, Swords, Workflow } from 'lucide-react';
+import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Users, Archive, Save, Pin, Cpu, MapPin, UserCircle, Workflow } from 'lucide-react';
 import { createBackup } from '../store/campaignStore';
 import { flushAllPendingSaves } from '../store/slices/campaignSlice';
 import { toast } from './Toast';
@@ -39,7 +39,6 @@ export function Header() {
         toggleSettings,
         toggleDrawer,
         toggleNPCLedger,
-        toggleEnemyCompendium,
         togglePCPanel,
         toggleLocationLedger,
         toggleBlockView,
@@ -54,19 +53,11 @@ export function Header() {
         divergenceRegister,
         settings,
         updateSettings,
-        enemyCombatConfig,
     } = useAppStore();
 
     const pinnedExcerpts = useAppStore(s => s.pinnedExcerpts);
     const aiTier = (settings?.aiTier ?? 'pro') as AiTier;
     const { t } = useTranslation();
-    // A saved opt-in must not look active after the user switches to Lite,
-    // because Lite is deliberately blocked from running discovery scans.
-    const enemyScannerEnabled = aiTier !== 'lite' && enemyCombatConfig.enemyDiscoveryEnabled;
-    const enemyScannerState = enemyScannerEnabled
-        ? t('header.enemyCompendium.state.on')
-        : t('header.enemyCompendium.state.off');
-
     const handleExit = async () => {
         if (activeCampaignId) {
             await saveCampaignState(activeCampaignId, { context, messages, condenser, pinnedExcerpts });
@@ -137,10 +128,10 @@ export function Header() {
                     if (entry.renderer === 'builtin' && HEADER_BUILTIN_ID_SET.has(entry.entryId)) {
                         return renderHeaderBuiltin(entry.entryId, {
                             t: t as unknown as (key: string, vars?: Record<string, string | number>) => string,
-                            aiTier, pinnedExcerpts, enemyScannerState,
+                            aiTier,
+                            pinnedExcerpts,
                             onToggleSettings: toggleSettings,
                             onToggleNPCLedger: toggleNPCLedger,
-                            onToggleEnemyCompendium: toggleEnemyCompendium,
                             onTogglePCPanel: togglePCPanel,
                             onToggleLocationLedger: toggleLocationLedger,
                             onToggleBlockView: toggleBlockView,
@@ -169,10 +160,8 @@ function renderHeaderBuiltin(id: string, deps: {
     t: (key: string, vars?: Record<string, string | number>) => string;
     aiTier: AiTier;
     pinnedExcerpts: readonly { id: string }[];
-    enemyScannerState: string;
     onToggleSettings: () => void;
     onToggleNPCLedger: () => void;
-    onToggleEnemyCompendium: () => void;
     onTogglePCPanel: () => void;
     onToggleLocationLedger: () => void;
     onToggleBlockView: () => void;
@@ -182,7 +171,7 @@ function renderHeaderBuiltin(id: string, deps: {
     onBackup: () => void | Promise<void>;
     onExit: () => void | Promise<void>;
 }): ReactNode {
-    const { t, aiTier, pinnedExcerpts, enemyScannerState } = deps;
+    const { t, aiTier, pinnedExcerpts } = deps;
     switch (id) {
         case 'backup':
             return (
@@ -234,19 +223,6 @@ function renderHeaderBuiltin(id: string, deps: {
                 >
                     <Users size={13} />
                     <span>{t('header.npcLedger.label')}</span>
-                </button>
-            );
-        case 'enemies':
-            return (
-                <button
-                    key="enemies"
-                    onClick={deps.onToggleEnemyCompendium}
-                    className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
-                    title={t('header.enemyCompendium.tooltip', { state: enemyScannerState })}
-                    aria-label={t('header.enemyCompendium.aria', { state: enemyScannerState })}
-                >
-                    <Swords size={13} />
-                    <span className="hidden sm:inline">{t('header.enemyCompendium.label', { state: enemyScannerState })}</span>
                 </button>
             );
         case 'places':

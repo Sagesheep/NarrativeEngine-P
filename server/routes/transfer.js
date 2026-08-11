@@ -6,18 +6,13 @@ import {
     entitiesPath, timelinePath, validateCampaignId,
 } from '../lib/fileStore.js';
 import { isCampaignMetaFile, getTransferableTables, serverTableRegistry } from '../lib/tableRegistry.js';
-import { modTableSuffix, modTableName, scanModTableFiles } from '../lib/modTableRegistry.js';
+import { modTableSuffix, scanModTableFiles } from '../lib/modTableRegistry.js';
+import { RETIRED_CAMPAIGN_TABLES } from '../lib/legacyTables.js';
+import { readMigrationLedger, normalizeLedger, migrationLedgerPath } from '../lib/legacyAdoption.js';
 import { embedText, buildArchiveText, buildLoreText } from '../lib/embedder.js';
 import { storeArchiveEmbedding, storeLoreEmbedding } from '../lib/vectorStore.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 import path from 'path';
-import {
-    validateEnemyCompendium,
-    validateEnemyInstances,
-    validateEnemyEncounters,
-    validateEnemyResolutions,
-    validateEnemyCombatConfig,
-} from '../lib/enemySchema.js';
 
 function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -77,11 +72,6 @@ export function createTransferRouter() {
         const state = readJson(path.join(CAMPAIGNS_DIR, `${id}.state.json`), null);
         const lore = readJson(path.join(CAMPAIGNS_DIR, `${id}.lore.json`), []);
         const npcs = readJson(path.join(CAMPAIGNS_DIR, `${id}.npcs.json`), []);
-        const enemies = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemies.json`), []);
-        const enemyInstances = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemy-instances.json`), []);
-        const enemyEncounters = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemy-encounters.json`), []);
-        const enemyResolutions = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemy-resolutions.json`), []);
-        const enemyCombatConfig = readJson(path.join(CAMPAIGNS_DIR, `${id}.enemy-combat.json`), null);
         const archiveIndex = readJson(archiveIndexPath(id), []);
         const chapters = readJson(chaptersPath(id), []);
         const facts = readJson(factsPath(id), []);
@@ -101,11 +91,6 @@ export function createTransferRouter() {
             state,
             lore,
             npcs,
-            enemies,
-            enemyInstances,
-            enemyEncounters,
-            enemyResolutions,
-            enemyCombatConfig,
             scenes,
             archiveIndex,
             chapters,
@@ -114,11 +99,21 @@ export function createTransferRouter() {
             entities,
         };
 
+        // Phase 8.5 — only tables that HAVE a file. This used to emit the
+        // record-shape default (`[]` / `null`) for every registered table
+        // whether or not the campaign had one, and that turned out to be data
+        // loss with extra steps: a campaign exported before its retired files
+        // had been adopted carried `mod.<mod>.<table>: []` for tables that did
+        // not exist, import wrote those empty files, and their existence then
+        // told adoption on the far side that the mod already had data. The
+        // campaign opened with an empty compendium and its real one sitting
+        // unread on disk. A key in the bundle now means a file on disk, which
+        // is what the mod-table scan below and the retired-file loop after it
+        // have always meant.
         for (const { bundleKey, fileSuffix, recordShape } of getTransferableTables()) {
-            bundle[bundleKey] = readJson(
-                path.join(CAMPAIGNS_DIR, `${id}${fileSuffix}`),
-                recordShape === 'array' ? [] : null,
-            );
+            const tablePath = path.join(CAMPAIGNS_DIR, `${id}${fileSuffix}`);
+            if (!fs.existsSync(tablePath)) continue;
+            bundle[bundleKey] = readJson(tablePath, recordShape === 'array' ? [] : null);
         }
 
         // Phase 6.4 / `DATA_POLICY.md` §4 — then every mod-table file ON DISK
@@ -140,6 +135,37 @@ export function createTransferRouter() {
             bundle[bundleKey] = readJson(path.join(CAMPAIGNS_DIR, `${id}${fileSuffix}`), null);
         }
 
+        // Phase 8.5 — and then every RETIRED campaign file still on disk, under
+        // the bundle key the app used before that feature left core.
+        //
+        // Without this, a campaign that has not been adopted yet exports with
+        // its enemy data simply missing: core stopped reading those files in
+        // 8.2, so the loop above cannot see them and the mod-table scan finds
+        // nothing to see. Export is the path users treat as a backup, and a
+        // backup that drops the data it was taken to protect is the worst bug
+        // this phase could ship.
+        //
+        // Carrying the ORIGINAL key (`enemies`, not `mod.enemies.compendium`)
+        // is deliberate on both ends: a pre-extraction build importing this
+        // bundle still finds the key it knows, and a post-extraction build
+        // writes the legacy file back and lets the normal adoption path pick
+        // it up on first open. One mechanism, not two.
+        for (const { bundleKey, fileSuffix, recordShape } of RETIRED_CAMPAIGN_TABLES) {
+            if (bundleKey in bundle) continue;
+            const legacyPath = path.join(CAMPAIGNS_DIR, `${id}${fileSuffix}`);
+            if (!fs.existsSync(legacyPath)) continue;
+            bundle[bundleKey] = readJson(legacyPath, recordShape === 'array' ? [] : null);
+        }
+
+        // The ledger travels too, so an already-adopted campaign does not
+        // re-adopt on the far side and overwrite the mod tables this same
+        // bundle is carrying. Only written when something has actually been
+        // adopted — a campaign with no migration history exports no key.
+        const ledger = readMigrationLedger(id);
+        if (Object.keys(ledger.adopted).length > 0 || Object.keys(ledger.failures).length > 0) {
+            bundle.migrations = ledger;
+        }
+
         const safeName = (campaign.name || id).replace(/[^a-z0-9]+/gi, '_').toLowerCase();
         const filename = `${safeName}_${new Date().toISOString().slice(0, 10)}.campaign`;
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -152,25 +178,6 @@ export function createTransferRouter() {
         ensureDirs();
         const bundle = req.body;
         if (bundle?.version !== 1) return res.status(400).json({ error: 'Unsupported bundle version' });
-
-        // Validate ALL enemy data BEFORE writing any files. A malformed bundle
-        // is rejected with a useful 400 response so a partial import cannot leave
-        // crash-prone enemy files on disk while other ledgers are already written.
-        const enemyChecks = [
-            validateEnemyCompendium(bundle.enemies),
-            validateEnemyInstances(bundle.enemyInstances),
-            validateEnemyEncounters(bundle.enemyEncounters),
-            validateEnemyResolutions(bundle.enemyResolutions),
-            validateEnemyCombatConfig(bundle.enemyCombatConfig),
-        ];
-        const enemyErrors = enemyChecks.flatMap(check => check.errors);
-        if (enemyErrors.length) {
-            return res.status(400).json({
-                error: 'Malformed enemy data in campaign bundle',
-                details: enemyErrors,
-            });
-        }
-        const [validEnemies, validEnemyInstances, validEnemyEncounters, validEnemyResolutions, validEnemyCombatConfig] = enemyChecks;
 
         // ID collision check — only match bare {id}.json metadata files.
         // Derived positive test (WO-P5-03 §4): replaces the hand-written
@@ -208,26 +215,6 @@ export function createTransferRouter() {
             writeJson(path.join(CAMPAIGNS_DIR, `${newId}.npcs.json`), bundle.npcs);
         }
 
-        if (validEnemies.value?.length) {
-            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemies.json`), validEnemies.value);
-        }
-
-        if (validEnemyInstances.value?.length) {
-            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-instances.json`), validEnemyInstances.value);
-        }
-
-        if (validEnemyEncounters.value?.length) {
-            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-encounters.json`), validEnemyEncounters.value);
-        }
-
-        if (validEnemyResolutions.value?.length) {
-            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-resolutions.json`), validEnemyResolutions.value);
-        }
-
-        if (validEnemyCombatConfig.value) {
-            writeJson(path.join(CAMPAIGNS_DIR, `${newId}.enemy-combat.json`), validEnemyCombatConfig.value);
-        }
-
         // Write archive index
         if (bundle.archiveIndex?.length) {
             writeJson(archiveIndexPath(newId), bundle.archiveIndex);
@@ -244,10 +231,18 @@ export function createTransferRouter() {
         if (bundle.timeline?.length) writeJson(timelinePath(newId), bundle.timeline);
         if (bundle.entities?.length) writeJson(entitiesPath(newId), bundle.entities);
 
-        for (const { bundleKey, fileSuffix } of getTransferableTables()) {
-            if (bundle[bundleKey] !== undefined) {
-                writeJson(path.join(CAMPAIGNS_DIR, `${newId}${fileSuffix}`), bundle[bundleKey]);
-            }
+        for (const { bundleKey, fileSuffix, recordShape } of getTransferableTables()) {
+            const value = bundle[bundleKey];
+            if (value === undefined) continue;
+            // Phase 8.5 — and not an empty one. The import target is a brand new
+            // campaign, so there is nothing an empty write could be clearing;
+            // all it does is create a file whose only effect is to convince the
+            // adoption path that this table is already populated. Bundles
+            // carrying those empty keys already exist, so the export fix above
+            // is not enough on its own.
+            if (recordShape === 'array' && Array.isArray(value) && value.length === 0) continue;
+            if (recordShape !== 'array' && value === null) continue;
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}${fileSuffix}`), value);
         }
 
         // WO-P5-05 §5 — unknown bundle keys are PRESERVED, not dropped.
@@ -267,6 +262,37 @@ export function createTransferRouter() {
         //   - The `mod-` prefix guarantees no collision with a built-in suffix.
         // A key that does not match the pattern is left untouched — we do not
         // invent a suffix for an unknown key shape.
+        // Phase 8.5 — retired campaign files, written back under the suffix the
+        // app owns for that key. This is the import half of the export above,
+        // and it is what makes "exported before the extraction, imported after"
+        // work: the bundle's `enemies` key becomes `<id>.enemies.json`, and the
+        // first mod-table read adopts it exactly as it would for a campaign
+        // that never left this machine.
+        //
+        // Empty values are skipped, matching the pre-8.2 importer, which wrote
+        // each enemy file only `if (value.length)`. An empty legacy file would
+        // adopt as an empty table and seal the ledger against a later restore.
+        //
+        // NOTE (`Phase 8.2` D2 item 2): the pre-8.2 importer validated all five
+        // enemy files and rejected the whole bundle if any was malformed. That
+        // atomicity is gone with the validators, deliberately and knowingly —
+        // the mod repairs on read instead. It is on the 9.9.5 honesty list.
+        for (const { bundleKey, fileSuffix, recordShape } of RETIRED_CAMPAIGN_TABLES) {
+            const value = bundle[bundleKey];
+            if (value === undefined || value === null) continue;
+            if (recordShape === 'array' && (!Array.isArray(value) || value.length === 0)) continue;
+            writeJson(path.join(CAMPAIGNS_DIR, `${newId}${fileSuffix}`), value);
+        }
+
+        // The ledger, normalised — a bundle is untrusted input and must not be
+        // able to write an arbitrary object into a file the host reads back.
+        if (bundle.migrations !== undefined) {
+            const ledger = normalizeLedger(bundle.migrations);
+            if (Object.keys(ledger.adopted).length > 0 || Object.keys(ledger.failures).length > 0) {
+                writeJson(migrationLedgerPath(newId), ledger);
+            }
+        }
+
         const knownKeys = new Set(getTransferableTables().map(t => t.bundleKey));
         for (const key of Object.keys(bundle)) {
             if (knownKeys.has(key)) continue;

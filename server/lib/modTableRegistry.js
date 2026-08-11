@@ -73,6 +73,12 @@ export function buildModTableDescriptor(modId, table) {
         serverRoutes: { present: true, value: { get: true, put: true } },
         transfer: { present: true, value: { bundleKey: name } },
         storeAccessor: { present: true, value: { read: true, write: true } },
+        // Phase 8.5 — the retired campaign file this table adopts, if the
+        // manifest declared one. Still not a path: `modLoader.js` has already
+        // rejected anything outside the retired-table registry, so this is a
+        // member of a closed set the app owns. The adoption itself happens in
+        // `legacyAdoption.js`, on the read path.
+        ...(typeof table.migrateFrom === 'string' ? { migrateFrom: table.migrateFrom } : {}),
         // hydrator + slice are wired client-side (Step 4); the server descriptor
         // does not carry function touchpoints.
     };

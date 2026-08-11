@@ -3,8 +3,8 @@
  * registry (`MOUNTS.md` §2.2).
  *
  * The right-hand action group at `src/components/Header.tsx:83` is the
- * `header.actions` region. Eleven buttons live there today: manual backup,
- * backups, PC panel, NPC ledger, enemies, places, block view, AI tier,
+ * `header.actions` region. Ten buttons live there today: manual backup,
+ * backups, PC panel, NPC ledger, places, block view, AI tier,
  * pinned, settings, exit. Plus `<BackgroundControl />` at `:84`, which is
  * not a button and stays outside the registry (it is a host-rendered
  * component that lives in the row, not a chrome entry).
@@ -41,7 +41,6 @@ export const HEADER_BUILTIN_IDS = Object.freeze([
     'backups',
     'character',
     'npcLedger',
-    'enemies',
     'places',
     'blockView',
     'aiTier',

@@ -90,6 +90,13 @@ export interface RegisteredChromeEntry {
      * need a second lookup.
      */
     readonly renderer: 'builtin' | 'generic';
+    /**
+     * Phase 9.2 — the mod's live `ModContext`, captured at registration the
+     * same way `RegisteredRailPanel` and `RegisteredMessageBelowSlot` already
+     * capture it. The renderer passes it to `onSelect`, which the shipped
+     * `.d.ts` has always typed as receiving one. `undefined` for a built-in.
+     */
+    readonly context: unknown;
 }
 
 export interface RegisteredRailPanel {
@@ -291,6 +298,9 @@ export function registerBuiltin(region: MountRegionId, entryId: string, renderer
         // type is uniform; the renderer ignores it for built-ins.
         entry: BUILTIN_PLACEHOLDER,
         renderer,
+        // Built-ins render through their own bespoke component and never
+        // reach the generic renderer's `onSelect` dispatch.
+        context: undefined,
     });
     sortRegion(store);
     notifyRegion(region);
@@ -323,6 +333,7 @@ export function registerModChrome(
     mod: MountRegistryMod,
     entry: ChromeEntry,
     loadIndex: number,
+    context: unknown,
     options: { faultFile?: string } = {},
 ): MountHandle {
     const store = regions[region];
@@ -402,6 +413,7 @@ export function registerModChrome(
         withinModIndex: withinIndex,
         entry,
         renderer: 'generic',
+        context,
     });
     sortRegion(store);
     notifyRegion(region);

@@ -2,7 +2,7 @@
  * WO-P5-16 Step 1 — G1 (numeric clamp) + G3 (sort direction).
  *
  * The G1 clamp test is the one 4.2's characterisation oracle got wrong. The
- * 4.2 test at `EnemyInstancesView.characterisation.test.tsx:167` types
+ * The former bespoke enemy renderer test types
  * `-7abc`, which a `type="number"` input flattens to `''`, so `Number('')` is
  * `0` on BOTH the bespoke (`Math.max(0, Number(v) || 0)`) and the generic
  * (`Number(event.target.value)`) paths. The test passed by coincidence

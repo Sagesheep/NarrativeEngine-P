@@ -1,33 +1,7 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, EnemyEntry, EnemyInstance, EnemyEncounter, EnemyEncounterResolution, EnemyEncounterStatus, EnemyEncounterWave, EnemyCombatConfig, EnemySuggestion, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
-import { createEnemyInstance } from '../../services/enemy/enemyInstance';
 import { emitCoreEvent } from '../../services/mods/events';
-import { createEnemyEncounter as makeEnemyEncounter, createEnemyEncounterWave } from '../../services/enemy/enemyEncounter';
-import {
-    DEFAULT_ENEMY_COMBAT_CONFIG,
-    addEnemyResource as addCombatResource,
-    adjustEnemyResource as adjustCombatResource,
-    applyEnemyDamage as resolveEnemyDamage,
-    beginEnemyTurn as resolveEnemyTurnStart,
-    normalizeEnemyCombatConfig,
-    rollEnemyInitiative as resolveEnemyInitiative,
-    spendEnemyAction as resolveEnemyAction,
-    type EnemyDamageResult,
-} from '../../services/enemy/enemyCombat';
-import {
-    buildEnemyResolutionTimelineEvent,
-    createEnemyEncounterResolution,
-    getEncounterInstances,
-    type EnemyResolutionDraft,
-} from '../../services/enemy/enemyResolution';
-import { canonicalEnemyName } from '../../services/enemy/enemySchema';
-import {
-    addTimelineEvent as persistTimelineEvent,
-    saveEnemyEncounters,
-    saveEnemyInstances,
-    saveEnemyResolutions,
-} from '../campaignStore';
 import { normalizeRelations } from '../../services/npc/relationDedupe';
 import { toast } from '../../components/Toast';
 import { disposeCampaignSubscriptions } from '../../services/mods/reactiveReads';
@@ -58,9 +32,9 @@ function preOpBackup(campaignId: string | null, trigger: string) {
 // Getter registered by the slice creator so we always read fresh state at fire time.
 // This prevents stale-snapshot race conditions where two rapid updates within the 1s
 // debounce window would cause the first update's changes to be overwritten.
-let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }) | null = null;
+let _getStateForSave: (() => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }) | null = null;
 export function _registerCampaignStateGetter(
-    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; enemyCompendium: EnemyEntry[]; enemyInstances: EnemyInstance[]; enemyEncounters: EnemyEncounter[]; enemyCombatConfig: EnemyCombatConfig; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
+    getter: () => { activeCampaignId: string | null; context: GameContext; messages: ChatMessage[]; condenser: CondenserState; loreChunks: LoreChunk[]; npcLedger: NPCEntry[]; locationLedger: LocationEntry[]; pinnedExcerpts: PinnedExcerpt[] }
 ) {
     _getStateForSave = getter;
 }
@@ -84,10 +58,6 @@ export function cancelPendingSaves() {
     if (stateTimer) { clearTimeout(stateTimer); stateTimer = null; }
     if (loreTimer)  { clearTimeout(loreTimer);  loreTimer  = null; }
     if (npcTimer)   { clearTimeout(npcTimer);   npcTimer   = null; }
-    if (enemyTimer) { clearTimeout(enemyTimer); enemyTimer = null; }
-    if (enemyInstanceTimer) { clearTimeout(enemyInstanceTimer); enemyInstanceTimer = null; }
-    if (enemyEncounterTimer) { clearTimeout(enemyEncounterTimer); enemyEncounterTimer = null; }
-    if (enemyCombatTimer) { clearTimeout(enemyCombatTimer); enemyCombatTimer = null; }
     locationLedgerSave.cancel();
 }
 
@@ -95,7 +65,7 @@ export function cancelPendingSaves() {
  *  disk before a backup is created. Awaiting this guarantees the backup reads current data. */
 export async function flushAllPendingSaves(): Promise<void> {
     if (!_getStateForSave) return;
-    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, enemyCompendium, enemyInstances, enemyEncounters, enemyCombatConfig, pinnedExcerpts } = _getStateForSave();
+    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, pinnedExcerpts } = _getStateForSave();
     if (!activeCampaignId) return;
 
     const saves: Promise<unknown>[] = [];
@@ -134,42 +104,6 @@ export async function flushAllPendingSaves(): Promise<void> {
                 body: JSON.stringify(npcLedger),
             }).catch(e => console.error('[FlushSave] npcs failed:', e))
         );
-    }
-
-    if (enemyTimer) {
-        clearTimeout(enemyTimer);
-        enemyTimer = null;
-        saves.push(fetch(`${API}/campaigns/${activeCampaignId}/enemies`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(enemyCompendium),
-        }).catch(e => console.error('[FlushSave] enemies failed:', e)));
-    }
-
-    if (enemyInstanceTimer) {
-        clearTimeout(enemyInstanceTimer);
-        enemyInstanceTimer = null;
-        saves.push(fetch(`${API}/campaigns/${activeCampaignId}/enemy-instances`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(enemyInstances),
-        }).catch(e => console.error('[FlushSave] enemy instances failed:', e)));
-    }
-
-    if (enemyEncounterTimer) {
-        clearTimeout(enemyEncounterTimer);
-        enemyEncounterTimer = null;
-        saves.push(fetch(`${API}/campaigns/${activeCampaignId}/enemy-encounters`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(enemyEncounters),
-        }).catch(e => console.error('[FlushSave] enemy encounters failed:', e)));
-    }
-
-    if (enemyCombatTimer) {
-        clearTimeout(enemyCombatTimer);
-        enemyCombatTimer = null;
-        saves.push(fetch(`${API}/campaigns/${activeCampaignId}/enemy-combat`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(enemyCombatConfig),
-        }).catch(e => console.error('[FlushSave] enemy combat config failed:', e)));
     }
 
     saves.push(locationLedgerSave.flush());
@@ -216,55 +150,6 @@ export function debouncedSaveNPCLedger(campaignId: string | null, npcs: NPCEntry
         }).catch((e) => { console.error(e); toast.error('Failed to save NPC ledger'); });
     }, 1000);
 }
-
-let enemyTimer: ReturnType<typeof setTimeout> | null = null;
-function debouncedSaveEnemyCompendium(campaignId: string | null, enemies: EnemyEntry[]) {
-    if (!campaignId) return;
-    if (enemyTimer) clearTimeout(enemyTimer);
-    enemyTimer = setTimeout(() => {
-        fetch(`${API}/campaigns/${campaignId}/enemies`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(enemies),
-        }).catch((e) => { console.error(e); toast.error('Failed to save enemy compendium'); });
-    }, 1000);
-}
-
-let enemyInstanceTimer: ReturnType<typeof setTimeout> | null = null;
-function debouncedSaveEnemyInstances(campaignId: string | null, instances: EnemyInstance[]) {
-    if (!campaignId) return;
-    if (enemyInstanceTimer) clearTimeout(enemyInstanceTimer);
-    enemyInstanceTimer = setTimeout(() => {
-        fetch(`${API}/campaigns/${campaignId}/enemy-instances`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(instances),
-        }).catch((e) => { console.error(e); toast.error('Failed to save enemy instances'); });
-    }, 1000);
-}
-
-let enemyEncounterTimer: ReturnType<typeof setTimeout> | null = null;
-function debouncedSaveEnemyEncounters(campaignId: string | null, encounters: EnemyEncounter[]) {
-    if (!campaignId) return;
-    if (enemyEncounterTimer) clearTimeout(enemyEncounterTimer);
-    enemyEncounterTimer = setTimeout(() => {
-        fetch(`${API}/campaigns/${campaignId}/enemy-encounters`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(encounters),
-        }).catch((e) => { console.error(e); toast.error('Failed to save enemy encounters'); });
-    }, 1000);
-}
-
-let enemyCombatTimer: ReturnType<typeof setTimeout> | null = null;
-function debouncedSaveEnemyCombatConfig(campaignId: string | null, config: EnemyCombatConfig) {
-    if (!campaignId) return;
-    if (enemyCombatTimer) clearTimeout(enemyCombatTimer);
-    enemyCombatTimer = setTimeout(() => {
-        fetch(`${API}/campaigns/${campaignId}/enemy-combat`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(config),
-        }).catch((e) => { console.error(e); toast.error('Failed to save enemy combat configuration'); });
-    }, 1000);
-}
-
 
 /**
  * Deduplicates the NPC ledger by name comparison:
@@ -419,44 +304,6 @@ export type CampaignSlice = {
     removeNPC: (id: string) => void;
     archiveNPC: (id: string, turn: number, reason: string) => void;
     restoreNPC: (id: string) => void;
-    enemyCompendium: EnemyEntry[];
-    setEnemyCompendium: (enemies: EnemyEntry[]) => void;
-    addEnemy: (enemy: EnemyEntry) => void;
-    updateEnemy: (id: string, patch: Partial<EnemyEntry>) => void;
-    removeEnemy: (id: string) => void;
-    enemySuggestions: EnemySuggestion[];
-    addEnemySuggestions: (suggestions: Array<Omit<EnemySuggestion, 'id' | 'firstSeen' | 'context'>>, context?: string) => void;
-    updateEnemySuggestion: (id: string, patch: Partial<EnemySuggestion>) => void;
-    dismissEnemySuggestion: (id: string) => void;
-    clearEnemySuggestions: () => void;
-    enemyInstances: EnemyInstance[];
-    setEnemyInstances: (instances: EnemyInstance[]) => void;
-    spawnEnemyInstance: (templateId: string) => EnemyInstance | null;
-    updateEnemyInstance: (id: string, patch: Partial<EnemyInstance>) => void;
-    removeEnemyInstance: (id: string) => void;
-    enemyEncounters: EnemyEncounter[];
-    setEnemyEncounters: (encounters: EnemyEncounter[]) => void;
-    createEnemyEncounter: (name: string) => EnemyEncounter;
-    updateEnemyEncounter: (id: string, patch: Partial<EnemyEncounter>) => void;
-    addEnemyEncounterWave: (encounterId: string) => EnemyEncounterWave | null;
-    updateEnemyEncounterWave: (encounterId: string, waveId: string, patch: Partial<EnemyEncounterWave>) => void;
-    setEnemyEncounterStatus: (id: string, status: EnemyEncounterStatus) => void;
-    setEnemyEncounterInstanceAssigned: (encounterId: string, waveId: string, instanceId: string, assigned: boolean) => void;
-    setEnemyEncounterInstanceActive: (encounterId: string, waveId: string, instanceId: string, active: boolean) => void;
-    addEnemyReinforcement: (encounterId: string, waveId: string, templateId: string) => EnemyInstance | null;
-    enemyResolutions: EnemyEncounterResolution[];
-    resolveEnemyEncounter: (encounterId: string, draft: EnemyResolutionDraft) => Promise<EnemyEncounterResolution | null>;
-    enemyCombatConfig: EnemyCombatConfig;
-    setEnemyCombatConfig: (patch: Partial<EnemyCombatConfig>) => void;
-    applyEnemyDamage: (id: string, amount: number, damageType: string, bypassBarrier?: boolean) => EnemyDamageResult | null;
-    rollEnemyInitiatives: (instanceIds: string[]) => void;
-    setEnemyInitiative: (id: string, initiative: number | null) => void;
-    beginEnemyTurn: (id: string) => void;
-    spendEnemyAction: (id: string, actionName: string, cooldownRounds: number) => void;
-    addEnemyResource: (id: string, name: string, max: number) => void;
-    adjustEnemyResource: (id: string, resourceId: string, delta: number) => void;
-    removeEnemyResource: (id: string, resourceId: string) => void;
-    clearEnemyCooldown: (id: string, cooldownId: string) => void;
     mergeOrRenameNpc: (from: string, to: string, turn: number) => 'merged' | 'renamed' | 'none';
     // ── Player character (WO-A rewrite 2 §1 + §2) ──
     // Stored at `context.playerCharacter`, NOT in npcLedger. `isPC` is vestigial.
@@ -558,7 +405,7 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     // not a stale closure snapshot from the time the action was called.
     _registerCampaignStateGetter(() => {
         const s = get();
-        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger, enemyCompendium: s.enemyCompendium, enemyInstances: s.enemyInstances, enemyEncounters: s.enemyEncounters, enemyCombatConfig: s.enemyCombatConfig, locationLedger: s.locationLedger, pinnedExcerpts: s.pinnedExcerpts };
+        return { activeCampaignId: s.activeCampaignId, context: s.context, messages: s.messages, condenser: s.condenser, loreChunks: s.loreChunks, npcLedger: s.npcLedger, locationLedger: s.locationLedger, pinnedExcerpts: s.pinnedExcerpts };
     });
 
     return {
@@ -591,15 +438,8 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
             } catch (e) {
                 console.warn('[CampaignSwitch] clearDirectorBriefCache failed:', e);
             }
-            // Enemy discovery single-flight + cooldown state is per-campaign. Clear
-            // the old campaign's in-flight flag so a reopened campaign is not
-            // permanently blocked by a stale flag from a closed/switched-away one.
-            try {
-                const { clearEnemyDiscoveryState } = await import('../../services/turn/tracks/enemySuggestionTrack');
-                clearEnemyDiscoveryState(currentId);
-            } catch (e) {
-                console.warn('[CampaignSwitch] clearEnemyDiscoveryState failed:', e);
-            }
+            // its own module-local runtime state (the pattern
+            // the campaign-switch cleanup moves to the mod's lifecycle hook.
         }
 
         // Flush any pending campaign state save for the OLD campaign before switching.
@@ -626,8 +466,6 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         // Phase 3.2 / `EVENTS.md` §6.2 — the last instant the OLD campaign is
         // readable, immediately before `activeCampaignId` changes. Placed here
         // and not ~50 lines up so a mod's teardown sees a settled campaign: the
-        // pending commit, the Director-brief cache clear and the enemy-discovery
-        // clear have all already run. Fires on switch and on exit-to-hub
         // (`nextCampaignId: null`); a first open from the hub closes nothing.
         //
         // Known inconsistency, recorded not fixed (`EVENTS.md` §9.4 finding 1):
@@ -732,438 +570,6 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
         );
         debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
         return { npcLedger: newLedger };
-    }),
-    enemyCompendium: [],
-    setEnemyCompendium: (enemies) => set((s) => {
-        debouncedSaveEnemyCompendium(s.activeCampaignId, enemies);
-        return { enemyCompendium: enemies } as Partial<CampaignDeps>;
-    }),
-    addEnemy: (enemy) => set((s) => {
-        const enemies = [...s.enemyCompendium, enemy];
-        debouncedSaveEnemyCompendium(s.activeCampaignId, enemies);
-        return { enemyCompendium: enemies } as Partial<CampaignDeps>;
-    }),
-    updateEnemy: (id, patch) => set((s) => {
-        const enemies = s.enemyCompendium.map(e => e.id === id ? { ...e, ...patch, updatedAt: Date.now() } : e);
-        debouncedSaveEnemyCompendium(s.activeCampaignId, enemies);
-        return { enemyCompendium: enemies } as Partial<CampaignDeps>;
-    }),
-    removeEnemy: (id) => set((s) => {
-        preOpBackup(s.activeCampaignId, 'pre-delete-enemy');
-        const enemies = s.enemyCompendium.filter(e => e.id !== id);
-        debouncedSaveEnemyCompendium(s.activeCampaignId, enemies);
-        return { enemyCompendium: enemies } as Partial<CampaignDeps>;
-    }),
-    // Review-only discoveries. Nothing enters the canonical compendium until
-    // the player accepts it in EnemyCompendiumModal.
-    enemySuggestions: [],
-    addEnemySuggestions: (suggestions, context) => set((s) => {
-        const knownNames = new Set(s.enemyCompendium.flatMap(enemy =>
-            [enemy.name, ...(enemy.aliases || '').split(',')].map(canonicalEnemyName).filter(Boolean)));
-        const existing = new Set(s.enemySuggestions.map(suggestion =>
-            `${suggestion.kind}:${suggestion.targetEnemyId ?? ''}:${canonicalEnemyName(suggestion.name)}`));
-        const now = Date.now();
-        const fresh: EnemySuggestion[] = [];
-
-        for (const suggestion of suggestions) {
-            const name = suggestion.name.trim();
-            const nameKey = canonicalEnemyName(name);
-            if (!nameKey || knownNames.has(nameKey)) continue;
-            if (suggestion.kind === 'alias' && !s.enemyCompendium.some(enemy => enemy.id === suggestion.targetEnemyId)) continue;
-            const key = `${suggestion.kind}:${suggestion.targetEnemyId ?? ''}:${nameKey}`;
-            if (existing.has(key)) continue;
-            existing.add(key);
-            fresh.push({
-                ...suggestion,
-                id: crypto.randomUUID(),
-                name,
-                context: context?.slice(-500),
-                firstSeen: now,
-            });
-            if (fresh.length + s.enemySuggestions.length >= 30) break;
-        }
-        return fresh.length
-            ? { enemySuggestions: [...s.enemySuggestions, ...fresh] } as Partial<CampaignDeps>
-            : {};
-    }),
-    updateEnemySuggestion: (id, patch) => set((s) => ({
-        enemySuggestions: s.enemySuggestions.map(suggestion =>
-            suggestion.id === id ? { ...suggestion, ...patch } : suggestion),
-    }) as Partial<CampaignDeps>),
-    dismissEnemySuggestion: (id) => set((s) => ({
-        enemySuggestions: s.enemySuggestions.filter(suggestion => suggestion.id !== id),
-    }) as Partial<CampaignDeps>),
-    clearEnemySuggestions: () => set({ enemySuggestions: [] } as Partial<CampaignDeps>),
-    enemyInstances: [],
-    setEnemyInstances: (instances) => set((s) => {
-        debouncedSaveEnemyInstances(s.activeCampaignId, instances);
-        return { enemyInstances: instances } as Partial<CampaignDeps>;
-    }),
-    spawnEnemyInstance: (templateId) => {
-        const s = get();
-        const template = s.enemyCompendium.find(enemy => enemy.id === templateId);
-        if (!template) return null;
-        const instance = createEnemyInstance(template, s.enemyInstances);
-        const instances = [...s.enemyInstances, instance];
-        debouncedSaveEnemyInstances(s.activeCampaignId, instances);
-        set({ enemyInstances: instances } as Partial<CampaignDeps>);
-        return instance;
-    },
-    updateEnemyInstance: (id, patch) => set((s) => {
-        const instances = s.enemyInstances.map(instance =>
-            instance.id === id ? { ...instance, ...patch, updatedAt: Date.now() } : instance
-        );
-        debouncedSaveEnemyInstances(s.activeCampaignId, instances);
-        return { enemyInstances: instances } as Partial<CampaignDeps>;
-    }),
-    removeEnemyInstance: (id) => set((s) => {
-        const instances = s.enemyInstances.filter(instance => instance.id !== id);
-        const now = Date.now();
-        const encounters = s.enemyEncounters.map(encounter => ({
-            ...encounter,
-            waves: encounter.waves.map(wave => ({
-                ...wave,
-                instanceIds: wave.instanceIds.filter(instanceId => instanceId !== id),
-                activeInstanceIds: wave.activeInstanceIds.filter(instanceId => instanceId !== id),
-                updatedAt: now,
-            })),
-            updatedAt: now,
-        }));
-        debouncedSaveEnemyInstances(s.activeCampaignId, instances);
-        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
-        return { enemyInstances: instances, enemyEncounters: encounters } as Partial<CampaignDeps>;
-    }),
-    enemyEncounters: [],
-    setEnemyEncounters: (encounters) => set((s) => {
-        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
-        return { enemyEncounters: encounters } as Partial<CampaignDeps>;
-    }),
-    createEnemyEncounter: (name) => {
-        const s = get();
-        const now = Date.now();
-        const encounter = makeEnemyEncounter(name, now);
-        const encounters = [
-            ...s.enemyEncounters.map(existing =>
-                existing.status === 'active'
-                    ? { ...existing, status: 'paused' as const, updatedAt: now }
-                    : existing
-            ),
-            encounter,
-        ];
-        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
-        set({ enemyEncounters: encounters } as Partial<CampaignDeps>);
-        return encounter;
-    },
-    updateEnemyEncounter: (id, patch) => set((s) => {
-        const encounters = s.enemyEncounters.map(encounter =>
-            encounter.id === id ? { ...encounter, ...patch, updatedAt: Date.now() } : encounter
-        );
-        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
-        return { enemyEncounters: encounters } as Partial<CampaignDeps>;
-    }),
-    addEnemyEncounterWave: (encounterId) => {
-        const s = get();
-        const encounter = s.enemyEncounters.find(candidate => candidate.id === encounterId);
-        if (!encounter) return null;
-        const now = Date.now();
-        const wave = createEnemyEncounterWave(encounter.waves.length + 1, now);
-        const encounters = s.enemyEncounters.map(candidate =>
-            candidate.id === encounterId
-                ? { ...candidate, waves: [...candidate.waves, wave], activeWaveId: wave.id, updatedAt: now }
-                : candidate
-        );
-        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
-        set({ enemyEncounters: encounters } as Partial<CampaignDeps>);
-        return wave;
-    },
-    updateEnemyEncounterWave: (encounterId, waveId, patch) => set((s) => {
-        const now = Date.now();
-        const encounters = s.enemyEncounters.map(encounter =>
-            encounter.id === encounterId
-                ? {
-                    ...encounter,
-                    waves: encounter.waves.map(wave =>
-                        wave.id === waveId ? { ...wave, ...patch, updatedAt: now } : wave
-                    ),
-                    updatedAt: now,
-                }
-                : encounter
-        );
-        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
-        return { enemyEncounters: encounters } as Partial<CampaignDeps>;
-    }),
-    setEnemyEncounterStatus: (id, status) => {
-        const s = get();
-        const target = s.enemyEncounters.find(encounter => encounter.id === id);
-        if (!target || (target.resolutionId && status !== 'ended')) return;
-        const now = Date.now();
-        const encounters = s.enemyEncounters.map(encounter => {
-            if (status === 'active' && encounter.id !== id && encounter.status === 'active') {
-                return { ...encounter, status: 'paused' as const, updatedAt: now };
-            }
-            if (encounter.id !== id) return encounter;
-            return {
-                ...encounter,
-                status,
-                updatedAt: now,
-                endedAt: status === 'ended' ? now : undefined,
-            };
-        });
-        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
-        set({ enemyEncounters: encounters } as Partial<CampaignDeps>);
-    },
-    setEnemyEncounterInstanceAssigned: (encounterId, waveId, instanceId, assigned) => {
-        const s = get();
-        const encounter = s.enemyEncounters.find(candidate => candidate.id === encounterId);
-        const wave = encounter?.waves.find(candidate => candidate.id === waveId);
-        if (!encounter || !wave) return;
-        const instanceIds = assigned
-            ? [...new Set([...wave.instanceIds, instanceId])]
-            : wave.instanceIds.filter(id => id !== instanceId);
-        const activeInstanceIds = assigned
-            ? wave.activeInstanceIds
-            : wave.activeInstanceIds.filter(id => id !== instanceId);
-        get().updateEnemyEncounterWave(encounterId, waveId, { instanceIds, activeInstanceIds });
-    },
-    setEnemyEncounterInstanceActive: (encounterId, waveId, instanceId, active) => {
-        const s = get();
-        const encounter = s.enemyEncounters.find(candidate => candidate.id === encounterId);
-        const wave = encounter?.waves.find(candidate => candidate.id === waveId);
-        if (!encounter || !wave || !wave.instanceIds.includes(instanceId)) return;
-        const activeInstanceIds = active
-            ? [...new Set([...wave.activeInstanceIds, instanceId])]
-            : wave.activeInstanceIds.filter(id => id !== instanceId);
-        get().updateEnemyEncounterWave(encounterId, waveId, { activeInstanceIds });
-    },
-    addEnemyReinforcement: (encounterId, waveId, templateId) => {
-        const s = get();
-        const template = s.enemyCompendium.find(enemy => enemy.id === templateId);
-        const encounter = s.enemyEncounters.find(candidate => candidate.id === encounterId);
-        const wave = encounter?.waves.find(candidate => candidate.id === waveId);
-        if (!template || !encounter || !wave) return null;
-        const instance = createEnemyInstance(template, s.enemyInstances);
-        const instances = [...s.enemyInstances, instance];
-        const now = Date.now();
-        const encounters = s.enemyEncounters.map(candidate =>
-            candidate.id === encounterId
-                ? {
-                    ...candidate,
-                    waves: candidate.waves.map(candidateWave =>
-                        candidateWave.id === waveId
-                            ? {
-                                ...candidateWave,
-                                instanceIds: [...new Set([...candidateWave.instanceIds, instance.id])],
-                                activeInstanceIds: [...new Set([...candidateWave.activeInstanceIds, instance.id])],
-                                updatedAt: now,
-                            }
-                            : candidateWave
-                    ),
-                    updatedAt: now,
-                }
-                : candidate
-        );
-        debouncedSaveEnemyInstances(s.activeCampaignId, instances);
-        debouncedSaveEnemyEncounters(s.activeCampaignId, encounters);
-        set({ enemyInstances: instances, enemyEncounters: encounters } as Partial<CampaignDeps>);
-        return instance;
-    },
-    enemyResolutions: [],
-    resolveEnemyEncounter: async (encounterId, draft) => {
-        const s = get();
-        const encounter = s.enemyEncounters.find(candidate => candidate.id === encounterId);
-        if (!encounter || encounter.resolutionId) return null;
-
-        const campaignId = s.activeCampaignId;
-        preOpBackup(campaignId, 'pre-resolve-enemy-encounter');
-        // The resolution writes authoritative arrays immediately. Cancel older
-        // debounced snapshots so they cannot overwrite the cleaned instance pool.
-        if (enemyInstanceTimer) { clearTimeout(enemyInstanceTimer); enemyInstanceTimer = null; }
-        if (enemyEncounterTimer) { clearTimeout(enemyEncounterTimer); enemyEncounterTimer = null; }
-        const now = Date.now();
-        const resolution = createEnemyEncounterResolution(encounter, s.enemyInstances, draft, now);
-        const resolvedInstanceIds = new Set(
-            getEncounterInstances(encounter, s.enemyInstances).map(instance => instance.id),
-        );
-        const enemyInstances = s.enemyInstances.filter(instance => !resolvedInstanceIds.has(instance.id));
-        const enemyEncounters = s.enemyEncounters.map(candidate => {
-            let changed = candidate.id === encounterId;
-            const waves = candidate.waves.map(wave => {
-                const waveChanged = wave.instanceIds.some(id => resolvedInstanceIds.has(id))
-                    || wave.activeInstanceIds.some(id => resolvedInstanceIds.has(id));
-                if (!waveChanged) return wave;
-                changed = true;
-                return {
-                    ...wave,
-                    instanceIds: wave.instanceIds.filter(id => !resolvedInstanceIds.has(id)),
-                    activeInstanceIds: wave.activeInstanceIds.filter(id => !resolvedInstanceIds.has(id)),
-                    updatedAt: now,
-                };
-            });
-            if (!changed) return candidate;
-            return {
-                ...candidate,
-                waves,
-                ...(candidate.id === encounterId
-                    ? { status: 'ended' as const, endedAt: now, resolutionId: resolution.id }
-                    : {}),
-                updatedAt: now,
-            };
-        });
-        let enemyResolutions = [...s.enemyResolutions, resolution];
-
-        set({ enemyInstances, enemyEncounters, enemyResolutions } as Partial<CampaignDeps>);
-
-        if (campaignId) {
-            try {
-                await Promise.all([
-                    saveEnemyInstances(campaignId, enemyInstances),
-                    saveEnemyEncounters(campaignId, enemyEncounters),
-                    saveEnemyResolutions(campaignId, enemyResolutions),
-                ]);
-            } catch (error) {
-                console.error('[Enemy Resolution] Failed to persist resolution state:', error);
-                toast.error('Encounter resolved locally, but saving failed');
-            }
-        }
-
-        if (draft.createTimelineEvent && campaignId) {
-            let timelineEvent: TimelineEvent | undefined;
-            try {
-                timelineEvent = await persistTimelineEvent(
-                    campaignId,
-                    buildEnemyResolutionTimelineEvent(
-                        resolution,
-                        s.archiveIndex.at(-1)?.sceneId ?? '000',
-                        s.chapters.find(chapter => !chapter.sealedAt)?.chapterId ?? 'CH00',
-                    ),
-                );
-            } catch (error) {
-                console.error('[Enemy Resolution] Failed to create timeline event:', error);
-            }
-            if (timelineEvent) {
-                enemyResolutions = enemyResolutions.map(candidate =>
-                    candidate.id === resolution.id
-                        ? { ...candidate, timelineEventId: timelineEvent.id }
-                        : candidate
-                );
-                if (get().activeCampaignId === campaignId) {
-                    set((current) => ({
-                        enemyResolutions,
-                        timeline: current.timeline.some(event => event.id === timelineEvent.id)
-                            ? current.timeline
-                            : [...current.timeline, timelineEvent],
-                    }) as Partial<CampaignDeps>);
-                }
-                try {
-                    await saveEnemyResolutions(campaignId, enemyResolutions);
-                } catch (error) {
-                    console.error('[Enemy Resolution] Failed to link timeline event:', error);
-                }
-                return enemyResolutions.find(candidate => candidate.id === resolution.id) ?? resolution;
-            }
-        }
-
-        return resolution;
-    },
-    enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG },
-    setEnemyCombatConfig: (patch) => set((s) => {
-        const enemyCombatConfig = normalizeEnemyCombatConfig({ ...s.enemyCombatConfig, ...patch });
-        debouncedSaveEnemyCombatConfig(s.activeCampaignId, enemyCombatConfig);
-        return { enemyCombatConfig } as Partial<CampaignDeps>;
-    }),
-    applyEnemyDamage: (id, amount, damageType, bypassBarrier = false) => {
-        const s = get();
-        const target = s.enemyInstances.find(instance => instance.id === id);
-        if (!target) return null;
-        const resolved = resolveEnemyDamage(target, amount, damageType, s.enemyCombatConfig, bypassBarrier);
-        if (resolved.instance !== target) {
-            const enemyInstances = s.enemyInstances.map(instance =>
-                instance.id === id ? resolved.instance : instance
-            );
-            debouncedSaveEnemyInstances(s.activeCampaignId, enemyInstances);
-            set({ enemyInstances } as Partial<CampaignDeps>);
-        }
-        return resolved.result;
-    },
-    rollEnemyInitiatives: (ids) => set((s) => {
-        const targets = new Set(ids);
-        const enemyInstances = s.enemyInstances.map(instance =>
-            targets.has(instance.id)
-                ? resolveEnemyInitiative(instance, s.enemyCombatConfig)
-                : instance
-        );
-        debouncedSaveEnemyInstances(s.activeCampaignId, enemyInstances);
-        return { enemyInstances } as Partial<CampaignDeps>;
-    }),
-    setEnemyInitiative: (id, initiative) => set((s) => {
-        if (!s.enemyCombatConfig.enabled) return {};
-        const enemyInstances = s.enemyInstances.map(instance =>
-            instance.id === id
-                ? { ...instance, initiative: Number.isFinite(initiative) ? initiative : null, updatedAt: Date.now() }
-                : instance
-        );
-        debouncedSaveEnemyInstances(s.activeCampaignId, enemyInstances);
-        return { enemyInstances } as Partial<CampaignDeps>;
-    }),
-    beginEnemyTurn: (id) => set((s) => {
-        const enemyInstances = s.enemyInstances.map(instance =>
-            instance.id === id ? resolveEnemyTurnStart(instance, s.enemyCombatConfig) : instance
-        );
-        debouncedSaveEnemyInstances(s.activeCampaignId, enemyInstances);
-        return { enemyInstances } as Partial<CampaignDeps>;
-    }),
-    spendEnemyAction: (id, actionName, cooldownRounds = 0) => set((s) => {
-        const enemyInstances = s.enemyInstances.map(instance =>
-            instance.id === id
-                ? resolveEnemyAction(instance, actionName, cooldownRounds, s.enemyCombatConfig)
-                : instance
-        );
-        debouncedSaveEnemyInstances(s.activeCampaignId, enemyInstances);
-        return { enemyInstances } as Partial<CampaignDeps>;
-    }),
-    addEnemyResource: (id, name, max) => set((s) => {
-        if (!s.enemyCombatConfig.enabled || !s.enemyCombatConfig.resourcesEnabled) return {};
-        const enemyInstances = s.enemyInstances.map(instance =>
-            instance.id === id ? addCombatResource(instance, name, max) : instance
-        );
-        debouncedSaveEnemyInstances(s.activeCampaignId, enemyInstances);
-        return { enemyInstances } as Partial<CampaignDeps>;
-    }),
-    adjustEnemyResource: (id, resourceId, delta) => set((s) => {
-        if (!s.enemyCombatConfig.enabled || !s.enemyCombatConfig.resourcesEnabled) return {};
-        const enemyInstances = s.enemyInstances.map(instance =>
-            instance.id === id ? adjustCombatResource(instance, resourceId, delta) : instance
-        );
-        debouncedSaveEnemyInstances(s.activeCampaignId, enemyInstances);
-        return { enemyInstances } as Partial<CampaignDeps>;
-    }),
-    removeEnemyResource: (id, resourceId) => set((s) => {
-        if (!s.enemyCombatConfig.enabled || !s.enemyCombatConfig.resourcesEnabled) return {};
-        const enemyInstances = s.enemyInstances.map(instance =>
-            instance.id === id
-                ? {
-                    ...instance,
-                    resources: instance.resources.filter(resource => resource.id !== resourceId),
-                    updatedAt: Date.now(),
-                }
-                : instance
-        );
-        debouncedSaveEnemyInstances(s.activeCampaignId, enemyInstances);
-        return { enemyInstances } as Partial<CampaignDeps>;
-    }),
-    clearEnemyCooldown: (id, cooldownId) => set((s) => {
-        if (!s.enemyCombatConfig.enabled || !s.enemyCombatConfig.cooldownsEnabled) return {};
-        const enemyInstances = s.enemyInstances.map(instance =>
-            instance.id === id
-                ? {
-                    ...instance,
-                    cooldowns: instance.cooldowns.filter(cooldown => cooldown.id !== cooldownId),
-                    updatedAt: Date.now(),
-                }
-                : instance
-        );
-        debouncedSaveEnemyInstances(s.activeCampaignId, enemyInstances);
-        return { enemyInstances } as Partial<CampaignDeps>;
     }),
     mergeOrRenameNpc: (from, to, turn) => {
         void turn;

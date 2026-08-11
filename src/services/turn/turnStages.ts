@@ -42,8 +42,6 @@ import { hasHostModelRole, type HostFacade } from './hostFacade';
 import { emitCoreEvent, emitCoreEventLazy } from '../mods/events';
 import { runPromptInterceptors } from '../mods/interceptors';
 import { runFactPublishers } from '../mods/facts';
-// Phase 7.5 — enemy-subsystem plumbing, deleted with the subsystem in Phase 8.3.
-import { buildEnemyVolatileSegment } from '../enemy/enemyPayloadSegment';
 
 const MAX_TOOL_CALLS_PER_TURN = 5;
 
@@ -441,11 +439,6 @@ export function buildTurnPayload(
         condensedUpToIndex: condenser.condensedUpToIndex,
         relevantLore: ctx.gathered.relevantLore,
         npcLedger,
-        // Phase 7.5 — the enemy block reaches the prompt as a volatile segment
-        // the subsystem renders itself; `buildPayload` no longer carries four
-        // enemy-shaped option fields. Phase 8.3 deletes this line when the mod
-        // takes over through the generation interceptor.
-        volatileSegments: [buildEnemyVolatileSegment(state)],
         archiveRecall: ctx.gathered.archiveRecall,
         recommendedNPCNames: ctx.gathered.recommendedNPCNames,
         semanticFactText: ctx.gathered.semanticFactText,

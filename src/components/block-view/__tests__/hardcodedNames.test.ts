@@ -77,7 +77,11 @@ describe('WORKORDER-P5-02 §8 — no hardcoded feature names in src/components/b
     });
 
     it('the test harness enumerated ids from all three registries', () => {
-        expect(ids.length).toBeGreaterThanOrEqual(27 + 8 + 3);
+        // Phase 8.3 — `enemyDiscovery` is no longer a built-in TierFeature (26
+        // built-ins now). The enemies mod (8.5) declares its own tier entry
+        // through the 7.3 registry. The track count drops by one (the enemy
+        // suggestion track is gone). The contribution count is unchanged.
+        expect(ids.length).toBeGreaterThanOrEqual(26 + 8 + 2);
     });
 
     it('no registry id appears as a quoted string literal in any block-view source file', () => {
@@ -104,7 +108,9 @@ describe('WORKORDER-P5-02 §8 — no hardcoded feature names in src/components/b
     it('a sample of TierFeature ids are checked by symbol, not skipped', () => {
         // Guard against the test silently passing because `ids` was empty. Pull a few
         // well-known ids and confirm they are in the enumerated set.
-        const sample: TierFeature[] = ['planner', 'directorBrief', 'arcSpawn', 'heartbeatTick', 'enemyDiscovery'];
+        // Phase 8.3 — `enemyDiscovery` is no longer a built-in; `sceneStakesClassify`
+        // replaces it in the sample (a model-calling automatic feature, same shape).
+        const sample: TierFeature[] = ['planner', 'directorBrief', 'arcSpawn', 'heartbeatTick', 'sceneStakesClassify'];
         for (const id of sample) {
             expect(ids, `expected ${id} in the enumerated id set`).toContain(id);
         }

@@ -27,6 +27,7 @@ import {
 } from './fileStore.js';
 import { wrapAsync } from './asyncHandler.js';
 import { scanModTableFilesForMod } from './modTableRegistry.js';
+import { adoptLegacyTable } from './legacyAdoption.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -264,6 +265,14 @@ export function mountModTableRoutes(registry = serverTableRegistry) {
         if (!descriptor || !descriptor.serverRoutes || descriptor.serverRoutes.present !== true) {
             return res.status(404).json({ error: `Unknown mod table "${req.params.table}"` });
         }
+        // Phase 8.5 — adopt the retired campaign file this table replaces, if
+        // the manifest declared one and this campaign has not passed the
+        // adoption point yet. Placed INSIDE the read the campaign hydrator is
+        // already awaiting, so a mod can never observe the empty table first.
+        // Never throws, never touches the legacy file, and is a single
+        // `existsSync` for a campaign with nothing to adopt — which is every
+        // campaign created after the extraction. See `legacyAdoption.js`.
+        adoptLegacyTable(req.params.id, descriptor);
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}${descriptor.fileSuffix}`);
         const fallback = descriptor.recordShape === 'array' ? [] : null;
         res.json(readJson(filePath, fallback));

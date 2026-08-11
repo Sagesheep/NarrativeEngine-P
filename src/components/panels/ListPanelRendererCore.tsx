@@ -151,8 +151,8 @@ function emptyRow<TRow extends PanelRow>(descriptor: PanelDescriptor<TRow>): TRo
 /**
  * WO-P5-16 G1 — clamp a `number` field input to its declared bounds.
  *
- * The bespoke `enemy-instances` panel clamps with `Math.max(0, Number(v) || 0)`
- * (`EnemyInstancesView.tsx:56`). The 4.1 generic control emitted the raw
+ * The mod-owned enemy UI clamps with `Math.max(0, Number(v) || 0)`
+ * The 4.1 generic control emitted the raw
  * `Number(event.target.value)` with no clamp, no `|| 0` fallback
  * (`ListPanelRendererCore.tsx:186`). 4.2's characterisation oracle types
  * `-7abc`, which a `type="number"` input flattens to `''`, so `Number('')` is

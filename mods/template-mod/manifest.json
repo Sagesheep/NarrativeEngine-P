@@ -1,0 +1,30 @@
+{
+  "id": "template-mod",
+  "name": "Template Mod",
+  "version": "1.0.0",
+  "description": "A working template demonstrating every mount point, both table shapes, the event bus, a macro, a fact, a budget claim, and the canonical subscription/cleanup patterns. Copy this folder, rename the `id`, and edit from there. See docs/MODDING.md for the prose reference and docs/narrative-mod-api.d.ts for the type surface.",
+  "author": "Narrative Engine",
+  "loadOrder": 400,
+  "tables": [
+    { "name": "entries", "recordShape": "array",         "label": "Entries" },
+    { "name": "settings", "recordShape": "single-object", "label": "Settings" }
+  ],
+  "contributions": [
+    {
+      "id": "template-note",
+      "order": 690,
+      "budget": 80,
+      "text": "{{greeting}}"
+    }
+  ],
+  "native": {
+    "js": "index.js",
+    "css": "style.css",
+    "hooks": {
+      "install": "onInstall",
+      "activate": "onActivate",
+      "disable": "onDisable"
+    },
+    "generateInterceptor": "interceptPrompt"
+  }
+}

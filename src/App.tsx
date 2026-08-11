@@ -1,4 +1,4 @@
-import './index.css';
+﻿import './index.css';
 import { useEffect, useState } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { CampaignHub } from './components/CampaignHub';
@@ -9,7 +9,6 @@ import { SettingsModal } from './components/SettingsModal';
 import { ChatRightRail } from './components/ChatRightRail';
 import { WindowManager } from './components/WindowManager';
 import { NPCLedgerModal } from './components/NPCLedgerModal';
-import { EnemyCompendiumModal } from './components/EnemyCompendiumModal';
 import { CharacterLedgerModal } from './components/character/CharacterLedgerModal';
 import { LocationLedgerModal } from './components/LocationLedgerModal';
 import { BlockViewModal } from './components/block-view/BlockViewModal';
@@ -182,7 +181,6 @@ export default function App() {
       {/* <MapPanel /> */}
       <SettingsModal />
       <NPCLedgerModal />
-      <EnemyCompendiumModal />
       <CharacterLedgerModal />
       <LocationLedgerModal />
       <BlockViewModal />

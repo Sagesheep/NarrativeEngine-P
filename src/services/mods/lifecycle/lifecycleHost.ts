@@ -65,6 +65,7 @@ import {
     registerModInterceptor,
 } from '../interceptors';
 import { checkModRoles, clearAllModRoleLeases, disableModRoles, enableModRoles, serviceRoles } from '../../roles';
+import { clearAllModOocSections, disableModOocSections, enableModOocSections } from '../../ooc/oocSectionRegistry';
 
 /** A mod, as the host needs to see it. A narrow read-only view of `ValidatedMod`. */
 export interface LifecycleMod {
@@ -408,6 +409,12 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // A refresh is a new resolved mod set. Remove providers belonging to
         // mods that disappeared or became disabled before replaying activation.
         clearAllModRoleLeases();
+        // Phase 8.3 — same discipline for OOC sections: a refresh is a new
+        // mod set, so any section a disappeared mod registered is dropped
+        // before activation replays. The open `oocSections` registry holds
+        // the section objects; this clears the mod-facing lease map and
+        // the fault store so a re-enabled mod starts clean.
+        clearAllModOocSections();
         serviceRoles.clear();
 
         // Mods arrive in the loader's resolved order (Phase 1.3 §6.3). The
@@ -601,6 +608,9 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // Phase 7.4 — same discipline for budget claims: `disable`
         // revoked the lease, `enable` restores it before `activate` runs.
         enableModBudgets(input.mod.id);
+        // Phase 8.3 — same discipline for OOC sections: `disable` revoked
+        // the lease, `enable` restores it before `activate` runs.
+        enableModOocSections(input.mod.id);
         const enableResult = await fireUserHook({
             mod: input.mod,
             hookName: 'enable',
@@ -698,6 +708,12 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // Phase 7.1.1: roles are revoked at this same host-owned teardown
         // boundary so stale closures cannot answer later asks.
         disableModRoles(input.mod.id);
+        // Phase 8.3: the same discipline for OOC sections. Every section the
+        // mod registered is removed here — the mod is never trusted to call
+        // `unregister()`. The mod's lease is revoked so a registration call
+        // from a stale closure after disable is a no-op plus a fault, and
+        // Ask-GM is unaffected by a mod that has been switched off.
+        disableModOocSections(input.mod.id);
         // Phase 1.5 — unmount CSS after disable, regardless of whether the
         // disable hook itself threw. The mod is being switched off; its CSS
         // must leave the page even if its cleanup hook misbehaved, otherwise
@@ -771,6 +787,8 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
             clearAllModFacts();
             // Phase 7.4 — same discipline for budget claims.
             clearAllModBudgets();
+            // Phase 8.3 — same discipline for OOC sections.
+            clearAllModOocSections();
             clearAllModRoleLeases();
             serviceRoles.clear();
             nativeLoader?.clear();

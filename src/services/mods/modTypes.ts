@@ -96,6 +96,16 @@ export interface ValidatedModTable {
     label?: string;
     reads?: string[];
     writes?: string[];
+    /**
+     * Phase 8.5 — a campaign file the app has RETIRED, which this table adopts
+     * once. Not a path: the value must be a member of the app's retired-table
+     * registry (`server/lib/legacyTables.js`) or the manifest is rejected at
+     * load. Acted on entirely server-side, on the mod-table read path
+     * (`server/lib/legacyAdoption.js`); the client neither performs nor needs
+     * to know about the adoption, and carries the field only so the manifest
+     * shape round-trips honestly.
+     */
+    migrateFrom?: string;
 }
 
 /**
@@ -245,6 +255,16 @@ export interface ModDefinition {
     version: string;
     /** `">=X.Y.Z"` or `"*"`. Absent = compatible with any app version. */
     appVersion?: string;
+    /**
+     * Phase 9.2 — the mod API generation this manifest was written against.
+     * Absent in the manifest = 1; the loader always stamps the resolved
+     * integer, so a consumer never re-applies the default. A manifest
+     * declaring a generation HIGHER than the host was refused at load and
+     * never reaches this type.
+     */
+    apiVersion?: number;
+    /** Phase 9.2 — loader-derived: `apiVersion < MOD_API_VERSION`. */
+    apiVersionStale?: boolean;
     description?: string;
     /** Phase 1.1 / MANIFEST.md §2 — `TRUST.md` §D disclosure pair. Optional. */
     author?: string;

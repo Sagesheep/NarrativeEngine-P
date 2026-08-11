@@ -11,13 +11,13 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./enemy/enemyShape": {
-      "types": "./dist/enemy/enemyShape.d.ts",
-      "import": "./dist/enemy/enemyShape.js"
-    },
     "./roles/roleIds": {
       "types": "./dist/roles/roleIds.d.ts",
       "import": "./dist/roles/roleIds.js"
+    },
+    "./mods/apiVersion": {
+      "types": "./dist/mods/apiVersion.d.ts",
+      "import": "./dist/mods/apiVersion.js"
     }
   },
   "files": [

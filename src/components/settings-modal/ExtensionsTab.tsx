@@ -18,6 +18,7 @@ import type { ContributionModule } from '../../services/payload/contributions/re
 import { refreshMods, enableNativeMod, disableNativeMod, cleanModData } from '../../services/mods/modBootstrap';
 import { modToContributionModule } from '../../services/mods/modAdapter';
 import type { ModFault, ValidatedMod } from '../../services/mods/modTypes';
+import { MOD_API_VERSION } from '@narrative/engine/mods/apiVersion';
 import { getNativeTrustStore, needsNativeTrustWarning, recordNativeTrustAcceptance } from '../../services/mods/nativeTrustStore';
 import { sandboxFaultStore } from '../../services/mods/sandbox/sandboxFaults';
 import { screenFaultStore } from '../../services/mods/screenFaults';
@@ -88,6 +89,17 @@ type ModuleRow = {
     provenance?: 'bundled' | 'installed';
     /** Mods only — true when this mod declares at least one panel (its own settings). */
     hasSettings?: boolean;
+    /**
+     * Phase 9.2 — the mod declares an older API generation than this build
+     * implements. It loads: the breakage policy is "the bump is the
+     * announcement, mods follow the app", and the host neither carries shims
+     * for an old generation nor pretends to know that an older mod is broken.
+     * What it does is say so, so a user whose mod starts misbehaving after an
+     * update has the reason in front of them instead of filing it as a bug.
+     */
+    apiVersionStale?: boolean;
+    /** Phase 9.2 — the generation the mod declared, for the notice's wording. */
+    apiVersion?: number;
     /** Mods only — the inline fault for this mod, if any load/runtime fault matches its file. */
     fault?: ModFault;
     /** Mods only — roles this mod declares and whether its claimant is active. */
@@ -202,6 +214,11 @@ const toModRow = (mod: ValidatedMod, faults: readonly ModFault[]): ModuleRow => 
         // own regardless).
         provenance: mod.provenance === 'bundled' ? 'bundled' : 'installed',
         hasSettings: Array.isArray(mod.panels) && mod.panels.length > 0,
+        // Phase 9.2 — the API generation. A server that has not been updated to
+        // stamp these leaves them absent, which reads as "not stale" — the same
+        // safe default `provenance` takes.
+        apiVersion: typeof mod.apiVersion === 'number' ? mod.apiVersion : undefined,
+        apiVersionStale: mod.apiVersionStale === true,
         roleReplacements,
         fault,
     };
@@ -571,6 +588,17 @@ export function ExtensionsTab() {
                                     : ' · ' + t('settings.extensions.mod.roleNoProvider')}
                         </p>
                     ))}
+                    {/* Phase 9.2 — the stale-generation notice. Not a fault:
+                      * the mod loaded and may work perfectly. It is the one
+                      * fact a user needs when a mod that used to work stops. */}
+                    {row.apiVersionStale && (
+                        <p className="text-[9px] text-amber-400/80 leading-tight mt-1.5">
+                            {t('settings.extensions.mod.apiVersionStale', {
+                                declared: row.apiVersion ?? 1,
+                                current: MOD_API_VERSION,
+                            })}
+                        </p>
+                    )}
                     {/* Phase 6.1 — the inline fault. The reason appears next to
                      * the mod it rejected, not in a separate section the user
                      * must know to scroll to. The fault is matched to the mod

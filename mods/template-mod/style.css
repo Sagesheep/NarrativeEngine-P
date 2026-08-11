@@ -1,0 +1,43 @@
+/* Template Mod styles. Injected on activate, removed on disable.
+ * The content mounts sit in-page and inherit the app's CSS custom
+ * properties for free — so most of your styling can be `inherit` /
+ * `currentColor` / the host's tokens. Use this file for anything mod-specific
+ * that the host's tokens do not cover (a custom layout class, a one-off
+ * border). A mod that writes badly-scoped CSS can disturb the layout around
+ * its mount (MOUNTS.md §6 — "the honest half"); scope your selectors under
+ * the mod's own class names. */
+.template-mod-root {
+    padding: 8px;
+    font-family: inherit;
+    font-size: 12px;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.template-mod-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.template-mod-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 2px 4px;
+    font: inherit;
+    color: inherit;
+    background: inherit;
+    border: 1px solid currentColor;
+    opacity: 0.7;
+}
+.template-mod-btn {
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 1px solid currentColor;
+    opacity: 0.7;
+    padding: 2px 6px;
+    cursor: pointer;
+}
+.template-mod-btn:hover { opacity: 1; }
+.template-mod-muted { opacity: 0.6; }

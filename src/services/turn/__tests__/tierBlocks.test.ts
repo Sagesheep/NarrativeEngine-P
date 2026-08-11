@@ -4,13 +4,18 @@ import { listTierBlocks, MATRIX, modTierBlocks, type TierFeature } from '../aiTi
 /**
  * WORKORDER-P5-01 §4 Step 5 — the declaration table tests.
  *
- * 27 TierFeature ids in, 27 TierBlock entries out. One entry per id, no dupes,
+ * 26 TierFeature ids in, 26 TierBlock entries out. One entry per id, no dupes,
  * no omissions. Shape mirrors `ContributionRegistry.list()` and
  * `PostTurnTrackRegistry.list()`. `arcSpawn` is `trigger: 'manual'` and
  * `toggleable: false` per §3 (the press IS the gate; the matrix value is never
  * read). Features with no call site at all — no pipeline step and no button —
  * are `trigger: 'unwired'`: present-but-inert, shown to the user as "no call
  * site exists yet" so a reader does not hunt for a control that is not there.
+ *
+ * Phase 8.3 — `enemyDiscovery` is gone from the union (26 built-ins now). The
+ * enemies mod (8.5) declares its own `mod.enemies.enemyDiscovery` tier entry
+ * through the 7.3 registry; `listTierBlocks` returns it alongside the built-ins
+ * once the mod is enabled.
  */
 
 const TIER_FEATURE_IDS: TierFeature[] = [
@@ -24,19 +29,18 @@ const TIER_FEATURE_IDS: TierFeature[] = [
     'directorBrief',
     'lodDynamicElevation',
     'lodSlottedRag',
-    'enemyDiscovery',
 ];
 
 describe('WORKORDER-P5-01 — listTierBlocks declaration table', () => {
     beforeEach(() => {
         // Phase 7.3 — ensure no mod-declared tier entries leak in from other
-        // test files. The declaration table tests expect exactly 27 built-ins.
+        // test files. The declaration table tests expect exactly 26 built-ins.
         modTierBlocks.clear();
     });
 
     const blocks = listTierBlocks();
 
-    it('returns one entry per TierFeature id (27 in, 27 out)', () => {
+    it('returns one entry per TierFeature id (26 in, 26 out)', () => {
         expect(blocks).toHaveLength(TIER_FEATURE_IDS.length);
         const blockIds = blocks.map(b => b.id);
         for (const id of TIER_FEATURE_IDS) {
@@ -90,7 +94,7 @@ describe('WORKORDER-P5-01 — listTierBlocks declaration table', () => {
         expect(arcSpawn!.callsModel).toBe(true);
     });
 
-    it('the 24 pipeline-fired features are automatic', () => {
+    it('the 23 pipeline-fired features are automatic', () => {
         const nonAutomaticIds = new Set(['arcSpawn', 'witnessAux', 'npcProfileGen']);
         for (const block of blocks) {
             if (nonAutomaticIds.has(block.id)) continue;

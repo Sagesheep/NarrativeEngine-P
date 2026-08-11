@@ -90,10 +90,13 @@ describe('Phase 7.3 — tierAllows resolves mod-declared entries', () => {
 
 describe('Phase 7.3 — built-in tierAllows is byte-identical (regression guard)', () => {
     // A subset of built-in features across the three tiers, checked against
-    // the MATRIX directly. The full 27×3 golden matrix is in
+    // the MATRIX directly. The full 26×3 golden matrix is in
     // aiTier.characterization.test.ts; this is a focused regression guard
     // that the mod-resolution fallthrough has not changed the built-in path.
-    const SAMPLES: TierFeature[] = ['planner', 'enemyDiscovery', 'arcSpawn', 'deepScan', 'lodSlottedRag'];
+    // Phase 8.3 — `enemyDiscovery` is no longer a built-in; the sample is
+    // replaced with `sceneStakesClassify` (an automatic model-calling
+    // feature, same shape as enemyDiscovery was).
+    const SAMPLES: TierFeature[] = ['planner', 'sceneStakesClassify', 'arcSpawn', 'deepScan', 'lodSlottedRag'];
 
     for (const tier of TIERS) {
         it(`built-in samples match MATRIX at ${tier}`, () => {
@@ -104,7 +107,7 @@ describe('Phase 7.3 — built-in tierAllows is byte-identical (regression guard)
     }
 
     it('built-in unknown id still returns false (mod registry is empty)', () => {
-        const unknown = 'nonExistentFeature' as unknown as TierFeature;
+        const unknown = 'nonExistentFeature';
         for (const tier of TIERS) {
             expect(tierAllows(tier, unknown)).toBe(false);
         }
@@ -114,14 +117,14 @@ describe('Phase 7.3 — built-in tierAllows is byte-identical (regression guard)
 describe('Phase 7.3 — listTierBlocks includes mod entries', () => {
     it('returns built-ins only when no mod entries are registered', () => {
         const blocks = listTierBlocks();
-        // 27 built-in TierFeature ids — no mod entries.
-        expect(blocks.length).toBe(27);
+        // 26 built-in TierFeature ids (post-Phase 8.3) — no mod entries.
+        expect(blocks.length).toBe(26);
     });
 
     it('includes a registered mod entry after the built-ins', () => {
         registerModEntry();
         const blocks = listTierBlocks();
-        expect(blocks.length).toBe(28);
+        expect(blocks.length).toBe(27);
         const modBlock = blocks.find((b) => b.id === 'mod.beacon.scan');
         expect(modBlock).toBeDefined();
         expect(modBlock!.name).toBe('Beacon Scan');
@@ -132,7 +135,7 @@ describe('Phase 7.3 — listTierBlocks includes mod entries', () => {
         registerModEntry({ id: 'mod.a.x', name: 'AX' });
         registerModEntry({ id: 'mod.b.y', name: 'BY' });
         const blocks = listTierBlocks();
-        expect(blocks.length).toBe(29);
+        expect(blocks.length).toBe(28);
         expect(blocks.find((b) => b.id === 'mod.a.x')?.name).toBe('AX');
         expect(blocks.find((b) => b.id === 'mod.b.y')?.name).toBe('BY');
     });

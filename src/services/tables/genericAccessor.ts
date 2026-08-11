@@ -23,8 +23,8 @@ type EmptyFor<S extends RecordShape> = S extends 'array' ? ArrayEmpty : SingleOb
  * `serverRoutes` (GET). Reads `{api}/campaigns/:id/{name}`. Returns the
  * record-shape default (`[]` for array, `null` for single-object) on a
  * non-ok response — mirroring every existing read accessor in
- * campaignStore.ts (getEnemyCompendium returns [], getEnemyCombatConfig
- * returns null, etc).
+ * campaignStore.ts (array records return [], singleton records
+ * return null).
  *
  * If the descriptor declares an `onAfterRead` hook (WO-P5-03 §3 — forced by
  * `archive-chapters` recompute+persist, by `npcs` home+coerce), the hook
@@ -50,7 +50,7 @@ export async function genericGet<S extends RecordShape>(
  * Generic PUT for a descriptor that declares `storeAccessor` (write) and
  * `serverRoutes` (PUT). Writes `{api}/campaigns/:id/{name}`. Mirrors the
  * fire-and-forget pattern of the existing save accessors
- * (saveLoreChunks/saveNPCLedger/saveLocationLedger/saveEnemyCompendium).
+ * (saveLoreChunks/saveNPCLedger/saveLocationLedger).
  *
  * If the descriptor declares an `onBeforeWrite` hook (§3 — forced by `state`
  * read-before-write preserve pinnedExcerpts + strip debugPayload), it runs

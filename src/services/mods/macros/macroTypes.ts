@@ -72,7 +72,7 @@ export interface ModMacrosApi {
  * (`{ modId, file, kind, reason }`), surfaced in Extensions beside the
  * others.
  */
-export type MacroFaultKind = 'shadow' | 'duplicate' | 'threw' | 'revoked';
+export type MacroFaultKind = 'shadow' | 'duplicate' | 'threw' | 'revoked' | 'unresolved';
 
 /**
  * A narrow mod view the registry needs to attribute a registration. The

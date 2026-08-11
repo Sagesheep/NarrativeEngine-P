@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { ROLE_IDS } from '@narrative/engine/roles/roleIds';
+import { MOD_API_VERSION, DEFAULT_MOD_API_VERSION } from '@narrative/engine/mods/apiVersion';
+import { isRetiredCampaignFile, RETIRED_CAMPAIGN_FILE_SUFFIXES } from './legacyTables.js';
 
 /**
  * Project 2 / WO-P2-04 — the mod file loader + validator.
@@ -59,6 +61,14 @@ const COMPUTE_WRITES = new Set([
     'setInventory',
     'setLocationLedger',
     'addLocationSuggestions',
+    // Phase 8.2 §3 — `requestBackup` wraps the existing POST
+    // /campaigns/:id/backup endpoint so a mod that deletes a year of a user's
+    // monsters has an undo while core's own delete paths do. Structurally
+    // identical to how 2.9.3 added `addTimelineEvent` (API.md §5.3): one new
+    // FacadeWrites callback, one allow-list entry, one capability string
+    // `write:requestBackup`. The host keeps the endpoint, the `isAuto` flag
+    // and any rate limiting.
+    'requestBackup',
 ]);
 const COMPUTE_TABLE_READS = new Set([]);
 const COMPUTE_TABLE_WRITES = new Set([]);
@@ -128,6 +138,7 @@ const NATIVE_HOOK_NAMES = new Set([
  */
 const TOP_LEVEL_KEYS = new Set([
     'id', 'name', 'version', 'description', 'author', 'homepage', 'appVersion',
+    'apiVersion',
     'loadOrder', 'dependencies', 'i18n', 'contributions', 'tables', 'panels',
     'screens', 'compute', 'native', 'roles', 'tierEntries',
 ]);
@@ -232,6 +243,63 @@ function checkAppVersion(spec, appVersion) {
     if (compareVersions(current, required) < 0) {
         reject(`requires app version ${wanted}, but this app is ${appVersion}`);
     }
+}
+
+/**
+ * Phase 9.2 — enforce `apiVersion`, the mod API generation.
+ *
+ * Absent = generation 1 (`DEFAULT_MOD_API_VERSION`): every manifest written
+ * before this field existed was written against generation 1, which is what it
+ * is. Promoting an undeclared manifest to the current generation would erase
+ * the only signal this check exists to read.
+ *
+ * A mod from the FUTURE is refused, naming both numbers — the same shape and
+ * the same voice as `checkAppVersion`'s rejection, because it is the same
+ * situation: the mod asked for a surface this app does not have.
+ *
+ * A mod from the PAST is NOT refused. It loads, and the caller stamps
+ * `apiVersionStale: true` so Mod Management can say so. The breakage policy is
+ * "the bump is the announcement, mods follow the app" — the host does not
+ * carry shims for an old generation, and it also does not pretend to know that
+ * an older mod is broken. Refusing it would break working mods on the strength
+ * of a number; loading it silently would hide the one fact the user needs when
+ * it misbehaves.
+ *
+ * Returns the resolved generation.
+ */
+function checkApiVersion(spec) {
+    if (spec === undefined || spec === null) return DEFAULT_MOD_API_VERSION;
+    if (typeof spec !== 'number' || !Number.isInteger(spec) || spec < 1) {
+        reject(`apiVersion must be a positive integer (this app implements ${MOD_API_VERSION})`);
+    }
+    if (spec > MOD_API_VERSION) {
+        reject(`requires mod API version ${spec}, but this app provides ${MOD_API_VERSION}`);
+    }
+    return spec;
+}
+
+/**
+ * Phase 9.2 / the 6.9.2 awkward-moment #3 fix — a mod references its own macro
+ * by its BARE name (`{{greeting}}`), never by the host-qualified form
+ * (`{{mod.<id>.greeting}}`). The registry namespaces on the host side and
+ * `renderTemplate` is already given the mod id, so the qualified spelling
+ * resolves to nothing and ships the literal braces to the model — silently,
+ * with no fault, which is exactly the trap 6.9.2 predicted and which two
+ * shipped mods fell into.
+ *
+ * Every doc said the qualified form for three phases, so this is not an
+ * unlikely typo — it is the documented spelling. Rejecting it at load, with
+ * the correct one in the message, is the only way an author who read the old
+ * docs finds out.
+ */
+const QUALIFIED_MACRO_SLOT_REGEX = /\{\{\s*mod\.[^{}]*?\s*\}\}/;
+
+function checkMacroSlots(text, at) {
+    if (typeof text !== 'string') return;
+    const hit = QUALIFIED_MACRO_SLOT_REGEX.exec(text);
+    if (!hit) return;
+    const bare = hit[0].replace(/\{\{\s*mod\.[^.{}]+\.?/, '{{').replace(/\s*\}\}/, '}}');
+    reject(`${at}.text uses "${hit[0].trim()}" — reference your own macro by its bare name: "${bare}"`);
 }
 
 function validateWhen(raw, at) {
@@ -400,6 +468,7 @@ function validateContribution(raw, index, seenIds) {
         reject(`${at}.order must be a finite number`);
     }
     requireNonEmptyString(raw.text, `${at}.text`);
+    checkMacroSlots(raw.text, at);
 
     const contribution = { id: raw.id, order: raw.order, text: raw.text };
 
@@ -442,6 +511,7 @@ function validateTables(raw, modId) {
     if (!Array.isArray(raw)) reject('tables must be an array of table declarations');
 
     const seen = new Set();
+    const seenMigrateFrom = new Set();
     const tables = raw.map((entry, index) => {
         const at = `tables[${index}]`;
         if (!isPlainObject(entry)) reject(`${at} must be an object`);
@@ -478,6 +548,37 @@ function validateTables(raw, modId) {
             table.writes = validateStringArray(entry.writes, `${at}.writes`);
         }
 
+        // Phase 8.5 — `migrateFrom`: adopt a campaign file the app has retired.
+        //
+        // ┌─ WHY THIS IS NOT THE `fileSuffix` THE RULE BELOW FORBIDS ──────────┐
+        // │ `fileSuffix` would let a mod NAME A FILE. `migrateFrom` lets it    │
+        // │ CHOOSE FROM A LIST THE APP OWNS — the retired-table registry in    │
+        // │ `legacyTables.js`, which contains only files core itself wrote and │
+        // │ no longer serves. A value outside that list is a load fault, so    │
+        // │ the reachable set is fixed at build time and a mod cannot widen it.│
+        // │ Without the closed vocabulary this field would be an exfiltration  │
+        // │ hole: a declarative mod declaring `.json` would have the host copy │
+        // │ the campaign record into a table the mod can read.                 │
+        // └────────────────────────────────────────────────────────────────────┘
+        //
+        // Adoption itself is a one-time COPY performed by the host
+        // (`legacyAdoption.js`); the legacy file is never modified or deleted,
+        // and the mod never sees a path.
+        if (entry.migrateFrom !== undefined) {
+            requireNonEmptyString(entry.migrateFrom, `${at}.migrateFrom`);
+            if (!isRetiredCampaignFile(entry.migrateFrom)) {
+                reject(
+                    `${at}.migrateFrom "${entry.migrateFrom}" is not a retired campaign file — ` +
+                    `a mod may adopt only a file the app has retired (${RETIRED_CAMPAIGN_FILE_SUFFIXES.join(', ')})`,
+                );
+            }
+            if (seenMigrateFrom.has(entry.migrateFrom)) {
+                reject(`${at}.migrateFrom "${entry.migrateFrom}" is adopted by more than one table in mod "${modId}"`);
+            }
+            seenMigrateFrom.add(entry.migrateFrom);
+            table.migrateFrom = entry.migrateFrom;
+        }
+
         // §2: the manifest must NEVER accept a fileSuffix, a path, a schema,
         // or a function. Any of these fields present is a fault, not a pass —
         // a mod that supplies a path has just attempted to name any file in
@@ -492,10 +593,10 @@ function validateTables(raw, modId) {
         // Any other unknown key is a fault too: the manifest shape is a
         // permanent compatibility promise (WO-P5-05 §3), and an unknown key
         // is either a typo or a future field we have not promised yet.
-        const allowed = new Set(['name', 'recordShape', 'label', 'reads', 'writes']);
+        const allowed = new Set(['name', 'recordShape', 'label', 'reads', 'writes', 'migrateFrom']);
         for (const key of Object.keys(entry)) {
             if (!allowed.has(key)) {
-                reject(`${at} has unknown field "${key}" — only name, recordShape, label, reads, writes are allowed`);
+                reject(`${at} has unknown field "${key}" — only name, recordShape, label, reads, writes, migrateFrom are allowed`);
             }
         }
 
@@ -1292,6 +1393,10 @@ function validateMod(raw, file, appVersion, modDir) {
     }
 
     checkAppVersion(raw.appVersion, appVersion);
+    // Phase 9.2 — the API generation. Two axes, two jobs: `appVersion` is the
+    // feature floor ("I need the build that added `ctx.oocSections`"),
+    // `apiVersion` is the generation the mod was written against.
+    const modApiVersion = checkApiVersion(raw.apiVersion);
 
     // Phase 1.1 / MANIFEST.md §7.5 — `contributions` is now OPTIONAL. A
     // native-only mod (enemies, Phase 8) or a panel/screen-only mod
@@ -1419,6 +1524,11 @@ function validateMod(raw, file, appVersion, modDir) {
     if (raw.author !== undefined) mod.author = raw.author;
     if (raw.homepage !== undefined) mod.homepage = raw.homepage;
     if (typeof raw.appVersion === 'string') mod.appVersion = raw.appVersion;
+    // Phase 9.2 — the resolved generation, plus the one derived flag Mod
+    // Management renders. Both are always present so no consumer has to
+    // re-apply the absent-means-1 rule.
+    mod.apiVersion = modApiVersion;
+    mod.apiVersionStale = modApiVersion < MOD_API_VERSION;
     // §6.3: loadOrder is one number; default 0. Carried on the mod so callers
     // (4.1 mount points, 5.2 interceptors) can use the resolved order without
     // re-reading the manifest.

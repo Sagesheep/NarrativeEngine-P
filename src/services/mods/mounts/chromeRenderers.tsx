@@ -17,7 +17,7 @@
  * mapping; the classes differ.
  */
 import type { ReactNode } from 'react';
-import type { ChromeState } from './mountTypes';
+import type { ChromeState, MessageRef } from './mountTypes';
 import { resolveMountIcon } from './mountIcons';
 import type { RegisteredChromeEntry } from './mountRegistry';
 
@@ -50,11 +50,22 @@ function resolveText(modId: string, value: string | undefined, t: ModT): string 
     return t(modKey(modId, value), {});
 }
 
-/** Read `state()` safely; a throw renders the entry from its last good state (MOUNTS.md §8.6). */
-function readStateSafe(entry: RegisteredChromeEntry, lastGood: ChromeState | undefined): { state: ChromeState | undefined; threw: boolean } {
+/**
+ * Read `state()` safely; a throw renders the entry from its last good state
+ * (MOUNTS.md §8.6).
+ *
+ * Phase 9.2 — `message` is forwarded to `state()` for `message.actions`, so a
+ * row's button can be `active` because THAT row qualifies. `undefined` for the
+ * two mod-scoped rows, which are not message-scoped.
+ */
+function readStateSafe(
+    entry: RegisteredChromeEntry,
+    lastGood: ChromeState | undefined,
+    message?: MessageRef,
+): { state: ChromeState | undefined; threw: boolean } {
     if (!entry.entry.state) return { state: undefined, threw: false };
     try {
-        return { state: entry.entry.state(), threw: false };
+        return { state: entry.entry.state(message), threw: false };
     } catch {
         return { state: lastGood, threw: true };
     }
@@ -106,7 +117,9 @@ export function renderHeaderModEntry(
 
     const handleClick = () => {
         // The header is not chat-scoped, so no §8.8 pending-commit drain.
-        Promise.resolve(entry.entry.onSelect(/* ctx: */ undefined as never))
+        // Phase 9.2 — the mod's live context, captured at registration. Not
+        // message-scoped, so no `MessageRef`.
+        Promise.resolve(entry.entry.onSelect(entry.context))
             .catch(() => { /* a mod onSelect fault is contained by the lifecycle host */ });
     };
 
@@ -191,7 +204,7 @@ export function renderComposerModEntry(
         // `ComposerActions` (the row component), not here, because it must
         // happen exactly once per click and the row owns the `commitPendingTurn`
         // import. This handler is called AFTER the drain resolves.
-        Promise.resolve(entry.entry.onSelect(/* ctx: */ undefined as never))
+        Promise.resolve(entry.entry.onSelect(entry.context))
             .catch(() => { /* contained */ });
     };
 
@@ -245,8 +258,9 @@ export function renderMessageActionModEntry(
     t: ModT,
     lastGoodRef: { current: ChromeState | undefined },
     drain: () => Promise<void>,
+    message: MessageRef,
 ): ReactNode | null {
-    const { state, threw } = readStateSafe(entry, lastGoodRef.current);
+    const { state, threw } = readStateSafe(entry, lastGoodRef.current, message);
     if (threw) {
         // Render from last good; see renderHeaderModEntry for the policy.
     }
@@ -269,7 +283,11 @@ export function renderMessageActionModEntry(
         // import path; the renderer stays free of the turn pipeline.
         drain()
             .then(() => {
-                Promise.resolve(entry.entry.onSelect(/* ctx: */ undefined as never))
+                // Phase 9.2 / 6.9.2 — the live context AND the row this button
+                // was rendered on. Without the second argument a rail of
+                // one-button-per-row could only ever act on "the latest
+                // message", which is not what the rail visually promises.
+                Promise.resolve(entry.entry.onSelect(entry.context, message))
                     .catch(() => { /* a mod onSelect fault is contained */ });
             })
             .catch(() => { /* the drain already warned */ });

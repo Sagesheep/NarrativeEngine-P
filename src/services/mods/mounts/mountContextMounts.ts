@@ -55,12 +55,16 @@ export function buildModMountsApi(options: ModMountsApiOptions): ModMountsApi {
     // live context. Mirrors the 4.3 rail wiring.
     const liveContext = () => options.getContext?.();
 
+    // Phase 9.2 — the chrome rows now carry the live context too. Before this,
+    // only the three content regions did, and `onSelect(ctx)` received
+    // `undefined` while the shipped `.d.ts` declared a `ModContext`. Same
+    // deferred read as the content regions, for the same reason.
     const header = (entry: ChromeEntry): MountHandle =>
-        registerModChrome('header.actions', mod, entry, loadIndex, { faultFile });
+        registerModChrome('header.actions', mod, entry, loadIndex, liveContext(), { faultFile });
     const composer = (entry: ChromeEntry): MountHandle =>
-        registerModChrome('composer.actions', mod, entry, loadIndex, { faultFile });
+        registerModChrome('composer.actions', mod, entry, loadIndex, liveContext(), { faultFile });
     const messageAction = (entry: ChromeEntry): MountHandle =>
-        registerModChrome('message.actions', mod, entry, loadIndex, { faultFile });
+        registerModChrome('message.actions', mod, entry, loadIndex, liveContext(), { faultFile });
 
     const rail = (panel: RailPanel): MountHandle =>
         registerModRail(mod, panel, loadIndex, liveContext(), { faultFile });

@@ -1,4 +1,4 @@
-import { fetchMods } from './modClient';
+﻿import { fetchMods } from './modClient';
 import { clearModData } from './modTables';
 import { modToContributionModule } from './modAdapter';
 import type { LifecycleMod } from './lifecycle/lifecycleHost';
@@ -8,6 +8,7 @@ import type { LifecycleStateStore, ModContextFactory, ModEnablementMap } from '.
 import { createNativeLoader } from './native/nativeLoader';
 import type { ModFault, ValidatedMod } from './modTypes';
 import { setExtensionModules } from '../payload/contributions/extensions';
+import { registerModTranslations } from '../../i18n';
 import { postTurnTracks } from '../turn/tracks';
 import { modTierBlocks } from '../turn/aiTier';
 import { modToComputeTrack } from './computeTrack';
@@ -338,6 +339,7 @@ export async function refreshMods(): Promise<{
         // that are simultaneously ready.
         const userOrder = readUserLoadOrder();
         const { mods, faults } = await fetchMods(userOrder);
+        registerModTranslations(mods);
         setExtensionModules(mods.map(modToContributionModule));
         registerComputeTracks(mods);
         registerTierEntries(mods);

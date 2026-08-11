@@ -40,11 +40,6 @@ export const en = {
     'header.npcLedger.tooltip': 'NPC Ledger',
     'header.npcLedger.aria': 'Open NPC Ledger',
     'header.npcLedger.label': 'NPC Ledger',
-    'header.enemyCompendium.tooltip': 'Enemy Compendium - scanner {{state}}',
-    'header.enemyCompendium.aria': 'Open Enemy Compendium - scanner {{state}}',
-    'header.enemyCompendium.label': 'Enemies: {{state}}',
-    'header.enemyCompendium.state.on': 'ON',
-    'header.enemyCompendium.state.off': 'OFF',
     'header.places.tooltip': 'Location Ledger',
     'header.places.aria': 'Open Location Ledger',
     'header.places.label': 'Places',
@@ -135,6 +130,11 @@ export const en = {
     // without it. Previously this rendered as "Overridden by core default",
     // which was untrue whenever the default had been switched off.
     'settings.extensions.mod.roleNoProvider': 'Not provided — this feature is off',
+    // Phase 9.2 — the API generation notice. Deliberately not phrased as
+    // "broken": the mod loaded and may work perfectly. It says what is true
+    // (it was written for an older surface) and what follows from the
+    // published policy (the author updates it, not the app).
+    'settings.extensions.mod.apiVersionStale': 'Written for mod API {{declared}}; this app provides {{current}}. It still loads — if it misbehaves, the author needs to update it.',
     'settings.extensions.mod.faultInline': 'This mod could not run: {{reason}}',
 
     // Phase 6.3 — provenance badge. A bundled mod ships with the app (on by
@@ -256,8 +256,6 @@ export const en = {
     'tierblock.lodDynamicElevation.description': 'Elevates synopsis-tier scenes verbatim below the cache boundary when they are highly relevant.',
     'tierblock.lodSlottedRag.name': 'Slotted RAG Snippets',
     'tierblock.lodSlottedRag.description': 'Injects one-line snippets from synopsis-tier scenes that had search hits but were not elevated.',
-    'tierblock.enemyDiscovery.name': 'Enemy Discovery',
-    'tierblock.enemyDiscovery.description': 'Scans committed scenes for new enemy entries and adds them to the compendium under a cooldown.',
 
     // ── Block view (WO-P5-02) ───────────────────────────────────────────
     // Modal chrome and section labels only. Block names and descriptions come

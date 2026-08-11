@@ -41,14 +41,11 @@ vi.mock('../chatEngine', () => ({
 }));
 vi.mock('../characterProfileParser', () => ({ scanCharacterProfile: vi.fn() }));
 vi.mock('../inventoryParser', () => ({ scanInventory: vi.fn() }));
-vi.mock('../enemy/enemySuggestions', () => ({ detectEnemySuggestions: vi.fn().mockResolvedValue([]) }));
 
 import { runPostTurnPipeline } from '../turn/postTurnPipeline';
 import { api } from '../llm/apiClient';
 import { backgroundQueue } from '../infrastructure/backgroundQueue';
 import { extractNPCNames, validateNPCCandidates, classifyNPCNames } from '../npc/npcDetector';
-import { detectEnemySuggestions } from '../enemy/enemySuggestions';
-import { DEFAULT_ENEMY_COMBAT_CONFIG } from '../enemy/enemyCombat';
 import { useAppStore } from '../../store/useAppStore';
 
 const mockApi = vi.mocked(api);
@@ -56,7 +53,6 @@ const mockBQ = vi.mocked(backgroundQueue);
 const mockExtractNPCNames = vi.mocked(extractNPCNames);
 const mockValidateNPCCandidates = vi.mocked(validateNPCCandidates);
 const mockClassifyNPCNames = vi.mocked(classifyNPCNames);
-const mockDetectEnemySuggestions = vi.mocked(detectEnemySuggestions);
 
 const baseContext = (): GameContext => ({
     loreRaw: '',
@@ -138,135 +134,13 @@ describe('runPostTurnPipeline', () => {
         );
     });
 
-    it('queues enemy discoveries for review when campaign discovery is enabled', async () => {
-        mockApi.archive.append.mockResolvedValueOnce({ sceneId: '001' });
-        mockApi.chapters.list.mockResolvedValueOnce([]);
-        mockDetectEnemySuggestions.mockResolvedValueOnce([{
-            kind: 'new',
-            name: 'Orc Berserker',
-            classification: 'Orc',
-        }]);
-        useAppStore.setState({ activeCampaignId: 'campaign-1' });
-        mockBQ.push.mockImplementationOnce(async (_label, execute) => execute());
-        const callbacks = { ...makeCallbacks(), addEnemySuggestions: vi.fn() };
-        const state = makeState({
-            enemyCompendium: [],
-            enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, enemyDiscoveryEnabled: true },
-        });
-
-        await runPostTurnPipeline(state, callbacks, ASSISTANT_CONTENT, ALL_MSGS);
-
-        expect(mockDetectEnemySuggestions).toHaveBeenCalled();
-        expect(callbacks.addEnemySuggestions).toHaveBeenCalledWith([
-            expect.objectContaining({ kind: 'new', name: 'Orc Berserker' }),
-        ], ASSISTANT_CONTENT);
-    });
-
-    it('Lite tier cannot run enemy discovery even when the flag is enabled', async () => {
-        mockApi.archive.append.mockResolvedValueOnce({ sceneId: '001' });
-        mockApi.chapters.list.mockResolvedValueOnce([]);
-        useAppStore.setState({ activeCampaignId: 'campaign-1' });
-        const callbacks = { ...makeCallbacks(), addEnemySuggestions: vi.fn() };
-        const state = makeState({
-            settings: { aiTier: 'lite' } as any,
-            enemyCompendium: [],
-            enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, enemyDiscoveryEnabled: true },
-        });
-
-        await runPostTurnPipeline(state, callbacks, ASSISTANT_CONTENT, ALL_MSGS);
-
-        expect(mockDetectEnemySuggestions).not.toHaveBeenCalled();
-        expect(callbacks.addEnemySuggestions).not.toHaveBeenCalled();
-    });
-
-    it('disabled enemyDiscovery flag means no scan', async () => {
-        mockApi.archive.append.mockResolvedValueOnce({ sceneId: '001' });
-        mockApi.chapters.list.mockResolvedValueOnce([]);
-        useAppStore.setState({ activeCampaignId: 'campaign-1' });
-        const callbacks = { ...makeCallbacks(), addEnemySuggestions: vi.fn() };
-        const state = makeState({
-            enemyCompendium: [],
-            enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, enemyDiscoveryEnabled: false },
-        });
-
-        await runPostTurnPipeline(state, callbacks, ASSISTANT_CONTENT, ALL_MSGS);
-
-        expect(mockDetectEnemySuggestions).not.toHaveBeenCalled();
-    });
-
-    it('skips a queued enemy discovery when the campaign switches before the request starts', async () => {
-        mockApi.archive.append.mockResolvedValueOnce({ sceneId: '001' });
-        mockApi.chapters.list.mockResolvedValueOnce([]);
-        useAppStore.setState({ activeCampaignId: 'campaign-1' });
-        // The background task fires AFTER the campaign has already switched.
-        mockBQ.push.mockImplementationOnce(async (_label, execute) => {
-            useAppStore.setState({ activeCampaignId: 'campaign-2' });
-            await execute();
-            useAppStore.setState({ activeCampaignId: 'campaign-1' });
-        });
-        const callbacks = { ...makeCallbacks(), addEnemySuggestions: vi.fn() };
-        const state = makeState({
-            enemyCompendium: [],
-            enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, enemyDiscoveryEnabled: true },
-        });
-
-        await runPostTurnPipeline(state, callbacks, ASSISTANT_CONTENT, ALL_MSGS);
-
-        // The scan was skipped before the LLM call because the campaign changed.
-        expect(mockDetectEnemySuggestions).not.toHaveBeenCalled();
-        expect(callbacks.addEnemySuggestions).not.toHaveBeenCalled();
-    });
-
-    it('prevents enemy discovery suggestion write when the campaign switches during the request', async () => {
-        mockApi.archive.append.mockResolvedValueOnce({ sceneId: '001' });
-        mockApi.chapters.list.mockResolvedValueOnce([]);
-        useAppStore.setState({ activeCampaignId: 'campaign-1' });
-        mockBQ.push.mockImplementationOnce(async (_label, execute) => {
-            await execute();
-        });
-        // The scan resolves, but switches the active campaign before it returns
-        // so the post-scan guard drops the suggestions.
-        vi.mocked(detectEnemySuggestions).mockImplementationOnce(async () => {
-            useAppStore.setState({ activeCampaignId: 'campaign-2' });
-            return [{ kind: 'new' as const, name: 'Orc' }];
-        });
-        const callbacks = { ...makeCallbacks(), addEnemySuggestions: vi.fn() };
-        const state = makeState({
-            enemyCompendium: [],
-            enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, enemyDiscoveryEnabled: true },
-        });
-
-        await runPostTurnPipeline(state, callbacks, ASSISTANT_CONTENT, ALL_MSGS);
-
-        // Suggestions were produced but dropped because the campaign changed.
-        expect(callbacks.addEnemySuggestions).not.toHaveBeenCalled();
-    });
-
-    it('enforces single-flight: only one discovery task per campaign', async () => {
-        mockApi.archive.append.mockResolvedValue({ sceneId: '001' });
-        mockApi.chapters.list.mockResolvedValue([]);
-        useAppStore.setState({ activeCampaignId: 'campaign-1' });
-        let queueCalls = 0;
-        mockBQ.push.mockImplementation(async (_label, execute) => {
-            queueCalls++;
-            if (queueCalls === 1) return; // first turn queues the scan
-            await execute(); // subsequent turns run their own tracks
-        });
-        const callbacks = { ...makeCallbacks(), addEnemySuggestions: vi.fn() };
-        const state = makeState({
-            enemyCompendium: [],
-            enemyCombatConfig: { ...DEFAULT_ENEMY_COMBAT_CONFIG, enemyDiscoveryEnabled: true },
-            incrementBookkeepingTurnCounter: vi.fn().mockReturnValue(1),
-        });
-
-        // First turn — queues Enemy-Discovery (does not execute the scan body).
-        await runPostTurnPipeline(state, callbacks, ASSISTANT_CONTENT, ALL_MSGS);
-        // Second turn — in-flight flag is set, so the scan is skipped (no second queue).
-        await runPostTurnPipeline(state, callbacks, ASSISTANT_CONTENT, ALL_MSGS);
-
-        const discoveryQueues = vi.mocked(mockBQ.push).mock.calls.filter(c => c[0] === 'Enemy-Discovery');
-        expect(discoveryQueues.length).toBe(1);
-    });
+    // Phase 8.3 — the enemy discovery track left core with the rest of the
+    // enemy logic. The mod (8.5) ships its own discovery scan through
+    // `postTurn` and `model:auxiliary` capabilities, which the loader already
+    // whitelists (`mod.arc.compute` proves the path). The six enemy discovery
+    // tests that were here (enabled/Lite/disabled/campaign-switch/single-
+    // flight) retired with the `enemySuggestionTrack`; the mod's own test
+    // suite will cover these behaviours post-8.5.
 
     // Durable-commit v1: a failed append no longer just returns quietly. The index is
     // consulted once — the prose write lands synchronously server-side, so "no data"

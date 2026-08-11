@@ -219,11 +219,11 @@ export function buildOocContext(snapshot: OocCampaignSnapshot, question: string)
 
     // ── The extension point (Phase 7.5) ──────────────────────────────────────
     // Registered sections render here, between the ledgers and the verified
-    // facts, ordered among themselves. This is where the enemy sections used to
-    // be written inline; they now register from `enemy/enemyOocSection.ts`, so
-    // this function no longer knows they exist and none of it changes when they
-    // leave. Zero registered sections adds nothing — the brief is shorter, not
-    // broken. See `sections.ts` for why this is a registry and not a role.
+    // facts, ordered among themselves. A registered section is a mod's
+    // `ctx.oocSections.register(...)` entry (Phase 8.3) or any future
+    // host-adjacent subsystem. Zero registered sections adds nothing — the
+    // brief is shorter, not broken. See `sections.ts` for why this is a
+    // registry and not a role.
     for (const section of oocSections.collect({ snapshot, question, recentText, excerpt, namedIn })) {
         for (const line of section.lines) parts.push(line);
         for (const source of section.sources) sources.push(source);

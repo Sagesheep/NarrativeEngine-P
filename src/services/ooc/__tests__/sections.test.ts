@@ -23,9 +23,6 @@ const snapshot = (): OocCampaignSnapshot => ({
     archiveIndex: [],
     npcLedger: [],
     locationLedger: [],
-    enemyCompendium: [],
-    enemyInstances: [],
-    enemyEncounters: [],
     context: {
         canonStateActive: false, canonState: '', sceneNoteActive: false, sceneNote: '',
         currentFeature: null, worldVibe: '', notebookActive: false, notebook: [],

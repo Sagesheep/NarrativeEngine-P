@@ -241,6 +241,43 @@ export function resolveMacro(qualifiedName: string, bareName: string): string | 
 }
 
 /**
+ * Phase 9.2 / 6.9.2 awkward moment #3 — report a `{{…}}` slot in a mod's own
+ * contribution text that matched no registered macro.
+ *
+ * Before this, the slot shipped to the model as literal braces with **no
+ * signal anywhere**: not a load fault, not a runtime fault, not a log line.
+ * 6.9.2 predicted an author would lose a whole feature to it and never know;
+ * two shipped mods then did exactly that (see 9.2's report). The text is still
+ * left verbatim — an author reading the prompt sees the typo, which was always
+ * the intent — but an author who is not reading the prompt now sees it in
+ * Extensions.
+ *
+ * Deduped per `(modId, slot)` for the session: this runs on the hot path of
+ * every turn and the fault store notifies its listeners on every `add`. The
+ * dedupe set is cleared with the registry, so a disable/enable cycle reports
+ * again — which is what a user who just re-enabled a mod expects to see.
+ */
+const reportedUnresolved = new Set<string>();
+
+export function reportUnresolvedMacroSlot(modId: string, slot: string): void {
+    const key = `${modId} ${slot}`;
+    if (reportedUnresolved.has(key)) return;
+    reportedUnresolved.add(key);
+    // The registry knows a mod's display name only if that mod registered a
+    // macro; a mod whose every slot is a typo registered none. The id is what
+    // Extensions keys on either way, so it is the honest fallback.
+    const firstRecord = byMod.get(modId)?.values().next().value;
+    const modName = firstRecord?.modName ?? modId;
+    macroFaultStore.add({
+        modId,
+        file: `mod:${modId}`,
+        kind: 'unresolved',
+        name: slot,
+        reason: formatMacroFaultReason({ modName, kind: 'unresolved', name: slot }),
+    });
+}
+
+/**
  * Test/inspection helper: the qualified names every mod has registered.
  * Used by tests to assert the registry state; not called by prompt assembly.
  */
@@ -266,6 +303,12 @@ export function hasModMacro(modId: string, name: string): boolean {
  */
 export function disableModMacros(modId: string): number {
     revokedMods.add(modId);
+    // Phase 9.2 — drop this mod's reported-slot memory alongside its faults so
+    // a re-enable reports again rather than looking clean because it already
+    // told the user once.
+    for (const key of [...reportedUnresolved]) {
+        if (key.startsWith(`${modId} `)) reportedUnresolved.delete(key);
+    }
     const modMap = byMod.get(modId);
     if (modMap === undefined) {
         // Still clear faults — a mod that registered nothing but faulted
@@ -298,6 +341,7 @@ export function clearAllModMacros(): void {
     byMod.clear();
     qualified.clear();
     revokedMods.clear();
+    reportedUnresolved.clear();
     macroFaultStore.clear();
 }
 

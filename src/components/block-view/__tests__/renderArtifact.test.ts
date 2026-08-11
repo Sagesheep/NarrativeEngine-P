@@ -92,8 +92,11 @@ ${section('Post-turn tracks', 'Background work that runs after the scene commits
         const outPath = resolve(__dirname, '../../../../Upgrade/EPIC PROJECT - Modularity/Project 5 - Block Architecture/BLOCK_VIEW_ARTIFACT.html');
         writeFileSync(outPath, html);
         expect(html.length).toBeGreaterThan(1000);
-        expect(tier.length).toBe(27);
+        // Phase 8.3 — 26 built-in TierFeature ids (enemyDiscovery left with the
+        // enemy subsystem). 2 tracks (npc + pressure; enemy-suggestion left with
+        // the subsystem). 8 contributions (unchanged).
+        expect(tier.length).toBe(26);
         expect(contributions.length).toBe(8);
-        expect(tracks.length).toBe(3);
+        expect(tracks.length).toBe(2);
     });
 });

@@ -3,11 +3,11 @@ import path from 'path';
 import { Router } from 'express';
 import { CAMPAIGNS_DIR, SETTINGS_FILE, campaignFiles, readJson, writeJson, ensureDirs, validateCampaignId } from '../lib/fileStore.js';
 import { isCampaignMetaFile } from '../lib/tableRegistry.js';
+import { readMigrationLedger } from '../lib/legacyAdoption.js';
 import { embedText, buildLoreText, resolveIndexingSpeed } from '../lib/embedder.js';
 import { storeLoreEmbedding, deleteCampaignEmbeddings } from '../lib/vectorStore.js';
 import { startJob, tickJob, endJob } from '../lib/embedJobs.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
-import { validateEnemyCompendium, validateEnemyInstances, validateEnemyEncounters, validateEnemyResolutions, validateEnemyCombatConfig } from '../lib/enemySchema.js';
 
 export function createCampaignsRouter() {
     const router = Router();
@@ -56,6 +56,24 @@ export function createCampaignsRouter() {
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.json`);
         writeJson(filePath, req.body);
         res.json({ ok: true });
+    }));
+
+    /**
+     * Phase 8.5 — the campaign's migration ledger.
+     *
+     * "A migration that fails must leave the campaign openable, **with the
+     * failure surfaced**" (8.5 §3.6). Openable is guaranteed by
+     * `legacyAdoption.js` never throwing; this is the surface. It reports what
+     * was adopted, from which retired file, how many records, and — the reason
+     * it exists — anything that failed and why.
+     *
+     * Always 200 with a well-formed ledger, even for a campaign that has never
+     * migrated anything (`{ adopted: {}, failures: {} }`). A diagnostic that
+     * 404s is a diagnostic people stop calling.
+     */
+    router.get('/api/campaigns/:id/migrations', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        res.json(readMigrationLedger(req.params.id));
     }));
 
     router.delete('/api/campaigns/:id', wrapAsync((req, res) => {
@@ -196,98 +214,6 @@ export function createCampaignsRouter() {
         ensureDirs();
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.npcs.json`);
         writeJson(filePath, req.body);
-        res.json({ ok: true });
-    }));
-
-    // ═══════════════════════════════════════════
-    //  Enemy Compendium
-    // ═══════════════════════════════════════════
-
-    router.get('/api/campaigns/:id/enemies', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemies.json`), []));
-    }));
-
-    router.put('/api/campaigns/:id/enemies', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        const checked = validateEnemyCompendium(req.body);
-        if (checked.errors.length) {
-            return res.status(400).json({ error: 'Invalid enemy compendium', details: checked.errors });
-        }
-        ensureDirs();
-        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemies.json`), checked.value);
-        res.json({ ok: true });
-    }));
-
-    // ─── Enemy Instances ────────────────────────────────────────────────
-
-    router.get('/api/campaigns/:id/enemy-instances', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-instances.json`), []));
-    }));
-
-    router.put('/api/campaigns/:id/enemy-instances', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        const checked = validateEnemyInstances(req.body);
-        if (checked.errors.length) {
-            return res.status(400).json({ error: 'Invalid enemy instances', details: checked.errors });
-        }
-        ensureDirs();
-        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-instances.json`), checked.value);
-        res.json({ ok: true });
-    }));
-
-    // ─── Enemy Encounters ───────────────────────────────────────────────
-
-    router.get('/api/campaigns/:id/enemy-encounters', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-encounters.json`), []));
-    }));
-
-    router.put('/api/campaigns/:id/enemy-encounters', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        const checked = validateEnemyEncounters(req.body);
-        if (checked.errors.length) {
-            return res.status(400).json({ error: 'Invalid enemy encounters', details: checked.errors });
-        }
-        ensureDirs();
-        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-encounters.json`), checked.value);
-        res.json({ ok: true });
-    }));
-
-    // ─── Enemy Encounter Resolutions ─────────────────────────────────────────
-
-    router.get('/api/campaigns/:id/enemy-resolutions', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-resolutions.json`), []));
-    }));
-
-    router.put('/api/campaigns/:id/enemy-resolutions', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        const checked = validateEnemyResolutions(req.body);
-        if (checked.errors.length) {
-            return res.status(400).json({ error: 'Invalid enemy resolutions', details: checked.errors });
-        }
-        ensureDirs();
-        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-resolutions.json`), checked.value);
-        res.json({ ok: true });
-    }));
-
-    // ─── Optional Enemy Combat Configuration ─────────────────────────────────
-
-    router.get('/api/campaigns/:id/enemy-combat', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        res.json(readJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-combat.json`), null));
-    }));
-
-    router.put('/api/campaigns/:id/enemy-combat', wrapAsync((req, res) => {
-        validateCampaignId(req.params.id);
-        const checked = validateEnemyCombatConfig(req.body);
-        if (checked.errors.length) {
-            return res.status(400).json({ error: 'Invalid enemy combat configuration', details: checked.errors });
-        }
-        ensureDirs();
-        writeJson(path.join(CAMPAIGNS_DIR, `${req.params.id}.enemy-combat.json`), checked.value);
         res.json({ ok: true });
     }));
 

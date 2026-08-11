@@ -2,7 +2,6 @@ import type { AppSettings } from '../../../types';
 import { createPostTurnTrackRegistry, enablementFromSettings, type StartTracksOptions } from './runner';
 import type { PostTurnTrackContext } from './types';
 import { npcTrack } from './npcTrack';
-import { enemySuggestionTrack } from './enemySuggestionTrack';
 import { pressureTrack } from './pressureTrack';
 
 /**
@@ -20,11 +19,16 @@ import { pressureTrack } from './pressureTrack';
  * archive-commit path — not optional scans — and the pipeline consumes the archive track's
  * boolean verdict directly. The modularity gain does not justify the data-loss risk, so they
  * stay inline in `postTurnPipeline.ts` (WO-P2-03 scope note).
+ *
+ * Phase 8.3 — the `track.enemy-suggestion` track is gone. The enemy subsystem's
+ * post-turn discovery scan left core with the rest of the enemy logic in Phase
+ * 8.3; the enemies mod (8.5) ships its own discovery scan through `postTurn`
+ * and `model:auxiliary` capabilities, which the loader already whitelists
+ * (`mod.arc.compute` proves the path). No in-tree track; the mod IS the track.
  */
 export const postTurnTracks = createPostTurnTrackRegistry<PostTurnTrackContext>();
 
 postTurnTracks.register(npcTrack);
-postTurnTracks.register(enemySuggestionTrack);
 postTurnTracks.register(pressureTrack);
 // WO-P5-12 §7 Step 3 — the Arc Engine tick is now an installed compute mod
 // (`mods/arc.mod.json` + `mods/arc.compute.js`). `modBootstrap.ts` registers

@@ -6,15 +6,13 @@ import {
     computeLastSegmentWordCount,
     buildMergedContinueView,
 } from '../../services/turn/sceneContinue';
-import { getCachedSwipePayload, refreshPendingSnapshotMessage } from '../../services/turn/pendingCommit';
+import { getCachedSwipePayload, refreshPendingSnapshotMessage, getCachedSwipeInterception } from '../../services/turn/pendingCommit';
 import { buildPayload } from '../../services/chatEngine';
 import { gatherContext } from '../../services/turn/contextGatherer';
 import { rebuildStateFromLiveStoreLike } from './sceneContinueFallback';
 import { toast } from '../Toast';
 import { debouncedSaveCampaignState } from '../../store/slices/campaignSlice';
 import { emitCoreEvent } from '../../services/mods/events';
-// Phase 7.5 — enemy-subsystem plumbing, deleted with the subsystem in Phase 8.3.
-import { buildEnemyVolatileSegment } from '../../services/enemy/enemyPayloadSegment';
 import type { ChatMessage } from '../../types';
 
 /**
@@ -342,9 +340,16 @@ async function buildFallbackPayload(opts: {
             condensedUpToIndex: store.condenser.condensedUpToIndex,
             relevantLore: gathered.relevantLore,
             npcLedger: store.npcLedger,
-            // Phase 7.5 — see `turnStages.ts`: the enemy block is a segment the
-            // subsystem renders itself. Deleted with the subsystem in Phase 8.3.
-            volatileSegments: [buildEnemyVolatileSegment(store)],
+            // Phase 8.3 — the enemy block left the in-tree payload path when the
+            // subsystem moved to the mod. A continuation reuses the turn's
+            // blocks (PM decision 2026-08-10): the turn's `ctx.interception`
+            // is cached alongside the turn in `pendingCommit.ts`, so the
+            // fallback payload passes it straight through to `buildPayload`.
+            // This is the rule swipe already follows (`swipeGeneration.ts`
+            // re-sends the captured payload). The mod's interceptor fires
+            // once per turn, and its output is reused verbatim by any swipe
+            // or continuation of that turn — see `MODDING.md`.
+            interception: getCachedSwipeInterception(),
             archiveRecall: gathered.archiveRecall,
             // _sceneNumber dropped (WO-P1-01) — was unread.
             recommendedNPCNames: gathered.recommendedNPCNames,

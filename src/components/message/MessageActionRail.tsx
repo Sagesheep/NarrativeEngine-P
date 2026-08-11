@@ -22,6 +22,11 @@ import { MessageActionsOverlay } from './MessageActionsOverlay';
  * Mod entries never appear in the editing state (§2.5): while `isEditing`
  * the rail is save/cancel only; `MessageActionsOverlay` returns `null` when
  * `isEditing` is true.
+ *
+ * Phase 9.2 / 6.9.2 — the rail passes the row's `MessageRef` down, so a mod's
+ * `onSelect` and `state()` know which message their button was rendered on.
+ * The same `{ id, role, sceneId }` projection `message.below` already gets
+ * (`MOUNTS.md` §8.4).
  */
 export function MessageActionRail({
     msg,
@@ -122,7 +127,10 @@ export function MessageActionRail({
                         while editing (MOUNTS.md §2.5/§2.8). Mod entries sort
                         after every built-in — no trailing group on this
                         region (§3.3). */}
-                    <MessageActionsOverlay isEditing={isEditing} />
+                    <MessageActionsOverlay
+                        isEditing={isEditing}
+                        message={{ id: msg.id, role: msg.role, sceneId: msg.sceneId ?? null }}
+                    />
                 </>
             )}
         </div>

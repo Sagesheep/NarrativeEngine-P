@@ -1,4 +1,4 @@
-import type { ArchiveIndexEntry, ChatMessage, EndpointConfig, EnemyEncounter, EnemyEntry, EnemyInstance, GameContext, LocationEntry, LoreChunk, NPCEntry, ProviderConfig, SemanticFact } from '../../types';
+import type { ArchiveIndexEntry, ChatMessage, EndpointConfig, GameContext, LocationEntry, LoreChunk, NPCEntry, ProviderConfig, SemanticFact } from '../../types';
 
 /** The kinds core's own sections and the retrieval path emit. */
 export type OocCoreSourceKind = 'fact' | 'recent-story' | 'archive' | 'lore' | 'rules' | 'npc' | 'place';
@@ -45,17 +45,6 @@ export type OocCampaignSnapshot = {
     archiveIndex: ArchiveIndexEntry[];
     npcLedger: NPCEntry[];
     locationLedger: LocationEntry[];
-    /**
-     * Phase 7.5 — read only by the registered enemy section
-     * (`enemy/enemyOocSection.ts`), never by `ooc/context.ts`. **Assigned to
-     * Phase 8.3**, which deletes these three fields with the section that reads
-     * them and the chat-shell code that fills them. Same ruling as the two
-     * feature-shaped `FacadeData` fields: a surface stays only as long as its
-     * sole reader, and the reader here is the departing subsystem.
-     */
-    enemyCompendium: EnemyEntry[];
-    enemyInstances: EnemyInstance[];
-    enemyEncounters: EnemyEncounter[];
 };
 
 export type OocAnswerRequest = {
