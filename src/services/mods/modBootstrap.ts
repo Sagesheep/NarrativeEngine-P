@@ -19,6 +19,7 @@ import { buildHostFacade } from '../turn/hostFacade';
 import { buildCommitCallbacks, rebuildStateFromLiveStore } from '../turn/pendingCommit';
 import { buildModContext } from './modContext';
 import { setRoleModuleEnabled } from '../roles';
+import { isModEnabled, modEnablementKey } from './modEnablement';
 
 /**
  * Project 2 / Phase 1.5 — loads installed mods and registers them as
@@ -127,6 +128,7 @@ function toLifecycleMod(mod: ValidatedMod, loadIndex?: number): LifecycleMod {
         version: mod.version,
         file: mod.file,
         dependencies: mod.dependencies ?? {},
+        dev: mod.dev === true,
         folder: mod.folder,
         native: mod.native,
         roles: mod.roles ?? [],
@@ -294,6 +296,52 @@ function readEnablement(): ModEnablementMap {
 }
 
 /**
+ * MANIFEST.md §2 — materialise the `dev` default into `settings.moduleEnabled`.
+ *
+ * A dev mod is off unless explicitly switched on (`isModEnabled`). The problem
+ * is that the rule has to hold in places that have never heard of a mod: the
+ * payload builder gates contribution modules with a bare
+ * `moduleEnabled?.[id] !== false` on a plain string id, and it does that
+ * deliberately — `extensions.ts` is emphatic that the payload layer must not
+ * import the mod layer. The compute-track and tier-block registries take the
+ * same line, keeping disabled mods registered and gating at run time.
+ *
+ * Teaching all of them the second half of the rule would mean either a
+ * dependency inversion or three more copies of the predicate. So instead of
+ * making absence mean two different things depending on who is asking, this
+ * writes the default down ONCE, the first time a dev mod is seen: an explicit
+ * `false`. After that every reader in the app — old, new, or mod-oblivious —
+ * gets the right answer from the plain rule it already implements.
+ *
+ * Idempotent. It only writes for a dev mod with NO entry, so a user who
+ * switches a fixture on keeps it on across restarts; the seed never fires
+ * again for that id. Returns the map to use for this cycle, seeds included,
+ * so the caller does not race the store write.
+ */
+function seedDevModDefaults(
+    mods: readonly ValidatedMod[],
+    enablement: ModEnablementMap,
+): ModEnablementMap {
+    const seeds: Record<string, boolean> = {};
+    for (const mod of mods) {
+        if (!mod.dev) continue;
+        const key = modEnablementKey(mod.id);
+        if (enablement[key] === undefined) seeds[key] = false;
+    }
+    if (Object.keys(seeds).length === 0) return enablement;
+
+    const next = { ...enablement, ...seeds };
+    try {
+        useAppStore.getState().updateSettings({ moduleEnabled: next });
+        setRoleModuleEnabled(next);
+    } catch {
+        // No store (tests). The returned map still carries the seeds, so the
+        // load cycle behaves correctly even when the write cannot persist.
+    }
+    return next;
+}
+
+/**
  * Phase 3.2 / `EVENTS.md` §6.1 — `app.ready` fires once per page load, on the
  * FIRST completed `refreshMods()`. Every later completion is `app.modsChanged`.
  * Module-level, like `lifecycleWiring`, so the distinction survives across
@@ -308,7 +356,7 @@ let appReadyEmitted = false;
  */
 function enabledModIds(mods: readonly ValidatedMod[]): string[] {
     const enablement = readEnablement();
-    return mods.filter((mod) => enablement[`mod.${mod.id}`] !== false).map((mod) => mod.id);
+    return mods.filter((mod) => isModEnabled(mod, enablement)).map((mod) => mod.id);
 }
 
 function emitModSetEvent(mods: readonly ValidatedMod[], faults: readonly ModFault[]): void {
@@ -339,6 +387,11 @@ export async function refreshMods(): Promise<{
         // that are simultaneously ready.
         const userOrder = readUserLoadOrder();
         const { mods, faults } = await fetchMods(userOrder);
+        // Write the `dev` default down before anything registers or activates,
+        // so every downstream reader sees an explicit switch position rather
+        // than having to know that absence means something different for a
+        // fixture. See `seedDevModDefaults`.
+        seedDevModDefaults(mods, readEnablement());
         registerModTranslations(mods);
         setExtensionModules(mods.map(modToContributionModule));
         registerComputeTracks(mods);

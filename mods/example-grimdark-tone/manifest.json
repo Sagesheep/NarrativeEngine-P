@@ -2,6 +2,8 @@
   "id": "example-grimdark-tone",
   "name": "Grimdark Tone",
   "version": "1.0.0",
+
+  "dev": true,
   "description": "Harsher consequences. Wounds persist between scenes and mercy costs something.",
   "contributions": [
     {

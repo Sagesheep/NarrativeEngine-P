@@ -2,6 +2,8 @@
   "id": "example-native-mod",
   "name": "Example Native Mod",
   "version": "1.0.0",
+
+  "dev": true,
   "description": "A fixture native-tier mod used to verify Phase 1.5: imports, activates, and logs to the console. Disable it from Extensions to verify teardown is clean.",
   "author": "Narrative Engine",
   "native": {

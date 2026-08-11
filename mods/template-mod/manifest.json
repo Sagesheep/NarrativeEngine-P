@@ -2,7 +2,8 @@
   "id": "template-mod",
   "name": "Template Mod",
   "version": "1.0.0",
-  "description": "A working template demonstrating every mount point, both table shapes, the event bus, a macro, a fact, a budget claim, and the canonical subscription/cleanup patterns. Copy this folder, rename the `id`, and edit from there. See docs/MODDING.md for the prose reference and docs/narrative-mod-api.d.ts for the type surface.",
+  "dev": true,
+  "description": "A working template demonstrating every mount point, both table shapes, the event bus, a macro, a fact, a budget claim, and the canonical subscription/cleanup patterns. Copy this folder, rename the `id`, DELETE the `dev` flag above, and edit from there. `dev: true` keeps this template switched off for players who never asked for it; your mod wants the normal default, which is on. See docs/MODDING.md for the prose reference and docs/narrative-mod-api.d.ts for the type surface.",
   "author": "Narrative Engine",
   "loadOrder": 400,
   "tables": [

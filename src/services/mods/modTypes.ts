@@ -429,6 +429,18 @@ export interface ValidatedMod extends ModDefinition {
      * resolved order.
      */
     loadOrder: number;
+    /**
+     * MANIFEST.md §2 — a development fixture rather than a mod a player would
+     * install. Always present on a validated mod (default `false`).
+     *
+     * Its ONLY effect is to invert the enablement default: a normal mod is
+     * enabled unless explicitly switched off, a `dev` mod is disabled unless
+     * explicitly switched on. See `isModEnabled` in `modEnablement.ts`, which
+     * is the single place that rule lives. Everything else — validation,
+     * load order, lifecycle, mounts — treats a dev mod exactly like any other,
+     * so a fixture still works as the regression test it was written to be.
+     */
+    dev: boolean;
     /** Always present on a validated mod; empty when no service role is declared. */
     roles: string[];
     /** Phase 7.3 — validated tier entry declarations. Always present (default `[]`). */

@@ -58,6 +58,14 @@ export const en = {
     'header.exit.aria': 'Exit campaign',
     'header.exit.label': 'Exit',
 
+    // MOUNTS.md §3.3 — the mod-entry overflow control. `header.actions` is an
+    // open region, so the row's width used to grow with every mod installed and
+    // the entries past the right edge were reachable only by a scroll gesture
+    // with no scrollbar. Two mod buttons render inline; the rest collapse here.
+    'header.mods.overflow.tooltip': '{{count}} more mod actions',
+    'header.mods.overflow.aria': 'More mod actions',
+    'header.mods.overflow.heading': 'Mod actions',
+
     // ── Settings modal (shell) ───────────────────────────────────────────
     'settings.dialog.aria': 'Settings',
     'settings.title': '⚙ SETTINGS',
@@ -145,6 +153,25 @@ export const en = {
     // the user's prerogative and must not break the app).
     'settings.extensions.mod.provenance.bundled': 'Bundled',
     'settings.extensions.mod.provenance.installed': 'Installed',
+
+    // MANIFEST.md §2 — the `dev` fixture flag. These mods exist to exercise the
+    // mod API: they write debug rows under every message, claim header buttons,
+    // and push probe records into campaign tables. Correct for a regression
+    // test, unacceptable in a player's chat log — so they are off unless
+    // switched on, and collected under their own disclosure instead of being
+    // interleaved with the mods a user actually installed.
+    //
+    // The copy names the consequence rather than the mechanism. "Developer
+    // fixtures" tells a modder what these are; "they write test output into
+    // your chat" tells everyone else why they are off.
+    'settings.extensions.mod.dev.badge': 'Dev',
+    'settings.extensions.mod.dev.tooltip':
+        'A development fixture, not a mod to play with. Off unless you switch it on.',
+    'settings.extensions.dev.title': 'Developer fixtures',
+    'settings.extensions.dev.count': '{{count}} available',
+    'settings.extensions.dev.countOn': '{{count}} available · {{on}} on',
+    'settings.extensions.dev.help':
+        'Test mods that exercise the mod API. They write debug output into your chat, add buttons to the header, and store probe records in your campaign — useful when you are building a mod, noise when you are playing. Each one is off until you switch it on.',
 
     // Phase 6.4 — the two blocking confirmations (`DATA_POLICY.md` §5). The
     // bodies are PM-approved copy and are not to be softened: they are the

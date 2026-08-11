@@ -29,16 +29,16 @@ const MOD_B = { id: 'mod-b', name: 'Mod B' };
 
 /**
  * The renderer resolves label/tooltip through the host's i18n lookup in the
- * mod's namespace: `mod.<modId>.<key>` (`MOUNTS.md` §8.2). The overlay passes
- * a minimal `t` that returns the key as-is (the host's real `t` falls back
- * key-as-last-resort, so an unknown mod key renders something visible). For
- * a literal tooltip like `'Tag this message'`, the namespaced key becomes
- * `mod.mod-a.Tag this message` — that is what the DOM sees, and it is the
- * honest behavior: a mod's literal misses the lookup and renders as itself
- * (with the namespace prefix, which is how the host's `t` would surface an
- * unknown key). Tests assert on the namespaced value.
+ * mod's namespace: `mod.<modId>.<key>` (`MOUNTS.md` §8.2). A key that is not in
+ * the bundle falls back to the AUTHOR'S LITERAL, so a mod that writes
+ * `tooltip: 'Tag this message'` gets exactly that in the DOM.
+ *
+ * These tests previously asserted `mod.mod-a.Tag this message` — the namespaced
+ * key, verbatim, as the accessible name. That was not a contract, it was the
+ * `t`-returns-the-key-on-miss fallback leaking all the way to the screen, and
+ * `chromeRenderers.resolveText` now catches it. The user-visible symptom was a
+ * header button reading `MOD.EXAMPLE-WINDOW-MOD.WINDOW`.
  */
-const namespaced = (modId: string, value: string) => `mod.${modId}.${value}`;
 
 const noopEntry = (id: string, overrides: Partial<{ icon: string; label: string; tooltip: string; onSelect: () => void; state: () => unknown }> = {}) => ({
     id,
@@ -72,7 +72,7 @@ describe('Phase 4.4 — MessageActionsOverlay', () => {
     it('renders a native icon button per claimed entry', () => {
         registerModChrome('message.actions', MOD_A, noopEntry('tag', { tooltip: 'Tag this message' }), 0);
         render(<MessageActionsOverlay />);
-        const button = screen.getByRole('button', { name: namespaced('mod-a', 'Tag this message') });
+        const button = screen.getByRole('button', { name: 'Tag this message' });
         expect(button).toBeInTheDocument();
         // The button uses the same classes as the built-in rail buttons —
         // `p-1.5 bg-void-lighter rounded` with text-text-dim idle.
@@ -86,8 +86,8 @@ describe('Phase 4.4 — MessageActionsOverlay', () => {
         render(<MessageActionsOverlay />);
         const buttons = screen.getAllByRole('button');
         // MOD_B (loadIndex 1) sorts first; MOD_A (loadIndex 5) sorts second.
-        expect(buttons[0].getAttribute('aria-label')).toBe(namespaced('mod-b', 'Early'));
-        expect(buttons[1].getAttribute('aria-label')).toBe(namespaced('mod-a', 'Late'));
+        expect(buttons[0].getAttribute('aria-label')).toBe('Early');
+        expect(buttons[1].getAttribute('aria-label')).toBe('Late');
     });
 
     it('honors state().hidden — a hidden entry is removed from the rail', () => {
@@ -99,8 +99,8 @@ describe('Phase 4.4 — MessageActionsOverlay', () => {
             tooltip: 'Show me',
         }), 1);
         render(<MessageActionsOverlay />);
-        expect(screen.queryByRole('button', { name: namespaced('mod-a', 'Hide me') })).toBeNull();
-        expect(screen.getByRole('button', { name: namespaced('mod-b', 'Show me') })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Hide me' })).toBeNull();
+        expect(screen.getByRole('button', { name: 'Show me' })).toBeInTheDocument();
     });
 
     it('state().active styles the button as terminal (matching built-in speak-active)', () => {
@@ -109,7 +109,7 @@ describe('Phase 4.4 — MessageActionsOverlay', () => {
             state: () => ({ active: true }),
         }), 0);
         render(<MessageActionsOverlay />);
-        const button = screen.getByRole('button', { name: namespaced('mod-a', 'Active') });
+        const button = screen.getByRole('button', { name: 'Active' });
         expect(button.className).toContain('text-terminal');
     });
 
@@ -123,7 +123,7 @@ describe('Phase 4.4 — MessageActionsOverlay', () => {
         vi.doMock('../../services/turn/pendingCommit', () => ({ commitPendingTurn }));
 
         render(<MessageActionsOverlay />);
-        const button = screen.getByRole('button', { name: namespaced('mod-a', 'Tag') });
+        const button = screen.getByRole('button', { name: 'Tag' });
         fireEvent.click(button);
 
         // onSelect fires after the drain resolves. The drain is async, so we
@@ -137,9 +137,9 @@ describe('Phase 4.4 — MessageActionsOverlay', () => {
     it('disable removes the entry from the overlay (§8.5)', async () => {
         registerModChrome('message.actions', MOD_A, noopEntry('tag', { tooltip: 'Tag' }), 0);
         render(<MessageActionsOverlay />);
-        expect(screen.getByRole('button', { name: namespaced('mod-a', 'Tag') })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Tag' })).toBeInTheDocument();
         disableModMounts('mod-a');
-        await waitFor(() => expect(screen.queryByRole('button', { name: namespaced('mod-a', 'Tag') })).toBeNull());
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'Tag' })).toBeNull());
     });
 
     it('a throwing state() renders from last good state and does not crash (§8.6)', () => {
@@ -150,6 +150,6 @@ describe('Phase 4.4 — MessageActionsOverlay', () => {
         // The renderer reads state() in a try/catch; a throw renders from the
         // last good state (undefined initially) and does not crash.
         expect(() => render(<MessageActionsOverlay />)).not.toThrow();
-        expect(screen.getByRole('button', { name: namespaced('mod-a', 'Flaky') })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Flaky' })).toBeInTheDocument();
     });
 });

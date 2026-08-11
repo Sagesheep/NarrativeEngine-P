@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Users, Archive, Save, Pin, Cpu, MapPin, UserCircle, Workflow } from 'lucide-react';
 import { createBackup } from '../store/campaignStore';
@@ -12,8 +12,8 @@ import type { AiTier } from '../types/llm';
 import { APP_VERSION } from '../version';
 import { useTranslation } from '../i18n/useTranslation';
 import { readRegion, subscribeToRegion, type RegisteredChromeEntry } from '../services/mods/mounts/mountRegistry';
-import { registerHeaderBuiltins, HEADER_BUILTIN_ID_SET } from '../services/mods/mounts/headerBuiltins';
-import { renderHeaderModEntry } from '../services/mods/mounts/chromeRenderers';
+import { registerHeaderBuiltins, HEADER_BUILTIN_ID_SET, HEADER_TRAILING_ID_SET } from '../services/mods/mounts/headerBuiltins';
+import { HeaderModGroup } from './header/HeaderModGroup';
 
 const TIER_CYCLE: Record<AiTier, AiTier> = { lite: 'pro', pro: 'max', max: 'lite' };
 
@@ -86,6 +86,39 @@ export function Header() {
 
     const ordered = useHeaderActions();
 
+    /**
+     * `t`, widened for the mod renderers. A mod's i18n key
+     * (`mod.<modId>.<key>`) is not in the host's `TranslationKey` union, so the
+     * renderers take any string. Hoisted out of the JSX because three call
+     * sites needed the same cast.
+     */
+    const modT = t as unknown as (key: string, vars?: Record<string, string | number>) => string;
+
+    /**
+     * Split the region into the three groups the row renders in order: the
+     * leading built-ins, the mod entries (as one bounded group), then the
+     * trailing built-ins.
+     *
+     * The registry already returns everything in the correct sequence
+     * (`MOUNTS.md` §3.3), so each `filter` preserves the order the registry
+     * chose; the split exists only because mod entries render as a GROUP —
+     * `HeaderModGroup` caps how many appear inline — and a group cannot be
+     * expressed while emitting the region as one flat list.
+     */
+    const { leadingBuiltins, modEntries, trailingBuiltins } = useMemo(() => {
+        const leading: RegisteredChromeEntry[] = [];
+        const mods: RegisteredChromeEntry[] = [];
+        const trailing: RegisteredChromeEntry[] = [];
+        for (const entry of ordered) {
+            const isBuiltin =
+                entry.renderer === 'builtin' && HEADER_BUILTIN_ID_SET.has(entry.entryId);
+            if (!isBuiltin) mods.push(entry);
+            else if (HEADER_TRAILING_ID_SET.has(entry.entryId)) trailing.push(entry);
+            else leading.push(entry);
+        }
+        return { leadingBuiltins: leading, modEntries: mods, trailingBuiltins: trailing };
+    }, [ordered]);
+
     return (
         <header className="h-12 bg-surface border-b border-border flex items-center px-2 sm:px-4 gap-1 sm:gap-2 shrink-0">
             <button
@@ -124,27 +157,54 @@ export function Header() {
                   * the registry returns exactly the eleven built-ins in the
                   * same order, and each renders with its existing markup.
                   */}
-                {ordered.map((entry) => {
-                    if (entry.renderer === 'builtin' && HEADER_BUILTIN_ID_SET.has(entry.entryId)) {
-                        return renderHeaderBuiltin(entry.entryId, {
-                            t: t as unknown as (key: string, vars?: Record<string, string | number>) => string,
-                            aiTier,
-                            pinnedExcerpts,
-                            onToggleSettings: toggleSettings,
-                            onToggleNPCLedger: toggleNPCLedger,
-                            onTogglePCPanel: togglePCPanel,
-                            onToggleLocationLedger: toggleLocationLedger,
-                            onToggleBlockView: toggleBlockView,
-                            onToggleBackupModal: toggleBackupModal,
-                            onTogglePinnedMemories: togglePinnedMemories,
-                            onCycleTier: () => updateSettings({ aiTier: TIER_CYCLE[aiTier] }),
-                            onBackup: handleBackup,
-                            onExit: handleExit,
-                        });
-                    }
-                    // Mod entry — generic chrome renderer.
-                    return renderHeaderModEntry(entry, t as unknown as (key: string, vars?: Record<string, string | number>) => string, NO_LAST_GOOD);
-                })}
+                {leadingBuiltins.map((entry) =>
+                    renderHeaderBuiltin(entry.entryId, {
+                        t: modT,
+                        aiTier,
+                        pinnedExcerpts,
+                        onToggleSettings: toggleSettings,
+                        onToggleNPCLedger: toggleNPCLedger,
+                        onTogglePCPanel: togglePCPanel,
+                        onToggleLocationLedger: toggleLocationLedger,
+                        onToggleBlockView: toggleBlockView,
+                        onToggleBackupModal: toggleBackupModal,
+                        onTogglePinnedMemories: togglePinnedMemories,
+                        onCycleTier: () => updateSettings({ aiTier: TIER_CYCLE[aiTier] }),
+                        onBackup: handleBackup,
+                        onExit: handleExit,
+                    }),
+                )}
+
+                {/*
+                  * Mod entries, bounded. `HeaderModGroup` renders the first two
+                  * inline and collapses the rest behind one overflow control,
+                  * so the row's width no longer grows without limit as mods are
+                  * installed. Renders nothing at all when no mod claims a
+                  * header button, which keeps the zero-mod row byte-identical.
+                  */}
+                <HeaderModGroup entries={modEntries} t={modT} />
+
+                {/* The trailing group (`MOUNTS.md` §3.3): settings, then exit.
+                  * Leaving the campaign stays the last thing in the row — a mod
+                  * button after "Exit" reads as an accident, and the overflow
+                  * control is a mod-owned surface, so it sits before them too. */}
+                {trailingBuiltins.map((entry) =>
+                    renderHeaderBuiltin(entry.entryId, {
+                        t: modT,
+                        aiTier,
+                        pinnedExcerpts,
+                        onToggleSettings: toggleSettings,
+                        onToggleNPCLedger: toggleNPCLedger,
+                        onTogglePCPanel: togglePCPanel,
+                        onToggleLocationLedger: toggleLocationLedger,
+                        onToggleBlockView: toggleBlockView,
+                        onToggleBackupModal: toggleBackupModal,
+                        onTogglePinnedMemories: togglePinnedMemories,
+                        onCycleTier: () => updateSettings({ aiTier: TIER_CYCLE[aiTier] }),
+                        onBackup: handleBackup,
+                        onExit: handleExit,
+                    }),
+                )}
             </div>
         </header>
     );
@@ -313,11 +373,5 @@ function renderHeaderBuiltin(id: string, deps: {
     }
 }
 
-/**
- * A stable `lastGoodRef` sentinel for mod entries. The "last good state"
- * refinement (MOUNTS.md §8.6) lands in a later pass; for now a `state()`
- * that throws renders from `undefined` (the entry shows its declared
- * values), and the fault store records the throw. One shared object so
- * every mod entry render uses the same no-op ref.
- */
-const NO_LAST_GOOD: { current: import('../services/mods/mounts/mountTypes').ChromeState | undefined } = { current: undefined };
+// The `lastGoodRef` sentinel for mod entries moved to `HeaderModGroup`, which
+// is now the only thing in the header that renders one.

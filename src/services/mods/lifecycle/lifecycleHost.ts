@@ -66,6 +66,7 @@ import {
 } from '../interceptors';
 import { checkModRoles, clearAllModRoleLeases, disableModRoles, enableModRoles, serviceRoles } from '../../roles';
 import { clearAllModOocSections, disableModOocSections, enableModOocSections } from '../../ooc/oocSectionRegistry';
+import { isModEnabled } from '../modEnablement';
 
 /** A mod, as the host needs to see it. A narrow read-only view of `ValidatedMod`. */
 export interface LifecycleMod {
@@ -74,6 +75,13 @@ export interface LifecycleMod {
     readonly version: string;
     readonly file: string;
     readonly dependencies: Record<string, string>;
+    /**
+     * MANIFEST.md §2 — a development fixture. Read only through `isModEnabled`,
+     * which inverts the enablement default for it. Optional here because the
+     * host's tests build mods by hand; absent reads as `false`, the same
+     * default the loader stamps.
+     */
+    readonly dev?: boolean;
     readonly native?: {
         readonly js: string;
         readonly css?: string;
@@ -359,12 +367,25 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
      * is present but DISABLED must not activate; this is a runtime fault with
      * its own kind, not a load rejection. The dependency's enablement is read
      * from the enablement map the caller supplies.
+     *
+     * `byId` resolves each dependency to the loaded mod so `isModEnabled` can
+     * see its `dev` flag. Reading the map alone would be wrong for a dev
+     * dependency: absent means DISABLED for a fixture, but the bare
+     * `=== false` test would read absence as enabled and let the dependent
+     * activate against a dependency that never ran its hooks. A dependency
+     * that is not in `byId` at all was never loaded, which is the separate
+     * missing-dependency fault the loader already rejects — not this one.
      */
-    function dependenciesEnabled(mod: LifecycleMod, enablement: ModEnablementMap): string[] {
+    function dependenciesEnabled(
+        mod: LifecycleMod,
+        enablement: ModEnablementMap,
+        byId: ReadonlyMap<string, LifecycleMod>,
+    ): string[] {
         const disabled: string[] = [];
         for (const depId of Object.keys(mod.dependencies)) {
-            const key = `mod.${depId}`;
-            if (enablement[key] === false) disabled.push(depId);
+            const dep = byId.get(depId);
+            if (!dep) continue;
+            if (!isModEnabled(dep, enablement)) disabled.push(depId);
         }
         return disabled;
     }
@@ -404,6 +425,10 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
             }
             return fallbackCtx;
         };
+        // Dependency lookup for the dependency-enabled gate below. Built from
+        // the same resolved array, so it sees exactly the mods that loaded.
+        const byId = new Map<string, LifecycleMod>();
+        for (const mod of input.mods) byId.set(mod.id, mod);
         const runs: HookRunResult[] = [];
         const faultedModIds: string[] = [];
         // A refresh is a new resolved mod set. Remove providers belonging to
@@ -421,10 +446,9 @@ export function createLifecycleHost(options: LifecycleHostOptions): LifecycleHos
         // host fires hooks in that order, so a dependency activates before
         // its dependent — Phase 1.4 §3 "Order" and the done-when test.
         for (const mod of input.mods) {
-            const enabled = input.enablement[`mod.${mod.id}`] !== false;
-            if (!enabled) continue;
+            if (!isModEnabled(mod, input.enablement)) continue;
 
-            const disabledDeps = dependenciesEnabled(mod, input.enablement);
+            const disabledDeps = dependenciesEnabled(mod, input.enablement, byId);
             if (disabledDeps.length > 0) {
                 faultStore.add({
                     modId: mod.id,

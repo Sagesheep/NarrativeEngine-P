@@ -287,9 +287,11 @@ describe('MessageBubble', () => {
                 onSelect: () => undefined,
             }, 0);
             renderBubble(makeMessage({ content: 'Hello' }));
-            // The mod's button is present (the aria-label is the namespaced
-            // tooltip, per the i18n lookup in the mod's namespace).
-            const modButton = screen.getByRole('button', { name: 'mod.mod-a.Tag this message' });
+            // The mod's button is present. The aria-label is the mod's own
+            // tooltip: the i18n lookup in the mod's namespace misses (no
+            // translation is registered for `mod.mod-a.Tag this message`), and
+            // a miss falls back to the author's literal rather than to the key.
+            const modButton = screen.getByRole('button', { name: 'Tag this message' });
             expect(modButton).toBeInTheDocument();
         });
 

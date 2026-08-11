@@ -38,16 +38,30 @@ function modKey(modId: string, key: string): string {
 /**
  * Resolve a label/tooltip through the host's i18n lookup in the mod's
  * namespace. A literal string misses the lookup and renders as itself
- * (`MANIFEST.md` §5 / `MOUNTS.md` §8.2 — no new mechanism). The host's `t`
- * falls back key-as-last-resort, so an unknown key renders something
- * visible and greppable.
+ * (`MANIFEST.md` §5 / `MOUNTS.md` §8.2 — no new mechanism).
+ *
+ * The lookup is attempted first, so a mod that ships translations gets them by
+ * writing a key. When the key is not in the bundle, the host's `t` returns the
+ * KEY ITSELF as its last-resort fallback — which is a sensible default for the
+ * app's own strings (a missing `header.backup.label` is a bug worth seeing) and
+ * exactly wrong here, because a mod passing a literal is the SUPPORTED case, not
+ * a mistake. Without the miss check below, `label: 'WINDOW'` renders as
+ * `mod.example-window-mod.WINDOW`, uppercased by the header's own styling into
+ * `MOD.EXAMPLE-WINDOW-MOD.WINDOW`. That is what shipped before this branch
+ * existed: the comment described it, the code never did it.
+ *
+ * Detecting the miss by comparing against the key we passed in — rather than
+ * guessing from the shape of `value` (spaces, dots, casing) — means a mod is
+ * never punished for choosing a label that happens to look like a key, and a
+ * one-word label like `WINDOW` still resolves when a translation for it exists.
  */
 function resolveText(modId: string, value: string | undefined, t: ModT): string | undefined {
     if (value === undefined) return undefined;
-    // A value that already looks like a plain literal (has spaces, or is not
-    // a valid key shape) renders as itself. A short single-word value is
-    // tried as a key first.
-    return t(modKey(modId, value), {});
+    const key = modKey(modId, value);
+    const translated = t(key, {});
+    // `t` returned the key unchanged: nothing in the bundle matched, so `value`
+    // was a literal all along. Render the author's own words.
+    return translated === key ? value : translated;
 }
 
 /**
@@ -136,6 +150,83 @@ export function renderHeaderModEntry(
             {label ? <span className="hidden sm:inline">{label}</span> : null}
             {state?.badge !== undefined && state.badge !== null && state.badge !== '' ? (
                 <span className="min-w-[14px] h-3.5 bg-terminal text-void text-[8px] font-bold rounded-full flex items-center justify-center px-0.5">
+                    {state.badge}
+                </span>
+            ) : null}
+        </button>
+    );
+}
+
+/**
+ * Render a mod's header entry as a MENU ROW rather than a toolbar button, for
+ * the header's overflow list. Returns `null` when `state().hidden`, same as the
+ * inline renderer.
+ *
+ * Why a second renderer instead of reusing the button: the toolbar button is
+ * icon-first, label-optional (`hidden sm:inline`), and sized for a 32px row. In
+ * a vertical menu the label is the primary affordance and must always render —
+ * an overflow list of unlabelled icons is worse than the overflow it replaced.
+ * The `ChromeState` mapping is shared; only the presentation differs, which is
+ * the same split the header/composer renderers already make (MOUNTS.md §2.3).
+ *
+ * `state.active` shows as a left accent rather than a filled border, because a
+ * filled row in a dropdown reads as a hover/selection state rather than as
+ * "this window is open".
+ */
+export function renderHeaderModMenuItem(
+    entry: RegisteredChromeEntry,
+    t: ModT,
+    lastGoodRef: { current: ChromeState | undefined },
+    onSelected?: () => void,
+): ReactNode | null {
+    const { state } = readStateSafe(entry, lastGoodRef.current);
+    if (state) lastGoodRef.current = state;
+    if (state?.hidden) return null;
+
+    const mod = entry.mod;
+    if (!mod) return null;
+
+    const iconName = state?.icon ?? entry.entry.icon;
+    const { icon: Icon } = resolveMountIcon(iconName);
+    const label = resolveText(mod.id, state?.label ?? entry.entry.label, t);
+    const tooltip = resolveText(mod.id, state?.tooltip ?? entry.entry.tooltip, t);
+    // The mod's own name, so an overflow list of eight entries from four mods
+    // tells you which mod each row came from. The button row has no space for
+    // this; the menu does, and it is the thing that makes the list legible.
+    const modName = mod.name || mod.id;
+    const isDanger = state?.tone === 'danger';
+
+    const handleClick = () => {
+        Promise.resolve(entry.entry.onSelect(entry.context))
+            .catch(() => { /* a mod onSelect fault is contained by the lifecycle host */ });
+        // Close the menu on activation. A toolbar button has no menu to close;
+        // this is the one behavioural difference between the two renderers.
+        onSelected?.();
+    };
+
+    return (
+        <button
+            key={entry.qualifiedId}
+            type="button"
+            role="menuitem"
+            onClick={handleClick}
+            disabled={state?.disabled}
+            title={tooltip}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border-l-2 ${
+                state?.active ? 'border-l-terminal bg-terminal/5' : 'border-l-transparent'
+            } ${isDanger ? 'text-ember hover:bg-ember/10' : 'text-text-primary hover:bg-terminal/10'}`}
+        >
+            <Icon size={13} className={`shrink-0 ${state?.busy ? 'animate-spin' : ''}`} />
+            <span className="min-w-0 flex-1">
+                <span className="chrome-label block text-[10px] font-bold uppercase tracking-wider truncate">
+                    {label || modName}
+                </span>
+                {label ? (
+                    <span className="block text-[9px] text-text-dim truncate">{modName}</span>
+                ) : null}
+            </span>
+            {state?.badge !== undefined && state.badge !== null && state.badge !== '' ? (
+                <span className="shrink-0 min-w-[14px] h-3.5 bg-terminal text-void text-[8px] font-bold rounded-full flex items-center justify-center px-0.5">
                     {state.badge}
                 </span>
             ) : null}

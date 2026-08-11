@@ -140,7 +140,7 @@ const TOP_LEVEL_KEYS = new Set([
     'id', 'name', 'version', 'description', 'author', 'homepage', 'appVersion',
     'apiVersion',
     'loadOrder', 'dependencies', 'i18n', 'contributions', 'tables', 'panels',
-    'screens', 'compute', 'native', 'roles', 'tierEntries',
+    'screens', 'compute', 'native', 'roles', 'tierEntries', 'dev',
 ]);
 
 /** ST spellings that get a "this app spells it X" hint, not a bare unknown-key. */
@@ -1392,6 +1392,19 @@ function validateMod(raw, file, appVersion, modDir) {
         }
     }
 
+    // MANIFEST.md §2 — `dev` marks a fixture: a mod that exists to exercise the
+    // API, not to be played with. It INVERTS the enablement default. A normal
+    // mod is on unless the user switched it off ("absent means enabled"); a
+    // `dev` mod is off unless the user switched it ON. That is the whole
+    // mechanism — everything else about a dev mod loads, validates, and runs
+    // identically, so a fixture keeps its value as a regression test.
+    //
+    // The flag is not a trust tier and not a capability gate. It answers one
+    // question: "should a player who never opened Extensions see this?"
+    if (raw.dev !== undefined && typeof raw.dev !== 'boolean') {
+        reject('dev must be a boolean');
+    }
+
     checkAppVersion(raw.appVersion, appVersion);
     // Phase 9.2 — the API generation. Two axes, two jobs: `appVersion` is the
     // feature floor ("I need the build that added `ctx.oocSections`"),
@@ -1533,6 +1546,9 @@ function validateMod(raw, file, appVersion, modDir) {
     // (4.1 mount points, 5.2 interceptors) can use the resolved order without
     // re-reading the manifest.
     mod.loadOrder = typeof raw.loadOrder === 'number' ? raw.loadOrder : 0;
+    // §2: the fixture flag. Always present so no consumer re-applies the
+    // absent-means-false rule; `isModEnabled` is the only thing that reads it.
+    mod.dev = raw.dev === true;
     // §6.4: the validated dependency map. Empty = no dependencies. The
     // resolver uses this to topologically sort mods before they reach the
     // caller.

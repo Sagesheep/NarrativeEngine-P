@@ -76,3 +76,16 @@ __registerBuiltinGuardReset(() => {
 
 /** The set of built-in header ids, for an O(1) `isBuiltin` check in the renderer. */
 export const HEADER_BUILTIN_ID_SET: ReadonlySet<string> = new Set(HEADER_BUILTIN_IDS);
+
+/**
+ * The trailing group (§3.3), as a set the row renderer can test against.
+ *
+ * The registry already sorts these last within the built-ins, so reading the
+ * region in order gives the right sequence. `Header.tsx` needs them named
+ * separately for a different reason: it renders mod entries as ONE group (see
+ * `HeaderModGroup`), which means it has to place that group between the leading
+ * built-ins and this trailing pair rather than emitting the region as a flat
+ * list. Duplicating the two ids in the component would be a second source of
+ * truth for §3.3, so they live here beside the order that defines them.
+ */
+export const HEADER_TRAILING_ID_SET: ReadonlySet<string> = new Set(['settings', 'exit']);

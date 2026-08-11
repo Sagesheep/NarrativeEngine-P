@@ -2,6 +2,7 @@
   "id": "example-facts-mod",
   "name": "Example Facts Publisher",
   "version": "1.0.0",
+  "dev": true,
   "loadOrder": 250,
   "description": "Phase 5.4 fixture. A native-tier mod that publishes the `inCombat` fact — the rehearsal for Phase 8, where enemies leave core and the enemy mod must keep `inCombat` alive. Claims `inCombat` through `ctx.facts.register('inCombat', fn, { claims: 'inCombat' })` and publishes a computed boolean every turn.",
   "author": "Narrative Engine",

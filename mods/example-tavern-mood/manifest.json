@@ -2,6 +2,8 @@
   "id": "example-tavern-mood",
   "name": "Tavern Mood",
   "version": "1.0.0",
+
+  "dev": true,
   "appVersion": ">=1.0.0",
   "description": "Adds crowd texture in taverns and inns, but stays quiet once a fight starts.",
   "contributions": [

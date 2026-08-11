@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, BookOpen, Loader2, Puzzle, RefreshCw, RotateCcw, Settings, Trash2, Workflow } from 'lucide-react';
+import { AlertTriangle, BookOpen, ChevronRight, Loader2, Puzzle, RefreshCw, RotateCcw, Settings, Trash2, Workflow } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // The author's guide, inlined at build time rather than fetched.
@@ -17,6 +17,7 @@ import type { FinalUserModuleInput } from '../../services/payload/contributions/
 import type { ContributionModule } from '../../services/payload/contributions/registry';
 import { refreshMods, enableNativeMod, disableNativeMod, cleanModData } from '../../services/mods/modBootstrap';
 import { modToContributionModule } from '../../services/mods/modAdapter';
+import { isModEnabled, modDefaultEnabled } from '../../services/mods/modEnablement';
 import type { ModFault, ValidatedMod } from '../../services/mods/modTypes';
 import { MOD_API_VERSION } from '@narrative/engine/mods/apiVersion';
 import { getNativeTrustStore, needsNativeTrustWarning, recordNativeTrustAcceptance } from '../../services/mods/nativeTrustStore';
@@ -87,6 +88,13 @@ type ModuleRow = {
      * their own. Absent for built-ins (they are not mods).
      */
     provenance?: 'bundled' | 'installed';
+    /**
+     * MANIFEST.md §2 — a development fixture. Two effects on this screen, and
+     * only this screen: the row is hidden unless "Show developer mods" is on,
+     * and its `defaultEnabled` is `false` instead of `true`. Absent for
+     * built-ins, which are not mods.
+     */
+    dev?: boolean;
     /** Mods only — true when this mod declares at least one panel (its own settings). */
     hasSettings?: boolean;
     /**
@@ -213,6 +221,11 @@ const toModRow = (mod: ValidatedMod, faults: readonly ModFault[]): ModuleRow => 
         // bundled mod should not have, but an old server's mods are the user's
         // own regardless).
         provenance: mod.provenance === 'bundled' ? 'bundled' : 'installed',
+        // MANIFEST.md §2 — the fixture flag, and the default it inverts. Read
+        // through `modDefaultEnabled` rather than spelled inline so this screen
+        // and the runtime cannot drift on what "default" means.
+        dev: mod.dev === true,
+        defaultEnabled: modDefaultEnabled(mod),
         hasSettings: Array.isArray(mod.panels) && mod.panels.length > 0,
         // Phase 9.2 — the API generation. A server that has not been updated to
         // stamp these leaves them absent, which reads as "not stale" — the same
@@ -240,6 +253,12 @@ export function ExtensionsTab() {
     const [loading, setLoading] = useState(true);
     const [loadFailed, setLoadFailed] = useState(false);
     const [guideOpen, setGuideOpen] = useState(false);
+    /**
+     * MANIFEST.md §2 — the fixtures disclosure. Component state, not a setting:
+     * it is a view of this screen, not a preference. Reopening Settings should
+     * show the mods you installed, which is the whole point of the flag.
+     */
+    const [devModsOpen, setDevModsOpen] = useState(false);
     // Bumped by the rescan button. The server re-reads the folder on every request, so a
     // rescan is all that stands between "drop a file in" and seeing it here — no restart.
     const [reloadToken, setReloadToken] = useState(0);
@@ -343,11 +362,49 @@ export function ExtensionsTab() {
         [mods, allFaults],
     );
 
+    /**
+     * MANIFEST.md §2 — fixtures are separated out, not interleaved.
+     *
+     * The repo ships thirteen of them, against five real mods. Listing all
+     * eighteen together buries the mods a user actually installed under
+     * `probe-two (Checkpoint 2 conflict fixture)`, which is the state this
+     * screen was in before the flag existed. They stay reachable — a fixture
+     * that cannot be switched on is not a regression test — behind a disclosure
+     * that starts closed.
+     */
+    const playerModRows = useMemo(() => modRows.filter((row) => !row.dev), [modRows]);
+    const devModRows = useMemo(() => modRows.filter((row) => row.dev), [modRows]);
+
+    /**
+     * How many fixtures the user has switched on. Shown on the closed
+     * disclosure, because "3 on" is the one fact worth surfacing without
+     * expanding: a fixture left running is what put debug rows under every
+     * message in the first place, and a collapsed section must not hide that.
+     */
+    const devModsOn = useMemo(
+        () => devModRows.filter((row) => settings.moduleEnabled?.[row.id] === true).length,
+        [devModRows, settings.moduleEnabled],
+    );
+
     const moduleEnabled = settings.moduleEnabled;
 
-    /** Mirrors `payloadBuilder`'s predicate exactly. Do not "improve" this. */
+    /**
+     * Mirrors the runtime's predicate exactly. Do not "improve" this.
+     *
+     * For a built-in module it is `payloadBuilder`'s bare
+     * `moduleEnabled?.[id] !== false`. For a mod row it defers to
+     * `isModEnabled`, which adds the `dev` half of the rule. Both halves are
+     * needed here even though `seedDevModDefaults` writes an explicit `false`
+     * on load: the seed is a store write, and this screen can render one paint
+     * before it lands. Drawing a checked box for a fixture that is not running
+     * is exactly the checkbox-disagrees-with-the-prompt bug rule 1 above warns
+     * about, so the predicate answers correctly with or without the seed.
+     */
     const isEnabled = useCallback(
-        (id: string) => moduleEnabled?.[id] !== false,
+        (id: string, dev?: boolean) =>
+            dev
+                ? isModEnabled({ id: id.replace(/^mod\./, ''), dev }, moduleEnabled)
+                : moduleEnabled?.[id] !== false,
         [moduleEnabled],
     );
 
@@ -510,7 +567,7 @@ export function ExtensionsTab() {
         updateSettings({ moduleEnabled: next });
     };
 
-    const atDefaults = allRows.every((row) => isEnabled(row.id) === row.defaultEnabled);
+    const atDefaults = allRows.every((row) => isEnabled(row.id, row.dev) === row.defaultEnabled);
 
     /**
      * Phase 6.1 — scroll a mod's declared-settings section into view. The
@@ -524,7 +581,7 @@ export function ExtensionsTab() {
     };
 
     const renderRow = (row: ModuleRow) => {
-        const checked = isEnabled(row.id);
+        const checked = isEnabled(row.id, row.dev);
         const inputId = `extension-${row.id}`;
         return (
             <div
@@ -561,6 +618,17 @@ export function ExtensionsTab() {
                                 title={t('settings.extensions.mod.provenance.bundled')}
                             >
                                 {t('settings.extensions.mod.provenance.bundled')}
+                            </span>
+                        )}
+                        {/* MANIFEST.md §2 — the fixture badge. Carried on the row
+                          * as well as the section heading because a switched-on
+                          * fixture is worth labelling wherever it appears. */}
+                        {row.dev && (
+                            <span
+                                className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold bg-text-dim/10 text-text-dim border border-text-dim/40"
+                                title={t('settings.extensions.mod.dev.tooltip')}
+                            >
+                                {t('settings.extensions.mod.dev.badge')}
                             </span>
                         )}
                     </div>
@@ -780,15 +848,59 @@ export function ExtensionsTab() {
                     <p className="text-[9px] text-danger leading-tight">{t('settings.extensions.mods.error')}</p>
                 )}
 
-                {!loading && !loadFailed && modRows.length === 0 && (
+                {!loading && !loadFailed && playerModRows.length === 0 && (
                     <p className="text-[9px] text-text-dim leading-tight max-w-[420px]">
                         {t('settings.extensions.mods.empty')}
                     </p>
                 )}
 
-                {modRows.length > 0 && (
+                {playerModRows.length > 0 && (
                     <div className="md:grid md:grid-cols-2 md:gap-3 space-y-2 md:space-y-0">
-                        {modRows.map(renderRow)}
+                        {playerModRows.map(renderRow)}
+                    </div>
+                )}
+
+                {/* ── Developer fixtures (MANIFEST.md §2) ──────────────────────
+                  * Collapsed by default. The count of switched-on fixtures is on
+                  * the closed header, so a fixture left running is never hidden
+                  * by the collapse — that state is precisely what this section
+                  * exists to make visible.
+                  */}
+                {devModRows.length > 0 && (
+                    <div className="pt-1">
+                        <button
+                            type="button"
+                            onClick={() => setDevModsOpen((open) => !open)}
+                            aria-expanded={devModsOpen}
+                            aria-controls="extensions-dev-mods"
+                            className="w-full flex items-center gap-2 text-left px-2.5 py-2 rounded border border-border/60 bg-void hover:border-text-dim/60 transition-colors cursor-pointer"
+                        >
+                            <ChevronRight
+                                size={11}
+                                className={`shrink-0 text-text-dim transition-transform ${devModsOpen ? 'rotate-90' : ''}`}
+                            />
+                            <span className="chrome-label text-[10px] uppercase tracking-wider font-bold text-text-dim">
+                                {t('settings.extensions.dev.title')}
+                            </span>
+                            <span className="text-[9px] font-mono text-text-dim/70">
+                                {devModsOn > 0
+                                    ? t('settings.extensions.dev.countOn', {
+                                          count: devModRows.length,
+                                          on: devModsOn,
+                                      })
+                                    : t('settings.extensions.dev.count', { count: devModRows.length })}
+                            </span>
+                        </button>
+                        {devModsOpen && (
+                            <div id="extensions-dev-mods" className="mt-2 space-y-2">
+                                <p className="text-[9px] text-text-dim leading-tight max-w-[520px]">
+                                    {t('settings.extensions.dev.help')}
+                                </p>
+                                <div className="md:grid md:grid-cols-2 md:gap-3 space-y-2 md:space-y-0">
+                                    {devModRows.map(renderRow)}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
