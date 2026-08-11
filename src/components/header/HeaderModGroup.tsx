@@ -47,6 +47,14 @@ import {
  */
 export const INLINE_LIMIT = 2;
 
+/**
+ * The menu's width, in px. A constant rather than a measurement because the
+ * anchor has to be computed BEFORE the menu renders — there is nothing to
+ * measure yet on the first paint. Kept in sync with the `w-[260px]` below;
+ * they are the same number stated twice because CSS cannot hand it to JS.
+ */
+const MENU_WIDTH = 260;
+
 type ModT = (key: string, vars?: Record<string, string | number>) => string;
 
 /** Shared with the row renderer; a mod entry's `state()` is read once per paint. */
@@ -64,9 +72,40 @@ export interface HeaderModGroupProps {
  * the built-in row with nothing added — no divider, no empty menu, no stray
  * element in the DOM for the pixel-identity test to trip over.
  */
+/** Viewport coordinates for the open menu. `null` while it is closed. */
+interface MenuAnchor {
+    readonly top: number;
+    readonly right: number;
+}
+
+/**
+ * Where to put the menu, given the trigger's box.
+ *
+ * `position: fixed`, anchored to the trigger's rect, because the row this
+ * component renders into is an `overflow-x-auto` scroll container. An absolutely
+ * positioned child of a scroll container is laid out against the container's
+ * SCROLL box, not the viewport — so `right-0` put the menu at the row's right
+ * edge, which is not on screen when the row is wider than the window. Measured
+ * in the running app: a menu 267px wide landing at x=1439 in a 1280px viewport.
+ *
+ * Clamped so the menu never leaves the window on either side, which matters at
+ * the narrow widths where the row scrolls in the first place.
+ */
+function anchorFor(button: HTMLElement, menuWidth: number): MenuAnchor {
+    const rect = button.getBoundingClientRect();
+    const margin = 8;
+    // `right` is measured from the viewport's right edge, matching the CSS
+    // property it feeds. Clamp so the LEFT edge stays on screen too.
+    const rightFromEdge = Math.max(margin, window.innerWidth - rect.right);
+    const maxRight = Math.max(margin, window.innerWidth - menuWidth - margin);
+    return { top: rect.bottom + 4, right: Math.min(rightFromEdge, maxRight) };
+}
+
 export function HeaderModGroup({ entries, t }: HeaderModGroupProps): ReactNode {
     const [open, setOpen] = useState(false);
+    const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const buttonRef = useRef<HTMLButtonElement | null>(null);
 
     // Close on outside click and on Escape. A dropdown in a fixed-height header
     // that survives a click elsewhere is the single most annoying failure mode
@@ -79,11 +118,22 @@ export function HeaderModGroup({ entries, t }: HeaderModGroupProps): ReactNode {
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') setOpen(false);
         };
+        // A fixed-position menu does not follow its trigger, so a resize or a
+        // scroll of the row would leave it stranded. Re-anchor on both rather
+        // than close: closing a menu because the window moved is the more
+        // annoying of the two failures.
+        const reanchor = () => {
+            if (buttonRef.current) setAnchor(anchorFor(buttonRef.current, MENU_WIDTH));
+        };
         document.addEventListener('pointerdown', onPointerDown);
         document.addEventListener('keydown', onKeyDown);
+        window.addEventListener('resize', reanchor);
+        window.addEventListener('scroll', reanchor, true);
         return () => {
             document.removeEventListener('pointerdown', onPointerDown);
             document.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('resize', reanchor);
+            window.removeEventListener('scroll', reanchor, true);
         };
     }, [open]);
 
@@ -107,10 +157,17 @@ export function HeaderModGroup({ entries, t }: HeaderModGroupProps): ReactNode {
             {inline.map((entry) => renderHeaderModEntry(entry, t, NO_LAST_GOOD))}
 
             {overflow.length > 0 && (
-                <div ref={containerRef} className="relative shrink-0">
+                <div ref={containerRef} className="shrink-0">
                     <button
+                        ref={buttonRef}
                         type="button"
-                        onClick={() => setOpen((value) => !value)}
+                        onClick={(event) => {
+                            // Measure before opening: the anchor is computed from
+                            // the trigger's box, which exists now and would not
+                            // exist inside the menu's first render.
+                            setAnchor(anchorFor(event.currentTarget, MENU_WIDTH));
+                            setOpen((value) => !value);
+                        }}
                         aria-expanded={menuOpen}
                         aria-haspopup="menu"
                         title={t('header.mods.overflow.tooltip', { count: overflow.length })}
@@ -131,7 +188,8 @@ export function HeaderModGroup({ entries, t }: HeaderModGroupProps): ReactNode {
                         <div
                             role="menu"
                             aria-label={t('header.mods.overflow.aria')}
-                            className="absolute right-0 top-full mt-1 z-50 min-w-[220px] max-w-[320px] max-h-[60vh] overflow-y-auto bg-surface border border-border rounded-sm shadow-lg py-1"
+                            style={anchor ? { top: anchor.top, right: anchor.right } : undefined}
+                            className="fixed z-50 w-[260px] max-h-[60vh] overflow-y-auto bg-surface border border-border rounded-sm shadow-lg py-1"
                         >
                             <p className="chrome-label px-3 pb-1.5 mb-1 border-b border-border/60 text-[9px] uppercase tracking-wider text-text-dim">
                                 {t('header.mods.overflow.heading')}

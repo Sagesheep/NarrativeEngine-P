@@ -14,6 +14,7 @@ import { useTranslation } from '../i18n/useTranslation';
 import { readRegion, subscribeToRegion, type RegisteredChromeEntry } from '../services/mods/mounts/mountRegistry';
 import { registerHeaderBuiltins, HEADER_BUILTIN_ID_SET, HEADER_TRAILING_ID_SET } from '../services/mods/mounts/headerBuiltins';
 import { HeaderModGroup } from './header/HeaderModGroup';
+import { HeaderScrollRow } from './header/HeaderScrollRow';
 
 const TIER_CYCLE: Record<AiTier, AiTier> = { lite: 'pro', pro: 'max', max: 'lite' };
 
@@ -141,7 +142,29 @@ export function Header() {
                 <TokenGauge />
             </div>
 
-            <div className="flex items-center gap-1.5 ml-auto overflow-x-auto no-scrollbar py-1 shrink-0">
+            {/*
+              * The action row, in two parts: a scrolling middle and a pinned
+              * trailing group.
+              *
+              * The row used to be one `overflow-x-auto no-scrollbar shrink-0`
+              * container, and `shrink-0` made the overflow rule decorative — a
+              * flex item sized to its content never has to scroll, so it
+              * overflowed the HEADER instead. Measured at a 1280px viewport:
+              * the row's right edge at 1876px, with Settings and Exit rendered
+              * past the window with no scrollbar, no scroll, and no sign they
+              * were there. Letting the middle shrink is what connects the rule
+              * to reality; `HeaderScrollRow` then shows an edge fade so the
+              * scroll is visible, since `no-scrollbar` hides the usual evidence.
+              *
+              * Settings and Exit sit OUTSIDE the scroll container. Bounding the
+              * mod entries (`HeaderModGroup`) keeps the row from growing without
+              * limit, but a narrow enough window still overflows the built-ins
+              * alone — and "leave the campaign" is not something to make anyone
+              * hunt for. Pinning them also keeps MOUNTS.md §3.3 literally true:
+              * they remain the last things in the row.
+              */}
+            <div className="flex items-center gap-1.5 ml-auto min-w-0">
+                <HeaderScrollRow>
                 <BackgroundControl />
 
                 {/*
@@ -183,11 +206,13 @@ export function Header() {
                   * header button, which keeps the zero-mod row byte-identical.
                   */}
                 <HeaderModGroup entries={modEntries} t={modT} />
+                </HeaderScrollRow>
 
                 {/* The trailing group (`MOUNTS.md` §3.3): settings, then exit.
-                  * Leaving the campaign stays the last thing in the row — a mod
-                  * button after "Exit" reads as an accident, and the overflow
-                  * control is a mod-owned surface, so it sits before them too. */}
+                  * Pinned outside the scroll container — `shrink-0` here is
+                  * correct where it was wrong on the row, because these two are
+                  * the fixed cost the scrolling middle is measured against. */}
+                <div className="flex items-center gap-1.5 shrink-0">
                 {trailingBuiltins.map((entry) =>
                     renderHeaderBuiltin(entry.entryId, {
                         t: modT,
@@ -205,6 +230,7 @@ export function Header() {
                         onExit: handleExit,
                     }),
                 )}
+                </div>
             </div>
         </header>
     );

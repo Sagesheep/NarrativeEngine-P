@@ -16,7 +16,7 @@ import {
     type RegisteredRailPanel,
 } from '../services/mods/mounts/mountRegistry';
 import { formatMountFaultReason, mountFaultStore } from '../services/mods/mounts/mountFaults';
-import { resolveMountIcon } from '../services/mods/mounts/mountIcons';
+import { RailPanelSwitcher } from './rail/RailPanelSwitcher';
 
 const RAIL_STORAGE_KEY = 'nn_chat_rail';
 const DEFAULT_WIDTH = 320;
@@ -254,31 +254,12 @@ export function ChatRightRail() {
                 </button>
             </header>
 
-            {!preferences.collapsed && panels.length > 1 && (
-                <div role="tablist" aria-label="Mod panels" className="flex shrink-0 overflow-x-auto border-b border-border no-scrollbar">
-                    {panels.map((panel) => {
-                        const Icon = panel.panel.icon ? resolveMountIcon(panel.panel.icon).icon : undefined;
-                        const selected = panel.qualifiedId === activePanelId;
-                        return (
-                            <button
-                                key={panel.qualifiedId}
-                                type="button"
-                                role="tab"
-                                aria-selected={selected}
-                                onClick={() => updatePreferences({ activePanelId: panel.qualifiedId })}
-                                className={`chrome-label flex min-w-0 flex-1 items-center justify-center gap-1 border-b-2 px-2 py-2 text-[9px] font-bold uppercase tracking-wider transition-colors ${
-                                    selected
-                                        ? 'border-terminal text-terminal'
-                                        : 'border-transparent text-text-dim hover:bg-void-lighter hover:text-text-primary'
-                                }`}
-                                title={panel.panel.title}
-                            >
-                                {Icon ? <Icon size={13} className="shrink-0" /> : null}
-                                <span className="truncate">{panel.panel.title}</span>
-                            </button>
-                        );
-                    })}
-                </div>
+            {!preferences.collapsed && (
+                <RailPanelSwitcher
+                    panels={panels}
+                    activePanelId={activePanelId}
+                    onSelect={(qualifiedId) => updatePreferences({ activePanelId: qualifiedId })}
+                />
             )}
 
             <section hidden={preferences.collapsed} className="min-h-0 flex-1">

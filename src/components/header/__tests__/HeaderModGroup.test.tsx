@@ -181,6 +181,34 @@ describe('HeaderModGroup', () => {
         expect(screen.queryByRole('menu')).toBeNull();
     });
 
+    it('positions the menu against the viewport, not against the scrolling row', () => {
+        // The row this renders into is `overflow-x-auto`, and an absolutely
+        // positioned child of a scroll container lays out against the
+        // container's SCROLL box. With `absolute right-0` the menu was pinned to
+        // the row's right edge — which is off-screen precisely when the row is
+        // wide enough to need an overflow control. Measured in the running app
+        // before this fix: a 267px menu at x=1439 in a 1280px viewport.
+        registerEntries(INLINE_LIMIT + 2);
+        render(<HeaderModGroup entries={modEntries()} t={t} />);
+
+        const trigger = screen.getByRole('button', { name: '2 more mod actions' });
+        // jsdom reports a zero rect; the anchor maths still has to produce a
+        // viewport-relative `right` that keeps the menu on screen.
+        fireEvent.click(trigger);
+
+        const menu = screen.getByRole('menu');
+        expect(menu.className).toContain('fixed');
+        expect(menu.className).not.toContain('absolute');
+
+        const right = Number.parseFloat(menu.style.right);
+        expect(Number.isNaN(right)).toBe(false);
+        // On screen on the right, and never so far right that the left edge
+        // leaves the window.
+        expect(right).toBeGreaterThanOrEqual(0);
+        expect(right).toBeLessThanOrEqual(window.innerWidth);
+        expect(Number.parseFloat(menu.style.top)).toBeGreaterThanOrEqual(0);
+    });
+
     it('renders a mod entry label as the author wrote it, not as an i18n key', () => {
         // The `MOD.EXAMPLE-WINDOW-MOD.WINDOW` regression. `resolveText` tries the
         // mod's namespaced key first; `t` returns the key on a miss, and without
