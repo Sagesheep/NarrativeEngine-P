@@ -1477,3 +1477,70 @@ describe('loadMods — Phase 6.3 bundled vs installed provenance', () => {
         expect(mods[0].provenance).toBe('installed');
     });
 });
+// ── MANIFEST.md §2 — the `dev` fixture flag ────────────────────────────────
+//
+// `dev` marks a mod that exists to exercise the API rather than to be played
+// with. The loader's whole job here is to VALIDATE and CARRY it: the flag's
+// effect — inverting the enablement default — belongs to `modEnablement.ts` on
+// the client, and nothing in the loader may treat a dev mod differently. A
+// fixture that stopped loading, sorting, or resolving dependencies normally
+// would stop working as the regression test it was written to be.
+describe('loadMods — the `dev` fixture flag', () => {
+    it('defaults to false when the manifest omits it', () => {
+        write('plain', validMod({ id: 'plain', name: 'Plain' }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        // Always present, so no consumer re-applies the absent-means-false rule.
+        expect(mods[0].dev).toBe(false);
+    });
+
+    it('carries `dev: true` through to the validated mod', () => {
+        write('fixture', validMod({ id: 'fixture', name: 'Fixture', dev: true }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods[0].dev).toBe(true);
+    });
+
+    it('normalises a non-true value to false rather than carrying it', () => {
+        write('fixture', validMod({ id: 'fixture', name: 'Fixture', dev: false }));
+        const { mods } = loadMods(dir, '1.0.4');
+        expect(mods[0].dev).toBe(false);
+    });
+
+    it('rejects a non-boolean `dev`', () => {
+        write('bad', validMod({ id: 'bad', name: 'Bad', dev: 'yes' }));
+        expect(soleFaultReason(loadMods(dir, '1.0.4'))).toMatch(/dev must be a boolean/);
+    });
+
+    it('a dev mod is otherwise loaded exactly like any other', () => {
+        // The point of the flag is that it changes ONE thing. A dev mod still
+        // contributes, still sorts by loadOrder, and still resolves as a
+        // dependency — `probe` is the cross-phase mount regression test and has
+        // to keep working when switched on.
+        write('fixture', validMod({
+            id: 'fixture',
+            name: 'Fixture',
+            dev: true,
+            loadOrder: -10,
+        }));
+        write('normal', validMod({ id: 'normal', name: 'Normal', loadOrder: 5 }));
+
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        // Sorted by loadOrder, dev flag irrelevant.
+        expect(mods.map((m) => m.id)).toEqual(['fixture', 'normal']);
+        expect(mods[0].contributions).toHaveLength(1);
+    });
+
+    it('a normal mod may depend on a dev mod', () => {
+        write('fixture', validMod({ id: 'fixture', name: 'Fixture', dev: true, version: '1.0.0' }));
+        write('dependent', validMod({
+            id: 'dependent',
+            name: 'Dependent',
+            dependencies: { fixture: '>=1.0.0' },
+        }));
+        const { mods, faults } = loadMods(dir, '1.0.4');
+        expect(faults).toEqual([]);
+        expect(mods.map((m) => m.id)).toEqual(['fixture', 'dependent']);
+    });
+});

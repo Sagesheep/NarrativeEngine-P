@@ -77,9 +77,18 @@ export default function App() {
   // The Extensions screen refreshes this too, but a user who never opens that screen must
   // still get the mods they installed — without this, a mod would be listed but never reach
   // the prompt. `refreshMods` never throws; an unreachable endpoint is reported, not fatal.
+  //
+  // Gated on `settingsLoaded` because `refreshMods` READS `settings.moduleEnabled` — to
+  // decide which mods reach the prompt and which get their `activate` hook fired. Firing it
+  // in the same tick as `loadSettings()` meant it read an empty map and registered against
+  // defaults: a mod the user had switched off still activated, and a switched-ON dev fixture
+  // stayed filtered out, until something else happened to call `refreshMods` again.
+  // `settingsLoaded` flips to true on every path through `loadSettings`, including the
+  // failure and no-stored-settings paths, so this cannot strand the mod layer.
   useEffect(() => {
+    if (!settingsLoaded) return;
     refreshMods();
-  }, []);
+  }, [settingsLoaded]);
 
   // After settings load, if we already have an activeCampaignId (restored from a previous
   // session), we MUST load the campaign's data before rendering ChatArea.

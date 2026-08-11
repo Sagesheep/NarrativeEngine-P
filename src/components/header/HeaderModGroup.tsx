@@ -87,16 +87,16 @@ export function HeaderModGroup({ entries, t }: HeaderModGroupProps): ReactNode {
         };
     }, [open]);
 
-    // A mod uninstalled or disabled while its menu is open leaves the menu with
-    // nothing in it. Close rather than render an empty popover.
-    useEffect(() => {
-        if (entries.length <= INLINE_LIMIT) setOpen(false);
-    }, [entries.length]);
-
     if (entries.length === 0) return null;
 
     const inline = entries.slice(0, INLINE_LIMIT);
     const overflow = entries.slice(INLINE_LIMIT);
+
+    // A mod uninstalled or disabled while its menu is open leaves the menu with
+    // nothing to list. Derive the open state from both facts rather than
+    // resetting `open` in an effect: the effect would fire a cascading render
+    // for a condition the renderer can simply read.
+    const menuOpen = open && overflow.length > 0;
 
     return (
         <>
@@ -111,12 +111,12 @@ export function HeaderModGroup({ entries, t }: HeaderModGroupProps): ReactNode {
                     <button
                         type="button"
                         onClick={() => setOpen((value) => !value)}
-                        aria-expanded={open}
+                        aria-expanded={menuOpen}
                         aria-haspopup="menu"
                         title={t('header.mods.overflow.tooltip', { count: overflow.length })}
                         aria-label={t('header.mods.overflow.tooltip', { count: overflow.length })}
                         className={`chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono ${
-                            open
+                            menuOpen
                                 ? 'border-terminal text-terminal bg-terminal/5'
                                 : 'border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal'
                         }`}
@@ -127,7 +127,7 @@ export function HeaderModGroup({ entries, t }: HeaderModGroupProps): ReactNode {
                         </span>
                     </button>
 
-                    {open && (
+                    {menuOpen && (
                         <div
                             role="menu"
                             aria-label={t('header.mods.overflow.aria')}

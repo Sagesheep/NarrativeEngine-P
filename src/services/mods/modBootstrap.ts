@@ -19,7 +19,7 @@ import { buildHostFacade } from '../turn/hostFacade';
 import { buildCommitCallbacks, rebuildStateFromLiveStore } from '../turn/pendingCommit';
 import { buildModContext } from './modContext';
 import { setRoleModuleEnabled } from '../roles';
-import { isModEnabled, modEnablementKey } from './modEnablement';
+import { isModEnabled } from './modEnablement';
 
 /**
  * Project 2 / Phase 1.5 — loads installed mods and registers them as
@@ -296,49 +296,37 @@ function readEnablement(): ModEnablementMap {
 }
 
 /**
- * MANIFEST.md §2 — materialise the `dev` default into `settings.moduleEnabled`.
+ * MANIFEST.md §2 — the mods that may register with the prompt-facing
+ * registries, given the enablement map.
  *
- * A dev mod is off unless explicitly switched on (`isModEnabled`). The problem
- * is that the rule has to hold in places that have never heard of a mod: the
+ * A dev mod is off unless explicitly switched on (`isModEnabled`), and that
+ * half of the rule has to hold in places that have never heard of a mod: the
  * payload builder gates contribution modules with a bare
- * `moduleEnabled?.[id] !== false` on a plain string id, and it does that
+ * `moduleEnabled?.[id] !== false` on a plain string id, and it does so
  * deliberately — `extensions.ts` is emphatic that the payload layer must not
- * import the mod layer. The compute-track and tier-block registries take the
- * same line, keeping disabled mods registered and gating at run time.
+ * import the mod layer. So the filter happens HERE, on the way in, rather than
+ * by teaching three downstream registries a rule they should not have to know.
  *
- * Teaching all of them the second half of the rule would mean either a
- * dependency inversion or three more copies of the predicate. So instead of
- * making absence mean two different things depending on who is asking, this
- * writes the default down ONCE, the first time a dev mod is seen: an explicit
- * `false`. After that every reader in the app — old, new, or mod-oblivious —
- * gets the right answer from the plain rule it already implements.
+ * NOT the same as filtering by enablement generally. A DISABLED NORMAL MOD IS
+ * STILL PUSHED: `registerTierEntries` documents that a disabled mod's tier
+ * entry stays registered so the block view can show what it would cost, and the
+ * downstream `!== false` gate already reads that case correctly. Only a dev mod
+ * is dropped, because it is the only case the downstream rule gets WRONG — an
+ * absent entry reads as enabled there and as disabled here.
  *
- * Idempotent. It only writes for a dev mod with NO entry, so a user who
- * switches a fixture on keeps it on across restarts; the seed never fires
- * again for that id. Returns the map to use for this cycle, seeds included,
- * so the caller does not race the store write.
+ * An earlier version of this wrote the default into `settings.moduleEnabled`
+ * instead, so every reader would see an explicit `false`. That lost a race:
+ * `App.tsx` fires `loadSettings()` and `refreshMods()` in the same tick, and
+ * `loadSettings` REPLACES `settings` wholesale rather than merging, so a seed
+ * written first was silently discarded. Filtering needs no write and cannot
+ * race — with an empty map, a dev mod reads as disabled, which is the answer
+ * that map should give.
  */
-function seedDevModDefaults(
+function promptFacingMods(
     mods: readonly ValidatedMod[],
     enablement: ModEnablementMap,
-): ModEnablementMap {
-    const seeds: Record<string, boolean> = {};
-    for (const mod of mods) {
-        if (!mod.dev) continue;
-        const key = modEnablementKey(mod.id);
-        if (enablement[key] === undefined) seeds[key] = false;
-    }
-    if (Object.keys(seeds).length === 0) return enablement;
-
-    const next = { ...enablement, ...seeds };
-    try {
-        useAppStore.getState().updateSettings({ moduleEnabled: next });
-        setRoleModuleEnabled(next);
-    } catch {
-        // No store (tests). The returned map still carries the seeds, so the
-        // load cycle behaves correctly even when the write cannot persist.
-    }
-    return next;
+): ValidatedMod[] {
+    return mods.filter((mod) => !mod.dev || isModEnabled(mod, enablement));
 }
 
 /**
@@ -387,15 +375,18 @@ export async function refreshMods(): Promise<{
         // that are simultaneously ready.
         const userOrder = readUserLoadOrder();
         const { mods, faults } = await fetchMods(userOrder);
-        // Write the `dev` default down before anything registers or activates,
-        // so every downstream reader sees an explicit switch position rather
-        // than having to know that absence means something different for a
-        // fixture. See `seedDevModDefaults`.
-        seedDevModDefaults(mods, readEnablement());
+        // MANIFEST.md §2 — a switched-off fixture must not reach the prompt.
+        // The downstream registries gate on a bare `!== false`, which reads an
+        // absent entry as enabled; that is right for a normal mod and wrong for
+        // a dev one, so the dev half of the rule is applied here. See
+        // `promptFacingMods`. Translations are registered for ALL mods: a
+        // string map costs nothing, and registering it unconditionally means a
+        // fixture switched on mid-session has its labels before it renders.
+        const registrable = promptFacingMods(mods, readEnablement());
         registerModTranslations(mods);
-        setExtensionModules(mods.map(modToContributionModule));
-        registerComputeTracks(mods);
-        registerTierEntries(mods);
+        setExtensionModules(registrable.map(modToContributionModule));
+        registerComputeTracks(registrable);
+        registerTierEntries(registrable);
         // Phase 1.5 — run the lifecycle load cycle for every enabled mod
         // with a `native` block. The host fires install/update/activate in
         // the loader's resolved order, contains faults per-mod, and mounts
