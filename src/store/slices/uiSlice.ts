@@ -2,7 +2,10 @@
 import type { PayloadTrace, PipelinePhase, StreamingStats, LoreCheckResult, LoreCheckSelection, ArmedLoot } from '../../types';
 import type { OneShotEventId } from '../../services/oneshot/oneShotEvents';
 
-export type ContextScreenId = 'sys' | 'rules-mgr' | 'world' | 'eng' | 'chpt' | 'mem';
+// WO-screen-modernization §A-2 — `rules-mgr` is gone. Rules Manager merged
+// into System Context as the [Write | Retrieval] segmented control; the nav
+// drawer's screen map no longer carries a separate entry.
+export type ContextScreenId = 'sys' | 'world' | 'eng' | 'chpt' | 'mem';
 
 
 // ── Slice type ─────────────────────────────────────────────────────────

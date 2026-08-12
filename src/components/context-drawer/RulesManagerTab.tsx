@@ -11,7 +11,7 @@ type ChunkWithMeta = {
     meta: RuleChunkMeta;
 };
 
-export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
+export function RulesManagerTab({ onBack, embedded }: { onBack?: () => void; embedded?: boolean }) {
     const context = useAppStore((s) => s.context);
     const updateContext = useAppStore((s) => s.updateContext);
     const activeCampaignId = useAppStore((s) => s.activeCampaignId);
@@ -336,23 +336,40 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
 
     return (
         // Shape B — Collection. Width comes from the lightbox (`wide`); the
-        // layout here is a sticky-header search + a responsive card grid
-        // that tiles 1 / 2 / 3 columns at md / xl / 2xl. Count badge matches
-        // the nav drawer's badge.
-        <div className="flex flex-col h-full space-y-4 font-mono">
-            <div className="sticky top-0 z-10 bg-surface -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-3 space-y-2">
-                <ScreenSection
-                    icon={Sliders}
-                    label="Rules Chunk Manager"
-                    count={chunksWithMeta.length}
-                    rightSlot={
-                        onBack ? (
-                            <button onClick={onBack} className="text-[11px] text-text-dim hover:text-text-primary">
-                                ← Back
-                            </button>
-                        ) : undefined
-                    }
-                />
+        // layout here is a toolbar (stats + re-index + bulk + search) pinned at
+        // the top and a responsive card grid that tiles 1 / 2 / 3 columns at
+        // md / xl / 2xl and scrolls beneath it.
+        //
+        // WO-screen-modernization §0-B — root is a flex CHILD of the lightbox
+        // chain, not a percentage-height element. `flex-1 min-h-0 flex flex-col`
+        // (replacing the inert `h-full`) is what lets the toolbar and the card
+        // grid get a real height from the continuous flex chain. The toolbar is
+        // `shrink-0` and the grid area is `flex-1 min-h-0 overflow-y-auto`, so
+        // the grid scrolls inside the column instead of relying on the outer
+        // lightbox scroller + sticky positioning (which needed negative
+        // margins to cancel the lightbox wrapper's padding — those no longer
+        // apply when this screen is embedded in RulesTab's 2-col grid).
+        <div className="flex-1 min-h-0 flex flex-col space-y-3 font-mono">
+            <div className="shrink-0 space-y-2">
+                {/* WO-screen-modernization §A-2 — when embedded inside RulesTab's
+                    segmented [Write | Retrieval] control, this screen does not
+                    render its own section header (the parent's header carries
+                    the title + segmented control). Standalone (legacy drawer
+                    path) keeps the full header + Back affordance. */}
+                {!embedded && (
+                    <ScreenSection
+                        icon={Sliders}
+                        label="Rules Chunk Manager"
+                        count={chunksWithMeta.length}
+                        rightSlot={
+                            onBack ? (
+                                <button onClick={onBack} className="text-[11px] text-text-dim hover:text-text-primary">
+                                    ← Back
+                                </button>
+                            ) : undefined
+                        }
+                    />
+                )}
 
                 <div className="text-[11px] text-text-dim/70 space-y-1">
                     <div>Total rules: {totalTokens} tokens across {chunksWithMeta.length} chunks</div>
@@ -435,39 +452,45 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
                 )}
             </div>
 
-            {chunksWithMeta.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center space-y-3 opacity-40">
-                    <Sliders size={48} strokeWidth={1} />
-                    <p className="text-xs font-mono uppercase tracking-tighter">No rules to manage.</p>
-                    <p className="text-[11px] text-text-dim/60 max-w-[300px] leading-relaxed normal-case tracking-normal">
-                        Paste rules in the System tab first, then come back here to manage chunks.
-                    </p>
-                </div>
-            ) : filtered.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 opacity-60">
-                    <Search size={32} strokeWidth={1} />
-                    <p className="text-xs font-mono uppercase tracking-tighter">No chunks match "{query}".</p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
-                    {filteredAlways.length > 0 && (
-                        <div className="space-y-2 md:col-span-2 2xl:col-span-3">
-                            <ScreenSection label="Always On" tone="terminal" count={filteredAlways.length} marker />
-                            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
-                                {filteredAlways.map(renderChunk)}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+                {chunksWithMeta.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center space-y-3 opacity-40">
+                        <Sliders size={48} strokeWidth={1} />
+                        <p className="text-xs font-mono uppercase tracking-tighter">No rules to manage.</p>
+                        <p className="text-[11px] text-text-dim/60 max-w-[300px] leading-relaxed normal-case tracking-normal">
+                            {/* WO-screen-modernization §A-2 — the editor and the
+                                manager are now one destination. The call to
+                                action points at the Write segment, not a
+                                separate tab. */}
+                            Switch to Write above and paste rules, then return here to chunk and index them.
+                        </p>
+                    </div>
+                ) : filtered.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 opacity-60">
+                        <Search size={32} strokeWidth={1} />
+                        <p className="text-xs font-mono uppercase tracking-tighter">No chunks match "{query}".</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                        {filteredAlways.length > 0 && (
+                            <div className="space-y-2 md:col-span-2 2xl:col-span-3">
+                                <ScreenSection label="Always On" tone="terminal" count={filteredAlways.length} marker />
+                                <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                                    {filteredAlways.map(renderChunk)}
+                                </div>
                             </div>
-                        </div>
-                    )}
-                    {filteredConditional.length > 0 && (
-                        <div className="space-y-2 md:col-span-2 2xl:col-span-3">
-                            <ScreenSection label="Conditional" count={filteredConditional.length} marker />
-                            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
-                                {filteredConditional.map(renderChunk)}
+                        )}
+                        {filteredConditional.length > 0 && (
+                            <div className="space-y-2 md:col-span-2 2xl:col-span-3">
+                                <ScreenSection label="Conditional" count={filteredConditional.length} marker />
+                                <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                                    {filteredConditional.map(renderChunk)}
+                                </div>
                             </div>
-                        </div>
-                    )}
-                </div>
-            )}
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

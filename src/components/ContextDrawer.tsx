@@ -1,16 +1,19 @@
 import { useState } from 'react';
-import { ScrollText, Database, Sparkles, BookOpen, Brain, Sliders } from 'lucide-react';
+import { ScrollText, Database, Sparkles, BookOpen, Brain } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { RulesTab } from './context-drawer/RulesTab';
-import { RulesManagerTab } from './context-drawer/RulesManagerTab';
 import { LoreTab } from './context-drawer/LoreTab';
 import { EnginesTab } from './context-drawer/EnginesTab';
 import { ChapterTab } from './context-drawer/ChapterTab';
 import { MemoryTab } from './context-drawer/MemoryTab';
 
+// WO-screen-modernization §A-2 — `rules-mgr` is gone. Rules Manager merged
+// into System Context as the [Write | Retrieval] segmented control, so this
+// legacy drawer has 5 tabs (the nav-drawer implementation in
+// ContextNavigationDrawer is what the app mounts; this file is kept for the
+// ledger-parity source check).
 const TABS = [
     { key: 'sys'   as const, Icon: ScrollText, label: 'System Context' },
-    { key: 'rules-mgr' as const, Icon: Sliders, label: 'Rules Manager' },
     { key: 'world' as const, Icon: Database,   label: 'World Info' },
     { key: 'eng'   as const, Icon: Sparkles,   label: 'Engine Tuning' },
     { key: 'chpt'  as const, Icon: BookOpen,   label: 'Chapters' },
@@ -76,8 +79,7 @@ export function LegacyContextDrawer() {
 
                 {/* Tab Panels */}
                 <div className="flex-1 overflow-y-auto">
-                    {currentActiveTab === 'sys' && <RulesTab onOpenManager={() => setActiveTab('rules-mgr')} />}
-                    {currentActiveTab === 'rules-mgr' && <RulesManagerTab onBack={() => setActiveTab('sys')} />}
+                    {currentActiveTab === 'sys' && <RulesTab />}
                     {currentActiveTab === 'world' && <LoreTab />}
                     {currentActiveTab === 'eng' && <EnginesTab />}
                     {currentActiveTab === 'chpt' && <ChapterTab />}

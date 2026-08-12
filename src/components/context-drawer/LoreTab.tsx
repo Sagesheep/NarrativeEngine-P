@@ -231,7 +231,12 @@ export function LoreTab() {
         // layout here is a sticky-header search + a responsive card grid that
         // tiles 1 / 2 / 3 columns at md / xl / 2xl. Count badge matches the
         // nav drawer's badge.
-        <div className="flex flex-col h-full space-y-4">
+        //
+        // WO-screen-modernization §0-B — root is a flex CHILD of the lightbox's
+        // continuous flex chain, not a percentage-height element (`h-full`
+        // against the wrapper's auto height was a no-op). `flex-1 min-h-0 flex
+        // flex-col` is what gives the sticky header + grid a real height.
+        <div className="flex-1 min-h-0 flex flex-col space-y-4">
             <div className="sticky top-0 z-10 bg-surface -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-3 space-y-2">
                 <ScreenSection
                     icon={Database}

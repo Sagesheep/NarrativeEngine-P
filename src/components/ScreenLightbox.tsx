@@ -115,16 +115,40 @@ export function ScreenLightbox({ size = 'default', width = 'form', title, onClos
                         <X size={18} />
                     </button>
                 </div>
-                {/* WO-screen-modernization §0 — the cap and padding live on an
-                    inner block wrapper, NOT on the flex child. `mx-auto` on a
-                    flex child of `flex flex-col` overrides `align-items: stretch`
-                    and collapses it to shrink-to-fit, so `max-w-5xl` never
-                    binds — the panel measured 442px at 1920vw with this same
-                    rule on the outer element. A plain block child lays out
-                    normally and the cap engages. Tested in the browser, not
-                    jsdom — jsdom has no layout engine and passes either way. */}
-                <div className="flex-1 min-h-0 overflow-y-auto">
-                    <div className={`p-4 sm:p-6 ${width === 'form' ? 'max-w-5xl mx-auto' : 'w-full'}`}>
+                {/* WO-screen-modernization §0 + §0-B — the cap, padding AND the
+                    height chain live on one inner wrapper. Three bugs in the
+                    same family shipped green here:
+
+                      §0  : `mx-auto` on a flex child of `flex flex-col` overrides
+                             `align-items: stretch` and collapses it to
+                             shrink-to-fit, so `max-w-5xl` never bound (panel
+                             measured 442px at 1920vw). Fix: cap+padding move to
+                             an inner wrapper.
+                      §0-B: that inner wrapper had auto height, so callers'
+                             `h-full` (height:100%) resolved against an
+                             auto-height parent and was ignored — the textarea
+                             stayed at 211px inside a 939px scroller with 297px
+                             of dead space below. Fix: make the chain a
+                             continuous flex column. The scroller is
+                             `flex flex-col`, the inner wrapper is
+                             `flex-1 min-h-0 flex flex-col`, and screen roots use
+                             `flex-1 min-h-0 flex flex-col` (NOT `h-full`).
+                      §0-C: making the inner wrapper a flex column re-introduced
+                             §0 for `form` screens — `mx-auto` on a column flex
+                             item with no explicit width collapses it to
+                             shrink-to-fit again (Memory measured 608px instead
+                             of the 1024px cap at 1280vw). Fix: pair `mx-auto`
+                             with `w-full` so the width is explicit (100% of the
+                             scroller) before `max-w-5xl` caps it and `mx-auto`
+                             centers the capped box. `w-full` + `max-w-5xl` +
+                             `mx-auto` on a column flex item: width resolves to
+                             min(100%, 1024px), then auto margins center it.
+                    No percentage heights anywhere in the chain. Verified in the
+                    browser with getBoundingClientRect, not jsdom — jsdom has no
+                    layout engine and returns 0 for every dimension. */}
+                <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+                    <div className={`p-4 sm:p-6 flex-1 min-h-0 flex flex-col ${
+                        width === 'form' ? 'max-w-5xl w-full mx-auto' : 'w-full'}`}>
                         {children}
                     </div>
                 </div>

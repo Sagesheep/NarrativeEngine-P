@@ -36,7 +36,12 @@ export function MemoryTab() {
         // textarea; the "editor" here is the Facts view (one entry per fact).
         // The header row carries the sub-tabs and the budget meter inline so
         // they stay visible while the list scrolls.
-        <div className="flex flex-col h-full space-y-3">
+        //
+        // WO-screen-modernization §0-B — root is a flex CHILD of the lightbox's
+        // continuous flex chain, not a percentage-height element. `h-full`
+        // against the wrapper's auto height was a no-op; `flex-1 min-h-0 flex
+        // flex-col` is what makes the Facts list fill the panel.
+        <div className="flex-1 min-h-0 flex flex-col space-y-3">
             <ScreenSection
                 icon={Brain}
                 label="Memory"

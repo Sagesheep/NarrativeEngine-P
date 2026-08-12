@@ -8,17 +8,22 @@ const src = (rel: string) => readFileSync(resolve(ROOT, rel), 'utf8');
 /**
  * WO-A2 §4.1 — ledger parity. Every control that existed in the old `BOOK`
  * and `PC` drawer tabs still exists and still works, in its new home. The
- * ContextDrawer exposes exactly 6 tabs and no character data.
+ * ContextDrawer exposes exactly 5 tabs and no character data.
+ *
+ * WO-screen-modernization §A-2 — the count dropped from 6 to 5 when Rules
+ * Manager merged into System Context as the [Write | Retrieval] segmented
+ * control. The `rules-mgr` tab is intentionally gone.
  */
-describe('WO-A2 §4.1 — ledger parity (source files preserved + ContextDrawer has 6 tabs)', () => {
-    it('ContextDrawer TABS has exactly 6 tabs and no pc/book keys', () => {
+describe('WO-A2 §4.1 — ledger parity (source files preserved + ContextDrawer has 5 tabs)', () => {
+    it('ContextDrawer TABS has exactly 5 tabs and no pc/book keys', () => {
         const s = src('src/components/ContextDrawer.tsx');
         expect(s).not.toMatch(/key:\s*'pc'/);
         expect(s).not.toMatch(/key:\s*'book'/);
         expect(s).not.toMatch(/CharacterProfileEditor/);
         expect(s).not.toMatch(/BookkeepingTab/);
+        expect(s).not.toMatch(/key:\s*'rules-mgr'/);
         const tabKeys = s.match(/key:\s*'([^']+)'/g) ?? [];
-        expect(tabKeys.length).toBe(6);
+        expect(tabKeys.length).toBe(5);
     });
 
     it('the CharacterLedgerModal is mounted in App.tsx (PCPanelModal removed)', () => {

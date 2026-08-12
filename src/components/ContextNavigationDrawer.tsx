@@ -1,12 +1,11 @@
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import {
     Archive, BookOpen, Brain, ChevronDown, ChevronRight, Database, FileText,
-    MapPin, Pin, ScrollText, Sliders, Sparkles, UserCircle, Users, Workflow,
+    MapPin, Pin, ScrollText, Sparkles, UserCircle, Users, Workflow,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import type { ContextScreenId } from '../store/slices/uiSlice';
 import { RulesTab } from './context-drawer/RulesTab';
-import { RulesManagerTab } from './context-drawer/RulesManagerTab';
 import { LoreTab } from './context-drawer/LoreTab';
 import { EnginesTab } from './context-drawer/EnginesTab';
 import { ChapterTab } from './context-drawer/ChapterTab';
@@ -30,9 +29,11 @@ interface NavLeaf {
     onSelect: () => void;
 }
 
+// WO-screen-modernization §A-2 — `rules-mgr` is gone. Rules Manager merged
+// into System Context as the [Write | Retrieval] segmented control. The nav
+// drawer's screen map and the ContextScreenId type no longer carry it.
 const CONTEXT_LEAVES: Record<ContextScreenId, Omit<NavLeaf, 'onSelect'>> = {
     sys: { id: 'sys', label: 'System Context', icon: ScrollText },
-    'rules-mgr': { id: 'rules-mgr', label: 'Rules Manager', icon: Sliders },
     world: { id: 'world', label: 'Lore', icon: Database },
     eng: { id: 'eng', label: 'Engine Tuning', icon: Sparkles },
     chpt: { id: 'chpt', label: 'Chapters', icon: BookOpen },
@@ -99,7 +100,6 @@ export function ContextNavigationDrawer() {
     const legacyLeaves: Record<GroupId, NavLeaf[]> = {
         story: [
             { ...CONTEXT_LEAVES.sys, onSelect: () => openContextScreen('sys') },
-            { ...CONTEXT_LEAVES['rules-mgr'], onSelect: () => openContextScreen('rules-mgr') },
             { ...CONTEXT_LEAVES.chpt, badge: chaptersCount, onSelect: () => openContextScreen('chpt') },
             { ...CONTEXT_LEAVES.mem, onSelect: () => openContextScreen('mem') },
         ],
@@ -121,19 +121,21 @@ export function ContextNavigationDrawer() {
         })),
     };
 
+    // WO-screen-modernization §A-2 — `rules-mgr` is no longer a separate
+    // screen. RulesTab hosts the [Write | Retrieval] segmented control and
+    // embeds RulesManagerTab for the Retrieval mode, so there is one
+    // destination instead of two. `RulesTab` takes no `onOpenManager` prop.
     const screenContent = contextScreen === 'sys'
-        ? <RulesTab onOpenManager={() => openContextScreen('rules-mgr')} />
-        : contextScreen === 'rules-mgr'
-            ? <RulesManagerTab onBack={() => openContextScreen('sys')} />
-            : contextScreen === 'world'
-                ? <LoreTab />
-                : contextScreen === 'eng'
-                    ? <EnginesTab />
-                    : contextScreen === 'chpt'
-                        ? <ChapterTab />
-                        : contextScreen === 'mem'
-                            ? <MemoryTab />
-                            : null;
+        ? <RulesTab />
+        : contextScreen === 'world'
+            ? <LoreTab />
+            : contextScreen === 'eng'
+                ? <EnginesTab />
+                : contextScreen === 'chpt'
+                    ? <ChapterTab />
+                    : contextScreen === 'mem'
+                        ? <MemoryTab />
+                        : null;
     const screenTitle = contextScreen ? CONTEXT_LEAVES[contextScreen].label : '';
 
     return (
@@ -176,15 +178,22 @@ export function ContextNavigationDrawer() {
                 <ScreenLightbox
                     title={screenTitle}
                     onClose={closeContextScreen}
-                    // WO-screen-modernization §1 — width is per-screen, assigned
-                    // by the shape classification. Editor screens get `form`
-                    // (System Context, Memory). Collection screens get `wide`
-                    // (Lore, Chapters, Rules Manager, Engine Tuning) — their
-                    // contents tile into card grids that fill the width.
+                    // WO-screen-modernization §1 + §A-1 — width is per-screen,
+                    // assigned by the shape classification.
+                    //   - System Context (sys) is `wide`: §A-1 lays it out as an
+                    //     asymmetric 2fr/1fr grid (rules editor LEFT fills height;
+                    //     Active Scene Note + Diagnostics RIGHT). The grid needs
+                    //     the panel width — `form`'s 1024px cap would squeeze
+                    //     the editor to ~683px and re-create the narrow-porthole
+                    //     complaint. The editor's own column width self-limits.
+                    //   - Collection screens (Lore, Chapters, Engine Tuning) are
+                    //     `wide` — their contents tile into card grids that fill
+                    //     the width.
+                    //   - Memory is `form` — a single-column editor.
                     width={
-                        contextScreen === 'world'
+                        contextScreen === 'sys'
+                        || contextScreen === 'world'
                         || contextScreen === 'chpt'
-                        || contextScreen === 'rules-mgr'
                         || contextScreen === 'eng'
                             ? 'wide'
                             : 'form'
