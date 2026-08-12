@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { BookOpen, Plus, Loader2, Sparkles, Scale } from 'lucide-react';
+import { BookOpen, Plus, Loader2, Sparkles, Scale, Search, X } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { api } from '../../services/llm/apiClient';
 import { ChapterCard } from './ChapterCard';
@@ -7,6 +7,7 @@ import { ResolvedStatePanel } from './ResolvedStatePanel';
 import { runCombinedSeal } from '../../services/turn/postTurnPipeline';
 import { backfillChapterSynopses, chaptersNeedingSynopsis } from '../../services/archive-memory/synopsisBackfill';
 import { toast } from '../Toast';
+import { ScreenSection } from '../primitives/ScreenSection';
 import type { ArchiveChapter } from '../../types';
 import { CHAPTER_SCENE_SOFT_CAP } from '../../types';
 
@@ -32,6 +33,9 @@ export const ChapterTab: React.FC = () => {
     const [backfillProgress, setBackfillProgress] = useState<{ done: number; total: number } | null>(null);
     // AbortController for the in-flight backfill. Aborted on unmount or campaign switch.
     const backfillAbortRef = useRef<AbortController | null>(null);
+    // WO-screen-modernization §1 — sticky-header search. A live campaign
+    // carries 24 chapters; an unfiltered list of that size needs a filter.
+    const [query, setQuery] = useState('');
 
     const refreshChapters = useCallback(async () => {
         if (!activeCampaignId) return;
@@ -331,48 +335,84 @@ export const ChapterTab: React.FC = () => {
         [chapters]
     );
 
+    // WO-screen-modernization §1 — search across the chapter title and
+    // synopsis. Case-insensitive substring.
+    const filteredChapters = useMemo(() => {
+        if (!query.trim()) return chapters;
+        const q = query.toLowerCase();
+        return chapters.filter(c =>
+            c.title.toLowerCase().includes(q)
+            || (c.synopsis ?? '').toLowerCase().includes(q)
+        );
+    }, [chapters, query]);
+
     return (
-        <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between mb-4 px-1">
-                <div className="flex items-center space-x-2">
-                    <BookOpen size={18} className="text-terminal" />
-                    <h2 className="text-sm font-bold uppercase tracking-widest text-text-primary font-mono">Chapters</h2>
-                    <span className="text-[12px] bg-void-dark px-1.5 py-0.5 rounded border border-border text-text-muted font-mono">
-                        {chapters.length}
-                    </span>
-                    {pinnedChapterIds.length > 0 && (
-                        <span className="text-[12px] font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded font-mono">
-                            {pinnedChapterIds.length} PINNED
-                        </span>
-                    )}
-                </div>
-                <div className="flex items-center space-x-1.5">
-                    {/* Always reachable, not just when drift is detected — the
-                        answer "your chapters are already even" is one the user
-                        should be able to ask for, and a button that only exists
-                        when something is wrong cannot be found when it is. */}
-                    <button
-                        onClick={handleRefit}
-                        disabled={isRefitting}
-                        title={`Reflow chapters to ${CHAPTER_SCENE_SOFT_CAP} scenes each`}
-                        className="flex items-center space-x-1 px-2 py-1 rounded bg-void-dark border border-border hover:border-ice hover:text-ice text-text-muted transition-colors text-[12px] font-bold uppercase disabled:opacity-50"
-                    >
-                        {isRefitting ? <Loader2 size={12} className="animate-spin" /> : <Scale size={12} />}
-                        <span>Refit</span>
-                    </button>
-                    <button
-                        onClick={handleNewChapter}
-                        disabled={isCreating}
-                        className="flex items-center space-x-1 px-2 py-1 rounded bg-terminal/10 border border-terminal/30 text-terminal hover:bg-terminal/20 transition-colors text-[12px] font-bold uppercase disabled:opacity-50"
-                    >
-                        {isCreating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-                        <span>New</span>
-                    </button>
-                </div>
+        // Shape B — Collection. Width comes from the lightbox (`wide`); the
+        // layout here is a sticky-header search + a responsive card grid that
+        // tiles 1 / 2 / 3 columns at md / xl / 2xl. Count badge matches the
+        // nav drawer's badge.
+        <div className="flex flex-col h-full space-y-4">
+            <div className="sticky top-0 z-10 bg-surface -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-3 space-y-2">
+                <ScreenSection
+                    icon={BookOpen}
+                    label="Chapters"
+                    count={chapters.length}
+                    rightSlot={
+                        <>
+                            {/* Always reachable, not just when drift is detected — the
+                                answer "your chapters are already even" is one the user
+                                should be able to ask for, and a button that only exists
+                                when something is wrong cannot be found when it is. */}
+                            <button
+                                onClick={handleRefit}
+                                disabled={isRefitting}
+                                title={`Reflow chapters to ${CHAPTER_SCENE_SOFT_CAP} scenes each`}
+                                className="flex items-center space-x-1 px-2 py-1 rounded bg-void-dark border border-border hover:border-ice hover:text-ice text-text-muted transition-colors text-[12px] font-bold uppercase disabled:opacity-50"
+                            >
+                                {isRefitting ? <Loader2 size={12} className="animate-spin" /> : <Scale size={12} />}
+                                <span>Refit</span>
+                            </button>
+                            <button
+                                onClick={handleNewChapter}
+                                disabled={isCreating}
+                                className="flex items-center space-x-1 px-2 py-1 rounded bg-terminal/10 border border-terminal/30 text-terminal hover:bg-terminal/20 transition-colors text-[12px] font-bold uppercase disabled:opacity-50"
+                            >
+                                {isCreating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                                <span>New</span>
+                            </button>
+                        </>
+                    }
+                />
+                {pinnedChapterIds.length > 0 && (
+                    <div className="text-[12px] font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded font-mono w-fit">
+                        {pinnedChapterIds.length} PINNED
+                    </div>
+                )}
+                {chapters.length > 0 && (
+                    <div className="relative">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none" />
+                        <input
+                            type="text"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Filter by title or synopsis..."
+                            className="w-full pl-8 pr-8 py-1.5 bg-void border border-border rounded text-xs text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal transition-colors"
+                        />
+                        {query && (
+                            <button
+                                onClick={() => setQuery('')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary transition-colors"
+                                aria-label="Clear filter"
+                            >
+                                <X size={12} />
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
 
             {missingSynopsisCount > 0 && (
-                <div className="mb-3 px-1">
+                <div className="-mx-4 sm:-mx-6 px-4 sm:mx-0 sm:px-0">
                     <button
                         onClick={handleBackfillSynopses}
                         disabled={backfillProgress !== null}
@@ -394,7 +434,7 @@ export const ChapterTab: React.FC = () => {
             )}
 
             {driftCount > 0 && (
-                <div className="mb-3 px-1">
+                <div className="-mx-4 sm:-mx-6 px-4 sm:mx-0 sm:px-0">
                     <button
                         onClick={handleRefit}
                         disabled={isRefitting}
@@ -415,48 +455,58 @@ export const ChapterTab: React.FC = () => {
                 </div>
             )}
 
-            <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto pr-1">
                 <ResolvedStatePanel />
 
                 {chapters.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center space-y-3 opacity-40">
                         <BookOpen size={48} strokeWidth={1} />
                         <p className="text-xs font-mono uppercase tracking-tighter">No chapters defined</p>
+                        <p className="text-[11px] text-text-dim/60 max-w-[300px] leading-relaxed normal-case tracking-normal">
+                            Use the New button above to start the first chapter.
+                        </p>
+                    </div>
+                ) : filteredChapters.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 opacity-60">
+                        <Search size={32} strokeWidth={1} />
+                        <p className="text-xs font-mono uppercase tracking-tighter">No chapters match "{query}".</p>
                     </div>
                 ) : (
-                    chapters.map((ch, idx) => {
-                        const isNextAdjacent = idx < chapters.length - 1;
-                        const nextChapter = chapters[idx + 1];
+                    <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                        {filteredChapters.map((ch, idx) => {
+                            const isNextAdjacent = idx < filteredChapters.length - 1;
+                            const nextChapter = filteredChapters[idx + 1];
 
-                        return (
-                            <div key={ch.chapterId} className="relative">
-                                {isRegenerating === ch.chapterId && (
-                                    <div className="absolute inset-0 bg-void/60 z-10 flex items-center justify-center rounded-lg backdrop-blur-[1px]">
-                                        <div className="flex items-center space-x-2 text-terminal font-mono text-[12px] uppercase font-bold">
-                                            <Loader2 size={14} className="animate-spin" />
-                                            <span>Processing...</span>
+                            return (
+                                <div key={ch.chapterId} className="relative">
+                                    {isRegenerating === ch.chapterId && (
+                                        <div className="absolute inset-0 bg-void/60 z-10 flex items-center justify-center rounded-lg backdrop-blur-[1px]">
+                                            <div className="flex items-center space-x-2 text-terminal font-mono text-[12px] uppercase font-bold">
+                                                <Loader2 size={14} className="animate-spin" />
+                                                <span>Processing...</span>
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
-                                <ChapterCard
-                                    chapter={ch}
-                                    expanded={expandedId === ch.chapterId}
-                                    onToggle={() => setExpandedId(expandedId === ch.chapterId ? null : ch.chapterId)}
-                                    onSeal={handleSeal}
-                                    onRegenerate={() => regenerateChapter(ch, false)}
-                                    onRename={(title) => handleRename(ch.chapterId, title)}
-                                    onSplit={(sceneId) => handleSplit(ch.chapterId, sceneId)}
-                                    isNextAdjacent={isNextAdjacent}
-                                    onMergeWithNext={() => nextChapter && handleMerge(ch.chapterId, nextChapter.chapterId)}
-                                    timelineEvents={timeline}
-                                    onDeleteTimelineEvent={handleDeleteTimelineEvent}
-                                    isPinned={pinnedChapterIds.includes(ch.chapterId)}
-                                    onTogglePin={() => pinChapter(ch.chapterId)}
-                                    onDelete={() => handleDeleteChapter(ch)}
-                                />
-                            </div>
-                        );
-                    })
+                                    )}
+                                    <ChapterCard
+                                        chapter={ch}
+                                        expanded={expandedId === ch.chapterId}
+                                        onToggle={() => setExpandedId(expandedId === ch.chapterId ? null : ch.chapterId)}
+                                        onSeal={handleSeal}
+                                        onRegenerate={() => regenerateChapter(ch, false)}
+                                        onRename={(title) => handleRename(ch.chapterId, title)}
+                                        onSplit={(sceneId) => handleSplit(ch.chapterId, sceneId)}
+                                        isNextAdjacent={isNextAdjacent}
+                                        onMergeWithNext={() => nextChapter && handleMerge(ch.chapterId, nextChapter.chapterId)}
+                                        timelineEvents={timeline}
+                                        onDeleteTimelineEvent={handleDeleteTimelineEvent}
+                                        isPinned={pinnedChapterIds.includes(ch.chapterId)}
+                                        onTogglePin={() => pinChapter(ch.chapterId)}
+                                        onDelete={() => handleDeleteChapter(ch)}
+                                    />
+                                </div>
+                            );
+                        })}
+                    </div>
                 )}
             </div>
         </div>

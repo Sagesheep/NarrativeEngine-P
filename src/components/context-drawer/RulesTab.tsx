@@ -4,6 +4,7 @@ import { PayloadTraceView } from '../PayloadTraceView';
 import { SceneNoteEditor } from '../SceneNoteEditor';
 import { countTokens } from '../../services/infrastructure/tokenizer';
 import { DEFAULT_RULES } from '../../services/rules/defaultRules';
+import { ScreenSection } from '../primitives/ScreenSection';
 
 export function RulesTab({ onOpenManager }: { onOpenManager?: () => void }) {
     const context = useAppStore((s) => s.context);
@@ -19,17 +20,17 @@ export function RulesTab({ onOpenManager }: { onOpenManager?: () => void }) {
     const usingDefaults = !context.rulesRaw;
 
     return (
-        <div className="px-4 py-4 space-y-4">
-            <div>
-                <label className="flex items-center gap-2 text-[13px] text-ice uppercase tracking-wider mb-2">
-                    <ScrollText size={13} />
-                    Rules / Mechanics
-                </label>
-                {usingDefaults && (
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-[12px] text-terminal/80">
-                            Using built-in default rules. Paste your own below to override.
-                        </span>
+        // Shape A — Editor. The screen is one large text field plus the
+        // metadata that describes it. A 90vh lightbox means a fixed `rows={6}`
+        // textarea is a ~150px porthole with 5k tokens scrolling through it.
+        // The column lets the field grow to fill the height, and the metadata
+        // pins to the bottom of the field — not below the fold.
+        <div className="flex flex-col h-full space-y-4">
+            <ScreenSection
+                icon={ScrollText}
+                label="Rules / Mechanics"
+                rightSlot={
+                    usingDefaults ? (
                         <button
                             onClick={() => updateContext({ rulesRaw: DEFAULT_RULES })}
                             className="flex items-center gap-1 text-[11px] text-terminal hover:text-text-primary transition-colors font-bold uppercase tracking-wider bg-terminal/10 hover:bg-terminal/20 px-1.5 py-0.5 rounded-sm border border-terminal/20"
@@ -38,14 +39,25 @@ export function RulesTab({ onOpenManager }: { onOpenManager?: () => void }) {
                             <Sparkles size={9} />
                             Load v4.0 Example
                         </button>
-                    </div>
-                )}
+                    ) : undefined
+                }
+            />
+            {usingDefaults && (
+                <p className="text-[12px] text-terminal/80 -mt-2">
+                    Using built-in default rules. Paste your own below to override.
+                </p>
+            )}
+
+            {/* The textarea fills available height. `flex-1 min-h-0` on the
+                wrapper lets the field expand; `resize-y` keeps the user's
+                manual drag. The metadata row pins to the bottom of the field
+                (inside the same column, not below the fold). */}
+            <div className="flex-1 min-h-0 flex flex-col">
                 <textarea
                     value={context.rulesRaw}
                     onChange={(e) => updateContext({ rulesRaw: e.target.value })}
                     placeholder="Paste game rules, mechanics, character stats..."
-                    rows={6}
-                    className="w-full bg-void border border-border px-3 py-2 text-xs text-text-primary placeholder:text-text-dim/40 font-mono resize-y"
+                    className="flex-1 min-h-[12rem] w-full bg-void border border-border px-3 py-2 text-xs text-text-primary placeholder:text-text-dim/40 font-mono resize-y outline-none focus:border-terminal transition-colors"
                 />
                 <div className="flex items-center justify-between mt-1 text-[12px] font-mono text-text-dim">
                     <span>{tokenCount.toLocaleString()} tok</span>
@@ -77,10 +89,7 @@ export function RulesTab({ onOpenManager }: { onOpenManager?: () => void }) {
 
             {settings.debugMode && (
                 <div className="pt-4 border-t border-border">
-                    <div className="text-[12px] text-terminal uppercase tracking-widest font-bold mb-2 flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-terminal animate-pulse" />
-                        Diagnostics
-                    </div>
+                    <ScreenSection label="Diagnostics" tone="terminal" />
                     <PayloadTraceView />
                 </div>
             )}

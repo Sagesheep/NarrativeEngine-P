@@ -176,7 +176,19 @@ export function ContextNavigationDrawer() {
                 <ScreenLightbox
                     title={screenTitle}
                     onClose={closeContextScreen}
-                    width={contextScreen === 'eng' ? 'wide' : 'form'}
+                    // WO-screen-modernization §1 — width is per-screen, assigned
+                    // by the shape classification. Editor screens get `form`
+                    // (System Context, Memory). Collection screens get `wide`
+                    // (Lore, Chapters, Rules Manager, Engine Tuning) — their
+                    // contents tile into card grids that fill the width.
+                    width={
+                        contextScreen === 'world'
+                        || contextScreen === 'chpt'
+                        || contextScreen === 'rules-mgr'
+                        || contextScreen === 'eng'
+                            ? 'wide'
+                            : 'form'
+                    }
                 >
                     {screenContent}
                 </ScreenLightbox>

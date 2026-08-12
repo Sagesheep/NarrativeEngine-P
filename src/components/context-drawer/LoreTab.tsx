@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Database, Search, X } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import type { LoreChunk } from '../../types';
+import { ScreenSection } from '../primitives/ScreenSection';
 
 export function LoreTab() {
     const loreChunks = useAppStore((s) => s.loreChunks);
@@ -10,6 +11,10 @@ export function LoreTab() {
     // WO-12.3b — per-chunk content preview (desktop-native nicety).
     // Mirror of the inline-expand pattern used in ChapterCard/FactsView.
     const [expandedContent, setExpandedContent] = useState<Record<string, boolean>>({});
+    // WO-screen-modernization §1 — sticky-header search. A live campaign
+    // can carry dozens of chunks; an ungrouped list of that size is the
+    // single worst screen in the app without a filter.
+    const [query, setQuery] = useState('');
 
     const bulkModeIsOn = (mode: 'vector' | 'keyword' | 'always' | 'auto') => {
         if (loreChunks.length === 0) return false;
@@ -61,6 +66,19 @@ export function LoreTab() {
         if (!chunk) return;
         updateLoreChunk(chunkId, { triggerKeywords: chunk.triggerKeywords.filter(k => k !== kw) });
     };
+
+    // WO-screen-modernization §1 — search across the chunk header text and
+    // trigger keywords. Case-insensitive substring. Matches the cross-field
+    // pattern already used in NPC/Location ledgers.
+    const filteredChunks = query.trim()
+        ? loreChunks.filter(c => {
+            const q = query.toLowerCase();
+            const header = c.header.replace(/\[CHUNK:\s*[A-Z_]+[—\-\s]*\]/i, '').trim().toLowerCase();
+            return header.includes(q)
+                || (c.category || '').toLowerCase().includes(q)
+                || (c.triggerKeywords || []).some(k => k.toLowerCase().includes(q));
+        })
+        : loreChunks;
 
     const renderChunk = (chunk: LoreChunk) => (
         <div key={chunk.id} className={`bg-void rounded border p-2 transition-colors ${chunk.disabled ? 'opacity-50 border-border' : chunk.alwaysInclude ? 'border-terminal/40 shadow-[0_0_10px_rgba(74,222,128,0.05)]' : 'border-border'}`}>
@@ -209,13 +227,40 @@ export function LoreTab() {
     );
 
     return (
-        <div className="px-4 py-4 space-y-4">
-            <div className="space-y-1">
-                <p className="text-[11px] text-text-dim/50">
-                    Chunks trigger when keywords appear in recent messages
-                </p>
+        // Shape B — Collection. Width comes from the lightbox (`wide`); the
+        // layout here is a sticky-header search + a responsive card grid that
+        // tiles 1 / 2 / 3 columns at md / xl / 2xl. Count badge matches the
+        // nav drawer's badge.
+        <div className="flex flex-col h-full space-y-4">
+            <div className="sticky top-0 z-10 bg-surface -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-3 space-y-2">
+                <ScreenSection
+                    icon={Database}
+                    label="Lore"
+                    count={loreChunks.length}
+                />
                 {loreChunks.length > 0 && (
-                    <div className="flex items-center gap-1.5 pt-2 flex-wrap">
+                    <div className="relative">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none" />
+                        <input
+                            type="text"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Filter by header, category, or keyword..."
+                            className="w-full pl-8 pr-8 py-1.5 bg-void border border-border rounded text-xs text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal transition-colors"
+                        />
+                        {query && (
+                            <button
+                                onClick={() => setQuery('')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary transition-colors"
+                                aria-label="Clear filter"
+                            >
+                                <X size={12} />
+                            </button>
+                        )}
+                    </div>
+                )}
+                {loreChunks.length > 0 && (
+                    <div className="flex items-center gap-1.5 pt-1 flex-wrap">
                         <span className="text-[8px] text-text-dim/60 uppercase tracking-wider shrink-0">Bulk:</span>
                         {(['auto', 'vector', 'keyword', 'always'] as const).map(mode => {
                             const on = bulkModeIsOn(mode);
@@ -244,34 +289,42 @@ export function LoreTab() {
                     </div>
                 )}
             </div>
+
             {loreChunks.length === 0 ? (
-                <p className="text-text-dim/50 text-xs text-center mt-8">
-                    No lore uploaded for this campaign.
-                </p>
+                <div className="flex flex-col items-center justify-center py-12 text-center space-y-3 opacity-40">
+                    <Database size={48} strokeWidth={1} />
+                    <p className="text-xs font-mono uppercase tracking-tighter">No lore uploaded for this campaign.</p>
+                    <p className="text-[11px] text-text-dim/60 max-w-[300px] leading-relaxed normal-case tracking-normal">
+                        Open World Lore in the campaign menu to import lore files.
+                    </p>
+                </div>
+            ) : filteredChunks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 opacity-60">
+                    <Search size={32} strokeWidth={1} />
+                    <p className="text-xs font-mono uppercase tracking-tighter">No chunks match "{query}".</p>
+                </div>
             ) : (
-                <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
                     {(() => {
-                        const alwaysOn = loreChunks.filter(c => c.alwaysInclude);
-                        const conditional = loreChunks.filter(c => !c.alwaysInclude);
+                        const alwaysOn = filteredChunks.filter(c => c.alwaysInclude);
+                        const conditional = filteredChunks.filter(c => !c.alwaysInclude);
 
                         return (
                             <>
                                 {alwaysOn.length > 0 && (
-                                    <div className="space-y-2 mb-4">
-                                        <div className="text-[12px] text-terminal uppercase tracking-wider font-bold mb-1 border-b border-terminal/20 pb-1 flex items-center gap-2">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-terminal animate-pulse" />
-                                            Always On
+                                    <div className="space-y-2 md:col-span-2 2xl:col-span-3">
+                                        <ScreenSection label="Always On" tone="terminal" count={alwaysOn.length} marker />
+                                        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                                            {alwaysOn.map(renderChunk)}
                                         </div>
-                                        {alwaysOn.map(renderChunk)}
                                     </div>
                                 )}
                                 {conditional.length > 0 && (
-                                    <div className="space-y-2">
-                                        <div className="text-[12px] text-text-dim uppercase tracking-wider font-bold mb-1 border-b border-border/50 pb-1 flex items-center gap-2">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-text-dim/50" />
-                                            Conditional Triggers
+                                    <div className="space-y-2 md:col-span-2 2xl:col-span-3">
+                                        <ScreenSection label="Conditional Triggers" count={conditional.length} marker />
+                                        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                                            {conditional.map(renderChunk)}
                                         </div>
-                                        {conditional.map(renderChunk)}
                                     </div>
                                 )}
                             </>

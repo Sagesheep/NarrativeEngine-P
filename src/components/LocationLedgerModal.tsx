@@ -242,9 +242,26 @@ export function LocationLedgerModal() {
                     {/* List */}
                     <div className="flex-1 overflow-y-auto p-2 space-y-1">
                         {displayed.length === 0 && (
-                            <p className="text-text-dim text-xs text-center p-4 italic opacity-50">No places recorded yet.</p>
+                            // WO-screen-modernization §2c — empty state. The
+                            // previous "No places recorded yet." was a single
+                            // italic line; the live campaign reads 0 here. Match
+                            // the PinnedMemoriesPanel pattern: icon + heading +
+                            // one-line instruction. The "New Place" button above
+                            // is the actual affordance, so this just confirms to
+                            // the user what an empty ledger means.
+                            <div className="flex flex-col items-center justify-center py-10 px-4 text-center space-y-2 opacity-60">
+                                <MapPin size={32} strokeWidth={1} className="opacity-50" />
+                                <p className="text-text-dim text-xs uppercase tracking-widest font-bold">
+                                    {searchQuery.trim() ? `No matches for "${searchQuery.trim()}".` : 'No places recorded yet.'}
+                                </p>
+                                {!searchQuery.trim() && (
+                                    <p className="text-text-dim/60 text-[10px] max-w-[260px] leading-relaxed normal-case tracking-normal">
+                                        Use "New Place" above, or mention a location in a message and the engine will suggest it.
+                                    </p>
+                                )}
+                            </div>
                         )}
-                        {displayed.map(loc => {
+                        {displayed.length > 0 && displayed.map(loc => {
                             const isActive = selectedId === loc.id && !isEditing;
                             const isCurrent = context.currentPlaceId === loc.id;
                             return (

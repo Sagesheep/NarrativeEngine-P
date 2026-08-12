@@ -115,8 +115,18 @@ export function ScreenLightbox({ size = 'default', width = 'form', title, onClos
                         <X size={18} />
                     </button>
                 </div>
-                <div className={`flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 ${width === 'form' ? 'max-w-5xl mx-auto' : ''}`}>
-                    {children}
+                {/* WO-screen-modernization §0 — the cap and padding live on an
+                    inner block wrapper, NOT on the flex child. `mx-auto` on a
+                    flex child of `flex flex-col` overrides `align-items: stretch`
+                    and collapses it to shrink-to-fit, so `max-w-5xl` never
+                    binds — the panel measured 442px at 1920vw with this same
+                    rule on the outer element. A plain block child lays out
+                    normally and the cap engages. Tested in the browser, not
+                    jsdom — jsdom has no layout engine and passes either way. */}
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                    <div className={`p-4 sm:p-6 ${width === 'form' ? 'max-w-5xl mx-auto' : 'w-full'}`}>
+                        {children}
+                    </div>
                 </div>
             </div>
         </div>

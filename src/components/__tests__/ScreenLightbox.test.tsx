@@ -52,18 +52,26 @@ describe('ScreenLightbox', () => {
         expect(screen.getByRole('dialog').querySelector('.w-full.h-full')).not.toBeNull();
     });
 
-    it('caps content width at form (default) and pads the scroll container', () => {
+    it('caps content width at form (default) and pads the inner wrapper', () => {
         render(<ScreenLightbox title="Lore" onClose={() => undefined}><p>Content</p></ScreenLightbox>);
         const scroll = screen.getByRole('dialog').querySelector('.overflow-y-auto');
-        expect(scroll?.className).toMatch(/max-w-5xl/);
-        expect(scroll?.className).toMatch(/mx-auto/);
-        expect(scroll?.className).toMatch(/p-4/);
+        // The scroll container itself no longer carries the cap or padding —
+        // see WO-screen-modernization §0 for why. Cap + padding moved to an
+        // inner block wrapper so `mx-auto` actually engages.
+        expect(scroll?.className).not.toMatch(/max-w-5xl/);
+        const inner = scroll?.firstElementChild;
+        expect(inner?.className).toMatch(/max-w-5xl/);
+        expect(inner?.className).toMatch(/mx-auto/);
+        expect(inner?.className).toMatch(/p-4/);
     });
 
     it('opts out of the form cap with width="wide"', () => {
         render(<ScreenLightbox width="wide" title="Engine Tuning" onClose={() => undefined}><p>Content</p></ScreenLightbox>);
         const scroll = screen.getByRole('dialog').querySelector('.overflow-y-auto');
         expect(scroll?.className).not.toMatch(/max-w-5xl/);
-        expect(scroll?.className).toMatch(/p-4/);
+        const inner = scroll?.firstElementChild;
+        expect(inner?.className).not.toMatch(/max-w-5xl/);
+        expect(inner?.className).toMatch(/p-4/);
+        expect(inner?.className).toMatch(/w-full/);
     });
 });

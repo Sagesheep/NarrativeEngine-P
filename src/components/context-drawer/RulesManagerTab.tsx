@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Plus, RotateCcw } from 'lucide-react';
+import { X, Plus, RotateCcw, Search, Sliders } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import type { LoreChunk, RuleChunkMeta } from '../../types';
 import { chunkLoreFile } from '../../services/lore/loreChunker';
 import { indexRules, deriveDefaultMeta, type IndexingProgress } from '../../services/rules/rulesIndexer';
+import { ScreenSection } from '../primitives/ScreenSection';
 
 type ChunkWithMeta = {
     chunk: LoreChunk;
@@ -23,6 +24,9 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
     const [newKeyword, setNewKeyword] = useState<Record<string, string>>({});
     const [newSecondary, setNewSecondary] = useState<Record<string, string>>({});
     const [confirmRegenId, setConfirmRegenId] = useState<string | null>(null);
+    // WO-screen-modernization §1 — sticky-header search. A live ruleset
+    // produces dozens of chunks; this filter mirrors the pattern in Lore.
+    const [query, setQuery] = useState('');
 
     const parseChunks = useCallback(() => {
         if (!context.rulesRaw) {
@@ -314,105 +318,152 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
         );
     };
 
-    const alwaysChunks = chunksWithMeta.filter(c => c.meta.activationModes.includes('always'));
-    const conditionalChunks = chunksWithMeta.filter(c => !c.meta.activationModes.includes('always'));
+    // WO-screen-modernization §1 — search across the chunk header and
+    // trigger keywords. Case-insensitive substring.
+    const filtered = query.trim()
+        ? chunksWithMeta.filter(c => {
+            const q = query.toLowerCase();
+            return c.chunk.header.toLowerCase().includes(q)
+                || (c.meta.triggerKeywords ?? []).some(k => k.toLowerCase().includes(q))
+                || (c.meta.secondaryKeywords ?? []).some(k => k.toLowerCase().includes(q));
+        })
+        : chunksWithMeta;
+    const filteredAlways = filtered.filter(c => c.meta.activationModes.includes('always'));
+    const filteredConditional = filtered.filter(c => !c.meta.activationModes.includes('always'));
 
     const totalTokens = chunksWithMeta.reduce((sum, c) => sum + c.chunk.tokens, 0);
     const rulesBudget = Math.floor((settings.contextLimit || 8192) * (settings.rulesBudgetPct ?? 0.10));
 
     return (
-        <div className="px-4 py-4 space-y-4 font-mono">
-            <div className="flex items-center justify-between">
-                <span className="text-[12px] text-terminal uppercase tracking-wider font-bold">
-                    Rules Chunk Manager
-                </span>
-                {onBack && (
-                    <button onClick={onBack} className="text-[11px] text-text-dim hover:text-text-primary">
-                        ← Back
-                    </button>
+        // Shape B — Collection. Width comes from the lightbox (`wide`); the
+        // layout here is a sticky-header search + a responsive card grid
+        // that tiles 1 / 2 / 3 columns at md / xl / 2xl. Count badge matches
+        // the nav drawer's badge.
+        <div className="flex flex-col h-full space-y-4 font-mono">
+            <div className="sticky top-0 z-10 bg-surface -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-3 space-y-2">
+                <ScreenSection
+                    icon={Sliders}
+                    label="Rules Chunk Manager"
+                    count={chunksWithMeta.length}
+                    rightSlot={
+                        onBack ? (
+                            <button onClick={onBack} className="text-[11px] text-text-dim hover:text-text-primary">
+                                ← Back
+                            </button>
+                        ) : undefined
+                    }
+                />
+
+                <div className="text-[11px] text-text-dim/70 space-y-1">
+                    <div>Total rules: {totalTokens} tokens across {chunksWithMeta.length} chunks</div>
+                    <div>RAG budget: {rulesBudget} tokens/turn (threshold: {Math.floor(rulesBudget * 1.2)} tokens)</div>
+                </div>
+
+                <button
+                    onClick={runIndex}
+                    disabled={indexing || !context.rulesRaw}
+                    className={`w-full py-2 text-[12px] uppercase tracking-wider font-bold rounded transition-colors ${
+                        indexing
+                            ? 'bg-surface text-text-dim cursor-not-allowed'
+                            : 'bg-terminal/10 text-terminal hover:bg-terminal/20'
+                    }`}
+                >
+                    {indexing
+                        ? `Indexing... ${progress ? `${progress.current}/${progress.total} (${progress.phase})` : ''}`
+                        : 'Re-index Rules'}
+                </button>
+
+                {indexing && progress && (
+                    <div className="h-1 bg-void-lighter rounded overflow-hidden">
+                        <div
+                            className="h-full bg-terminal transition-all duration-200"
+                            style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%` }}
+                        />
+                    </div>
+                )}
+
+                {chunksWithMeta.length > 0 && (
+                    <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                        <span className="text-[11px] text-text-dim/60 uppercase tracking-wider shrink-0">Bulk:</span>
+                        {(['vector', 'keyword', 'always'] as const).map(mode => {
+                            const on = bulkModeIsOn(mode);
+                            return (
+                                <button
+                                    key={mode}
+                                    onClick={() => bulkToggleMode(mode)}
+                                    title={`${on ? 'Turn off' : 'Turn on'} ${mode} for all chunks`}
+                                    className={`flex-1 py-1.5 md:py-1 text-[11px] uppercase tracking-wider rounded border transition-colors ${
+                                        on
+                                            ? 'bg-terminal/15 text-terminal border-terminal/40'
+                                            : 'bg-surface text-text-dim border-transparent hover:text-terminal hover:bg-terminal/10'
+                                    }`}
+                                >
+                                    {mode}
+                                </button>
+                            );
+                        })}
+                        <button
+                            onClick={bulkDisableAll}
+                            title="Disable all chunks (clears every mode)"
+                            className="flex-1 py-1.5 md:py-1 text-[11px] uppercase tracking-wider rounded bg-surface text-text-dim hover:text-danger hover:bg-danger/10 transition-colors"
+                        >
+                            Disable All
+                        </button>
+                    </div>
+                )}
+
+                {chunksWithMeta.length > 0 && (
+                    <div className="relative">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none" />
+                        <input
+                            type="text"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Filter by header or keyword..."
+                            className="w-full pl-8 pr-8 py-1.5 bg-void border border-border rounded text-xs text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal transition-colors"
+                        />
+                        {query && (
+                            <button
+                                onClick={() => setQuery('')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary transition-colors"
+                                aria-label="Clear filter"
+                            >
+                                <X size={12} />
+                            </button>
+                        )}
+                    </div>
                 )}
             </div>
 
-            <div className="text-[11px] text-text-dim/70 space-y-1">
-                <div>Total rules: {totalTokens} tokens across {chunksWithMeta.length} chunks</div>
-                <div>RAG budget: {rulesBudget} tokens/turn (threshold: {Math.floor(rulesBudget * 1.2)} tokens)</div>
-            </div>
-
-            <button
-                onClick={runIndex}
-                disabled={indexing || !context.rulesRaw}
-                className={`w-full py-2 text-[12px] uppercase tracking-wider font-bold rounded transition-colors ${
-                    indexing
-                        ? 'bg-surface text-text-dim cursor-not-allowed'
-                        : 'bg-terminal/10 text-terminal hover:bg-terminal/20'
-                }`}
-            >
-                {indexing
-                    ? `Indexing... ${progress ? `${progress.current}/${progress.total} (${progress.phase})` : ''}`
-                    : 'Re-index Rules'}
-            </button>
-
-            {indexing && progress && (
-                <div className="h-1 bg-void-lighter rounded overflow-hidden">
-                    <div
-                        className="h-full bg-terminal transition-all duration-200"
-                        style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%` }}
-                    />
-                </div>
-            )}
-
-            {chunksWithMeta.length > 0 && (
-                <div className="flex items-center gap-1.5 pt-1">
-                    <span className="text-[11px] text-text-dim/60 uppercase tracking-wider shrink-0">Bulk:</span>
-                    {(['vector', 'keyword', 'always'] as const).map(mode => {
-                        const on = bulkModeIsOn(mode);
-                        return (
-                            <button
-                                key={mode}
-                                onClick={() => bulkToggleMode(mode)}
-                                title={`${on ? 'Turn off' : 'Turn on'} ${mode} for all chunks`}
-                                className={`flex-1 py-1.5 md:py-1 text-[11px] uppercase tracking-wider rounded border transition-colors ${
-                                    on
-                                        ? 'bg-terminal/15 text-terminal border-terminal/40'
-                                        : 'bg-surface text-text-dim border-transparent hover:text-terminal hover:bg-terminal/10'
-                                }`}
-                            >
-                                {mode}
-                            </button>
-                        );
-                    })}
-                    <button
-                        onClick={bulkDisableAll}
-                        title="Disable all chunks (clears every mode)"
-                        className="flex-1 py-1.5 md:py-1 text-[11px] uppercase tracking-wider rounded bg-surface text-text-dim hover:text-danger hover:bg-danger/10 transition-colors"
-                    >
-                        Disable All
-                    </button>
-                </div>
-            )}
-
             {chunksWithMeta.length === 0 ? (
-                <p className="text-text-dim/50 text-xs text-center mt-8">
-                    No rules to manage. Paste rules in the System tab first.
-                </p>
+                <div className="flex flex-col items-center justify-center py-12 text-center space-y-3 opacity-40">
+                    <Sliders size={48} strokeWidth={1} />
+                    <p className="text-xs font-mono uppercase tracking-tighter">No rules to manage.</p>
+                    <p className="text-[11px] text-text-dim/60 max-w-[300px] leading-relaxed normal-case tracking-normal">
+                        Paste rules in the System tab first, then come back here to manage chunks.
+                    </p>
+                </div>
+            ) : filtered.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 opacity-60">
+                    <Search size={32} strokeWidth={1} />
+                    <p className="text-xs font-mono uppercase tracking-tighter">No chunks match "{query}".</p>
+                </div>
             ) : (
-                <div className="space-y-3">
-                    {alwaysChunks.length > 0 && (
-                        <div className="space-y-2 mb-4">
-                            <div className="text-[12px] text-terminal uppercase tracking-wider font-bold mb-1 border-b border-terminal/20 pb-1 flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 rounded-full bg-terminal animate-pulse" />
-                                Always On ({alwaysChunks.length})
+                <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                    {filteredAlways.length > 0 && (
+                        <div className="space-y-2 md:col-span-2 2xl:col-span-3">
+                            <ScreenSection label="Always On" tone="terminal" count={filteredAlways.length} marker />
+                            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                                {filteredAlways.map(renderChunk)}
                             </div>
-                            {alwaysChunks.map(renderChunk)}
                         </div>
                     )}
-                    {conditionalChunks.length > 0 && (
-                        <div className="space-y-2">
-                            <div className="text-[12px] text-text-dim uppercase tracking-wider font-bold mb-1 border-b border-border/50 pb-1 flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 rounded-full bg-text-dim/50" />
-                                Conditional ({conditionalChunks.length})
+                    {filteredConditional.length > 0 && (
+                        <div className="space-y-2 md:col-span-2 2xl:col-span-3">
+                            <ScreenSection label="Conditional" count={filteredConditional.length} marker />
+                            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                                {filteredConditional.map(renderChunk)}
                             </div>
-                            {conditionalChunks.map(renderChunk)}
                         </div>
                     )}
                 </div>
