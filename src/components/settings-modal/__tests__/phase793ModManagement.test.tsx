@@ -21,7 +21,7 @@
  * screen says, and the end-to-end claim path is already the subject of the
  * sibling test.
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -148,9 +148,14 @@ async function renderTab(mods: ValidatedMod[]) {
 describe('Phase 7.9.3 · item 4 — the conflict is visible in Mod Management', () => {
     it('each mod row says what it replaces, and which one is actually answering', async () => {
         await renderTab([claimingMod(WINNER, 10), claimingMod(LOSER, 50)]);
+        await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Claimant Mod/ })); });
+        await waitFor(() => expect(screen.getByText('Replaces: Memory recall · Active')).toBeInTheDocument());
 
         // The winner: replaces the core system, and its claim is live.
         expect(screen.getByText('Replaces: Memory recall · Active')).toBeInTheDocument();
+
+        await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Rival Mod/ })); });
+        await waitFor(() => expect(screen.getByText(`Replaces: Memory recall · Overridden by ${WINNER}`)).toBeInTheDocument());
 
         // The loser: it still declares the replacement (so the user knows what
         // it wanted), and it is told plainly who took the role instead. This is
@@ -160,6 +165,7 @@ describe('Phase 7.9.3 · item 4 — the conflict is visible in Mod Management', 
 
     it('the load-order row names the role, the winner, and why it won', async () => {
         await renderTab([claimingMod(WINNER, 10), claimingMod(LOSER, 50)]);
+        await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Load order/i })); });
 
         expect(
             screen.getByText(`Role conflict with ${WINNER} — ${WINNER} wins (loads first)`),

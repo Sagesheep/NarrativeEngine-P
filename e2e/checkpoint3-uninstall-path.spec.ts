@@ -428,38 +428,16 @@ test.describe('Phase 6.9.4 — CHECKPOINT 3: full uninstall path', () => {
         await settingsBtn.click();
         await extensionsTab.click();
         await page.waitForTimeout(600);
-        // The "Delete data" button is on the mod's row, under the
-        // description. It is disabled when no campaign is open — but we
-        // have a campaign open, so it should be enabled. Scope to the
-        // Anno Mark row specifically — there are multiple "Delete data"
-        // buttons (one per mod), and `first()` would match Arc Engine.
-        // Scope to the Anno Mark row — there are multiple "Delete data"
-        // buttons (one per mod). Find the row containing the Anno Mark
-        // label, then click its Delete data button via browser evaluate
-        // (Playwright's selector engine doesn't mix xpath + has-text).
-        const annoLabel = page.locator('label[for="extension-mod.anno-mark"]').first();
-        await expect(annoLabel).toBeVisible({ timeout: 10000 });
-        const deleteBtn = page.locator('button:has-text("Delete data")').filter({
-            has: page.locator('xpath=.'),
-        });
-        // The filter above is a no-op placeholder; instead, locate the
-        // button by evaluating the DOM: walk up from the label to the row
-        // div, then find the Delete data button inside it.
-        const clickedDelete = await page.evaluate(() => {
-            const label = document.querySelector('label[for="extension-mod.anno-mark"]');
-            if (!label) return false;
-            let row = label.closest('div.border');
-            if (!row) row = label.parentElement?.parentElement;
-            if (!row) return false;
-            const btn = Array.from(row.querySelectorAll('button')).find(
-                (b) => /delete data/i.test(b.textContent || ''),
-            );
-            if (!btn) return false;
-            (btn as HTMLButtonElement).click();
-            return true;
-        });
-        expect(clickedDelete, 'step 3: clicked Anno Mark Delete data button').toBe(true);
-        void deleteBtn;
+        // Select the Anno Mark rail entry; its mod-owned controls render in
+        // the detail pane rather than inside the rail row.
+        const annoRow = page.locator('button[aria-pressed]').filter({ hasText: 'Anno Mark' }).first();
+        await expect(annoRow).toBeVisible({ timeout: 10000 });
+        await annoRow.click();
+
+        const deleteBtn = page.getByRole('button', { name: 'Delete data', exact: true });
+        await expect(deleteBtn).toBeVisible({ timeout: 10000 });
+        await deleteBtn.click();
+
         const deleteDialog = page.locator('div[role="alertdialog"]').first();
         await expect(deleteDialog).toBeVisible({ timeout: 5000 });
         const deleteBody = await deleteDialog.innerText();
@@ -474,20 +452,10 @@ test.describe('Phase 6.9.4 — CHECKPOINT 3: full uninstall path', () => {
         await expect(deleteDialog).not.toBeVisible({ timeout: 8000 });
         await page.waitForTimeout(1500);
 
-        // Check the inline delete-result note on the Anno Mark row.
-        const deleteNoteText = await page.evaluate(() => {
-            const label = document.querySelector('label[for="extension-mod.anno-mark"]');
-            if (!label) return '';
-            const row = label.closest('div.border') || label.parentElement?.parentElement;
-            if (!row) return '';
-            // The delete note is the LAST <p> in the row (after the fault
-            // and description paragraphs). It says "Deleted N tables..." or
-            // "This mod had no data..." on success, or a failure message.
-            const ps = row.querySelectorAll('p');
-            return Array.from(ps).map((p) => p.textContent || '').join(' | ');
-        });
-         
-        console.log(`[6.9.4 step3] row paragraphs: "${deleteNoteText}"`);
+        const detailText = await page.getByTestId('extensions-detail').innerText();
+        expect(detailText).toMatch(/Deleted \d+ tables|This mod had no data|Could not delete/i);
+        console.log('[6.9.4 step3] detail text includes delete result: "' +
+            (detailText.includes('Deleted') || detailText.includes('no data')) + '"');
 
         // Data goes — per policy. All mod-data files for this campaign+mod
         // must be gone. Retry briefly in case the delete is still settling.

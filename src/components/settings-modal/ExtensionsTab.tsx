@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BookOpen, ChevronRight, Loader2, Puzzle, RefreshCw, RotateCcw, Settings, Trash2, Workflow } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -66,6 +66,8 @@ import { LoadOrderSection } from './LoadOrderSection';
  * `?raw` import above — the rendered guide and the path we tell the user to open are the same file.
  */
 const GUIDE_PATH = 'docs/MODDING.md';
+const LOAD_ORDER_SELECTION = '__load-order__';
+
 
 /** Row model — the only shape the list renderer knows about. */
 type ModuleRow = {
@@ -290,11 +292,6 @@ export function ExtensionsTab() {
     const [deleteBusy, setDeleteBusy] = useState<string | null>(null);
     const [deleteNote, setDeleteNote] = useState<Record<string, string>>({});
 
-    // Phase 6.1 — a ref to the scroll container so a mod row's "Settings"
-    // link can scroll its ModPanels section into view. The container is the
-    // scrollable content area of SettingsModal (the parent), not this div.
-    const scrollRootRef = useRef<HTMLDivElement>(null);
-
     useEffect(() => {
         let cancelled = false;
         // `setLoading(true)` belongs to the rescan handler, not here — setting state
@@ -374,6 +371,18 @@ export function ExtensionsTab() {
      */
     const playerModRows = useMemo(() => modRows.filter((row) => !row.dev), [modRows]);
     const devModRows = useMemo(() => modRows.filter((row) => row.dev), [modRows]);
+    const [selectedRowId, setSelectedRowId] = useState<string | null>(() => playerModRows[0]?.id ?? null);
+    const availableRowIds = useMemo(
+        () => new Set([...builtinRows, ...modRows].map((row) => row.id)),
+        [builtinRows, modRows],
+    );
+    const fallbackRowId = playerModRows[0]?.id ?? (!loading ? builtinRows[0]?.id ?? null : null);
+    const effectiveSelectedRowId = selectedRowId === LOAD_ORDER_SELECTION && mods.length > 0
+        ? LOAD_ORDER_SELECTION
+        : selectedRowId && availableRowIds.has(selectedRowId)
+            ? selectedRowId
+            : fallbackRowId;
+
 
     /**
      * How many fixtures the user has switched on. Shown on the closed
@@ -569,267 +578,243 @@ export function ExtensionsTab() {
 
     const atDefaults = allRows.every((row) => isEnabled(row.id, row.dev) === row.defaultEnabled);
 
-    /**
-     * Phase 6.1 — scroll a mod's declared-settings section into view. The
-     * ModPanels component renders one section per (mod × panel) with a
-     * `data-mod-panel` attribute; the first one for this mod id is the
-     * target. `scrollIntoView` is the browser-native, no-library scroll.
-     */
-    const scrollToModSettings = (modId: string) => {
-        const el = scrollRootRef.current?.querySelector(`[data-mod-panel="${modId}"]`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    };
+    const selectedRow = useMemo(
+        () => allRows.find((row) => row.id === effectiveSelectedRowId) ?? null,
+        [allRows, effectiveSelectedRowId],
+    );
+    const selectedMod = useMemo(
+        () => selectedRow?.id.startsWith('mod.')
+            ? mods.find((mod) => 'mod.' + mod.id === selectedRow.id) ?? null
+            : null,
+        [mods, selectedRow],
+    );
+    const matchedFaultFiles = useMemo(
+        () => new Set(modRows.flatMap((row) => row.fault ? [row.fault.file] : [])),
+        [modRows],
+    );
+    const unmatchedFaults = allFaults.filter((fault) => !matchedFaultFiles.has(fault.file));
 
-    const renderRow = (row: ModuleRow) => {
+    const renderTierBadge = (row: ModuleRow) => row.tier ? (
+        <span
+            className={'text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold ' + (
+                row.tier === 'native'
+                    ? 'bg-danger/15 text-danger border border-danger/40'
+                    : row.tier === 'sandboxed'
+                      ? 'bg-terminal/10 text-terminal border border-terminal/30'
+                      : 'bg-text-dim/10 text-text-dim border border-text-dim/30'
+            )}
+            title={row.tier === 'native' ? t('settings.extensions.mod.tier.native') : row.tier === 'sandboxed' ? t('settings.extensions.mod.tier.sandboxed') : t('settings.extensions.mod.tier.declarative')}
+        >
+            {row.tier === 'native' ? t('settings.extensions.mod.tier.native') : row.tier === 'sandboxed' ? t('settings.extensions.mod.tier.sandboxed') : t('settings.extensions.mod.tier.declarative')}
+        </span>
+    ) : null;
+
+    const renderRailRow = (row: ModuleRow) => {
         const checked = isEnabled(row.id, row.dev);
-        const inputId = `extension-${row.id}`;
+        const inputId = 'extension-' + row.id;
+        const selected = effectiveSelectedRowId === row.id;
         return (
             <div
                 key={row.id}
-                className={`flex items-start justify-between gap-3 bg-void p-3 border rounded ${
-                    row.fault ? 'border-danger/50' : 'border-border'
-                }`}
+                className={'h-9 flex items-center gap-2 px-3 py-2 border-l-2 ' + (
+                    selected
+                        ? 'border-terminal bg-terminal/10 text-terminal'
+                        : 'border-transparent hover:bg-void-light'
+                )}
             >
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                        <label
-                            htmlFor={inputId}
-                            className="chrome-label block text-[11px] text-text-primary uppercase tracking-wider font-bold cursor-pointer"
-                        >
-                            {row.name}
-                        </label>
-                        {row.tier && (
-                            <span
-                                className={`text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold ${
-                                    row.tier === 'native'
-                                        ? 'bg-danger/15 text-danger border border-danger/40'
-                                        : row.tier === 'sandboxed'
-                                          ? 'bg-terminal/10 text-terminal border border-terminal/30'
-                                          : 'bg-text-dim/10 text-text-dim border border-text-dim/30'
-                                }`}
-                                title={t(`settings.extensions.mod.tier.${row.tier}`)}
-                            >
-                                {t(`settings.extensions.mod.tier.${row.tier}`)}
-                            </span>
-                        )}
-                        {row.provenance === 'bundled' && (
-                            <span
-                                className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold bg-ember/10 text-ember border border-ember/30"
-                                title={t('settings.extensions.mod.provenance.bundled')}
-                            >
-                                {t('settings.extensions.mod.provenance.bundled')}
-                            </span>
-                        )}
-                        {/* MANIFEST.md §2 — the fixture badge. Carried on the row
-                          * as well as the section heading because a switched-on
-                          * fixture is worth labelling wherever it appears. */}
-                        {row.dev && (
-                            <span
-                                className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold bg-text-dim/10 text-text-dim border border-text-dim/40"
-                                title={t('settings.extensions.mod.dev.tooltip')}
-                            >
-                                {t('settings.extensions.mod.dev.badge')}
-                            </span>
-                        )}
-                    </div>
-                    <p className="text-[9px] text-text-dim leading-tight">{row.description}</p>
-                    {row.meta && (
-                        <p className="text-[9px] text-text-dim/70 font-mono leading-tight mt-1">{row.meta}</p>
-                    )}
-                    {row.author && (
-                        <p className="text-[9px] text-text-dim/70 leading-tight mt-0.5">
-                            {t('settings.extensions.mod.author', { author: row.author })}
-                        </p>
-                    )}
-                    {row.folder && (
-                        <p className="text-[9px] text-text-dim/70 font-mono leading-tight mt-0.5">
-                            {t('settings.extensions.mod.folder', { folder: row.folder })}
-                        </p>
-                    )}
-                    {row.roleReplacements?.map((role) => (
-                        <p key={role.name} className="text-[9px] text-text-dim/70 leading-tight mt-0.5">
-                            {t('settings.extensions.mod.roleReplaces', { role: role.name })}
-                            {role.active
-                                ? ' · ' + t('settings.extensions.mod.roleActive')
-                                : role.overriddenBy
-                                    ? ' · ' + t('settings.extensions.mod.roleOverriddenBy', { mod: role.overriddenBy })
-                                    : ' · ' + t('settings.extensions.mod.roleNoProvider')}
-                        </p>
-                    ))}
-                    {/* Phase 9.2 — the stale-generation notice. Not a fault:
-                      * the mod loaded and may work perfectly. It is the one
-                      * fact a user needs when a mod that used to work stops. */}
-                    {row.apiVersionStale && (
-                        <p className="text-[9px] text-amber-400/80 leading-tight mt-1.5">
-                            {t('settings.extensions.mod.apiVersionStale', {
-                                declared: row.apiVersion ?? 1,
-                                current: MOD_API_VERSION,
-                            })}
-                        </p>
-                    )}
-                    {/* Phase 6.1 — the inline fault. The reason appears next to
-                     * the mod it rejected, not in a separate section the user
-                     * must know to scroll to. The fault is matched to the mod
-                     * by `mod.file` (the manifest label), so a load-time parse
-                     * error or a runtime lifecycle throw both land here. */}
+                <button
+                    type="button"
+                    onClick={() => setSelectedRowId(row.id)}
+                    aria-pressed={selected}
+                    className="min-w-0 flex-1 flex items-center gap-1.5 text-left"
+                >
+                    <span className={'truncate text-[12px] ' + (
+                        selected ? 'text-terminal' : 'text-text-primary'
+                    )}>
+                        {row.name}
+                    </span>
+                    {renderTierBadge(row)}
                     {row.fault && (
-                        <p className="text-[9px] text-danger leading-tight mt-1.5 break-words">
-                            {t('settings.extensions.mod.faultInline', { reason: row.fault.reason })}
-                        </p>
+                        <AlertTriangle
+                            size={12}
+                            className="shrink-0 text-danger"
+                            aria-label={row.fault.reason}
+                        />
                     )}
-                    {/* Phase 6.1 — a link to the mod's declared settings. The
-                     * ModPanels section for this mod is rendered below; the
-                     * link scrolls it into view. Only shown when the mod
-                     * declares at least one panel. */}
-                    {row.hasSettings && (
-                        <button
-                            type="button"
-                            onClick={() => scrollToModSettings(row.id.slice(4))}
-                            className="text-[9px] uppercase tracking-wider text-terminal hover:text-terminal/80 mt-1.5 flex items-center gap-1"
-                        >
-                            <Settings size={9} />
-                            {t('settings.extensions.mod.settings')}
-                        </button>
-                    )}
-                    {/* Phase 6.4 — the delete action (`DATA_POLICY.md` §3).
-                      * Mod rows only: a built-in module owns no mod tables.
-                      * Bundled mods included — a bundled mod's data is the
-                      * user's data, and clearing it is not the same act as
-                      * removing the mod, which the app never does at all.
-                      * The dialog is what makes this destructive click legal;
-                      * this button only opens it. */}
-                    {row.tier && (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                const mod = mods.find((m) => `mod.${m.id}` === row.id);
-                                if (mod) setPendingDelete(mod);
-                            }}
-                            disabled={!activeCampaignId || deleteBusy === row.id.slice(4)}
-                            title={activeCampaignId ? undefined : t('settings.extensions.modData.delete.noCampaign')}
-                            className="text-[9px] uppercase tracking-wider text-danger hover:text-danger/80 disabled:opacity-40 disabled:cursor-not-allowed mt-1.5 flex items-center gap-1"
-                        >
-                            <Trash2 size={9} />
-                            {deleteBusy === row.id.slice(4)
-                                ? t('settings.extensions.modData.delete.busy')
-                                : t('settings.extensions.modData.delete.action')}
-                        </button>
-                    )}
-                    {deleteNote[row.id.slice(4)] && (
-                        <p className="text-[9px] text-text-dim leading-tight mt-1 break-words">
-                            {deleteNote[row.id.slice(4)]}
-                        </p>
-                    )}
-                </div>
-                <input
-                    id={inputId}
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(e) => setEnabled(row.id, e.target.checked)}
-                    aria-label={t('settings.extensions.toggle.aria', { name: row.name })}
-                    className="mt-0.5 shrink-0 w-4 h-4 accent-terminal cursor-pointer"
-                />
+                </button>
+                <label
+                    htmlFor={inputId}
+                    className="shrink-0 flex items-center cursor-pointer"
+                    title={t('settings.extensions.toggle.aria', { name: row.name })}
+                >
+                    <input
+                        id={inputId}
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => setEnabled(row.id, event.target.checked)}
+                        aria-label={t('settings.extensions.toggle.aria', { name: row.name })}
+                        className="w-4 h-4 accent-terminal cursor-pointer"
+                    />
+                </label>
             </div>
         );
     };
-
     return (
-        <div className="space-y-6" ref={scrollRootRef}>
-            <div className="flex items-start justify-between gap-3">
-                <div>
-                    <label className="chrome-label text-text-dim text-xs uppercase tracking-widest font-bold block mb-1 flex items-center gap-1.5">
+        <div className="flex-1 min-h-0 flex" data-testid="extensions-master-detail">
+            <aside
+                className="w-[320px] min-w-0 shrink-0 min-h-0 overflow-y-auto border-r border-border"
+                data-testid="extensions-rail"
+            >
+                <div className="px-3 pt-4 pb-3">
+                    <label className="chrome-label text-text-dim text-xs uppercase tracking-widest font-bold flex items-center gap-1.5">
                         <Puzzle size={12} /> {t('settings.extensions.title')}
                     </label>
-                    {/* Locked decision D4 — global, not per-campaign. Said plainly, once. */}
-                    <p className="text-[9px] text-text-dim leading-tight max-w-[420px]">
+                    <p className="text-[9px] text-text-dim leading-tight mt-1">
                         {t('settings.extensions.scope')}
                     </p>
                 </div>
-                <button
-                    type="button"
-                    onClick={resetToDefaults}
-                    disabled={atDefaults}
-                    className="shrink-0 text-[10px] uppercase tracking-widest bg-terminal/10 border border-terminal/30 text-terminal px-3 py-1.5 rounded hover:bg-terminal/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
-                >
-                    <RotateCcw size={10} />
-                    {t('settings.extensions.reset')}
-                </button>
-                {/* WO-P5-02 §3 — cross-link to the Block View. The two screens toggle the
-                 * same `moduleEnabled` state; a user who finds one should find the other.
-                 * The Block View is a Header-launched modal, so opening it from here closes
-                 * Settings first (the two are mutually exclusive overlays). */}
-                <button
-                    type="button"
-                    onClick={() => { toggleSettings(); toggleBlockView(); }}
-                    title={t('blockview.link.extensions.help')}
-                    className="shrink-0 text-[10px] uppercase tracking-widest bg-ember/10 border border-ember/30 text-ember px-3 py-1.5 rounded hover:bg-ember/20 flex items-center gap-1.5"
-                >
-                    <Workflow size={10} />
-                    {t('blockview.link.extensions')}
-                </button>
-            </div>
 
-            {/* ── Built-in ─────────────────────────────────────────────────── */}
-            <div className="space-y-2">
-                <div>
-                    <label className="chrome-label block text-[11px] text-text-primary uppercase tracking-wider font-bold mb-1">
-                        {t('settings.extensions.builtin.title')}
-                    </label>
-                    <p className="text-[9px] text-text-dim leading-tight max-w-[420px]">
-                        {t('settings.extensions.builtin.help')}
+                <div className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-widest text-text-dim">
+                    {t('settings.extensions.builtin.title')}
+                </div>
+                <p className="px-3 pb-2 text-[9px] text-text-dim leading-tight">
+                    {t('settings.extensions.builtin.help')}
+                </p>
+                <div>{builtinRows.map(renderRailRow)}</div>
+
+                <div className="px-3 pt-4 pb-1 flex items-center justify-between text-[11px] uppercase tracking-widest text-text-dim">
+                    <span>{t('settings.extensions.mods.title')}</span>
+                    <span className="font-mono text-[10px]">{playerModRows.length}</span>
+                </div>
+                <p className="px-3 pb-2 text-[9px] text-text-dim leading-tight">
+                    {t('settings.extensions.mods.help')}
+                </p>
+                {loading && (
+                    <p className="px-3 py-2 text-[9px] text-text-dim italic">
+                        {t('settings.extensions.mods.loading')}
                     </p>
-                </div>
-                <div className="md:grid md:grid-cols-2 md:gap-3 space-y-2 md:space-y-0">
-                    {builtinRows.map(renderRow)}
-                </div>
-            </div>
+                )}
+                {!loading && loadFailed && (
+                    <p className="px-3 py-2 text-[9px] text-danger leading-tight">
+                        {t('settings.extensions.mods.error')}
+                    </p>
+                )}
+                {!loading && !loadFailed && playerModRows.length === 0 && (
+                    <p className="px-3 py-2 text-[9px] text-text-dim leading-tight">
+                        {t('settings.extensions.mods.empty')}
+                    </p>
+                )}
+                {!loading && !loadFailed && playerModRows.length > 0 && (
+                    <div>{playerModRows.map(renderRailRow)}</div>
+                )}
 
-            {/* ── Installed mods ───────────────────────────────────────────── */}
-            <div className="space-y-2">
-                <div className="flex items-start justify-between gap-3">
-                    <div>
-                        <label className="chrome-label block text-[11px] text-text-primary uppercase tracking-wider font-bold mb-1">
-                            {t('settings.extensions.mods.title')}
-                        </label>
-                        <p className="text-[9px] text-text-dim leading-tight max-w-[420px]">
-                            {t('settings.extensions.mods.help')}
-                        </p>
-                    </div>
-                    <div className="shrink-0 flex items-center gap-2">
+                {devModRows.length > 0 && (
+                    <div className="mt-3 border-t border-border">
                         <button
                             type="button"
-                            onClick={() => setGuideOpen((open) => !open)}
-                            aria-expanded={guideOpen}
-                            aria-controls="extensions-mod-guide"
-                            className="text-[10px] uppercase tracking-widest bg-terminal/10 border border-terminal/30 text-terminal px-3 py-1.5 rounded hover:bg-terminal/20 flex items-center gap-1.5"
+                            onClick={() => setDevModsOpen((open) => !open)}
+                            aria-expanded={devModsOpen}
+                            aria-controls="extensions-dev-mods"
+                            className="w-full h-9 flex items-center gap-2 text-left px-3 py-2 hover:bg-void-light transition-colors cursor-pointer"
                         >
-                            <BookOpen size={10} />
-                            {t(guideOpen ? 'settings.extensions.guide.hide' : 'settings.extensions.guide.show')}
+                            <ChevronRight
+                                size={11}
+                                className={'shrink-0 text-text-dim transition-transform ' + (
+                                    devModsOpen ? 'rotate-90' : ''
+                                )}
+                            />
+                            <span className="text-[11px] uppercase tracking-widest text-text-dim">
+                                {t('settings.extensions.dev.title')}
+                            </span>
+                            <span className="ml-auto text-[10px] font-mono text-text-dim/70">
+                                {devModsOn > 0
+                                    ? t('settings.extensions.dev.countOn', {
+                                          count: devModRows.length,
+                                          on: devModsOn,
+                                      })
+                                    : t('settings.extensions.dev.count', { count: devModRows.length })}
+                            </span>
                         </button>
+                        {devModsOpen && (
+                            <div id="extensions-dev-mods" className="pb-2">
+                                <p className="px-3 pb-2 text-[9px] text-text-dim leading-tight">
+                                    {t('settings.extensions.dev.help')}
+                                </p>
+                                {devModRows.map(renderRailRow)}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {!loading && !loadFailed && mods.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-border">
                         <button
                             type="button"
-                            onClick={() => { setLoading(true); setReloadToken((n) => n + 1); }}
-                            disabled={loading}
-                            className="text-[10px] uppercase tracking-widest bg-terminal/10 border border-terminal/30 text-terminal px-3 py-1.5 rounded hover:bg-terminal/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                            onClick={() => setSelectedRowId(LOAD_ORDER_SELECTION)}
+                            aria-pressed={effectiveSelectedRowId === LOAD_ORDER_SELECTION}
+                            className={'w-full h-9 flex items-center gap-2 px-3 py-2 border-l-2 text-left hover:bg-void-light ' + (
+                                effectiveSelectedRowId === LOAD_ORDER_SELECTION
+                                    ? 'border-terminal bg-terminal/10 text-terminal'
+                                    : 'border-transparent text-text-primary'
+                            )}
                         >
-                            {loading ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
-                            {t('settings.extensions.mods.rescan')}
+                            <Settings size={12} className="shrink-0 text-text-dim" />
+                            <span className="text-[12px] uppercase tracking-wider">
+                                {t('settings.extensions.loadOrder.title')}
+                            </span>
                         </button>
                     </div>
+                )}
+            </aside>
+
+            <section
+                className="flex-1 min-w-0 min-h-0 overflow-y-auto p-6"
+                data-testid="extensions-detail"
+            >
+                <div className="flex items-start justify-end gap-2 flex-wrap">
+                    <button
+                        type="button"
+                        onClick={() => setGuideOpen((open) => !open)}
+                        aria-expanded={guideOpen}
+                        aria-controls="extensions-mod-guide"
+                        className="text-[10px] uppercase tracking-widest bg-terminal/10 border border-terminal/30 text-terminal px-3 py-1.5 rounded hover:bg-terminal/20 flex items-center gap-1.5"
+                    >
+                        <BookOpen size={10} />
+                        {t(guideOpen ? 'settings.extensions.guide.hide' : 'settings.extensions.guide.show')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { setLoading(true); setReloadToken((n) => n + 1); }}
+                        disabled={loading}
+                        className="text-[10px] uppercase tracking-widest bg-terminal/10 border border-terminal/30 text-terminal px-3 py-1.5 rounded hover:bg-terminal/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    >
+                        {loading ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                        {t('settings.extensions.mods.rescan')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={resetToDefaults}
+                        disabled={atDefaults}
+                        className="text-[10px] uppercase tracking-widest bg-terminal/10 border border-terminal/30 text-terminal px-3 py-1.5 rounded hover:bg-terminal/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    >
+                        <RotateCcw size={10} />
+                        {t('settings.extensions.reset')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { toggleSettings(); toggleBlockView(); }}
+                        title={t('blockview.link.extensions.help')}
+                        className="text-[10px] uppercase tracking-widest bg-ember/10 border border-ember/30 text-ember px-3 py-1.5 rounded hover:bg-ember/20 flex items-center gap-1.5"
+                    >
+                        <Workflow size={10} />
+                        {t('blockview.link.extensions')}
+                    </button>
                 </div>
 
-                {/*
-                  * Rendered only while open: parsing a ~250-line document on every Settings mount
-                  * to keep it hidden would be work nobody asked for.
-                  *
-                  * `gm-prose` is the app's existing markdown skin (headings, tables, code fences) —
-                  * reused rather than restyled so the guide can't drift from the rest of the app.
-                  * No `rehype-raw`: the guide renders as markdown only, never as HTML.
-                  */}
                 {guideOpen && (
                     <div
                         id="extensions-mod-guide"
-                        className="bg-void border border-border rounded p-4 overflow-x-auto"
+                        className="mt-4 bg-void border border-border rounded p-4 overflow-x-auto"
                     >
                         <p className="text-[9px] text-text-dim leading-tight mb-3 pb-3 border-b border-border">
                             {t('settings.extensions.guide.path', { path: GUIDE_PATH })}
@@ -841,160 +826,155 @@ export function ExtensionsTab() {
                 )}
 
                 {loading && (
-                    <p className="text-[9px] text-text-dim italic">{t('settings.extensions.mods.loading')}</p>
-                )}
-
-                {!loading && loadFailed && (
-                    <p className="text-[9px] text-danger leading-tight">{t('settings.extensions.mods.error')}</p>
-                )}
-
-                {!loading && !loadFailed && playerModRows.length === 0 && (
-                    <p className="text-[9px] text-text-dim leading-tight max-w-[420px]">
-                        {t('settings.extensions.mods.empty')}
+                    <p className="mt-6 text-[9px] text-text-dim italic">
+                        {t('settings.extensions.mods.loading')}
                     </p>
                 )}
 
-                {playerModRows.length > 0 && (
-                    <div className="md:grid md:grid-cols-2 md:gap-3 space-y-2 md:space-y-0">
-                        {playerModRows.map(renderRow)}
+                {!loading && loadFailed && (
+                    <p className="mt-6 text-[9px] text-danger leading-tight">
+                        {t('settings.extensions.mods.error')}
+                    </p>
+                )}
+
+                {!loading && !loadFailed && effectiveSelectedRowId === LOAD_ORDER_SELECTION && (
+                    <div className="mt-6">
+                        <LoadOrderSection mods={mods} />
                     </div>
                 )}
 
-                {/* ── Developer fixtures (MANIFEST.md §2) ──────────────────────
-                  * Collapsed by default. The count of switched-on fixtures is on
-                  * the closed header, so a fixture left running is never hidden
-                  * by the collapse — that state is precisely what this section
-                  * exists to make visible.
-                  */}
-                {devModRows.length > 0 && (
-                    <div className="pt-1">
-                        <button
-                            type="button"
-                            onClick={() => setDevModsOpen((open) => !open)}
-                            aria-expanded={devModsOpen}
-                            aria-controls="extensions-dev-mods"
-                            className="w-full flex items-center gap-2 text-left px-2.5 py-2 rounded border border-border/60 bg-void hover:border-text-dim/60 transition-colors cursor-pointer"
-                        >
-                            <ChevronRight
-                                size={11}
-                                className={`shrink-0 text-text-dim transition-transform ${devModsOpen ? 'rotate-90' : ''}`}
-                            />
-                            <span className="chrome-label text-[10px] uppercase tracking-wider font-bold text-text-dim">
-                                {t('settings.extensions.dev.title')}
-                            </span>
-                            <span className="text-[9px] font-mono text-text-dim/70">
-                                {devModsOn > 0
-                                    ? t('settings.extensions.dev.countOn', {
-                                          count: devModRows.length,
-                                          on: devModsOn,
-                                      })
-                                    : t('settings.extensions.dev.count', { count: devModRows.length })}
-                            </span>
-                        </button>
-                        {devModsOpen && (
-                            <div id="extensions-dev-mods" className="mt-2 space-y-2">
-                                <p className="text-[9px] text-text-dim leading-tight max-w-[520px]">
-                                    {t('settings.extensions.dev.help')}
+                {!loading && !loadFailed && effectiveSelectedRowId !== LOAD_ORDER_SELECTION && selectedRow && (
+                    <div className="mt-6 space-y-6">
+                        <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="chrome-label text-[13px] text-text-primary uppercase tracking-wider font-bold">
+                                    {selectedRow.name}
+                                </h3>
+                                {renderTierBadge(selectedRow)}
+                                {selectedRow.provenance && (
+                                    <span className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold bg-ember/10 text-ember border border-ember/30">
+                                        {selectedRow.provenance === 'bundled' ? t('settings.extensions.mod.provenance.bundled') : t('settings.extensions.mod.provenance.installed')}
+                                    </span>
+                                )}
+                            </div>
+                            {selectedRow.meta && (
+                                <p className="text-[9px] text-text-dim/70 font-mono leading-tight mt-2">
+                                    {selectedRow.meta}
                                 </p>
-                                <div className="md:grid md:grid-cols-2 md:gap-3 space-y-2 md:space-y-0">
-                                    {devModRows.map(renderRow)}
-                                </div>
+                            )}
+                            {selectedRow.folder && (
+                                <p className="text-[9px] text-text-dim/70 font-mono leading-tight mt-0.5">
+                                    {t('settings.extensions.mod.folder', { folder: selectedRow.folder })}
+                                </p>
+                            )}
+                            {selectedRow.author && (
+                                <p className="text-[9px] text-text-dim/70 leading-tight mt-0.5">
+                                    {t('settings.extensions.mod.author', { author: selectedRow.author })}
+                                </p>
+                            )}
+                        </div>
+
+                        <p className="max-w-[640px] text-[9px] text-text-dim leading-tight">
+                            {selectedRow.description}
+                        </p>
+
+                        {selectedRow.apiVersionStale && (
+                            <p className="text-[9px] text-amber-400/80 leading-tight max-w-[640px]">
+                                {t('settings.extensions.mod.apiVersionStale', {
+                                    declared: selectedRow.apiVersion ?? 1,
+                                    current: MOD_API_VERSION,
+                                })}
+                            </p>
+                        )}
+
+                        {selectedRow.roleReplacements?.map((role) => (
+                            <p key={role.name} className="text-[9px] text-text-dim/70 leading-tight">
+                                {t('settings.extensions.mod.roleReplaces', { role: role.name })}
+                                {role.active
+                                    ? ' · ' + t('settings.extensions.mod.roleActive')
+                                    : role.overriddenBy
+                                        ? ' · ' + t('settings.extensions.mod.roleOverriddenBy', { mod: role.overriddenBy })
+                                        : ' · ' + t('settings.extensions.mod.roleNoProvider')}
+                            </p>
+                        ))}
+
+                        {selectedRow.fault && (
+                            <p className="text-[9px] text-danger leading-tight break-words max-w-[640px]">
+                                {selectedRow.fault.reason}
+                            </p>
+                        )}
+
+                        {selectedMod && (
+                            <div>
+                                <ModPanels mods={[selectedMod]} />
+                            </div>
+                        )}
+
+                        {selectedMod && (
+                            <div>
+                                <ModScreens mods={[selectedMod]} />
+                            </div>
+                        )}
+
+                        {selectedMod && selectedRow.tier && (
+                            <div>
+                                <button
+                                    type="button"
+                                    onClick={() => setPendingDelete(selectedMod)}
+                                    disabled={!activeCampaignId || deleteBusy === selectedMod.id}
+                                    title={activeCampaignId ? undefined : t('settings.extensions.modData.delete.noCampaign')}
+                                    className="text-[9px] uppercase tracking-wider text-danger hover:text-danger/80 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                                >
+                                    <Trash2 size={9} />
+                                    {deleteBusy === selectedMod.id
+                                        ? t('settings.extensions.modData.delete.busy')
+                                        : t('settings.extensions.modData.delete.action')}
+                                </button>
+                                {deleteNote[selectedMod.id] && (
+                                    <p className="text-[9px] text-text-dim leading-tight mt-1 break-words">
+                                        {deleteNote[selectedMod.id]}
+                                    </p>
+                                )}
                             </div>
                         )}
                     </div>
                 )}
-            </div>
 
-            {/* ── Load order (Phase 6.2) ──────────────────────────────────── */}
-            {/*
-              * The resolved load order with user-reorderable controls. Renders
-              * only when at least one mod is installed. The user's override
-              * persists to `settings.modLoadOrder` and beats the manifest's
-              * `loadOrder` as the primary tiebreak in the server's topological
-              * sort. Conflicts (fact claims) surface on the losing row with
-              * the winner named. Dependency-violating moves are prevented in
-              * the UI rather than allowed and faulted later.
-              */}
-            {!loading && !loadFailed && mods.length > 0 && (
-                <LoadOrderSection mods={mods} />
-            )}
+                {!loading && !loadFailed && effectiveSelectedRowId !== LOAD_ORDER_SELECTION && !selectedRow && (
+                    <p className="mt-6 text-[9px] text-text-dim leading-tight">
+                        {t('settings.extensions.mods.empty')}
+                    </p>
+                )}
 
-            {/* ── Mod panels (WO-P5-16) ─────────────────────────────────── */}
-            {/*
-              * A mod that declares `panels[]` renders one panel per declaration,
-              * nested under the mod that declared it (R4: launch is always
-              * `nested`). The host resolves `bindsTo` against the store's
-              * `modTables` map; the generic `PanelRenderer` receives rows and
-              * a descriptor and cannot tell a mod panel from a host panel
-              * (§4 — the renderer must not learn who owns the panel). Edits
-              * round-trip to disk through `setModTable`'s fire-and-forget PUT.
-              *
-              * Phase 6.1 — a mod row's "Settings" link scrolls to its section
-              * here via `data-mod-panel="<modId>"`.
-              */}
-            {!loading && !loadFailed && <ModPanels mods={mods} />}
-
-            {/* ── Mod screens (WO-P5-17) ─────────────────────────────────── */}
-            {/*
-              * A mod that declares `screens[]` renders one isolated frame
-              * per screen, nested under the mod that declared it (R4 of
-              * WO-P5-16: mod UI lives in Extensions). The frame is
-              * `sandbox="allow-scripts"` with no same-origin capability
-              * (R1); the screen source ships as text and the server never
-              * evaluates it (R2); the CSP `default-src 'none'` leaves the
-              * frame no network (R3); one frame per screen, destroyed on
-              * unmount (R4); a fault surfaces on the fault list below
-              * (R5); no host API in 5.1 — the frame receives nothing and
-              * sends nothing (R6). A 5.1 screen is useless on purpose.
-              */}
-            {!loading && !loadFailed && <ModScreens mods={mods} />}
-
-            {/* ── Rejected files ───────────────────────────────────────────── */}
-            {/*
-              * Phase 6.1 — the section still exists, but a fault that matches
-              * a mod now also appears inline in that mod's row (above). This
-              * section shows the faults that have no matching mod row:
-              *  • `<loader>` — the mods endpoint could not be reached.
-              *  • A flat `.mod.json` file — rejected before a mod object exists.
-              *  • A directory with no `manifest.json` — same.
-              *  • A duplicate mod id — the second copy is dropped.
-              * The inline view is the primary surface; this section is the
-              * catch-all so nothing is silently swallowed.
-              */}
-            {allFaults.length > 0 && (
-                <div className="space-y-2">
-                    <div>
-                        <label className="chrome-label block text-[11px] text-danger uppercase tracking-wider font-bold mb-1 flex items-center gap-1.5">
-                            <AlertTriangle size={11} /> {t('settings.extensions.faults.title')}
-                        </label>
-                        <p className="text-[9px] text-text-dim leading-tight max-w-[420px]">
-                            {t('settings.extensions.faults.help')}
-                        </p>
-                        <p className="text-[9px] text-text-dim leading-tight max-w-[420px] mt-1">
-                            {t('settings.extensions.faults.runtime')}
-                        </p>
-                    </div>
-                    <div className="space-y-2">
-                        {allFaults.map((fault) => (
-                            <div
-                                key={fault.file}
-                                className="bg-void p-3 border border-danger/40 rounded"
-                            >
-                                <div className="text-[11px] font-mono font-bold text-text-primary break-all">
-                                    {fault.file}
+                {unmatchedFaults.length > 0 && (
+                    <div className="mt-8 space-y-2">
+                        <div>
+                            <label className="chrome-label block text-[11px] text-danger uppercase tracking-wider font-bold mb-1 flex items-center gap-1.5">
+                                <AlertTriangle size={11} /> {t('settings.extensions.faults.title')}
+                            </label>
+                            <p className="text-[9px] text-text-dim leading-tight max-w-[420px]">
+                                {t('settings.extensions.faults.help')}
+                            </p>
+                            <p className="text-[9px] text-text-dim leading-tight max-w-[420px] mt-1">
+                                {t('settings.extensions.faults.runtime')}
+                            </p>
+                        </div>
+                        <div className="space-y-2">
+                            {unmatchedFaults.map((fault) => (
+                                <div key={fault.file} className="bg-void p-3 border border-danger/40 rounded">
+                                    <div className="text-[11px] font-mono font-bold text-text-primary break-all">
+                                        {fault.file}
+                                    </div>
+                                    <p className="text-[9px] text-danger leading-tight mt-1 break-words">
+                                        {fault.reason}
+                                    </p>
                                 </div>
-                                <p className="text-[9px] text-danger leading-tight mt-1 break-words">
-                                    {fault.reason}
-                                </p>
-                            </div>
-                        ))}
+                            ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </section>
 
-            {/* Phase 6.1 — the native-tier trust dialog. Rendered last so it
-             * overlays everything (z-[200], above the Settings modal's z-[100]).
-             * Only one dialog at a time; `pendingTrust` is the pending mod. */}
             {pendingTrust && (
                 <NativeTrustDialog
                     modName={pendingTrust.mod.name}
@@ -1002,10 +982,6 @@ export function ExtensionsTab() {
                     onCancel={onTrustCancel}
                 />
             )}
-
-            {/* Phase 6.4 — the two data confirmations. Same layer as the trust
-              * dialog and mutually exclusive with it in practice: the trust
-              * dialog gates an enable, these gate a disable and a delete. */}
             {pendingDisable && (
                 <ModDataDialog
                     variant="disable"

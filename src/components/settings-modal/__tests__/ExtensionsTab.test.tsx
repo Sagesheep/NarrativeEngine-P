@@ -161,7 +161,7 @@ async function renderTab(mods: ValidatedMod[], faults: { file: string; reason: s
     seedStore();
     const result = render(<ExtensionsTab />);
     // Wait for the refresh to resolve and the mods to render.
-    await waitFor(() => expect(screen.getByText(mods[0]?.name ?? 'Built-in')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(mods[0]?.name ?? 'Built-in').length).toBeGreaterThan(0));
     return result;
 }
 
@@ -293,9 +293,8 @@ describe('ExtensionsTab — Phase 6.1 Mod Management', () => {
             const mod = nativeMod();
             await renderTab([mod], [{ file: mod.file, reason: 'invalid JSON: oops' }]);
 
-            // The inline reason appears with the "This mod could not run:" prefix,
-            // distinguishing it from the bottom "Rejected files" section.
-            expect(screen.getByText(/This mod could not run: invalid JSON: oops/)).toBeInTheDocument();
+            // The selected mod's detail pane shows the complete raw fault string.
+            expect(screen.getByText('invalid JSON: oops')).toBeInTheDocument();
         });
 
         it('also shows the fault in the Rejected files section (catch-all)', async () => {
@@ -309,8 +308,8 @@ describe('ExtensionsTab — Phase 6.1 Mod Management', () => {
         it('highlights the faulted row (reason is present next to the mod name)', async () => {
             const mod = nativeMod();
             await renderTab([mod], [{ file: mod.file, reason: 'bad reason' }]);
-            expect(screen.getByText('Native Mod')).toBeInTheDocument();
-            expect(screen.getByText(/This mod could not run: bad reason/)).toBeInTheDocument();
+            expect(screen.getAllByText('Native Mod').length).toBeGreaterThan(0);
+            expect(screen.getByText('bad reason')).toBeInTheDocument();
         });
     });
 
@@ -319,7 +318,7 @@ describe('ExtensionsTab — Phase 6.1 Mod Management', () => {
             await renderTab([nativeMod()]);
             expect(screen.getByText('by Alice')).toBeInTheDocument();
             expect(screen.getByText('Folder: native-mod')).toBeInTheDocument();
-            expect(screen.getByText('native')).toBeInTheDocument(); // tier badge
+            expect(screen.getAllByText('native').length).toBeGreaterThan(0); // tier badge
             expect(screen.getByText(/v1.0.0/)).toBeInTheDocument();
         });
 
@@ -333,12 +332,12 @@ describe('ExtensionsTab — Phase 6.1 Mod Management', () => {
                 compute: { file: 'compute.js', hook: 'postTurn', capabilities: [] },
             };
             await renderTab([computeMod]);
-            expect(screen.getByText('sandboxed')).toBeInTheDocument();
+            expect(screen.getAllByText('sandboxed').length).toBeGreaterThan(0);
         });
 
         it('shows the declarative tier badge for a contributions-only mod', async () => {
             await renderTab([declarativeMod()]);
-            expect(screen.getByText('declarative')).toBeInTheDocument();
+            expect(screen.getAllByText('declarative').length).toBeGreaterThan(0);
         });
     });
 
@@ -381,7 +380,7 @@ describe('ExtensionsTab — Phase 6.1 Mod Management', () => {
             await renderTab([mod]);
             // Both the tier badge ("native") and the provenance badge ("Bundled")
             // are present on the same row.
-            expect(screen.getByText('native')).toBeInTheDocument();
+            expect(screen.getAllByText('native').length).toBeGreaterThan(0);
             expect(screen.getByText('Bundled')).toBeInTheDocument();
         });
 
@@ -545,7 +544,7 @@ describe('ExtensionsTab — Phase 6.1 Mod Management', () => {
             seedStore();
             useAppStore.setState({ activeCampaignId: null } as never);
             render(<ExtensionsTab />);
-            await waitFor(() => expect(screen.getByText('Declarative Mod')).toBeInTheDocument());
+            await waitFor(() => expect(screen.getAllByText('Declarative Mod').length).toBeGreaterThan(0));
 
             const button = screen.getByRole('button', { name: /Delete data/ }) as HTMLButtonElement;
             expect(button.disabled).toBe(true);

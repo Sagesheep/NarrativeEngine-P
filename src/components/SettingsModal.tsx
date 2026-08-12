@@ -51,7 +51,7 @@ export function SettingsModal() {
           lightbox's scroll container and stays visible while content scrolls.
           The tab panels are conditionally hidden rather than unmounted so
           component state survives a tab flip. */}
-      <div className="flex flex-col">
+      <div className="flex flex-col flex-1 min-h-0">
 
         {/* Tabs */}
         <div className="flex border-b border-border sticky top-0 bg-void z-10">
@@ -74,7 +74,7 @@ export function SettingsModal() {
         <div className={activeTab !== 'providers' ? 'hidden' : ''}><ProvidersTab /></div>
         <div className={activeTab !== 'presets' ? 'hidden' : ''}><PresetsTab /></div>
         <div className={activeTab !== 'global' ? 'hidden' : ''}><GlobalSettingsTab /></div>
-        <div className={activeTab !== 'extensions' ? 'hidden' : ''}><ExtensionsTab /></div>
+        <div className={activeTab !== 'extensions' ? 'hidden' : 'flex-1 min-h-0 flex flex-col'}><ExtensionsTab /></div>
         <div className={activeTab !== 'advanced' ? 'hidden' : ''}><AdvancedTab /></div>
         <div className={activeTab !== 'debug' ? 'hidden' : ''}><DebugTab /></div>
       </div>
