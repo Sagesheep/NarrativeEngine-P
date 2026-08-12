@@ -16,7 +16,7 @@ export function TemplateField({ icon, label, color, value, onChange, placeholder
     return (
         <div>
             <div className="flex items-center justify-between mb-2">
-                <label className={`flex items-center gap-2 text-[11px] uppercase tracking-wider ${color}`}>
+                <label className={`flex items-center gap-2 text-[13px] uppercase tracking-wider ${color}`}>
                     {icon}
                     {label}
                 </label>
@@ -31,7 +31,7 @@ export function TemplateField({ icon, label, color, value, onChange, placeholder
                     }`}
             />
             {hint && (
-                <p className="text-[9px] text-text-dim/50 mt-1">{hint}</p>
+                <p className="text-[11px] text-text-dim/50 mt-1">{hint}</p>
             )}
         </div>
     );

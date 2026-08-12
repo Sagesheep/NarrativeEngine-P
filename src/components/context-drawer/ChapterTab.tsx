@@ -337,11 +337,11 @@ export const ChapterTab: React.FC = () => {
                 <div className="flex items-center space-x-2">
                     <BookOpen size={18} className="text-terminal" />
                     <h2 className="text-sm font-bold uppercase tracking-widest text-text-primary font-mono">Chapters</h2>
-                    <span className="text-[10px] bg-void-dark px-1.5 py-0.5 rounded border border-border text-text-muted font-mono">
+                    <span className="text-[12px] bg-void-dark px-1.5 py-0.5 rounded border border-border text-text-muted font-mono">
                         {chapters.length}
                     </span>
                     {pinnedChapterIds.length > 0 && (
-                        <span className="text-[10px] font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded font-mono">
+                        <span className="text-[12px] font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded font-mono">
                             {pinnedChapterIds.length} PINNED
                         </span>
                     )}
@@ -355,7 +355,7 @@ export const ChapterTab: React.FC = () => {
                         onClick={handleRefit}
                         disabled={isRefitting}
                         title={`Reflow chapters to ${CHAPTER_SCENE_SOFT_CAP} scenes each`}
-                        className="flex items-center space-x-1 px-2 py-1 rounded bg-void-dark border border-border hover:border-ice hover:text-ice text-text-muted transition-colors text-[10px] font-bold uppercase disabled:opacity-50"
+                        className="flex items-center space-x-1 px-2 py-1 rounded bg-void-dark border border-border hover:border-ice hover:text-ice text-text-muted transition-colors text-[12px] font-bold uppercase disabled:opacity-50"
                     >
                         {isRefitting ? <Loader2 size={12} className="animate-spin" /> : <Scale size={12} />}
                         <span>Refit</span>
@@ -363,7 +363,7 @@ export const ChapterTab: React.FC = () => {
                     <button
                         onClick={handleNewChapter}
                         disabled={isCreating}
-                        className="flex items-center space-x-1 px-2 py-1 rounded bg-terminal/10 border border-terminal/30 text-terminal hover:bg-terminal/20 transition-colors text-[10px] font-bold uppercase disabled:opacity-50"
+                        className="flex items-center space-x-1 px-2 py-1 rounded bg-terminal/10 border border-terminal/30 text-terminal hover:bg-terminal/20 transition-colors text-[12px] font-bold uppercase disabled:opacity-50"
                     >
                         {isCreating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
                         <span>New</span>
@@ -376,7 +376,7 @@ export const ChapterTab: React.FC = () => {
                     <button
                         onClick={handleBackfillSynopses}
                         disabled={backfillProgress !== null}
-                        className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded bg-amber-400/10 border border-amber-400/30 text-amber-400 hover:bg-amber-400/20 transition-colors text-[10px] font-bold uppercase tracking-wider disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded bg-amber-400/10 border border-amber-400/30 text-amber-400 hover:bg-amber-400/20 transition-colors text-[12px] font-bold uppercase tracking-wider disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                         {backfillProgress !== null ? (
                             <>
@@ -398,7 +398,7 @@ export const ChapterTab: React.FC = () => {
                     <button
                         onClick={handleRefit}
                         disabled={isRefitting}
-                        className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded bg-ice/10 border border-ice/30 text-ice hover:bg-ice/20 transition-colors text-[10px] font-bold uppercase tracking-wider disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded bg-ice/10 border border-ice/30 text-ice hover:bg-ice/20 transition-colors text-[12px] font-bold uppercase tracking-wider disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                         {isRefitting ? (
                             <>
@@ -432,7 +432,7 @@ export const ChapterTab: React.FC = () => {
                             <div key={ch.chapterId} className="relative">
                                 {isRegenerating === ch.chapterId && (
                                     <div className="absolute inset-0 bg-void/60 z-10 flex items-center justify-center rounded-lg backdrop-blur-[1px]">
-                                        <div className="flex items-center space-x-2 text-terminal font-mono text-[10px] uppercase font-bold">
+                                        <div className="flex items-center space-x-2 text-terminal font-mono text-[12px] uppercase font-bold">
                                             <Loader2 size={14} className="animate-spin" />
                                             <span>Processing...</span>
                                         </div>

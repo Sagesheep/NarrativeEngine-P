@@ -96,17 +96,17 @@ export const ResolvedStatePanel: React.FC = () => {
             >
                 <div className="flex items-center gap-2">
                     <Globe size={13} className="text-terminal" />
-                    <span className="text-[11px] font-bold uppercase tracking-widest font-mono text-terminal">
+                    <span className="text-[13px] font-bold uppercase tracking-widest font-mono text-terminal">
                         World State
                     </span>
-                    <span className="text-[10px] bg-void-dark px-1.5 py-0.5 rounded border border-border text-text-muted font-mono">
+                    <span className="text-[12px] bg-void-dark px-1.5 py-0.5 rounded border border-border text-text-muted font-mono">
                         {resolved.length}
                     </span>
                 </div>
                 <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                     <button
                         onClick={() => setShowAddForm(f => !f)}
-                        className="text-[10px] px-2 py-0.5 rounded border border-terminal/30 text-terminal bg-terminal/5 hover:bg-terminal/15 font-mono font-bold uppercase flex items-center gap-1 transition-colors"
+                        className="text-[12px] px-2 py-0.5 rounded border border-terminal/30 text-terminal bg-terminal/5 hover:bg-terminal/15 font-mono font-bold uppercase flex items-center gap-1 transition-colors"
                     >
                         <Plus size={10} />
                         Add
@@ -123,12 +123,12 @@ export const ResolvedStatePanel: React.FC = () => {
                             placeholder="Subject"
                             value={form.subject}
                             onChange={e => setForm(f => ({ ...f, subject: e.target.value }))}
-                            className="col-span-1 bg-void border border-border text-text-primary px-2 py-1 rounded text-[11px] font-mono focus:outline-none focus:border-terminal"
+                            className="col-span-1 bg-void border border-border text-text-primary px-2 py-1 rounded text-[13px] font-mono focus:outline-none focus:border-terminal"
                         />
                         <select
                             value={form.predicate}
                             onChange={e => setForm(f => ({ ...f, predicate: e.target.value }))}
-                            className="col-span-1 bg-void border border-border text-text-primary px-2 py-1 rounded text-[11px] font-mono focus:outline-none focus:border-terminal"
+                            className="col-span-1 bg-void border border-border text-text-primary px-2 py-1 rounded text-[13px] font-mono focus:outline-none focus:border-terminal"
                         >
                             {PREDICATE_LIST.map(p => <option key={p} value={p}>{p}</option>)}
                         </select>
@@ -136,7 +136,7 @@ export const ResolvedStatePanel: React.FC = () => {
                             placeholder="Object"
                             value={form.object}
                             onChange={e => setForm(f => ({ ...f, object: e.target.value }))}
-                            className="col-span-1 bg-void border border-border text-text-primary px-2 py-1 rounded text-[11px] font-mono focus:outline-none focus:border-terminal"
+                            className="col-span-1 bg-void border border-border text-text-primary px-2 py-1 rounded text-[13px] font-mono focus:outline-none focus:border-terminal"
                         />
                         <input
                             type="number"
@@ -145,25 +145,25 @@ export const ResolvedStatePanel: React.FC = () => {
                             placeholder="Importance (1-10)"
                             value={form.importance}
                             onChange={e => setForm(f => ({ ...f, importance: Math.min(10, Math.max(1, parseInt(e.target.value) || 5)) }))}
-                            className="col-span-1 bg-void border border-border text-text-primary px-2 py-1 rounded text-[11px] font-mono focus:outline-none focus:border-terminal"
+                            className="col-span-1 bg-void border border-border text-text-primary px-2 py-1 rounded text-[13px] font-mono focus:outline-none focus:border-terminal"
                         />
                         <input
                             placeholder="Summary (optional)"
                             value={form.summary}
                             onChange={e => setForm(f => ({ ...f, summary: e.target.value }))}
-                            className="col-span-2 bg-void border border-border text-text-primary px-2 py-1 rounded text-[11px] font-mono focus:outline-none focus:border-terminal"
+                            className="col-span-2 bg-void border border-border text-text-primary px-2 py-1 rounded text-[13px] font-mono focus:outline-none focus:border-terminal"
                         />
                         <div className="col-span-2 flex justify-end gap-1.5 mt-1">
                             <button
                                 onClick={() => setShowAddForm(false)}
-                                className="px-2 py-1 text-[10px] font-mono font-bold uppercase border border-border text-text-muted hover:text-text-primary rounded transition-colors"
+                                className="px-2 py-1 text-[12px] font-mono font-bold uppercase border border-border text-text-muted hover:text-text-primary rounded transition-colors"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={handleAdd}
                                 disabled={isAdding || !form.subject.trim() || !form.object.trim()}
-                                className="px-2 py-1 text-[10px] font-mono font-bold uppercase bg-terminal text-void rounded hover:bg-terminal-bright transition-colors disabled:opacity-50"
+                                className="px-2 py-1 text-[12px] font-mono font-bold uppercase bg-terminal text-void rounded hover:bg-terminal-bright transition-colors disabled:opacity-50"
                             >
                                 {isAdding ? 'Adding…' : 'Add'}
                             </button>
@@ -179,21 +179,21 @@ export const ResolvedStatePanel: React.FC = () => {
                     placeholder="Filter by subject or object…"
                     value={filter}
                     onChange={e => setFilter(e.target.value)}
-                    className="w-full mt-2 bg-void-dark border border-border text-text-primary px-2 py-1 rounded text-[11px] font-mono focus:outline-none focus:border-terminal mb-1.5"
+                    className="w-full mt-2 bg-void-dark border border-border text-text-primary px-2 py-1 rounded text-[13px] font-mono focus:outline-none focus:border-terminal mb-1.5"
                     onClick={e => { e.stopPropagation(); setCollapsed(false); }}
                 />
                 {displayed.map(r => (
                     <div key={r.id} className="flex items-start gap-2 group py-0.5">
-                        <span className={`text-[10px] font-mono font-bold shrink-0 ${importanceColor(r.importance)}`}>
+                        <span className={`text-[12px] font-mono font-bold shrink-0 ${importanceColor(r.importance)}`}>
                             [{r.importance}]
                         </span>
-                        <div className="flex-1 min-w-0 text-[11px] font-mono leading-tight">
+                        <div className="flex-1 min-w-0 text-[13px] font-mono leading-tight">
                             <span className="text-text-primary font-bold">{r.subject}</span>
                             <span className="text-text-muted mx-1">→</span>
                             <span className="text-terminal">{r.predicate}</span>
                             <span className="text-text-muted">: </span>
                             <span className="text-text-secondary">{r.object}</span>
-                            <span className="text-text-muted text-[9px] ml-1">s{r.sceneId}</span>
+                            <span className="text-text-muted text-[11px] ml-1">s{r.sceneId}</span>
                         </div>
                         <button
                             onClick={() => handleDelete(r.id)}
@@ -206,13 +206,13 @@ export const ResolvedStatePanel: React.FC = () => {
                 {collapsed && resolved.length > 10 && (
                     <button
                         onClick={() => setCollapsed(false)}
-                        className="text-[10px] text-text-muted hover:text-terminal font-mono mt-1 transition-colors"
+                        className="text-[12px] text-text-muted hover:text-terminal font-mono mt-1 transition-colors"
                     >
                         +{resolved.length - 10} more — expand
                     </button>
                 )}
                 {resolved.length === 0 && (
-                    <p className="text-[10px] text-text-muted font-mono py-1 italic">
+                    <p className="text-[12px] text-text-muted font-mono py-1 italic">
                         {filter ? 'No matches' : 'No resolved truths yet'}
                     </p>
                 )}

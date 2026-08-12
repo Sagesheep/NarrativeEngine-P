@@ -125,7 +125,7 @@ export function BlockViewModal() {
     };
 
     return (
-        <ScreenLightbox size="full" title={t('blockview.title')} onClose={toggleBlockView}>
+        <ScreenLightbox size="full" width="wide" title={t('blockview.title')} onClose={toggleBlockView}>
             <div className="flex flex-col min-h-full">
 
                 {/* Standfirst + legend */}

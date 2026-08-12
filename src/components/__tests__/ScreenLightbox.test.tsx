@@ -51,4 +51,19 @@ describe('ScreenLightbox', () => {
         render(<ScreenLightbox size="full" title="Settings" onClose={() => undefined}><p>Content</p></ScreenLightbox>);
         expect(screen.getByRole('dialog').querySelector('.w-full.h-full')).not.toBeNull();
     });
+
+    it('caps content width at form (default) and pads the scroll container', () => {
+        render(<ScreenLightbox title="Lore" onClose={() => undefined}><p>Content</p></ScreenLightbox>);
+        const scroll = screen.getByRole('dialog').querySelector('.overflow-y-auto');
+        expect(scroll?.className).toMatch(/max-w-5xl/);
+        expect(scroll?.className).toMatch(/mx-auto/);
+        expect(scroll?.className).toMatch(/p-4/);
+    });
+
+    it('opts out of the form cap with width="wide"', () => {
+        render(<ScreenLightbox width="wide" title="Engine Tuning" onClose={() => undefined}><p>Content</p></ScreenLightbox>);
+        const scroll = screen.getByRole('dialog').querySelector('.overflow-y-auto');
+        expect(scroll?.className).not.toMatch(/max-w-5xl/);
+        expect(scroll?.className).toMatch(/p-4/);
+    });
 });

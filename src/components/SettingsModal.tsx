@@ -12,9 +12,6 @@ import { ScreenLightbox } from './ScreenLightbox';
 
 type TabKey = 'providers' | 'presets' | 'global' | 'extensions' | 'advanced' | 'debug';
 
-/** Reading-width cap for the form tabs. Extensions opts out — see the render below. */
-const FORM_WIDTH = 'max-w-5xl mx-auto';
-
 // Label is a translation KEY, resolved at render — a const array evaluated at
 // module load would freeze the language at import time and never update.
 const TABS: { key: TabKey; labelKey: TranslateKey }[] = [
@@ -38,20 +35,26 @@ export function SettingsModal() {
   // Matches BlockViewModal's handler.
   if (!settingsOpen) return null;
 
+  // WO-ui-polish §A1 — width cap moved onto ScreenLightbox itself. Settings
+  // is full-bleed (size="full"); the lightbox's `width` prop is the form cap.
+  // Extensions opts out: it hosts mod screens (a node editor, a canvas) that
+  // should use whatever width the window has. One implementation, not two.
+  const lightboxWidth = activeTab === 'extensions' ? 'wide' : 'form';
+
   return (
-    <ScreenLightbox size="full" title={t('settings.title')} onClose={toggleSettings}>
+    <ScreenLightbox size="full" width={lightboxWidth} title={t('settings.title')} onClose={toggleSettings}>
       {/* Backdrop */}
       {null}
 
-      {/* Panel */}
-      {/* Full-bleed at every breakpoint. Settings now hosts mod screens, which
-          can be whole applications; a 75vw × 75vh box left a node editor in a
-          letterbox. The header below is `shrink-0` and outside the scroll
-          container, so the X stays on screen no matter how tall the content is. */}
-      <div className="flex flex-col min-h-full bg-surface">
+      {/* Panel — the lightbox owns the scroll container, the width cap, and the
+          padding. The tab bar is `sticky top-0` so it pins to the top of the
+          lightbox's scroll container and stays visible while content scrolls.
+          The tab panels are conditionally hidden rather than unmounted so
+          component state survives a tab flip. */}
+      <div className="flex flex-col">
 
         {/* Tabs */}
-        <div className="flex border-b border-border shrink-0 bg-void">
+        <div className="flex border-b border-border sticky top-0 bg-void z-10">
           {TABS.map(({ key, labelKey }) => (
             <button
               key={key}
@@ -68,19 +71,12 @@ export function SettingsModal() {
         </div>
 
         {/* Active tab content */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-20 relative">
-          {/* WO-12.1 — Constrain content width on wide desktop viewports so the
-              mobile-first full-width fields don't stretch across a wide screen.
-              The cap is per-tab rather than one shared wrapper: it exists for
-              FORMS, and Extensions is not one. It hosts mod screens (a node
-              editor, a canvas) that should use whatever width the window has. */}
-          <div className={`${FORM_WIDTH} ${activeTab !== 'providers' ? 'hidden' : ''}`}><ProvidersTab /></div>
-          <div className={`${FORM_WIDTH} ${activeTab !== 'presets' ? 'hidden' : ''}`}><PresetsTab /></div>
-          <div className={`${FORM_WIDTH} ${activeTab !== 'global' ? 'hidden' : ''}`}><GlobalSettingsTab /></div>
-          <div className={activeTab !== 'extensions' ? 'hidden' : ''}><ExtensionsTab /></div>
-          <div className={`${FORM_WIDTH} ${activeTab !== 'advanced' ? 'hidden' : ''}`}><AdvancedTab /></div>
-          <div className={`${FORM_WIDTH} ${activeTab !== 'debug' ? 'hidden' : ''}`}><DebugTab /></div>
-        </div>
+        <div className={activeTab !== 'providers' ? 'hidden' : ''}><ProvidersTab /></div>
+        <div className={activeTab !== 'presets' ? 'hidden' : ''}><PresetsTab /></div>
+        <div className={activeTab !== 'global' ? 'hidden' : ''}><GlobalSettingsTab /></div>
+        <div className={activeTab !== 'extensions' ? 'hidden' : ''}><ExtensionsTab /></div>
+        <div className={activeTab !== 'advanced' ? 'hidden' : ''}><AdvancedTab /></div>
+        <div className={activeTab !== 'debug' ? 'hidden' : ''}><DebugTab /></div>
       </div>
     </ScreenLightbox>
   );

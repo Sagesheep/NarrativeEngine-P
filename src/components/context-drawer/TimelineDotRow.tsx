@@ -36,7 +36,7 @@ function DotPopover({
             className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 w-64 bg-void-dark border border-border-bright rounded-lg shadow-xl p-2"
         >
             <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-bold uppercase font-mono text-text-muted">Scene {sceneId}</span>
+                <span className="text-[12px] font-bold uppercase font-mono text-text-muted">Scene {sceneId}</span>
                 <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={12} /></button>
             </div>
             <div className="space-y-1 max-h-52 overflow-y-auto custom-scrollbar">
@@ -44,15 +44,15 @@ function DotPopover({
                     <div key={ev.id} className="flex items-start gap-1.5 group">
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1 flex-wrap">
-                                <span className="text-[10px] font-mono text-terminal font-bold">{ev.subject}</span>
-                                <span className="text-[10px] text-text-muted font-mono">{ev.predicate}</span>
-                                <span className="text-[10px] font-mono text-text-secondary">{ev.object}</span>
+                                <span className="text-[12px] font-mono text-terminal font-bold">{ev.subject}</span>
+                                <span className="text-[12px] text-text-muted font-mono">{ev.predicate}</span>
+                                <span className="text-[12px] font-mono text-text-secondary">{ev.object}</span>
                                 {ev.source === 'manual' && (
-                                    <span className="text-[9px] bg-ember/10 border border-ember/20 text-ember px-1 rounded font-mono">manual</span>
+                                    <span className="text-[11px] bg-ember/10 border border-ember/20 text-ember px-1 rounded font-mono">manual</span>
                                 )}
                             </div>
                             {ev.summary && (
-                                <p className="text-[10px] text-text-muted mt-0.5 leading-tight">{ev.summary}</p>
+                                <p className="text-[12px] text-text-muted mt-0.5 leading-tight">{ev.summary}</p>
                             )}
                         </div>
                         <button
@@ -122,7 +122,7 @@ export const TimelineDotRow = React.memo(function TimelineDotRow({ chapter, even
                 );
             })}
             {sceneCount > 50 && (
-                <span className="text-[9px] text-text-muted font-mono">+{sceneCount - 50}</span>
+                <span className="text-[11px] text-text-muted font-mono">+{sceneCount - 50}</span>
             )}
         </div>
     );

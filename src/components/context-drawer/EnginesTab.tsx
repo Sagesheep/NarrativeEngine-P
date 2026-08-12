@@ -30,7 +30,7 @@ export function EnginesTab() {
                 setPopulatingField(null);
             }}
             disabled={populatingField !== null}
-            className="flex items-center gap-1 text-[9px] text-terminal hover:text-text-primary transition-colors disabled:opacity-30"
+            className="flex items-center gap-1 text-[11px] text-terminal hover:text-text-primary transition-colors disabled:opacity-30"
             title="AI-populate tags based on campaign lore"
         >
             {populatingField === fieldKey ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
@@ -44,14 +44,18 @@ export function EnginesTab() {
 
     return (
         <div className="px-4 py-4 space-y-4">
-            <p className="text-[9px] text-text-dim/50">
+            <p className="text-[11px] text-text-dim/50">
                 Configure thresholds and tags for the local narrative engines.
             </p>
 
-            <div className="space-y-4">
+            {/* WO-ui-polish §A2 — the four near-identical engine blocks tile well
+                as a 2-column card grid at xl: and up, filling the wide lightbox
+                honestly instead of stretching or wasting it. Below xl: the grid
+                collapses to a stacked column. */}
+            <div className="space-y-4 xl:grid xl:grid-cols-2 xl:gap-4 xl:space-y-0">
                 {/* Surprise Engine */}
                 <div className="space-y-2">
-                    <div className="text-[10px] text-terminal uppercase tracking-wider font-bold border-b border-terminal/20 pb-1 flex items-center justify-between">
+                    <div className="text-[12px] text-terminal uppercase tracking-wider font-bold border-b border-terminal/20 pb-1 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <div className="w-1.5 h-1.5 rounded-full bg-terminal" />
                             Surprise Engine
@@ -61,7 +65,7 @@ export function EnginesTab() {
                     <div className="bg-void border border-border p-3 space-y-3">
                         <div className="grid grid-cols-2 gap-2">
                             <div className="flex flex-col">
-                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">Initial DC (Default 95)</label>
+                                <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1">Initial DC (Default 95)</label>
                                 <input
                                     type="number"
                                     value={context.surpriseConfig?.initialDC ?? 95}
@@ -69,11 +73,11 @@ export function EnginesTab() {
                                         const val = parseInt(e.target.value);
                                         updateContext({ surpriseConfig: { ...(context.surpriseConfig || surpriseDefaults), initialDC: isNaN(val) ? 95 : val } });
                                     }}
-                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                    className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
                                 />
                             </div>
                             <div className="flex flex-col">
-                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">DC Drop per turn (Def 3)</label>
+                                <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1">DC Drop per turn (Def 3)</label>
                                 <input
                                     type="number"
                                     value={context.surpriseConfig?.dcReduction ?? 3}
@@ -81,13 +85,13 @@ export function EnginesTab() {
                                         const val = parseInt(e.target.value);
                                         updateContext({ surpriseConfig: { ...(context.surpriseConfig || surpriseDefaults), dcReduction: isNaN(val) ? 3 : val } });
                                     }}
-                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                    className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
                                 />
                             </div>
                         </div>
 
                         <div className="flex flex-col">
-                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
+                            <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
                                 <span>Event Types (Comma Separated)</span>
                                 <span className="flex items-center gap-2">
                                     {renderPopulateButton('surpriseTypes', async () => {
@@ -109,11 +113,11 @@ export function EnginesTab() {
                                 }}
                                 placeholder="ENVIRONMENTAL_HAZARD, NPC_ACTION..."
                                 rows={3}
-                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
+                                className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y min-h-[4.5rem]"
                             />
                         </div>
                         <div className="flex flex-col">
-                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
+                            <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
                                 <span>Event Tones (Comma Separated)</span>
                                 <span className="flex items-center gap-2">
                                     {renderPopulateButton('surpriseTones', async () => {
@@ -135,7 +139,7 @@ export function EnginesTab() {
                                 }}
                                 placeholder="GOOD, BAD, NEUTRAL..."
                                 rows={2}
-                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
+                                className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y min-h-[4.5rem]"
                             />
                         </div>
                     </div>
@@ -143,7 +147,7 @@ export function EnginesTab() {
 
                 {/* Encounter Engine */}
                 <div className="space-y-2">
-                    <div className="text-[10px] text-ember uppercase tracking-wider font-bold border-b border-ember/20 pb-1 flex items-center justify-between">
+                    <div className="text-[12px] text-ember uppercase tracking-wider font-bold border-b border-ember/20 pb-1 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <div className="w-1.5 h-1.5 rounded-full bg-ember" />
                             Encounter Engine
@@ -153,7 +157,7 @@ export function EnginesTab() {
                     <div className="bg-void border border-border p-3 space-y-3">
                         <div className="grid grid-cols-2 gap-2">
                             <div className="flex flex-col">
-                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">Initial DC (Default 198)</label>
+                                <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1">Initial DC (Default 198)</label>
                                 <input
                                     type="number"
                                     value={context.encounterConfig?.initialDC ?? 198}
@@ -161,11 +165,11 @@ export function EnginesTab() {
                                         const val = parseInt(e.target.value);
                                         updateContext({ encounterConfig: { ...(context.encounterConfig || encounterDefaults), initialDC: isNaN(val) ? 198 : val } });
                                     }}
-                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                    className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
                                 />
                             </div>
                             <div className="flex flex-col">
-                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">DC Drop per turn (Def 2)</label>
+                                <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1">DC Drop per turn (Def 2)</label>
                                 <input
                                     type="number"
                                     value={context.encounterConfig?.dcReduction ?? 2}
@@ -173,13 +177,13 @@ export function EnginesTab() {
                                         const val = parseInt(e.target.value);
                                         updateContext({ encounterConfig: { ...(context.encounterConfig || encounterDefaults), dcReduction: isNaN(val) ? 2 : val } });
                                     }}
-                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                    className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
                                 />
                             </div>
                         </div>
 
                         <div className="flex flex-col">
-                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
+                            <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
                                 <span>Event Types (Comma Separated)</span>
                                 <span className="flex items-center gap-2">
                                     {renderPopulateButton('encounterTypes', async () => {
@@ -201,11 +205,11 @@ export function EnginesTab() {
                                 }}
                                 placeholder="AMBUSH, RIVAL_APPEARANCE..."
                                 rows={3}
-                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
+                                className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y min-h-[4.5rem]"
                             />
                         </div>
                         <div className="flex flex-col">
-                            <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
+                            <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
                                 <span>Event Tones (Comma Separated)</span>
                                 <span className="flex items-center gap-2">
                                     {renderPopulateButton('encounterTones', async () => {
@@ -227,7 +231,7 @@ export function EnginesTab() {
                                 }}
                                 placeholder="TENSE, DESPERATE, EPICK..."
                                 rows={2}
-                                className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
+                                className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y min-h-[4.5rem]"
                             />
                         </div>
                     </div>
@@ -235,7 +239,7 @@ export function EnginesTab() {
 
                 {/* World Engine */}
                 <div className="space-y-2">
-                    <div className="text-[10px] text-terminal uppercase tracking-wider font-bold border-b border-terminal/20 pb-1 flex items-center justify-between">
+                    <div className="text-[12px] text-terminal uppercase tracking-wider font-bold border-b border-terminal/20 pb-1 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <div className="w-1.5 h-1.5 rounded-full bg-terminal" />
                             World Engine
@@ -245,7 +249,7 @@ export function EnginesTab() {
                     <div className="bg-void border border-border p-3 space-y-3">
                         <div className="grid grid-cols-2 gap-2">
                             <div className="flex flex-col">
-                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">Initial DC (Default 498)</label>
+                                <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1">Initial DC (Default 498)</label>
                                 <input
                                     type="number"
                                     value={context.worldEventConfig?.initialDC ?? 498}
@@ -253,11 +257,11 @@ export function EnginesTab() {
                                         const val = parseInt(e.target.value);
                                         updateContext({ worldEventConfig: { ...(context.worldEventConfig || worldDefaults), initialDC: isNaN(val) ? 498 : val } });
                                     }}
-                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                    className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
                                 />
                             </div>
                             <div className="flex flex-col">
-                                <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1">DC Drop per turn (Def 2)</label>
+                                <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1">DC Drop per turn (Def 2)</label>
                                 <input
                                     type="number"
                                     value={context.worldEventConfig?.dcReduction ?? 2}
@@ -265,7 +269,7 @@ export function EnginesTab() {
                                         const val = parseInt(e.target.value);
                                         updateContext({ worldEventConfig: { ...(context.worldEventConfig || worldDefaults), dcReduction: isNaN(val) ? 2 : val } });
                                     }}
-                                    className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
+                                    className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors"
                                 />
                             </div>
                         </div>
@@ -280,7 +284,7 @@ export function EnginesTab() {
                             };
                             return (
                                 <div key={field} className="flex flex-col mt-2">
-                                    <label className="text-[10px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
+                                    <label className="text-[12px] text-text-dim uppercase tracking-wider mb-1 flex justify-between items-center">
                                         <span>{labels[field]} (Comma Separated)</span>
                                         <span className="flex items-center gap-2">
                                             {renderPopulateButton(`world${field.charAt(0).toUpperCase() + field.slice(1)}`, async () => {
@@ -302,7 +306,7 @@ export function EnginesTab() {
                                         }}
                                         placeholder={placeholders[field]}
                                         rows={2}
-                                        className="w-full bg-surface border border-border px-2 py-1.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y"
+                                        className="w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors resize-y min-h-[4.5rem]"
                                     />
                                 </div>
                             );
@@ -321,7 +325,7 @@ export function EnginesTab() {
 
             <button
                 onClick={() => openDivergenceEntry()}
-                className="w-full flex items-center justify-center gap-1.5 text-[10px] uppercase tracking-widest text-amber-400 border border-amber-500/30 rounded py-2 hover:bg-amber-500/10 transition-colors"
+                className="w-full flex items-center justify-center gap-1.5 text-[12px] uppercase tracking-widest text-amber-400 border border-amber-500/30 rounded py-2 hover:bg-amber-500/10 transition-colors"
             >
                 <Plus size={12} /> Add Campaign Fact
             </button>
@@ -425,7 +429,7 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
 
     return (
         <div className="space-y-2">
-            <div className="text-[10px] text-ice uppercase tracking-wider font-bold border-b border-ice/20 pb-1 flex items-center justify-between">
+            <div className="text-[12px] text-ice uppercase tracking-wider font-bold border-b border-ice/20 pb-1 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-ice" />
                     Dice Fairness Engine
@@ -434,7 +438,7 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
             </div>
 
             {(context.diceFairnessActive ?? true) && (
-                <div className="text-[9px] text-amber-400/70 italic px-1">
+                <div className="text-[11px] text-amber-400/70 italic px-1">
                     ⚡ Pool mode active — pre-rolled dice injected. Turn OFF to let the AI call roll_dice on demand.
                 </div>
             )}
@@ -443,8 +447,8 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
                 {/* ── Die Types Registry ── */}
                 <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-text-dim uppercase tracking-wider font-bold">Die Types</span>
-                        <button onClick={addDieType} className="flex items-center gap-1 text-[9px] text-terminal hover:text-text-primary transition-colors">
+                        <span className="text-[12px] text-text-dim uppercase tracking-wider font-bold">Die Types</span>
+                        <button onClick={addDieType} className="flex items-center gap-1 text-[11px] text-terminal hover:text-text-primary transition-colors">
                             <Plus size={9} /> Add
                         </button>
                     </div>
@@ -464,9 +468,9 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
                                         type="text"
                                         value={die.name}
                                         onChange={(e) => updateDieType(die.id, { name: e.target.value })}
-                                        className="w-16 bg-surface border border-border px-1.5 py-1 text-[11px] font-mono text-text-primary focus:border-terminal outline-none"
+                                        className="w-16 bg-surface border border-border px-1.5 py-1 text-[13px] font-mono text-text-primary focus:border-terminal outline-none"
                                     />
-                                    <span className="text-[9px] text-text-dim">faces:</span>
+                                    <span className="text-[11px] text-text-dim">faces:</span>
                                     <input
                                         type="number"
                                         min={2}
@@ -476,13 +480,13 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
                                             const faces = parseInt(e.target.value) || 2;
                                             updateDieType(die.id, { faces });
                                         }}
-                                        className="w-14 bg-surface border border-border px-1.5 py-1 text-[11px] font-mono text-text-primary focus:border-terminal outline-none"
+                                        className="w-14 bg-surface border border-border px-1.5 py-1 text-[13px] font-mono text-text-primary focus:border-terminal outline-none"
                                     />
                                     {!validation.valid && (
-                                        <span className="text-[9px] text-danger" title={validation.error}>⚠</span>
+                                        <span className="text-[11px] text-danger" title={validation.error}>⚠</span>
                                     )}
                                     <div className="ml-auto flex items-center gap-1">
-                                        <span className="text-[9px] text-text-dim">{die.bands.length} bands</span>
+                                        <span className="text-[11px] text-text-dim">{die.bands.length} bands</span>
                                         <button
                                             onClick={() => removeDieType(die.id)}
                                             className="text-text-dim hover:text-danger transition-colors"
@@ -495,17 +499,17 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
                                 {isExpanded && (
                                     <div className="px-2 pb-2 space-y-1.5 border-t border-border/30">
                                         {!validation.valid && (
-                                            <div className="text-[9px] text-danger px-1 py-1 bg-danger/10 rounded">{validation.error}</div>
+                                            <div className="text-[11px] text-danger px-1 py-1 bg-danger/10 rounded">{validation.error}</div>
                                         )}
                                         {die.bands.map((band, i) => (
                                             <div key={band.id} className="flex items-center gap-1.5">
-                                                <span className="text-[9px] text-text-dim w-4">{i + 1}.</span>
+                                                <span className="text-[11px] text-text-dim w-4">{i + 1}.</span>
                                                 <input
                                                     type="text"
                                                     value={band.label}
                                                     onChange={(e) => updateBand(die.id, band.id, { label: e.target.value })}
                                                     placeholder="Label"
-                                                    className="flex-1 bg-surface border border-border px-1.5 py-1 text-[10px] font-mono text-text-primary focus:border-terminal outline-none"
+                                                    className="flex-1 bg-surface border border-border px-1.5 py-1 text-[12px] font-mono text-text-primary focus:border-terminal outline-none"
                                                 />
                                                 <input
                                                     type="number"
@@ -513,17 +517,17 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
                                                     max={die.faces}
                                                     value={band.min}
                                                     onChange={(e) => updateBand(die.id, band.id, { min: parseInt(e.target.value) || 1 })}
-                                                    className="w-12 bg-surface border border-border px-1 py-1 text-[10px] font-mono text-text-primary focus:border-terminal outline-none text-center"
+                                                    className="w-12 bg-surface border border-border px-1 py-1 text-[12px] font-mono text-text-primary focus:border-terminal outline-none text-center"
                                                     title="Min (inclusive)"
                                                 />
-                                                <span className="text-[9px] text-text-dim">–</span>
+                                                <span className="text-[11px] text-text-dim">–</span>
                                                 <input
                                                     type="number"
                                                     min={1}
                                                     max={die.faces}
                                                     value={band.max}
                                                     onChange={(e) => updateBand(die.id, band.id, { max: parseInt(e.target.value) || 1 })}
-                                                    className="w-12 bg-surface border border-border px-1 py-1 text-[10px] font-mono text-text-primary focus:border-terminal outline-none text-center"
+                                                    className="w-12 bg-surface border border-border px-1 py-1 text-[12px] font-mono text-text-primary focus:border-terminal outline-none text-center"
                                                     title="Max (inclusive)"
                                                 />
                                                 <button
@@ -536,7 +540,7 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
                                         ))}
                                         <button
                                             onClick={() => addBand(die.id)}
-                                            className="flex items-center gap-1 text-[9px] text-terminal hover:text-text-primary transition-colors py-1"
+                                            className="flex items-center gap-1 text-[11px] text-terminal hover:text-text-primary transition-colors py-1"
                                         >
                                             <Plus size={9} /> Add Band
                                         </button>
@@ -550,11 +554,11 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
                 {/* ── Categories (up to 10) ── */}
                 <div className="space-y-2 border-t border-border/30 pt-2">
                     <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-text-dim uppercase tracking-wider font-bold">Categories (max 10)</span>
+                        <span className="text-[12px] text-text-dim uppercase tracking-wider font-bold">Categories (max 10)</span>
                         <button
                             onClick={addCategory}
                             disabled={diceSystem.categories.length >= 10}
-                            className="flex items-center gap-1 text-[9px] text-terminal hover:text-text-primary transition-colors disabled:opacity-30"
+                            className="flex items-center gap-1 text-[11px] text-terminal hover:text-text-primary transition-colors disabled:opacity-30"
                         >
                             <Plus size={9} /> Add
                         </button>
@@ -565,12 +569,12 @@ function DiceFairnessSection({ context, updateContext }: DiceFairnessSectionProp
                                 type="text"
                                 value={cat.name}
                                 onChange={(e) => updateCategory(cat.id, { name: e.target.value })}
-                                className="flex-1 bg-surface border border-border px-1.5 py-1 text-[10px] font-mono text-text-primary focus:border-terminal outline-none"
+                                className="flex-1 bg-surface border border-border px-1.5 py-1 text-[12px] font-mono text-text-primary focus:border-terminal outline-none"
                             />
                             <select
                                 value={cat.dieTypeId}
                                 onChange={(e) => updateCategory(cat.id, { dieTypeId: e.target.value })}
-                                className="w-20 bg-surface border border-border px-1.5 py-1 text-[10px] font-mono text-text-primary focus:border-terminal outline-none"
+                                className="w-20 bg-surface border border-border px-1.5 py-1 text-[12px] font-mono text-text-primary focus:border-terminal outline-none"
                             >
                                 {diceSystem.dieTypes.map(d => (
                                     <option key={d.id} value={d.id}>{d.name}</option>
@@ -617,7 +621,7 @@ function BookkeepingBudgetSection() {
 
     return (
         <div className="space-y-2">
-            <div className="text-[10px] text-amber-400 uppercase tracking-wider font-bold border-b border-amber-500/20 pb-1 flex items-center justify-between">
+            <div className="text-[12px] text-amber-400 uppercase tracking-wider font-bold border-b border-amber-500/20 pb-1 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                     Bookkeeping Budget
@@ -628,7 +632,7 @@ function BookkeepingBudgetSection() {
                 <div className="flex items-center justify-between">
                     <button
                         onClick={() => updateContext({ smartBookkeepingActive: !context.smartBookkeepingActive })}
-                        className={`px-3 py-1.5 text-[10px] uppercase tracking-wider rounded transition-colors border ${
+                        className={`px-3 py-1.5 text-[12px] uppercase tracking-wider rounded transition-colors border ${
                             context.smartBookkeepingActive
                                 ? 'bg-terminal/10 border-terminal text-terminal'
                                 : 'bg-void border-border text-text-dim'
@@ -638,7 +642,7 @@ function BookkeepingBudgetSection() {
                     </button>
                 </div>
 
-                <div className="flex items-center justify-between text-[9px] text-text-dim/50">
+                <div className="flex items-center justify-between text-[11px] text-text-dim/50">
                     <span>Stub: {stub}t</span>
                     <span>Full: ~{full}t</span>
                 </div>
@@ -646,24 +650,24 @@ function BookkeepingBudgetSection() {
                 <div>
                     <button
                         onClick={() => setShowSettings(!showSettings)}
-                        className="flex items-center gap-1.5 text-text-dim/60 hover:text-text-primary text-[9px] uppercase tracking-wider transition-colors"
+                        className="flex items-center gap-1.5 text-text-dim/60 hover:text-text-primary text-[11px] uppercase tracking-wider transition-colors"
                     >
                         {showSettings ? 'Hide' : 'Auto-Update Settings'}
                     </button>
                     {showSettings && (
                         <div className="mt-2 space-y-2">
                             <div className="flex items-center gap-2">
-                                <label className="text-[9px] text-text-dim/60 uppercase tracking-wider whitespace-nowrap">Scan every N turns:</label>
+                                <label className="text-[11px] text-text-dim/60 uppercase tracking-wider whitespace-nowrap">Scan every N turns:</label>
                                 <input
                                     type="number"
                                     min={1}
                                     max={50}
                                     value={autoBookkeepingInterval}
                                     onChange={(e) => setAutoBookkeepingInterval(Number(e.target.value))}
-                                    className="w-16 px-2 py-1 bg-void border border-border rounded text-text-primary text-[11px] text-center focus:outline-none focus:border-terminal"
+                                    className="w-16 px-2 py-1 bg-void border border-border rounded text-text-primary text-[13px] text-center focus:outline-none focus:border-terminal"
                                 />
                             </div>
-                            <p className="text-[8px] text-text-dim/40">
+                            <p className="text-[11px] text-text-dim/40">
                                 Auto-scanned every N turns via background queue.
                             </p>
                         </div>

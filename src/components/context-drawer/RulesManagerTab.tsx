@@ -195,16 +195,16 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
         return (
             <div key={chunk.id} className={`bg-void rounded border p-2 transition-colors ${isAlways ? 'border-terminal/40' : 'border-border'}`}>
                 <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] text-text-primary font-bold truncate flex-1 mr-2" title={chunk.header}>
+                    <span className="text-[12px] text-text-primary font-bold truncate flex-1 mr-2" title={chunk.header}>
                         {chunk.header}
                     </span>
-                    <span className="text-[9px] text-text-dim shrink-0">
+                    <span className="text-[11px] text-text-dim shrink-0">
                         {chunk.tokens}tk
                     </span>
                 </div>
 
                 <div className="flex items-center gap-3 mb-1.5">
-                    <label className="flex items-center gap-1 text-[9px] text-text-dim cursor-pointer">
+                    <label className="flex items-center gap-1 text-[11px] text-text-dim cursor-pointer">
                         <input
                             type="checkbox"
                             checked={isVector}
@@ -213,7 +213,7 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
                         />
                         Vector
                     </label>
-                    <label className="flex items-center gap-1 text-[9px] text-text-dim cursor-pointer">
+                    <label className="flex items-center gap-1 text-[11px] text-text-dim cursor-pointer">
                         <input
                             type="checkbox"
                             checked={isKeyword}
@@ -222,7 +222,7 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
                         />
                         Keyword
                     </label>
-                    <label className="flex items-center gap-1 text-[9px] text-text-dim cursor-pointer">
+                    <label className="flex items-center gap-1 text-[11px] text-text-dim cursor-pointer">
                         <input
                             type="checkbox"
                             checked={isAlways}
@@ -235,12 +235,12 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
 
                 {isKeyword && (
                     <div className="mb-1.5">
-                        <div className="text-[8px] text-text-dim uppercase tracking-wider mb-0.5">Secondary (AND-gate)</div>
+                        <div className="text-[11px] text-text-dim uppercase tracking-wider mb-0.5">Secondary (AND-gate)</div>
                         <div className="flex flex-wrap gap-1 mb-1">
                             {(meta.secondaryKeywords ?? []).map(kw => (
                                 <span
                                     key={kw}
-                                    className="inline-flex items-center gap-1 bg-surface border border-terminal/30 rounded px-1.5 py-0.5 text-[8px] text-terminal-dim hover:border-danger cursor-pointer"
+                                    className="inline-flex items-center gap-1 bg-surface border border-terminal/30 rounded px-1.5 py-0.5 text-[11px] text-terminal-dim hover:border-danger cursor-pointer"
                                     onClick={() => removeSecondaryKeyword(chunk.id, kw)}
                                     title="Click to remove"
                                 >
@@ -256,11 +256,11 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
                                 onChange={(e) => setNewSecondary(prev => ({ ...prev, [chunk.id]: e.target.value }))}
                                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSecondaryKeyword(chunk.id); } }}
                                 placeholder="+ secondary kw"
-                                className="flex-1 bg-surface border border-border rounded px-2 py-1 md:py-0.5 text-[16px] md:text-[8px] text-text-primary placeholder:text-text-dim/40 min-h-[36px] md:min-h-0"
+                                className="flex-1 bg-surface border border-border rounded px-2 py-1 md:py-0.5 text-[16px] md:text-[11px] text-text-primary placeholder:text-text-dim/40 min-h-[36px] md:min-h-0"
                             />
                             <button
                                 onClick={() => addSecondaryKeyword(chunk.id)}
-                                className="text-[10px] md:text-[8px] text-terminal hover:text-text-primary px-2 md:px-1 touch-btn md:min-h-0 md:min-w-0"
+                                className="text-[12px] md:text-[11px] text-terminal hover:text-text-primary px-2 md:px-1 touch-btn md:min-h-0 md:min-w-0"
                             >
                                 <Plus size={10} />
                             </button>
@@ -272,12 +272,12 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
                     {(meta.triggerKeywords ?? []).map(kw => (
                         <span
                             key={kw}
-                            className="inline-flex items-center gap-1 bg-surface border border-border rounded px-2.5 md:px-1.5 py-1.5 md:py-0.5 text-xs md:text-[9px] text-text-dim hover:border-danger group cursor-pointer min-h-[32px] md:min-h-0"
+                            className="inline-flex items-center gap-1 bg-surface border border-border rounded px-2.5 md:px-1.5 py-1.5 md:py-0.5 text-xs md:text-[11px] text-text-dim hover:border-danger group cursor-pointer min-h-[32px] md:min-h-0"
                             onClick={() => removeKeyword(chunk.id, kw)}
                             title="Click to remove"
                         >
                             {kw}
-                            <span className="text-danger opacity-100 md:opacity-0 md:group-hover:opacity-100 text-[10px] md:text-[8px]">×</span>
+                            <span className="text-danger opacity-100 md:opacity-0 md:group-hover:opacity-100 text-[12px] md:text-[11px]">×</span>
                         </span>
                     ))}
                 </div>
@@ -289,18 +289,18 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
                         onChange={(e) => setNewKeyword(prev => ({ ...prev, [chunk.id]: e.target.value }))}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(chunk.id); } }}
                         placeholder="+ keyword"
-                        className="flex-1 bg-surface border border-border rounded px-3 py-2 md:py-0.5 text-[16px] md:text-[9px] text-text-primary placeholder:text-text-dim/40 min-h-[44px] md:min-h-0"
+                        className="flex-1 bg-surface border border-border rounded px-3 py-2 md:py-0.5 text-[16px] md:text-[11px] text-text-primary placeholder:text-text-dim/40 min-h-[44px] md:min-h-0"
                     />
                     <button
                         onClick={() => addKeyword(chunk.id)}
-                        className="text-[14px] md:text-[9px] text-terminal hover:text-text-primary px-3 md:px-1 touch-btn md:min-h-0 md:min-w-0"
+                        className="text-[14px] md:text-[11px] text-terminal hover:text-text-primary px-3 md:px-1 touch-btn md:min-h-0 md:min-w-0"
                     >
                         <Plus size={10} />
                     </button>
                     <button
                         onClick={() => regenerateKeywords(chunk.id)}
                         onBlur={() => setConfirmRegenId(null)}
-                        className={`text-[9px] transition-colors ${
+                        className={`text-[11px] transition-colors ${
                             confirmRegenId === chunk.id
                                 ? 'text-danger font-bold'
                                 : 'text-text-dim hover:text-terminal'
@@ -323,17 +323,17 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
     return (
         <div className="px-4 py-4 space-y-4 font-mono">
             <div className="flex items-center justify-between">
-                <span className="text-[10px] text-terminal uppercase tracking-wider font-bold">
+                <span className="text-[12px] text-terminal uppercase tracking-wider font-bold">
                     Rules Chunk Manager
                 </span>
                 {onBack && (
-                    <button onClick={onBack} className="text-[9px] text-text-dim hover:text-text-primary">
+                    <button onClick={onBack} className="text-[11px] text-text-dim hover:text-text-primary">
                         ← Back
                     </button>
                 )}
             </div>
 
-            <div className="text-[9px] text-text-dim/70 space-y-1">
+            <div className="text-[11px] text-text-dim/70 space-y-1">
                 <div>Total rules: {totalTokens} tokens across {chunksWithMeta.length} chunks</div>
                 <div>RAG budget: {rulesBudget} tokens/turn (threshold: {Math.floor(rulesBudget * 1.2)} tokens)</div>
             </div>
@@ -341,7 +341,7 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
             <button
                 onClick={runIndex}
                 disabled={indexing || !context.rulesRaw}
-                className={`w-full py-2 text-[10px] uppercase tracking-wider font-bold rounded transition-colors ${
+                className={`w-full py-2 text-[12px] uppercase tracking-wider font-bold rounded transition-colors ${
                     indexing
                         ? 'bg-surface text-text-dim cursor-not-allowed'
                         : 'bg-terminal/10 text-terminal hover:bg-terminal/20'
@@ -363,7 +363,7 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
 
             {chunksWithMeta.length > 0 && (
                 <div className="flex items-center gap-1.5 pt-1">
-                    <span className="text-[8px] text-text-dim/60 uppercase tracking-wider shrink-0">Bulk:</span>
+                    <span className="text-[11px] text-text-dim/60 uppercase tracking-wider shrink-0">Bulk:</span>
                     {(['vector', 'keyword', 'always'] as const).map(mode => {
                         const on = bulkModeIsOn(mode);
                         return (
@@ -371,7 +371,7 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
                                 key={mode}
                                 onClick={() => bulkToggleMode(mode)}
                                 title={`${on ? 'Turn off' : 'Turn on'} ${mode} for all chunks`}
-                                className={`flex-1 py-1.5 md:py-1 text-[9px] uppercase tracking-wider rounded border transition-colors ${
+                                className={`flex-1 py-1.5 md:py-1 text-[11px] uppercase tracking-wider rounded border transition-colors ${
                                     on
                                         ? 'bg-terminal/15 text-terminal border-terminal/40'
                                         : 'bg-surface text-text-dim border-transparent hover:text-terminal hover:bg-terminal/10'
@@ -384,7 +384,7 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
                     <button
                         onClick={bulkDisableAll}
                         title="Disable all chunks (clears every mode)"
-                        className="flex-1 py-1.5 md:py-1 text-[9px] uppercase tracking-wider rounded bg-surface text-text-dim hover:text-danger hover:bg-danger/10 transition-colors"
+                        className="flex-1 py-1.5 md:py-1 text-[11px] uppercase tracking-wider rounded bg-surface text-text-dim hover:text-danger hover:bg-danger/10 transition-colors"
                     >
                         Disable All
                     </button>
@@ -399,7 +399,7 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
                 <div className="space-y-3">
                     {alwaysChunks.length > 0 && (
                         <div className="space-y-2 mb-4">
-                            <div className="text-[10px] text-terminal uppercase tracking-wider font-bold mb-1 border-b border-terminal/20 pb-1 flex items-center gap-2">
+                            <div className="text-[12px] text-terminal uppercase tracking-wider font-bold mb-1 border-b border-terminal/20 pb-1 flex items-center gap-2">
                                 <div className="w-1.5 h-1.5 rounded-full bg-terminal animate-pulse" />
                                 Always On ({alwaysChunks.length})
                             </div>
@@ -408,7 +408,7 @@ export function RulesManagerTab({ onBack }: { onBack?: () => void }) {
                     )}
                     {conditionalChunks.length > 0 && (
                         <div className="space-y-2">
-                            <div className="text-[10px] text-text-dim uppercase tracking-wider font-bold mb-1 border-b border-border/50 pb-1 flex items-center gap-2">
+                            <div className="text-[12px] text-text-dim uppercase tracking-wider font-bold mb-1 border-b border-border/50 pb-1 flex items-center gap-2">
                                 <div className="w-1.5 h-1.5 rounded-full bg-text-dim/50" />
                                 Conditional ({conditionalChunks.length})
                             </div>

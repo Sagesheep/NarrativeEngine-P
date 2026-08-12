@@ -35,14 +35,14 @@ export function MemoryTab() {
             <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
                 <button
                     onClick={() => setTab('facts')}
-                    className={`flex items-center gap-0.5 text-[9px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${tab === 'facts' ? 'text-amber-400 bg-amber-500/10' : 'text-text-dim'}`}
+                    className={`flex items-center gap-0.5 text-[11px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${tab === 'facts' ? 'text-amber-400 bg-amber-500/10' : 'text-text-dim'}`}
                 >
                     Facts ({activeCount})
                 </button>
                 {reviewEntries.length > 0 && (
                     <button
                         onClick={() => setTab('review')}
-                        className={`flex items-center gap-0.5 text-[9px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${tab === 'review' ? 'text-amber-400 bg-amber-500/10' : 'text-text-dim'}`}
+                        className={`flex items-center gap-0.5 text-[11px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${tab === 'review' ? 'text-amber-400 bg-amber-500/10' : 'text-text-dim'}`}
                     >
                         <AlertTriangle size={9} />
                         Rev ({reviewEntries.length})
@@ -50,7 +50,7 @@ export function MemoryTab() {
                 )}
             </div>
 
-            <div className="text-[9px] text-text-dim">
+            <div className="text-[11px] text-text-dim">
                 {regTokens}/{tokenBudget} tkns &middot; {activeCount} active{pinnedCount > 0 ? ` · ${pinnedCount} pinned` : ''}
             </div>
 

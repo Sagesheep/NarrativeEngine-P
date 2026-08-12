@@ -66,10 +66,10 @@ export function LoreTab() {
         <div key={chunk.id} className={`bg-void rounded border p-2 transition-colors ${chunk.disabled ? 'opacity-50 border-border' : chunk.alwaysInclude ? 'border-terminal/40 shadow-[0_0_10px_rgba(74,222,128,0.05)]' : 'border-border'}`}>
             {/* Header row */}
             <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] text-text-primary font-bold truncate flex-1 mr-2" title={chunk.header}>
+                <span className="text-[12px] text-text-primary font-bold truncate flex-1 mr-2" title={chunk.header}>
                     {chunk.header.replace(/\[CHUNK:\s*[A-Z_]+[—\-\s]*\]/i, '').trim()}
                 </span>
-                <span className="text-[9px] text-text-dim shrink-0">
+                <span className="text-[11px] text-text-dim shrink-0">
                     {chunk.tokens}tk
                 </span>
             </div>
@@ -115,7 +115,7 @@ export function LoreTab() {
                             Content · {chunk.tokens}tk
                         </span>
                     </div>
-                    <pre className="px-2 py-2 text-[10px] text-text-primary/90 font-mono whitespace-pre-wrap break-words max-h-64 overflow-y-auto leading-relaxed">
+                    <pre className="px-2 py-2 text-[12px] text-text-primary/90 font-mono whitespace-pre-wrap break-words max-h-64 overflow-y-auto leading-relaxed">
 {chunk.content}
                     </pre>
                 </div>
@@ -123,7 +123,7 @@ export function LoreTab() {
 
             {/* Controls row */}
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                <label className="flex items-center gap-1 text-[9px] text-text-dim cursor-pointer">
+                <label className="flex items-center gap-1 text-[11px] text-text-dim cursor-pointer">
                     <input
                         type="checkbox"
                         checked={chunk.alwaysInclude}
@@ -132,12 +132,12 @@ export function LoreTab() {
                     />
                     Always
                 </label>
-                <label className="flex items-center gap-1 text-[9px] text-text-dim">
+                <label className="flex items-center gap-1 text-[11px] text-text-dim">
                     Depth:
                     <select
                         value={chunk.scanDepth || 3}
                         onChange={(e) => updateLoreChunk(chunk.id, { scanDepth: parseInt(e.target.value) })}
-                        className="bg-surface border border-border rounded px-1 py-0.5 text-[9px] text-text-primary"
+                        className="bg-surface border border-border rounded px-1 py-0.5 text-[11px] text-text-primary"
                     >
                         <option value={1}>1</option>
                         <option value={2}>2</option>
@@ -149,7 +149,7 @@ export function LoreTab() {
                 {/* WO-11.8 — Per-chunk RAG activation mode. Authoritative over
                     heuristics; 'always' is the explicit equivalent of the
                     alwaysInclude checkbox for the hybrid retrieval path. */}
-                <label className="flex items-center gap-1 text-[9px] text-text-dim">
+                <label className="flex items-center gap-1 text-[11px] text-text-dim">
                     Match:
                     <select
                         value={chunk.disabled ? 'disabled' : (chunk.ragMode ?? '')}
@@ -161,7 +161,7 @@ export function LoreTab() {
                                 updateLoreChunk(chunk.id, { disabled: false, ragMode: (val || undefined) as LoreChunk['ragMode'] });
                             }
                         }}
-                        className="bg-surface border border-border rounded px-1 py-0.5 text-[9px] text-text-primary"
+                        className="bg-surface border border-border rounded px-1 py-0.5 text-[11px] text-text-primary"
                         title="How this chunk is matched during hybrid retrieval. Blank = auto (heuristics decide)."
                     >
                         <option value="">auto</option>
@@ -178,7 +178,7 @@ export function LoreTab() {
                 {(chunk.triggerKeywords || []).map((kw) => (
                     <span
                         key={kw}
-                        className="inline-flex items-center gap-0.5 bg-surface border border-border rounded px-1.5 py-0.5 text-[9px] text-text-dim hover:border-danger group cursor-pointer"
+                        className="inline-flex items-center gap-0.5 bg-surface border border-border rounded px-1.5 py-0.5 text-[11px] text-text-dim hover:border-danger group cursor-pointer"
                         onClick={() => removeKeyword(chunk.id, kw)}
                         title="Click to remove"
                     >
@@ -196,11 +196,11 @@ export function LoreTab() {
                     onChange={(e) => setNewKeyword(prev => ({ ...prev, [chunk.id]: e.target.value }))}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(chunk.id); } }}
                     placeholder="+ keyword"
-                    className="flex-1 bg-surface border border-border rounded px-1.5 py-0.5 text-[9px] text-text-primary placeholder:text-text-dim/40"
+                    className="flex-1 bg-surface border border-border rounded px-1.5 py-0.5 text-[11px] text-text-primary placeholder:text-text-dim/40"
                 />
                 <button
                     onClick={() => addKeyword(chunk.id)}
-                    className="text-[9px] text-terminal hover:text-text-primary px-1"
+                    className="text-[11px] text-terminal hover:text-text-primary px-1"
                 >
                     +
                 </button>
@@ -211,7 +211,7 @@ export function LoreTab() {
     return (
         <div className="px-4 py-4 space-y-4">
             <div className="space-y-1">
-                <p className="text-[9px] text-text-dim/50">
+                <p className="text-[11px] text-text-dim/50">
                     Chunks trigger when keywords appear in recent messages
                 </p>
                 {loreChunks.length > 0 && (
@@ -224,7 +224,7 @@ export function LoreTab() {
                                     key={mode}
                                     onClick={() => bulkToggleMode(mode)}
                                     title={`${on ? 'Turn off' : 'Turn on'} ${mode} for all chunks`}
-                                    className={`flex-1 py-1.5 md:py-1 text-[9px] uppercase tracking-wider rounded border transition-colors min-w-[55px] ${
+                                    className={`flex-1 py-1.5 md:py-1 text-[11px] uppercase tracking-wider rounded border transition-colors min-w-[55px] ${
                                         on
                                             ? 'bg-terminal/15 text-terminal border-terminal/40'
                                             : 'bg-surface text-text-dim border-transparent hover:text-terminal hover:bg-terminal/10'
@@ -237,7 +237,7 @@ export function LoreTab() {
                         <button
                             onClick={bulkDisableAll}
                             title="Disable all chunks (never retrieve)"
-                            className="flex-1 py-1.5 md:py-1 text-[9px] uppercase tracking-wider rounded bg-surface text-text-dim hover:text-danger hover:bg-danger/10 transition-colors min-w-[70px]"
+                            className="flex-1 py-1.5 md:py-1 text-[11px] uppercase tracking-wider rounded bg-surface text-text-dim hover:text-danger hover:bg-danger/10 transition-colors min-w-[70px]"
                         >
                             Disable All
                         </button>
@@ -258,7 +258,7 @@ export function LoreTab() {
                             <>
                                 {alwaysOn.length > 0 && (
                                     <div className="space-y-2 mb-4">
-                                        <div className="text-[10px] text-terminal uppercase tracking-wider font-bold mb-1 border-b border-terminal/20 pb-1 flex items-center gap-2">
+                                        <div className="text-[12px] text-terminal uppercase tracking-wider font-bold mb-1 border-b border-terminal/20 pb-1 flex items-center gap-2">
                                             <div className="w-1.5 h-1.5 rounded-full bg-terminal animate-pulse" />
                                             Always On
                                         </div>
@@ -267,7 +267,7 @@ export function LoreTab() {
                                 )}
                                 {conditional.length > 0 && (
                                     <div className="space-y-2">
-                                        <div className="text-[10px] text-text-dim uppercase tracking-wider font-bold mb-1 border-b border-border/50 pb-1 flex items-center gap-2">
+                                        <div className="text-[12px] text-text-dim uppercase tracking-wider font-bold mb-1 border-b border-border/50 pb-1 flex items-center gap-2">
                                             <div className="w-1.5 h-1.5 rounded-full bg-text-dim/50" />
                                             Conditional Triggers
                                         </div>

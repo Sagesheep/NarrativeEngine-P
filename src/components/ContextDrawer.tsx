@@ -44,7 +44,7 @@ export function LegacyContextDrawer() {
             ">
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                    <h2 className="text-[11px] text-terminal uppercase tracking-[0.25em] font-bold glow-green">
+                    <h2 className="text-[11px] text-terminal uppercase tracking-[0.25em] font-bold">
                         ◆ CONTEXT BANK
                     </h2>
                     <button

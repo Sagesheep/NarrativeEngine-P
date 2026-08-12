@@ -12,7 +12,7 @@ export function TokenCounter({ text, limit }: { text: string; limit: number }) {
                     style={{ width: `${pct}%` }}
                 />
             </div>
-            <span className={`text-[10px] font-mono ${isOver ? 'text-danger' : 'text-text-dim'}`}>
+            <span className={`text-[12px] font-mono ${isOver ? 'text-danger' : 'text-text-dim'}`}>
                 {chars.toLocaleString()} chars · ~{tokens.toLocaleString()} tok
             </span>
         </div>

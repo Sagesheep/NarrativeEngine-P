@@ -4,6 +4,17 @@ import { X } from 'lucide-react';
 export interface ScreenLightboxProps {
     /** `default` is the normal 90% lightbox; `full` is reserved for app-sized screens. */
     size?: 'default' | 'full';
+    /**
+     * Content width inside the scroll container.
+     * - `form` (default) → `max-w-5xl mx-auto` — settings-style stacked forms
+     * - `wide`           → full width — screens made of repeating units that tile
+     *
+     * Work order UI-polish §A1: the lightbox path had no width cap, so a
+     * drawer tab promoted into a 90vw box stretched its `w-full` inputs to
+     * ~1900px. A single global cap is the wrong fix (some screens want the
+     * width), so the caller declares which shape it is.
+     */
+    width?: 'form' | 'wide';
     title: string;
     onClose: () => void;
     children: React.ReactNode;
@@ -26,7 +37,7 @@ const FOCUSABLE_SELECTOR = [
  * The panel owns the backdrop, heading, close affordance, keyboard handling,
  * and focus lifecycle; its children only own the screen content.
  */
-export function ScreenLightbox({ size = 'default', title, onClose, children }: ScreenLightboxProps) {
+export function ScreenLightbox({ size = 'default', width = 'form', title, onClose, children }: ScreenLightboxProps) {
     const panelRef = useRef<HTMLDivElement | null>(null);
     const restoreFocusRef = useRef<HTMLElement | null>(null);
 
@@ -92,7 +103,7 @@ export function ScreenLightbox({ size = 'default', title, onClose, children }: S
                 onClick={(event) => event.stopPropagation()}
             >
                 <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6 border-b border-border shrink-0 bg-void">
-                    <h2 id={titleId} className="chrome-label text-terminal text-sm font-bold tracking-[0.2em] uppercase glow-green truncate">
+                    <h2 id={titleId} className="chrome-label text-terminal text-sm font-bold tracking-[0.2em] uppercase truncate">
                         {title}
                     </h2>
                     <button
@@ -104,7 +115,7 @@ export function ScreenLightbox({ size = 'default', title, onClose, children }: S
                         <X size={18} />
                     </button>
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto">
+                <div className={`flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 ${width === 'form' ? 'max-w-5xl mx-auto' : ''}`}>
                     {children}
                 </div>
             </div>

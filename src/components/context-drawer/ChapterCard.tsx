@@ -165,33 +165,33 @@ export const ChapterCard = memo(function ChapterCard({
                                 {isPinned ? <PinOff size={13} /> : <Pin size={13} />}
                             </button>
                         )}
-                        <div className={`px-2 py-0.5 rounded border text-[10px] font-bold uppercase flex items-center ${statusColors[status]}`}>
+                        <div className={`px-2 py-0.5 rounded border text-[12px] font-bold uppercase flex items-center ${statusColors[status]}`}>
                             {statusIcons[status]}
                             {status.toUpperCase()}
                         </div>
                     </div>
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] font-mono text-text-muted">
+                <div className="flex items-center justify-between text-[13px] font-mono text-text-muted">
                     <div className="flex items-center space-x-3">
                         <span>SCENES {chapter.sceneRange[0]}–{chapter.sceneRange[1]}</span>
                         <span className="opacity-50">|</span>
                         <span>{chapter.sceneCount} SCENES</span>
                         {showFillProgress && (
-                            <span className={`text-[9px] font-bold uppercase px-1 py-0.5 rounded ${chapter.sceneCount >= CHAPTER_SCENE_SOFT_CAP ? 'text-ember bg-ember/10 border border-ember/30' : 'text-amber-400 bg-amber-400/10 border border-amber-400/30'}`}>
+                            <span className={`text-[11px] font-bold uppercase px-1 py-0.5 rounded ${chapter.sceneCount >= CHAPTER_SCENE_SOFT_CAP ? 'text-ember bg-ember/10 border border-ember/30' : 'text-amber-400 bg-amber-400/10 border border-amber-400/30'}`}>
                                 {chapter.sceneCount}/{CHAPTER_SCENE_SOFT_CAP}
                             </span>
                         )}
                         {showDrift && (
                             <span
                                 title={`Holds ${chapter.sceneCount} of ${CHAPTER_SCENE_SOFT_CAP} scenes. Refit to even the chapters back out.`}
-                                className="text-[9px] font-bold uppercase px-1 py-0.5 rounded text-ice bg-ice/10 border border-ice/30"
+                                className="text-[11px] font-bold uppercase px-1 py-0.5 rounded text-ice bg-ice/10 border border-ice/30"
                             >
                                 {chapter.sceneCount}/{CHAPTER_SCENE_SOFT_CAP}
                             </span>
                         )}
                         {isPinned && (
-                            <span className="text-[9px] font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1 py-0.5 rounded">
+                            <span className="text-[11px] font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1 py-0.5 rounded">
                                 PINNED
                             </span>
                         )}
@@ -216,7 +216,7 @@ export const ChapterCard = memo(function ChapterCard({
                         {/* Summary */}
                         {chapter.summary ? (
                             <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-terminal/60 tracking-wider font-mono">Summary</label>
+                                <label className="text-[12px] font-bold uppercase text-terminal/60 tracking-wider font-mono">Summary</label>
                                 <SummaryText text={chapter.summary} />
                             </div>
                         ) : (
@@ -229,10 +229,10 @@ export const ChapterCard = memo(function ChapterCard({
                         <div className="grid grid-cols-2 gap-3">
                             {chapter.npcs.length > 0 && (
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-ember/60 tracking-wider font-mono text-xs">NPCs</label>
+                                    <label className="text-[12px] font-bold uppercase text-ember/60 tracking-wider font-mono text-xs">NPCs</label>
                                     <div className="flex flex-wrap gap-1">
                                         {chapter.npcs.map(npc => (
-                                            <span key={npc} className="px-1.5 py-0.5 rounded bg-ember/10 border border-ember/20 text-ember text-[10px] uppercase font-mono">
+                                            <span key={npc} className="px-1.5 py-0.5 rounded bg-ember/10 border border-ember/20 text-ember text-[12px] uppercase font-mono">
                                                 {npc}
                                             </span>
                                         ))}
@@ -241,10 +241,10 @@ export const ChapterCard = memo(function ChapterCard({
                             )}
                             {chapter.themes.length > 0 && (
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-ice/60 tracking-wider font-mono text-xs">Themes</label>
+                                    <label className="text-[12px] font-bold uppercase text-ice/60 tracking-wider font-mono text-xs">Themes</label>
                                     <div className="flex flex-wrap gap-1">
                                         {chapter.themes.map(theme => (
-                                            <span key={theme} className="px-1.5 py-0.5 rounded bg-ice/10 border border-ice/20 text-ice text-[10px] uppercase font-mono">
+                                            <span key={theme} className="px-1.5 py-0.5 rounded bg-ice/10 border border-ice/20 text-ice text-[12px] uppercase font-mono">
                                                 {theme}
                                             </span>
                                         ))}
@@ -256,7 +256,7 @@ export const ChapterCard = memo(function ChapterCard({
                         {/* Major Events */}
                         {chapter.majorEvents.length > 0 && (
                             <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-terminal/60 tracking-wider font-mono">Major Events</label>
+                                <label className="text-[12px] font-bold uppercase text-terminal/60 tracking-wider font-mono">Major Events</label>
                                 <ul className="list-disc list-inside text-xs text-text-secondary space-y-0.5 pl-1">
                                     {chapter.majorEvents.map((event, i) => (
                                         <li key={i} className="truncate">{event}</li>
@@ -270,7 +270,7 @@ export const ChapterCard = memo(function ChapterCard({
                             {status === 'open' && (
                                 <button 
                                     onClick={onSeal}
-                                    className="flex items-center space-x-1 px-3 py-1.5 rounded bg-ember text-void hover:bg-ember-bright transition-colors font-bold text-[11px] uppercase"
+                                    className="flex items-center space-x-1 px-3 py-1.5 rounded bg-ember text-void hover:bg-ember-bright transition-colors font-bold text-[13px] uppercase"
                                 >
                                     <Lock size={12} />
                                     <span>Seal Chapter</span>
@@ -280,7 +280,7 @@ export const ChapterCard = memo(function ChapterCard({
                             {(status === 'sealed' || status === 'invalidated') && (
                                 <button 
                                     onClick={onRegenerate}
-                                    className={`flex items-center space-x-1 px-3 py-1.5 rounded transition-colors font-bold text-[11px] uppercase ${
+                                    className={`flex items-center space-x-1 px-3 py-1.5 rounded transition-colors font-bold text-[13px] uppercase ${
                                         status === 'invalidated' 
                                             ? 'bg-ice text-void hover:bg-ice-bright' 
                                             : 'bg-void-dark border border-border hover:border-terminal hover:text-terminal text-text-secondary'
@@ -295,7 +295,7 @@ export const ChapterCard = memo(function ChapterCard({
                                 <div className="relative">
                                     <button 
                                         onClick={() => setShowSplitInput(!showSplitInput)}
-                                        className="flex items-center space-x-1 px-3 py-1.5 rounded bg-void-dark border border-border hover:border-terminal hover:text-terminal text-text-secondary transition-colors font-bold text-[11px] uppercase"
+                                        className="flex items-center space-x-1 px-3 py-1.5 rounded bg-void-dark border border-border hover:border-terminal hover:text-terminal text-text-secondary transition-colors font-bold text-[13px] uppercase"
                                     >
                                         <Scissors size={12} />
                                         <span>Split</span>
@@ -303,7 +303,7 @@ export const ChapterCard = memo(function ChapterCard({
                                     
                                     {showSplitInput && (
                                         <div className="absolute bottom-full left-0 mb-2 p-2 bg-void-dark border border-border-bright rounded shadow-lg z-10 w-48">
-                                            <p className="text-[10px] uppercase font-bold text-text-muted mb-1">Split at Scene ID:</p>
+                                            <p className="text-[12px] uppercase font-bold text-text-muted mb-1">Split at Scene ID:</p>
                                             <div className="flex gap-1">
                                                 <input
                                                     type="text"
@@ -339,7 +339,7 @@ export const ChapterCard = memo(function ChapterCard({
                             {isNextAdjacent && onMergeWithNext && (
                                 <button
                                     onClick={onMergeWithNext}
-                                    className="flex items-center space-x-1 px-3 py-1.5 rounded bg-void-dark border border-border hover:border-terminal hover:text-terminal text-text-secondary transition-colors font-bold text-[11px] uppercase"
+                                    className="flex items-center space-x-1 px-3 py-1.5 rounded bg-void-dark border border-border hover:border-terminal hover:text-terminal text-text-secondary transition-colors font-bold text-[13px] uppercase"
                                 >
                                     <GitMerge size={12} />
                                     <span>Merge with Next</span>
@@ -353,7 +353,7 @@ export const ChapterCard = memo(function ChapterCard({
                                 <button
                                     onClick={onDelete}
                                     title="Delete this empty chapter"
-                                    className="ml-auto flex items-center space-x-1 px-3 py-1.5 rounded bg-void-dark border border-border hover:border-ember hover:text-ember text-text-muted transition-colors font-bold text-[11px] uppercase"
+                                    className="ml-auto flex items-center space-x-1 px-3 py-1.5 rounded bg-void-dark border border-border hover:border-ember hover:text-ember text-text-muted transition-colors font-bold text-[13px] uppercase"
                                 >
                                     <Trash2 size={12} />
                                     <span>Delete</span>
