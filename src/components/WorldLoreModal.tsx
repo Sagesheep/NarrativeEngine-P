@@ -94,7 +94,7 @@ export function WorldLoreModal() {
             <div className="relative bg-surface border border-border w-full h-full sm:h-[90vh] sm:max-w-3xl sm:mx-4 flex flex-col shadow-2xl overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 sm:p-6 border-b border-border shrink-0 bg-void z-10">
-                    <h2 className="text-terminal text-sm font-bold tracking-[0.2em] uppercase glow-green">
+                    <h2 className="text-terminal text-sm font-bold tracking-[0.2em] uppercase">
                         World Lore Builder
                     </h2>
                     <button onClick={toggleWorldLoreModal} className="text-text-dim hover:text-danger transition-colors">

@@ -130,7 +130,7 @@ export function CampaignHub() {
             {/* Ambient glow */}
             <div style={{
                 position: 'absolute', inset: 0, pointerEvents: 'none',
-                background: 'radial-gradient(ellipse 70% 50% at 50% 65%, rgba(106,159,212,0.10) 0%, transparent 70%)',
+                background: 'radial-gradient(ellipse 70% 50% at 50% 65%, color-mix(in srgb, var(--color-terminal) 10%, transparent) 0%, transparent 70%)',
             }} />
 
             <input ref={importInputRef} type="file" accept=".campaign,.json" style={{ display: 'none' }} onChange={handleImportFile} />
@@ -143,7 +143,7 @@ export function CampaignHub() {
                 style={{
                     position: 'absolute', top: 20, left: 20,
                     width: 36, height: 36, borderRadius: '50%',
-                    border: '1px solid rgba(106,159,212,0.25)',
+                    border: '1px solid color-mix(in srgb, var(--color-terminal) 25%, transparent)',
                     background: 'rgba(255,255,255,0.04)',
                     color: 'rgba(107,107,107,0.5)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -153,12 +153,12 @@ export function CampaignHub() {
                 }}
                 onMouseEnter={e => {
                     if (!isImporting) {
-                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.65)';
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'color-mix(in srgb, var(--color-terminal) 65%, transparent)';
                         (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-terminal)';
                     }
                 }}
                 onMouseLeave={e => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.25)';
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'color-mix(in srgb, var(--color-terminal) 25%, transparent)';
                     (e.currentTarget as HTMLButtonElement).style.color = 'rgba(107,107,107,0.5)';
                 }}
             >
@@ -172,18 +172,18 @@ export function CampaignHub() {
                 style={{
                     position: 'absolute', top: 20, right: 20,
                     width: 36, height: 36, borderRadius: '50%',
-                    border: '1px solid rgba(106,159,212,0.25)',
+                    border: '1px solid color-mix(in srgb, var(--color-terminal) 25%, transparent)',
                     background: 'rgba(255,255,255,0.04)',
                     color: 'rgba(107,107,107,0.5)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer', zIndex: 10, transition: 'all 0.2s',
                 }}
                 onMouseEnter={e => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.65)';
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'color-mix(in srgb, var(--color-terminal) 65%, transparent)';
                     (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-terminal)';
                 }}
                 onMouseLeave={e => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.25)';
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'color-mix(in srgb, var(--color-terminal) 25%, transparent)';
                     (e.currentTarget as HTMLButtonElement).style.color = 'rgba(107,107,107,0.5)';
                 }}
             >
@@ -197,18 +197,18 @@ export function CampaignHub() {
                 style={{
                     position: 'absolute', top: 20, right: 64,
                     width: 36, height: 36, borderRadius: '50%',
-                    border: '1px solid rgba(106,159,212,0.25)',
+                    border: '1px solid color-mix(in srgb, var(--color-terminal) 25%, transparent)',
                     background: 'rgba(255,255,255,0.04)',
                     color: 'rgba(107,107,107,0.5)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer', zIndex: 10, transition: 'all 0.2s',
                 }}
                 onMouseEnter={e => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.65)';
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'color-mix(in srgb, var(--color-terminal) 65%, transparent)';
                     (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-terminal)';
                 }}
                 onMouseLeave={e => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.25)';
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'color-mix(in srgb, var(--color-terminal) 25%, transparent)';
                     (e.currentTarget as HTMLButtonElement).style.color = 'rgba(107,107,107,0.5)';
                 }}
             >
@@ -219,7 +219,7 @@ export function CampaignHub() {
             <div style={{ textAlign: 'center', marginBottom: 44, position: 'relative', zIndex: 2 }}>
                 <div style={{
                     fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 10, color: 'rgba(106,159,212,0.65)',
+                    fontSize: 10, color: 'color-mix(in srgb, var(--color-terminal) 65%, transparent)',
                     marginBottom: 10,
                     ...chromeText({ textTransform: 'uppercase', letterSpacing: '0.4em' }),
                 }}>
@@ -242,9 +242,9 @@ export function CampaignHub() {
                 </p>
                 {/* Divider */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 18, justifyContent: 'center' }}>
-                    <div style={{ height: 1, width: 56, background: 'linear-gradient(to right, transparent, rgba(106,159,212,0.35))' }} />
+                    <div style={{ height: 1, width: 56, background: 'linear-gradient(to right, transparent, color-mix(in srgb, var(--color-terminal) 35%, transparent))' }} />
                     <div style={{ width: 5, height: 5, background: 'var(--color-terminal)', transform: 'rotate(45deg)', opacity: 0.6 }} />
-                    <div style={{ height: 1, width: 56, background: 'linear-gradient(to left, transparent, rgba(106,159,212,0.35))' }} />
+                    <div style={{ height: 1, width: 56, background: 'linear-gradient(to left, transparent, color-mix(in srgb, var(--color-terminal) 35%, transparent))' }} />
                 </div>
             </div>
 

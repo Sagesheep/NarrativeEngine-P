@@ -110,7 +110,7 @@ export function Header() {
                 {drawerOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
             </button>
 
-            <h1 className="chrome-label hidden md:block text-terminal text-sm font-bold tracking-[0.3em] uppercase glow-green shrink-0">
+            <h1 className="chrome-label hidden md:block text-terminal text-sm font-bold tracking-[0.3em] uppercase shrink-0">
                 {t('header.title')}
             </h1>
             <span className="hidden md:inline text-[9px] font-mono text-text-dim shrink-0" title={t('header.version.tooltip', { version: APP_VERSION })}>

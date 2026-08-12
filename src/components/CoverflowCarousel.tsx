@@ -110,7 +110,7 @@ export function CoverflowCarousel({
                                 height: 5, cursor: 'pointer',
                                 width: i === activeIdx ? 18 : 5,
                                 borderRadius: i === activeIdx ? 3 : '50%',
-                                background: i === activeIdx ? 'var(--color-terminal)' : 'rgba(106,159,212,0.25)',
+                                background: i === activeIdx ? 'var(--color-terminal)' : 'color-mix(in srgb, var(--color-terminal) 25%, transparent)',
                                 transition: 'all 0.3s ease',
                             }}
                         />
@@ -132,17 +132,17 @@ export function CoverflowCarousel({
                         fontSize: 10, letterSpacing: '0.3em',
                         textTransform: 'uppercase', color: 'var(--color-terminal)',
                         background: 'transparent',
-                        border: '1px solid rgba(106,159,212,0.35)',
+                        border: '1px solid color-mix(in srgb, var(--color-terminal) 35%, transparent)',
                         borderRadius: 3, padding: '11px 32px',
                         cursor: 'pointer', transition: 'all 0.25s',
                     }}
                     onMouseEnter={e => {
-                        (e.currentTarget as HTMLButtonElement).style.background = 'rgba(106,159,212,0.10)';
-                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.70)';
+                        (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--color-terminal) 10%, transparent)';
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'color-mix(in srgb, var(--color-terminal) 70%, transparent)';
                     }}
                     onMouseLeave={e => {
                         (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(106,159,212,0.35)';
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'color-mix(in srgb, var(--color-terminal) 35%, transparent)';
                     }}
                 >
                     Enter — {activeCampaign.name}
@@ -160,7 +160,7 @@ export function CoverflowCarousel({
                     color: 'rgba(107,107,107,0.45)',
                     cursor: 'pointer', transition: 'color 0.2s',
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(106,159,212,0.65)'; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.color = 'color-mix(in srgb, var(--color-terminal) 65%, transparent)'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(107,107,107,0.45)'; }}
             >
                 + New Campaign
@@ -202,7 +202,7 @@ function CoverCard({ campaign, isActive, slotStyle, isExporting, onClick, onEdit
                 width: '100%', height: '100%', borderRadius: 8, overflow: 'hidden',
                 position: 'relative',
                 boxShadow: isActive
-                    ? '0 0 0 1px rgba(106,159,212,0.45), 0 24px 80px rgba(0,0,0,0.7), 0 4px 20px rgba(106,159,212,0.15)'
+                    ? '0 0 0 1px color-mix(in srgb, var(--color-terminal) 45%, transparent), 0 24px 80px rgba(0,0,0,0.7), 0 4px 20px color-mix(in srgb, var(--color-terminal) 15%, transparent)'
                     : '0 20px 60px rgba(0,0,0,0.6), 0 4px 16px rgba(0,0,0,0.4)',
                 transition: 'box-shadow 0.4s ease',
             }}>
@@ -286,9 +286,9 @@ function EmptyState({ onNew }: { onNew: () => void }) {
         }}>
             <div style={{
                 width: 72, height: 72, borderRadius: '50%',
-                border: '1px dashed rgba(106,159,212,0.30)',
+                border: '1px dashed color-mix(in srgb, var(--color-terminal) 30%, transparent)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'rgba(106,159,212,0.40)',
+                color: 'color-mix(in srgb, var(--color-terminal) 40%, transparent)',
             }}>
                 <BookOpen size={28} />
             </div>
@@ -305,7 +305,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
                     fontSize: 10, letterSpacing: '0.3em',
                     textTransform: 'uppercase', color: 'var(--color-terminal)',
                     background: 'transparent',
-                    border: '1px solid rgba(106,159,212,0.35)',
+                    border: '1px solid color-mix(in srgb, var(--color-terminal) 35%, transparent)',
                     borderRadius: 3, padding: '11px 32px',
                     cursor: 'pointer', marginTop: 8,
                 }}
@@ -322,9 +322,9 @@ function NavBtn({ onClick, disabled, children }: { onClick: () => void; disabled
             onClick={onClick} disabled={disabled}
             style={{
                 width: 38, height: 38, borderRadius: '50%',
-                border: '1px solid rgba(106,159,212,0.25)',
+                border: '1px solid color-mix(in srgb, var(--color-terminal) 25%, transparent)',
                 background: 'rgba(255,255,255,0.04)',
-                color: disabled ? 'rgba(106,159,212,0.20)' : 'rgba(106,159,212,0.65)',
+                color: disabled ? 'color-mix(in srgb, var(--color-terminal) 20%, transparent)' : 'color-mix(in srgb, var(--color-terminal) 65%, transparent)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: disabled ? 'default' : 'pointer',
                 transition: 'all 0.2s',
@@ -348,7 +348,7 @@ function ActionBtn({ onClick, title, danger, disabled, children }: {
             style={{
                 width: 26, height: 26, borderRadius: 3,
                 background: 'rgba(0,0,0,0.70)',
-                border: `1px solid ${danger ? 'rgba(192,57,43,0.3)' : 'rgba(106,159,212,0.20)'}`,
+                border: `1px solid ${danger ? 'rgba(192,57,43,0.3)' : 'color-mix(in srgb, var(--color-terminal) 20%, transparent)'}`,
                 color: danger ? 'var(--color-danger)' : 'rgba(144,144,144,0.7)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: disabled ? 'default' : 'pointer',

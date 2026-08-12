@@ -5,10 +5,22 @@
   /*
    * Clean Neutral Theme (Light — Default)
    * ────────────────────
-   * Warm off-white background, near-black text, soft steel blue accents.
+   * Warm off-white background, near-black text, violet accents.
    * Professional minimalist — clean, readable, modern.
    */
-  --color-void: #FAFAF8;
+
+  /* ═══ SEEDS — the only raw hex in this file. Swap to re-brand. ═══
+     WO-ui-polish §B1: brand identity lives here as 4 lines. The tokens
+     below derive; the dark block overrides the tokens (and the accent
+     seeds) for its own contrast. Light-mode ground/ink are light-specific
+     (accessibility, not brand) so they have their own seeds here. */
+  --seed-accent:      #6D28D9;  /* violet-700 — light-mode accent (~6.9:1 on #FAFAF8) */
+  --seed-accent-dim: #5B21B6;  /* violet-800 — light-mode muted accent                */
+  --seed-ground:      #FAFAF8; /* warm off-white – page ground */
+  --seed-ink:         #1A1A1A; /* near-black – text & labels   */
+
+  /* ═══ Everything below derives. Do not put raw hex here. ═══ */
+  --color-void: var(--seed-ground);
   /* Warm off-white – main background */
   --color-void-light: #F4F4F1;
   /* Slightly deeper bg               */
@@ -17,17 +29,18 @@
   --color-void-darker: #E5E5E2;
   /* Deeper contrast bg               */
 
-  --color-terminal: #6A9FD4;
-  /* Soft steel blue – primary accent */
-  --color-terminal-dim: #5585B5;
-  /* Muted accent                     */
+  --color-terminal: var(--seed-accent);
+  /* Violet – primary accent (~6.9:1 on ground, AA) */
+  --color-terminal-dim: var(--seed-accent-dim);
+  /* Muted accent                                   */
 
-  --color-ember: #5A6B80;
-  /* Blue-gray – secondary accent     */
-  --color-ember-dim: #475869;
-  /* Deeper blue-gray                 */
+  --color-ember: #5F6368;
+  /* Neutral-cool gray – structural labels (WO-ui-polish §B4: demoted
+      from a second blue-gray accent to a neutral so colour = state) */
+  --color-ember-dim: #4A4D52;
+  /* Deeper neutral gray                              */
 
-  --color-ice: #1A1A1A;
+  --color-ice: var(--seed-ink);
   /* Near-black – headings/labels     */
   --color-ice-dim: #3D3D3D;
   /* Dark gray                        */
@@ -40,7 +53,7 @@
   --color-border: #DEDEDE;
   /* Light gray border                */
 
-  --color-text-primary: #1A1A1A;
+  --color-text-primary: var(--seed-ink);
   /* Near-black – body text           */
   --color-text-dim: #6B6B6B;
   /* Medium gray                      */
@@ -62,28 +75,46 @@
 /*
  * Dark Theme Overrides
  * ────────────────────
- * Dark charcoal background, near-white text, same soft steel blue accent.
+ * Dark charcoal background, near-white text, violet accent. The ladder is
+ * widened (WO-ui-polish §B2) so the four elevation steps span ~8 points each
+ * instead of ~18 total, which is why the dark UI used to read as one flat wall.
  * High contrast, low glare for long reading sessions.
  */
 [data-theme="dark"] {
-  --color-void: #161618;
-  --color-void-light: #1C1C1F;
-  --color-void-lighter: #232327;
-  --color-void-darker: #111113;
+  /* The accent seeds swap to the dark-mode contrast pair (~6.6:1 on the
+     dark ground). The tokens below pick them up via var(). */
+  --seed-accent:      #A78BFA;  /* violet-400 — dark-mode accent */
+  --seed-accent-dim: #8B6FE0;  /* violet-500 — dark-mode muted   */
+  --seed-ground:      #141519; /* page ground (widened from #161618) */
+  --seed-ink:         #E8EAED; /* near-white – text & labels         */
 
-  --color-terminal: #6A9FD4;
-  --color-terminal-dim: #5585B5;
+  /* §B2 — widened ladder. Each step ~8 points apart so elevation reads. */
+  --color-void: #141519;
+  /* page ground (was #161618)        */
+  --color-void-light: #22252B;
+  /* raised within a card (was #1C1C1F) */
+  --color-void-lighter: #2A2D35;
+  /* menus, highest layer (was #232327) */
+  --color-void-darker: #0E0F12;
+  /* inset / code blocks (was #111113) */
 
-  --color-ember: #8CA8C0;
-  --color-ember-dim: #7090A8;
+  --color-terminal: var(--seed-accent);
+  --color-terminal-dim: var(--seed-accent-dim);
+
+  --color-ember: #9AA0A6;
+  /* Neutral-cool gray (was blue-gray #8CA8C0) — §B4 demotion */
+  --color-ember-dim: #7A8088;
+  /* Deeper neutral gray                                       */
 
   --color-ice: #EBEBEB;
   --color-ice-dim: #ADADAD;
 
   --color-danger: #E05555;
 
-  --color-surface: #1E1E21;
-  --color-border: #2E2E33;
+  --color-surface: #1C1E23;
+  /* cards/modals/lightbox panel (was #1E1E21) */
+  --color-border: #363A44;
+  /* (was #2E2E33)                               */
 
   --color-text-primary: #EBEBEB;
   --color-text-dim: #909090;
@@ -92,8 +123,9 @@
   --color-grain: rgba(255, 255, 255, 0.010);
 
   /* Absolute Command v1 — obsidian & gold in dark mode. The fill is darker
-     than the page (#0A0A0B vs #161618) by design — the gold border draws
-     the shape, the way inlay does. Do not "fix" it by lightening the fill. */
+     than the page (#0A0A0B vs #141519) by design — the gold border draws
+     the shape, the way inlay does. Do not "fix" it by lightening the fill.
+     WO-ui-polish §B5: PROTECTED — do not repaint. */
   --color-command-fill:   #0A0A0B;  /* near-black; the gold border defines the shape */
   --color-command-label:  #D9B44A;  /* label text — 9.2:1 on the fill                */
   --color-command-accent: #E8C25A;  /* border + icon + ARMED segment fill            */
@@ -178,13 +210,18 @@
 }
 
 @layer utilities {
-  .glow-green {
-    text-shadow: 0 0 8px rgba(106, 159, 212, 0.40);
-  }
+   /* WO-ui-polish §B3/§B4 — glow colours now track --color-terminal via
+      color-mix instead of a hardcoded blue rgba, so a re-brand (swapping
+      the seed) retints the glow too. The class is no longer applied to
+      chrome titles (§B4 dropped it there). */
+   .glow-green {
+     text-shadow: 0 0 8px color-mix(in srgb, var(--color-terminal) 40%, transparent);
+   }
 
-  .glow-border {
-    box-shadow: 0 0 8px rgba(106, 159, 212, 0.15), inset 0 0 6px rgba(106, 159, 212, 0.05);
-  }
+   .glow-border {
+     box-shadow: 0 0 8px color-mix(in srgb, var(--color-terminal) 15%, transparent),
+                 inset 0 0 6px color-mix(in srgb, var(--color-terminal) 5%, transparent);
+   }
 
   .no-scrollbar::-webkit-scrollbar {
     display: none;

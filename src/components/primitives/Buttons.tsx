@@ -4,7 +4,7 @@ export function GhostBtn({ onClick, children }: { onClick: () => void; children:
             padding: '8px 18px', fontSize: 11,
             fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.1em',
             color: 'rgba(107,107,107,0.7)', background: 'transparent',
-            border: '1px solid rgba(106,159,212,0.20)', borderRadius: 3,
+            border: '1px solid color-mix(in srgb, var(--color-terminal) 20%, transparent)', borderRadius: 3,
             cursor: 'pointer', transition: 'all 0.2s',
         }}>
             {children}
@@ -18,9 +18,9 @@ export function PrimaryBtn({ onClick, disabled, children }: { onClick: () => voi
             padding: '8px 20px', fontSize: 11,
             fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.15em',
             textTransform: 'uppercase',
-            color: disabled ? 'rgba(106,159,212,0.40)' : '#FFFFFF',
+            color: disabled ? 'color-mix(in srgb, var(--color-terminal) 40%, transparent)' : '#FFFFFF',
             background: disabled ? 'transparent' : 'var(--color-terminal)',
-            border: `1px solid ${disabled ? 'rgba(106,159,212,0.20)' : 'var(--color-terminal)'}`,
+            border: `1px solid ${disabled ? 'color-mix(in srgb, var(--color-terminal) 20%, transparent)' : 'var(--color-terminal)'}`,
             borderRadius: 3, cursor: disabled ? 'not-allowed' : 'pointer',
             transition: 'all 0.2s', fontWeight: 600,
         }}>

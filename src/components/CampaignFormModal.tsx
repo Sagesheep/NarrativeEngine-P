@@ -40,7 +40,7 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
         <Backdrop onClick={close}>
             <div
                 style={{
-                    background: 'var(--color-surface)', border: '1px solid rgba(106,159,212,0.20)',
+                    background: 'var(--color-surface)', border: '1px solid color-mix(in srgb, var(--color-terminal) 20%, transparent)',
                     borderRadius: 6, padding: '28px', width: '100%', maxWidth: 420,
                     maxHeight: '90vh', overflowY: 'auto',
                 }}
@@ -62,7 +62,7 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
                     autoFocus
                     style={{
                         width: '100%', background: 'var(--color-void-lighter)',
-                        border: '1px solid rgba(106,159,212,0.20)',
+                        border: '1px solid color-mix(in srgb, var(--color-terminal) 20%, transparent)',
                         borderRadius: 4, padding: '9px 12px',
                         fontSize: 13, color: 'var(--color-text-primary)',
                         fontFamily: "'EB Garamond', serif",
@@ -74,7 +74,7 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
                 <ModalLabel>Cover Image</ModalLabel>
                 <div style={{ marginBottom: 20 }}>
                     {coverPreview ? (
-                        <div style={{ position: 'relative', height: 110, borderRadius: 4, overflow: 'hidden', border: '1px solid rgba(106,159,212,0.20)' }}>
+                        <div style={{ position: 'relative', height: 110, borderRadius: 4, overflow: 'hidden', border: '1px solid color-mix(in srgb, var(--color-terminal) 20%, transparent)' }}>
                             <img src={coverPreview} alt="Cover" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             <button
                                 onClick={clearCover}
@@ -90,7 +90,7 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
                     ) : (
                         <label style={{
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            height: 72, border: '1px dashed rgba(106,159,212,0.25)',
+                            height: 72, border: '1px dashed color-mix(in srgb, var(--color-terminal) 25%, transparent)',
                             borderRadius: 4, cursor: 'pointer',
                             color: 'rgba(107,107,107,0.55)', fontSize: 12,
                             fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.1em',
@@ -160,7 +160,7 @@ function FilePickerRow({ icon, label, accept, onChange }: {
         <label style={{
             display: 'flex', alignItems: 'center', gap: 10,
             padding: '9px 12px', background: 'var(--color-void-lighter)',
-            border: '1px solid rgba(106,159,212,0.20)', borderRadius: 4,
+            border: '1px solid color-mix(in srgb, var(--color-terminal) 20%, transparent)', borderRadius: 4,
             cursor: 'pointer', transition: 'border-color 0.2s',
         }}>
             <span style={{ color: 'rgba(107,107,107,0.55)' }}>{icon}</span>
