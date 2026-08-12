@@ -11,10 +11,9 @@ import {
 } from '../services/background/backgroundManager';
 
 /**
- * Header control for the chat background image. Stores a single image (a new
+ * Global-settings control for the chat background image. Stores a single image (a new
  * pick replaces the old one) and exposes an opacity slider that controls how
- * translucent the chat panel is over the image. Sits just left of the backup
- * buttons in the header.
+ * translucent the chat panel is over the image.
  *
  * The popover is rendered through a portal at fixed coordinates: the header's
  * action bar uses `overflow-x-auto`, which forces `overflow-y` to clip, so an

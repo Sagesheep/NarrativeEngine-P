@@ -19,7 +19,10 @@ const TABS = [
 
 type TabKey = typeof TABS[number]['key'];
 
-export function ContextDrawer() {
+/** Compatibility export; the implementation lives in ContextNavigationDrawer. */
+export { ContextNavigationDrawer as ContextDrawer } from './ContextNavigationDrawer';
+
+export function LegacyContextDrawer() {
     const drawerOpen = useAppStore((s) => s.drawerOpen);
     const toggleDrawer = useAppStore((s) => s.toggleDrawer);
     const [activeTab, setActiveTab] = useState<TabKey>('sys');

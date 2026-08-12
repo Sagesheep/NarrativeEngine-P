@@ -1,6 +1,7 @@
 import { useAppStore } from '../../store/useAppStore';
 import { VaultSection } from './VaultSection';
 import { LanguageSection } from './LanguageSection';
+import { BackgroundControl } from '../BackgroundControl';
 
 export function GlobalSettingsTab() {
   const { settings, updateSettings } = useAppStore();
@@ -16,6 +17,17 @@ export function GlobalSettingsTab() {
 
       {/* Interface Language */}
       <LanguageSection />
+
+      {/* Campaign chrome belongs with global preferences, not the header. */}
+      <div className="bg-void p-3 border border-border rounded space-y-2">
+        <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold">
+          Chat Background
+        </label>
+        <p className="text-[9px] text-text-dim leading-tight">
+          Choose a campaign background image and adjust how strongly it shows through the chat.
+        </p>
+        <BackgroundControl />
+      </div>
 
       {/* Context Limit */}
       <div>

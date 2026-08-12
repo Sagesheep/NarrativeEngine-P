@@ -32,7 +32,7 @@
  *     inside `activate` would count a strike against the mod and latch its
  *     hooks off after three, killing registrations that were fine.
  */
-import type { ChromeEntry, MessageContentSlot, MountHandle, MountRegistryMod, MountRegionId, RailPanel, WindowDeclaration } from './mountTypes';
+import type { ChromeEntry, ChromeState, MessageContentSlot, MountHandle, MountRegistryMod, MountRegionId, RailPanel, WindowDeclaration } from './mountTypes';
 import { MOUNT_BUDGET } from './mountTypes';
 import { mountFaultStore, formatMountFaultReason } from './mountFaults';
 import { resolveMountIcon } from './mountIcons';
@@ -228,6 +228,28 @@ export function subscribeToRegion(region: MountRegionId, listener: () => void): 
  */
 export function readRegion(region: MountRegionId): readonly RegisteredChromeEntry[] {
     return regions[region].entries as readonly RegisteredChromeEntry[];
+}
+
+/** Read a mod chrome entry's current state without letting a faulty mod break navigation. */
+export function readChromeState(entry: RegisteredChromeEntry): ChromeState | undefined {
+    if (!entry.entry.state) return undefined;
+    try {
+        return entry.entry.state();
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Header status entries remain visible in the header. Everything else is a
+ * launcher and belongs in the drawer's Mods index. The rule is deliberately
+ * narrow: badge, tone, or a state-driven label is information; active-only
+ * state does not turn a launcher into a status readout.
+ */
+export function isHeaderStatusEntry(entry: RegisteredChromeEntry): boolean {
+    if (!entry.mod) return false;
+    const state = readChromeState(entry);
+    return state?.badge !== undefined || state?.tone !== undefined || state?.label !== undefined;
 }
 
 

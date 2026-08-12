@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { ProvidersTab } from './settings-modal/ProvidersTab';
 import { PresetsTab } from './settings-modal/PresetsTab';
@@ -7,9 +6,9 @@ import { GlobalSettingsTab } from './settings-modal/GlobalSettingsTab';
 import { ExtensionsTab } from './settings-modal/ExtensionsTab';
 import { AdvancedTab } from './settings-modal/AdvancedTab';
 import { DebugTab } from './settings-modal/DebugTab';
-import { APP_VERSION } from '../version';
 import { useTranslation } from '../i18n/useTranslation';
 import type { TranslateKey } from '../i18n';
+import { ScreenLightbox } from './ScreenLightbox';
 
 type TabKey = 'providers' | 'presets' | 'global' | 'extensions' | 'advanced' | 'debug';
 
@@ -37,41 +36,19 @@ export function SettingsModal() {
   // it is covered edge to edge. Escape is what replaces it. Without this the X
   // button would be the ONLY way out of a screen that occupies the whole app.
   // Matches BlockViewModal's handler.
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') toggleSettings();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [settingsOpen, toggleSettings]);
-
   if (!settingsOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center" role="dialog" aria-modal="true" aria-label={t('settings.dialog.aria')}>
+    <ScreenLightbox size="full" title={t('settings.title')} onClose={toggleSettings}>
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-ember/40 backdrop-blur-sm" onClick={toggleSettings} />
+      {null}
 
       {/* Panel */}
       {/* Full-bleed at every breakpoint. Settings now hosts mod screens, which
           can be whole applications; a 75vw × 75vh box left a node editor in a
           letterbox. The header below is `shrink-0` and outside the scroll
           container, so the X stays on screen no matter how tall the content is. */}
-      <div className="relative bg-surface border border-border w-full h-full flex flex-col shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-border shrink-0 bg-void z-10">
-          <h2 className="chrome-label text-terminal text-sm font-bold tracking-[0.2em] uppercase glow-green">
-            {t('settings.title')}
-          </h2>
-          <div className="flex items-center gap-4">
-            <span className="text-[10px] font-mono text-text-dim" title={t('settings.version.tooltip')}>
-              v{APP_VERSION}
-            </span>
-            <button onClick={toggleSettings} className="text-text-dim hover:text-danger transition-colors" aria-label={t('settings.close.aria')}>
-              <X size={18} />
-            </button>
-          </div>
-        </div>
+      <div className="flex flex-col min-h-full bg-surface">
 
         {/* Tabs */}
         <div className="flex border-b border-border shrink-0 bg-void">
@@ -105,6 +82,6 @@ export function SettingsModal() {
           <div className={`${FORM_WIDTH} ${activeTab !== 'debug' ? 'hidden' : ''}`}><DebugTab /></div>
         </div>
       </div>
-    </div>
+    </ScreenLightbox>
   );
 }

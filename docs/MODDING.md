@@ -523,7 +523,7 @@ regions, each a named method:
 
 | Method | Region | Shape | Budget / mod | What it is |
 |---|---|---|---|---|
-| `ctx.mounts.header(entry)` | `header.actions` | chrome | 2 | A button in the right-hand header group, between built-ins and the trailing `settings` + `exit`. |
+| `ctx.mounts.header(entry)` | `header.actions` | chrome | 2 | A status readout in the right-hand header group, or a launcher indexed under the drawer's `Mods` group; status entries sit between built-ins and the trailing `settings` + `exit`. |
 | `ctx.mounts.composer(entry)` | `composer.actions` | chrome | 2 | A pill in the row above the composer (Save / Trim / Deep Search / …), before the trailing `archive`. |
 | `ctx.mounts.messageAction(entry)` | `message.actions` | chrome | 3 | An icon in each message's action rail (edit / rewind / speak / delete). Not rendered while editing. |
 | `ctx.mounts.rail(panel)` | `chat.rail` | content | 1 | A tabbed panel in the right-hand dock, sibling of `ChatArea`. One tab per mod; no tab strip at one mod. |
@@ -704,24 +704,26 @@ fact; a mod cannot ask to be in it.
 
 In `header.actions` the trailing group is also pinned *outside* the row's
 scroll container, so "leave the campaign" stays reachable at any window width.
+Launcher entries do not stay in that row: the host places them in the campaign
+drawer's `Mods` group. An entry remains visible in the header only when its
+`state()` returns a `badge`, `tone`, or state-driven `label`; those are status
+readouts users need at a glance.
 
 ### How many entries actually render
 
-`header.actions` is an open region, so the host bounds it rather than trusting
-mods to be sparing. **Two mod buttons render inline; the rest collapse into a
-single overflow control** that lists them by label and owning mod name. The
-header's width is therefore bounded by the built-ins plus a constant however
-many mods are installed.
+`header.actions` is an open region, so the host gives each entry an obvious
+home rather than trusting mods to be sparing. **Launchers collapse into the
+drawer's `Mods` group; status entries stay visible in the header.** There is no
+flat count cap that can hide a changing status readout.
 
 Two consequences worth designing around:
 
-- **One header button per mod is the shape that always renders inline.** A mod
-  that claims four will usually be found in the overflow menu. If your mod has
-  several actions, prefer one button that opens a window or rail panel holding
-  the rest — that is also what the enemy compendium does.
-- **Your `label` is read in the menu, not just on the button.** In the row a
-  label is optional next to the icon; in the menu it is the primary affordance.
-  An entry with no label falls back to the mod's name.
+- **A launcher is the shape to use for a panel or window.** It is listed by
+  label under `Mods`, where several panels from one mod remain discoverable
+  without filling the header.
+- **A status is the shape to keep visible.** Return `badge`, `tone`, or a
+  state-driven `label` when the value itself is useful while playing; returning
+  only `active` does not make a launcher a header status.
 
 `chat.rail` is bounded the same way: up to three panels render as a tab strip,
 beyond that the strip becomes a picker showing the active panel's full title.

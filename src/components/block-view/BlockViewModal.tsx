@@ -1,5 +1,4 @@
-import { useEffect, useMemo } from 'react';
-import { X, Workflow } from 'lucide-react';
+import { useMemo } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { isBlockEnabled } from '../../services/turn/blockEnablement';
@@ -9,6 +8,7 @@ import { enumerateBlocks, type Block, type BlockSource } from './blockModel';
 import { BlockCard } from './BlockCard';
 import { TierPresetBar } from './TierPresetBar';
 import { setRoleModuleEnabled } from '../../services/roles';
+import { ScreenLightbox } from '../ScreenLightbox';
 
 /**
  * WORKORDER-P5-02 — the Block View modal.
@@ -32,21 +32,12 @@ export function BlockViewModal() {
     // Enumerate once per open. The registries are stable across a turn, and rebuilding on
     // every render would call the mod loader's accessor needlessly. `useMemo([])` mirrors
     // the ExtensionsTab's `builtinRows` pattern.
-    const blocks = useMemo(() => enumerateBlocks(), [settings?.moduleEnabled]);
-
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && blockViewOpen) toggleBlockView();
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [blockViewOpen, toggleBlockView]);
+    const moduleEnabled = settings?.moduleEnabled;
+    const blocks = useMemo(() => enumerateBlocks(), []);
 
     if (!blockViewOpen) return null;
 
     const aiTier = (settings?.aiTier ?? 'pro') as AiTier;
-    const moduleEnabled = settings?.moduleEnabled;
-
     // The single enablement resolver — same one the turn uses. §5: "Never read moduleEnabled
     // directly." For tier features the real tier is passed; for contributions/tracks the
     // resolver's matrix-miss → enabled rule makes the tier irrelevant (it is passed through
@@ -134,33 +125,8 @@ export function BlockViewModal() {
     };
 
     return (
-        <div
-            className="fixed inset-0 z-50 flex flex-col bg-void/95 backdrop-blur-sm"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('blockview.dialog.aria')}
-            onClick={toggleBlockView}
-        >
-            <div
-                className="bg-surface border border-border flex flex-col w-full h-full overflow-hidden shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Header */}
-                <div className="flex items-center justify-between gap-3 p-4 border-b border-border bg-void shrink-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                        <Workflow size={16} className="text-terminal shrink-0" />
-                        <h2 className="chrome-label text-terminal text-sm font-bold tracking-[0.2em] uppercase glow-green truncate">
-                            {t('blockview.title')}
-                        </h2>
-                    </div>
-                    <button
-                        onClick={toggleBlockView}
-                        className="text-text-dim hover:text-danger transition-colors shrink-0"
-                        aria-label={t('blockview.close.aria')}
-                    >
-                        <X size={18} />
-                    </button>
-                </div>
+        <ScreenLightbox size="full" title={t('blockview.title')} onClose={toggleBlockView}>
+            <div className="flex flex-col min-h-full">
 
                 {/* Standfirst + legend */}
                 <div className="px-4 py-3 border-b border-border bg-void-lighter shrink-0 space-y-2">
@@ -214,6 +180,6 @@ export function BlockViewModal() {
                     {renderSection('role', blocks.roles ?? [])}
                 </div>
             </div>
-        </div>
+        </ScreenLightbox>
     );
 }

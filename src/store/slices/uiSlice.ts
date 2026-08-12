@@ -2,6 +2,7 @@
 import type { PayloadTrace, PipelinePhase, StreamingStats, LoreCheckResult, LoreCheckSelection, ArmedLoot } from '../../types';
 import type { OneShotEventId } from '../../services/oneshot/oneShotEvents';
 
+export type ContextScreenId = 'sys' | 'rules-mgr' | 'world' | 'eng' | 'chpt' | 'mem';
 
 
 // ── Slice type ─────────────────────────────────────────────────────────
@@ -14,6 +15,7 @@ export type UISlice = {
     locationLedgerOpen: boolean;
     blockViewOpen: boolean;
     backupModalOpen: boolean;
+    contextScreen: ContextScreenId | null;
     lastPayloadTrace?: PayloadTrace[];
     pipelinePhase: PipelinePhase;
     streamingStats: StreamingStats | null;
@@ -29,6 +31,8 @@ export type UISlice = {
     toggleLocationLedger: () => void;
     toggleBlockView: () => void;
     toggleBackupModal: () => void;
+    openContextScreen: (screen: ContextScreenId) => void;
+    closeContextScreen: () => void;
     setLastPayloadTrace: (trace?: PayloadTrace[]) => void;
     setPipelinePhase: (phase: PipelinePhase) => void;
     setStreamingStats: (stats: StreamingStats | null) => void;
@@ -101,6 +105,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     locationLedgerOpen: false,
     blockViewOpen: false,
     backupModalOpen: false,
+    contextScreen: null,
     pipelinePhase: 'idle',
     streamingStats: null,
     loreCheckOpen: false,
@@ -115,6 +120,8 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     toggleLocationLedger: () => set((s) => ({ locationLedgerOpen: !s.locationLedgerOpen })),
     toggleBlockView: () => set((s) => ({ blockViewOpen: !s.blockViewOpen })),
     toggleBackupModal: () => set((s) => ({ backupModalOpen: !s.backupModalOpen })),
+    openContextScreen: (screen) => set({ contextScreen: screen }),
+    closeContextScreen: () => set({ contextScreen: null }),
     setLastPayloadTrace: (trace) => set({ lastPayloadTrace: trace }),
     setPipelinePhase: (phase) => set({ pipelinePhase: phase }),
     setStreamingStats: (stats) => set({ streamingStats: stats }),

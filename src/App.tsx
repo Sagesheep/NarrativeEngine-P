@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { CampaignHub } from './components/CampaignHub';
 import { Header } from './components/Header';
-import { ContextDrawer } from './components/ContextDrawer';
+import { ContextNavigationDrawer as ContextDrawer } from './components/ContextNavigationDrawer';
 import { ChatArea } from './components/ChatArea';
 import { SettingsModal } from './components/SettingsModal';
 import { ChatRightRail } from './components/ChatRightRail';
@@ -99,11 +99,16 @@ export default function App() {
 
     if (!activeCampaignId) {
       // No campaign active — hub will be shown, nothing to hydrate
+      // The state is only used by the campaign branch below; keep the existing
+      // synchronous initialization explicit for the no-campaign path.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCampaignLoaded(true);
       return;
     }
 
     let cancelled = false;
+    // Hydration owns this transition; the async cleanup below prevents stale
+    // completion from marking a different campaign as ready.
     setCampaignLoaded(false);
 
     (async () => {

@@ -39,6 +39,7 @@ const entry = (id: string, label: string, onSelect: () => void = () => undefined
     label,
     tooltip: label,
     onSelect,
+    state: () => ({ tone: 'active' as const }),
 });
 
 /** Register `count` mod entries, one per mod, in load order. */
@@ -239,5 +240,15 @@ describe('HeaderModGroup', () => {
         render(<HeaderModGroup entries={modEntries()} t={translating} />);
 
         expect(screen.getByRole('button', { name: 'Fenster' })).toBeInTheDocument();
+    });
+
+    it('keeps every status entry visible when the header asks for status-only rendering', () => {
+        registerEntries(INLINE_LIMIT + 4);
+        render(<HeaderModGroup entries={modEntries()} t={t} statusOnly />);
+
+        for (let i = 0; i < INLINE_LIMIT + 4; i += 1) {
+            expect(screen.getByRole('button', { name: `Action ${i}` })).toBeInTheDocument();
+        }
+        expect(screen.queryByRole('button', { name: /more mod actions/i })).toBeNull();
     });
 });

@@ -2,22 +2,19 @@
  * Phase 4.2 — register the header's built-in action buttons with the mount
  * registry (`MOUNTS.md` §2.2).
  *
- * The right-hand action group at `src/components/Header.tsx:83` is the
- * `header.actions` region. Ten buttons live there today: manual backup,
- * backups, PC panel, NPC ledger, places, block view, AI tier,
- * pinned, settings, exit. Plus `<BackgroundControl />` at `:84`, which is
- * not a button and stays outside the registry (it is a host-rendered
- * component that lives in the row, not a chrome entry).
+ * The right-hand action group at `src/components/Header.tsx` is the
+ * `header.actions` region. The header keeps only the AI tier control and the
+ * trailing settings/exit controls. Campaign editors and mod launchers are
+ * reached from the docked context drawer; background control lives in Global
+ * settings.
  *
  * The trailing group is `settings` + `exit` (§3.3): leaving the campaign is
  * the last thing in the row; a mod button after "Exit" reads as an accident.
  * Mod entries insert *before* the trailing group.
  *
- * Each built-in keeps its bespoke renderer (§8.2) — forcing eleven bespoke
- * buttons through one generic renderer is how the zero-mod pixel-identity
- * rule gets lost. `Header.tsx` reads the registry's ordered ids and renders
- * each built-in with its existing markup; mod entries render through the
- * generic chrome renderer in `HeaderActions.tsx`.
+ * Each built-in keeps its bespoke renderer (§8.2). `Header.tsx` reads the
+ * registry's ordered ids and renders each built-in with its existing markup;
+ * mod status entries render through the generic chrome renderer.
  *
  * Registered ONCE at module load, before any mod's `activate` runs. The
  * `registerBuiltin` call is idempotent on a second import (the registry
@@ -31,20 +28,11 @@ import { registerBuiltin, __registerBuiltinGuardReset } from './mountRegistry';
  * trailing group (`settings`, `exit`) is recorded in the registry's region
  * store and sorts last within the built-ins (§3.3).
  *
- * `background` is NOT in this list — `<BackgroundControl />` is a host
- * component that renders at the start of the row, not a chrome entry. It
- * stays in `Header.tsx`'s JSX, outside the region's render loop, so the
- * zero-mod DOM is byte-identical.
+ * `background` is not a header entry. It is rendered by the Global settings
+ * tab, where campaign-wide visual preferences belong.
  */
 export const HEADER_BUILTIN_IDS = Object.freeze([
-    'backup',
-    'backups',
-    'character',
-    'npcLedger',
-    'places',
-    'blockView',
     'aiTier',
-    'pinned',
     'settings',
     'exit',
 ] as const);

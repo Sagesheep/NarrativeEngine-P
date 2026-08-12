@@ -1,23 +1,20 @@
 /**
- * The header's mod-entry group: a bounded number of mod buttons inline, the
- * rest behind one overflow control.
+ * The header's mod-entry group. Header status entries stay visible inline;
+ * the legacy overflow path remains available for direct callers that still
+ * pass arbitrary mod entries.
  *
  * THE PROBLEM THIS SOLVES. `header.actions` is an open region — any mod may
- * claim a button, and several claim more than one. The row that rendered them
- * was `overflow-x-auto no-scrollbar` with every child `shrink-0`, which means
- * entries past the right edge were reachable only by a horizontal scroll
- * gesture with no scrollbar to advertise it. With the repo's fixtures switched
- * on that row ran to eleven built-ins plus five mod buttons, and the ones that
- * fell off the end were, for practical purposes, gone. A button you cannot see
- * and cannot discover is not a mount point; it is a leak.
+ * claim a button, and several claim more than one. Status entries remain
+ * visible in the compact header. Launcher entries are indexed from the
+ * context drawer so a button is still discoverable without a hidden overflow
+ * strip.
  *
  * THE RULE. Built-ins always render inline: they are a fixed, known set, they
  * are the app's own chrome, and MOUNTS.md §8.2's zero-mod pixel-identity rule
- * says their markup does not move. Mod entries get `INLINE_LIMIT` slots in the
- * row; everything beyond that collapses into a single overflow button whose
- * badge carries the hidden count. So the header's width is bounded by the
- * built-ins plus a constant, no matter how many mods are installed — which is
- * the property the old row lacked.
+ * says their markup does not move. Status entries are rendered inline;
+ * launchers do not consume header space. The legacy direct-call path still
+ * supports `INLINE_LIMIT` plus an overflow menu.
+ * The legacy overflow path is kept only for direct callers.
  *
  * WHY A FIXED LIMIT AND NOT MEASUREMENT. A ResizeObserver that measures the row
  * and packs it to the pixel is the fancier answer and the wrong one here: it
@@ -40,7 +37,8 @@ import {
 /**
  * How many mod buttons render inline before the rest collapse.
  *
- * Two, deliberately. The header already carries ten built-ins; a third and
+ * Two for the legacy overflow path. The product header uses `statusOnly`, so
+ * live status entries do not pass through this cap. The old row's third and
  * fourth mod button is what pushes the row past a 1280px viewport, which is the
  * width this app is actually used at. A mod with one header button — the common
  * case, and the shape the docs recommend — is never collapsed.
@@ -64,6 +62,8 @@ export interface HeaderModGroupProps {
     /** The mod entries from `header.actions`, in the registry's resolved order. */
     entries: readonly RegisteredChromeEntry[];
     t: ModT;
+    /** Header passes status entries here; statuses stay visible, with no cap. */
+    statusOnly?: boolean;
 }
 
 /**
@@ -101,7 +101,7 @@ function anchorFor(button: HTMLElement, menuWidth: number): MenuAnchor {
     return { top: rect.bottom + 4, right: Math.min(rightFromEdge, maxRight) };
 }
 
-export function HeaderModGroup({ entries, t }: HeaderModGroupProps): ReactNode {
+export function HeaderModGroup({ entries, t, statusOnly = false }: HeaderModGroupProps): ReactNode {
     const [open, setOpen] = useState(false);
     const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -139,8 +139,11 @@ export function HeaderModGroup({ entries, t }: HeaderModGroupProps): ReactNode {
 
     if (entries.length === 0) return null;
 
-    const inline = entries.slice(0, INLINE_LIMIT);
-    const overflow = entries.slice(INLINE_LIMIT);
+    // Launchers are filtered by Header before this component is called. When
+    // that filtered list contains statuses, statusOnly keeps every readout
+    // visible; the legacy overflow path remains available to direct callers.
+    const inline = statusOnly ? entries : entries.slice(0, INLINE_LIMIT);
+    const overflow = statusOnly ? [] : entries.slice(INLINE_LIMIT);
 
     // A mod uninstalled or disabled while its menu is open leaves the menu with
     // nothing to list. Derive the open state from both facts rather than

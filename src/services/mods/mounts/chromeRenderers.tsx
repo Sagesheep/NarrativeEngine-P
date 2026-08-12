@@ -55,7 +55,7 @@ function modKey(modId: string, key: string): string {
  * never punished for choosing a label that happens to look like a key, and a
  * one-word label like `WINDOW` still resolves when a translation for it exists.
  */
-function resolveText(modId: string, value: string | undefined, t: ModT): string | undefined {
+export function resolveModText(modId: string, value: string | undefined, t: ModT): string | undefined {
     if (value === undefined) return undefined;
     const key = modKey(modId, value);
     const translated = t(key, {});
@@ -124,8 +124,8 @@ export function renderHeaderModEntry(
 
     const iconName = state?.icon ?? entry.entry.icon;
     const { icon: Icon } = resolveMountIcon(iconName);
-    const label = resolveText(mod.id, state?.label ?? entry.entry.label, t);
-    const tooltip = resolveText(mod.id, state?.tooltip ?? entry.entry.tooltip, t);
+    const label = resolveModText(mod.id, state?.label ?? entry.entry.label, t);
+    const tooltip = resolveModText(mod.id, state?.tooltip ?? entry.entry.tooltip, t);
     const isDanger = state?.tone === 'danger';
     const classes = headerClasses(state, isDanger);
 
@@ -188,8 +188,8 @@ export function renderHeaderModMenuItem(
 
     const iconName = state?.icon ?? entry.entry.icon;
     const { icon: Icon } = resolveMountIcon(iconName);
-    const label = resolveText(mod.id, state?.label ?? entry.entry.label, t);
-    const tooltip = resolveText(mod.id, state?.tooltip ?? entry.entry.tooltip, t);
+    const label = resolveModText(mod.id, state?.label ?? entry.entry.label, t);
+    const tooltip = resolveModText(mod.id, state?.tooltip ?? entry.entry.tooltip, t);
     // The mod's own name, so an overflow list of eight entries from four mods
     // tells you which mod each row came from. The button row has no space for
     // this; the menu does, and it is the thing that makes the list legible.
@@ -284,7 +284,7 @@ export function renderComposerModEntry(
 
     const iconName = state?.icon ?? entry.entry.icon;
     const { icon: Icon } = resolveMountIcon(iconName);
-    const label = resolveText(mod.id, state?.label ?? entry.entry.label, t);
+    const label = resolveModText(mod.id, state?.label ?? entry.entry.label, t);
     const isExitTone = false;
     const classes = composerClasses(state);
     void isExitTone;
@@ -363,8 +363,8 @@ export function renderMessageActionModEntry(
 
     const iconName = state?.icon ?? entry.entry.icon;
     const { icon: Icon } = resolveMountIcon(iconName);
-    const label = resolveText(mod.id, state?.label ?? entry.entry.label, t);
-    const tooltip = resolveText(mod.id, state?.tooltip ?? entry.entry.tooltip, t);
+    const label = resolveModText(mod.id, state?.label ?? entry.entry.label, t);
+    const tooltip = resolveModText(mod.id, state?.tooltip ?? entry.entry.tooltip, t);
     const classes = messageActionClasses(state);
 
     const handleClick = () => {

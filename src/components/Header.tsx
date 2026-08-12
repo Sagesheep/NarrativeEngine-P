@@ -1,17 +1,13 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
-import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Users, Archive, Save, Pin, Cpu, MapPin, UserCircle, Workflow } from 'lucide-react';
-import { createBackup } from '../store/campaignStore';
-import { flushAllPendingSaves } from '../store/slices/campaignSlice';
-import { toast } from './Toast';
+import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Cpu } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { TokenGauge } from './TokenGauge';
-import { BackgroundControl } from './BackgroundControl';
 import { saveCampaignState } from '../store/campaignStore';
 import type { AiTier } from '../types/llm';
 import { APP_VERSION } from '../version';
 import { useTranslation } from '../i18n/useTranslation';
-import { readRegion, subscribeToRegion, type RegisteredChromeEntry } from '../services/mods/mounts/mountRegistry';
+import { readRegion, subscribeToRegion, isHeaderStatusEntry, type RegisteredChromeEntry } from '../services/mods/mounts/mountRegistry';
 import { registerHeaderBuiltins, HEADER_BUILTIN_ID_SET, HEADER_TRAILING_ID_SET } from '../services/mods/mounts/headerBuiltins';
 import { HeaderModGroup } from './header/HeaderModGroup';
 import { HeaderScrollRow } from './header/HeaderScrollRow';
@@ -39,12 +35,6 @@ export function Header() {
     const {
         toggleSettings,
         toggleDrawer,
-        toggleNPCLedger,
-        togglePCPanel,
-        toggleLocationLedger,
-        toggleBlockView,
-        toggleBackupModal,
-        togglePinnedMemories,
         drawerOpen,
         activeCampaignId,
         setActiveCampaign,
@@ -70,19 +60,6 @@ export function Header() {
             }
         }
         setActiveCampaign(null);
-    };
-
-    const handleBackup = async () => {
-        if (!activeCampaignId) return;
-        await flushAllPendingSaves();
-        const result = await createBackup(activeCampaignId, { trigger: 'manual', label: 'Manual backup' });
-        if (result?.skipped) {
-            toast.info(t('header.backup.toast.noChanges'));
-        } else if (result?.timestamp) {
-            toast.success(t('header.backup.toast.created'));
-        } else {
-            toast.error(t('header.backup.toast.failed'));
-        }
     };
 
     const ordered = useHeaderActions();
@@ -113,7 +90,9 @@ export function Header() {
         for (const entry of ordered) {
             const isBuiltin =
                 entry.renderer === 'builtin' && HEADER_BUILTIN_ID_SET.has(entry.entryId);
-            if (!isBuiltin) mods.push(entry);
+            if (!isBuiltin) {
+                if (isHeaderStatusEntry(entry)) mods.push(entry);
+            }
             else if (HEADER_TRAILING_ID_SET.has(entry.entryId)) trailing.push(entry);
             else leading.push(entry);
         }
@@ -165,47 +144,33 @@ export function Header() {
               */}
             <div className="flex items-center gap-1.5 ml-auto min-w-0">
                 <HeaderScrollRow>
-                <BackgroundControl />
-
                 {/*
                   * Phase 4.2 — the right-hand action group is now the
                   * `header.actions` mount region. The registry returns the
-                  * eleven built-ins in their declared order (each with its
-                  * own bespoke renderer below) plus any mod entries that
-                  * inserted between the leading built-ins and the trailing
-                  * group (`settings` + `exit`). Mod entries render through
-                  * the generic chrome renderer.
+                  * compact built-in set in its declared order, with mod
+                  * status entries between the leading and trailing groups.
+                  * Launcher entries are indexed in the context drawer.
                   *
                   * Zero-mod output is byte-identical to the pre-4.2 header:
-                  * the registry returns exactly the eleven built-ins in the
-                  * same order, and each renders with its existing markup.
+                  * Built-ins retain their existing bespoke markup; the header
+                  * is intentionally limited to status and per-turn controls.
                   */}
                 {leadingBuiltins.map((entry) =>
                     renderHeaderBuiltin(entry.entryId, {
                         t: modT,
                         aiTier,
-                        pinnedExcerpts,
                         onToggleSettings: toggleSettings,
-                        onToggleNPCLedger: toggleNPCLedger,
-                        onTogglePCPanel: togglePCPanel,
-                        onToggleLocationLedger: toggleLocationLedger,
-                        onToggleBlockView: toggleBlockView,
-                        onToggleBackupModal: toggleBackupModal,
-                        onTogglePinnedMemories: togglePinnedMemories,
                         onCycleTier: () => updateSettings({ aiTier: TIER_CYCLE[aiTier] }),
-                        onBackup: handleBackup,
                         onExit: handleExit,
                     }),
                 )}
 
                 {/*
-                  * Mod entries, bounded. `HeaderModGroup` renders the first two
-                  * inline and collapses the rest behind one overflow control,
-                  * so the row's width no longer grows without limit as mods are
-                  * installed. Renders nothing at all when no mod claims a
-                  * header button, which keeps the zero-mod row byte-identical.
+                  * Mod status entries stay visible inline. Launcher entries
+                  * are rendered from the context drawer's Mods group, so the
+                  * header remains a compact status/per-turn surface.
                   */}
-                <HeaderModGroup entries={modEntries} t={modT} />
+                <HeaderModGroup entries={modEntries} t={modT} statusOnly />
                 </HeaderScrollRow>
 
                 {/* The trailing group (`MOUNTS.md` §3.3): settings, then exit.
@@ -217,16 +182,8 @@ export function Header() {
                     renderHeaderBuiltin(entry.entryId, {
                         t: modT,
                         aiTier,
-                        pinnedExcerpts,
                         onToggleSettings: toggleSettings,
-                        onToggleNPCLedger: toggleNPCLedger,
-                        onTogglePCPanel: togglePCPanel,
-                        onToggleLocationLedger: toggleLocationLedger,
-                        onToggleBlockView: toggleBlockView,
-                        onToggleBackupModal: toggleBackupModal,
-                        onTogglePinnedMemories: togglePinnedMemories,
                         onCycleTier: () => updateSettings({ aiTier: TIER_CYCLE[aiTier] }),
-                        onBackup: handleBackup,
                         onExit: handleExit,
                     }),
                 )}
@@ -245,98 +202,12 @@ export function Header() {
 function renderHeaderBuiltin(id: string, deps: {
     t: (key: string, vars?: Record<string, string | number>) => string;
     aiTier: AiTier;
-    pinnedExcerpts: readonly { id: string }[];
     onToggleSettings: () => void;
-    onToggleNPCLedger: () => void;
-    onTogglePCPanel: () => void;
-    onToggleLocationLedger: () => void;
-    onToggleBlockView: () => void;
-    onToggleBackupModal: () => void;
-    onTogglePinnedMemories: () => void;
     onCycleTier: () => void;
-    onBackup: () => void | Promise<void>;
     onExit: () => void | Promise<void>;
 }): ReactNode {
-    const { t, aiTier, pinnedExcerpts } = deps;
+    const { t, aiTier } = deps;
     switch (id) {
-        case 'backup':
-            return (
-                <button
-                    key="backup"
-                    onClick={deps.onBackup}
-                    className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
-                    title={t('header.backup.tooltip')}
-                    aria-label={t('header.backup.aria')}
-                >
-                    <Save size={13} />
-                    <span className="hidden sm:inline">{t('header.backup.label')}</span>
-                </button>
-            );
-        case 'backups':
-            return (
-                <button
-                    key="backups"
-                    onClick={deps.onToggleBackupModal}
-                    className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
-                    title={t('header.backups.tooltip')}
-                    aria-label={t('header.backups.aria')}
-                >
-                    <Archive size={13} />
-                    <span className="hidden sm:inline">{t('header.backups.label')}</span>
-                </button>
-            );
-        case 'character':
-            return (
-                <button
-                    key="character"
-                    onClick={deps.onTogglePCPanel}
-                    className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
-                    title={t('header.character.tooltip')}
-                    aria-label={t('header.character.aria')}
-                >
-                    <UserCircle size={13} />
-                    <span>{t('header.character.label')}</span>
-                </button>
-            );
-        case 'npcLedger':
-            return (
-                <button
-                    key="npcLedger"
-                    onClick={deps.onToggleNPCLedger}
-                    className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
-                    title={t('header.npcLedger.tooltip')}
-                    aria-label={t('header.npcLedger.aria')}
-                >
-                    <Users size={13} />
-                    <span>{t('header.npcLedger.label')}</span>
-                </button>
-            );
-        case 'places':
-            return (
-                <button
-                    key="places"
-                    onClick={deps.onToggleLocationLedger}
-                    className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
-                    title={t('header.places.tooltip')}
-                    aria-label={t('header.places.aria')}
-                >
-                    <MapPin size={13} />
-                    <span className="hidden sm:inline">{t('header.places.label')}</span>
-                </button>
-            );
-        case 'blockView':
-            return (
-                <button
-                    key="blockView"
-                    onClick={deps.onToggleBlockView}
-                    className="chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono"
-                    title={t('header.blockView.tooltip')}
-                    aria-label={t('header.blockView.aria')}
-                >
-                    <Workflow size={13} />
-                    <span className="hidden sm:inline">{t('header.blockView.label')}</span>
-                </button>
-            );
         case 'aiTier':
             return (
                 <button
@@ -348,24 +219,6 @@ function renderHeaderBuiltin(id: string, deps: {
                 >
                     <Cpu size={13} />
                     <span className="hidden sm:inline">{aiTier}</span>
-                </button>
-            );
-        case 'pinned':
-            return (
-                <button
-                    key="pinned"
-                    onClick={deps.onTogglePinnedMemories}
-                    className={`chrome-label relative flex items-center gap-1.5 h-8 px-2.5 rounded-sm border transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono ${pinnedExcerpts.length > 0 ? 'border-terminal text-terminal bg-terminal/5' : 'border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal'}`}
-                    title={t('header.pinned.tooltip')}
-                    aria-label={t('header.pinned.aria')}
-                >
-                    <Pin size={13} />
-                    <span className="hidden sm:inline">{t('header.pinned.label')}</span>
-                    {pinnedExcerpts.length > 0 && (
-                        <span className="min-w-[14px] h-3.5 bg-terminal text-void text-[8px] font-bold rounded-full flex items-center justify-center px-0.5">
-                            {pinnedExcerpts.length}
-                        </span>
-                    )}
                 </button>
             );
         case 'settings':
