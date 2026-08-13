@@ -11,6 +11,8 @@ import { runCombinedSeal } from '../../postTurnPipeline';
 import type { TurnCallbacks } from '../../turnOrchestrator';
 import type { PostTurnTrack, PostCommitTrackContext } from '../types';
 import { assertStillActive, makeGuarded } from '../guarded';
+import { compactRelationshipMemoryCollections } from '../../../npc/relationshipMemoryCompaction';
+import { readRelationshipMemoryState } from '../../../../store/relationshipMemoryState';
 
 export const chapterSealTrack: PostTurnTrack<PostCommitTrackContext> = {
     id: 'track.chapter-seal',
@@ -45,6 +47,16 @@ export const chapterSealTrack: PostTurnTrack<PostCommitTrackContext> = {
             const sealedChapters = await api.chapters.list(ctx.activeCampaignId);
             if (!assertStillActive(ctx.activeCampaignId, 'Chapter-AutoSeal')) return;
             guardedSetChapters(sealedChapters);
+            const relationshipMemoryState = readRelationshipMemoryState();
+            const compaction = compactRelationshipMemoryCollections(
+                relationshipMemoryState.relationshipMemoriesNpcToMc,
+                relationshipMemoryState.relationshipMemoriesNpcToNpc,
+            );
+            const droppedEdges = [compaction.reports.npcToMc, compaction.reports.npcToNpc]
+                .filter(report => report.dropped.length > 0).length;
+            if (droppedEdges > 0) {
+                console.log(`[RelationshipMemory] ${droppedEdges} edge(s) exceed the read-time history bound at chapter seal.`);
+            }
             emitCoreEvent('archive.chapterSealed', {
                 campaignId: ctx.activeCampaignId,
                 chapterId: sealResult.sealedChapter.chapterId,

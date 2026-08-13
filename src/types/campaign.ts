@@ -82,7 +82,7 @@ export type PinnedExcerpt = {
     isFullMessage: boolean;
 };
 
-export type RelationshipMemorySource = 'recorded' | 'user';
+export type RelationshipMemorySource = 'recorded' | 'user' | 'era';
 
 export const RELATIONSHIP_MEMORY_MOODS = [
     'tender', 'companionable', 'triumphant', 'humbling',
@@ -111,6 +111,9 @@ export type RelationshipMemoryRecord = {
     carriedNote?: string;
     source: RelationshipMemorySource;
     subjectInferred?: boolean;
+    /** Read-time synthetic line produced by WO-6; never written back to the full log. */
+    eraId?: string;
+    absorbedCount?: number;
 };
 
 export type RelationshipMemoryFault = {

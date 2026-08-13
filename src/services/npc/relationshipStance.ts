@@ -20,6 +20,7 @@ import {
     selectTiers,
     type RelationshipMemoryReadingContext,
 } from './relationshipMemoryReading';
+import { compactRelationshipMemoryEdge } from './relationshipMemoryCompaction';
 import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
 
 /** The exact WO-3.5 prompt. Only the named input substitutions are made.
@@ -151,10 +152,11 @@ export function formatRelationshipStanceRecord(
     record: RelationshipMemoryRecord,
     score: number,
 ): string {
+    const citation = record.source === 'era' ? (record.eraId ?? record.sceneId) : record.sceneId;
     const core = record.event
         ? `${record.event} — ${record.outcome}`
         : record.outcome;
-    return `#${record.sceneId} ${core} [${record.mood}, ${record.impact}; weight ${formatScore(score)}]`;
+    return `#${citation} ${core} [${record.mood}, ${record.impact}; weight ${formatScore(score)}]`;
 }
 
 function formatWeightedRecord(
@@ -185,9 +187,10 @@ function recordsForNpc(
     input: RelationshipStanceInput,
     npcId: string,
 ): RelationshipMemoryRecord[] {
-    return input.relationshipMemoriesNpcToMc.filter(record =>
+    const edge = input.relationshipMemoriesNpcToMc.filter(record =>
         record.subject === npcId && record.target === 'MC'
     );
+    return compactRelationshipMemoryEdge(edge).records;
 }
 
 function readingContext(input: RelationshipStanceInput): RelationshipMemoryReadingContext {
@@ -270,11 +273,11 @@ function asRecord(value: unknown): Record<string, unknown> | null {
         : null;
 }
 
-/** Normalise a model-returned citation. Accept `#123`, `123`, or `#123 ` (trailing space).
- *  Returns the bare numeric string, or null if the value is not a finite positive integer. */
+/** Normalise a model-returned citation. Accept numeric scene ids and synthetic era ids. */
 function normaliseCitationId(value: unknown): string | null {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim().replace(/^#/, '').trim();
+    if (/^era:/i.test(trimmed)) return trimmed;
     if (!/^\d+$/.test(trimmed)) return null;
     const numeric = Number.parseInt(trimmed, 10);
     return Number.isFinite(numeric) && numeric > 0 ? String(numeric) : null;
@@ -318,7 +321,12 @@ function parseStance(
 
     // Resolve citations: the model returns scene ids; the engine renders the canonical line.
     const requested = Array.isArray(value.in_tension) ? (value.in_tension as string[]) : [];
-    const recordByScene = new Map(edgeRecords.map(record => [String(Number.parseInt(record.sceneId, 10)), record] as const));
+    const recordByScene = new Map(edgeRecords.map(record => [
+        record.source === 'era'
+            ? (record.eraId ?? record.sceneId)
+            : String(Number.parseInt(record.sceneId, 10)),
+        record,
+    ] as const));
     const resolvedLines: string[] = [];
     for (const citation of requested.slice(0, 2)) {
         const id = normaliseCitationId(citation);

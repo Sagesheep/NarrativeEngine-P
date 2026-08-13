@@ -61,6 +61,11 @@ export const RELATIONSHIP_MEMORY_READING_WEIGHTS = {
         clashWeight: 100, // A single contradiction dominates accumulated pin count.
         pinWeight: 1, // Pins are secondary evidence of an edge worth thinking about.
     },
+    truncation: {
+        unpinnedRecordLimit: 30, // WO-6: unpinned records that survive per relationship edge.
+        triggerRecordCount: 30, // WO-6: check an edge at seal when its full-log count exceeds N.
+        eraEventSnippetLimit: 6, // WO-6: engine-template snippets kept in one synthetic era line.
+    },
     moods: {
         // WO-3.5 §4.3: tender/triumphant are both {1, 1} and hostile/humbling both {-1, 1}.
         // Scoring cannot distinguish them — only the label reaching the model can. That is
@@ -95,7 +100,7 @@ export function sceneDistance(currentScene: RelationshipMemoryScene, recordScene
 
 /** Pins resist decay; carried memories additionally receive the hard floor. */
 export function isPinned(recordOrImpact: RelationshipMemoryRecord | RelationshipMemoryImpact): boolean {
-    if (typeof recordOrImpact !== 'string' && recordOrImpact.source === 'user') return true;
+    if (typeof recordOrImpact !== 'string' && (recordOrImpact.source === 'user' || recordOrImpact.source === 'era')) return true;
     const impact = typeof recordOrImpact === 'string' ? recordOrImpact : recordOrImpact.impact;
     return impact === 'formative' || impact === 'carried';
 }

@@ -6,6 +6,8 @@ import { saveDivergenceRegister } from '../../store/campaignStore';
 import { useAppStore } from '../../store/useAppStore';
 import { toast } from '../Toast';
 import { emitCoreEvent } from '../../services/mods/events';
+import { compactRelationshipMemoryCollections } from '../../services/npc/relationshipMemoryCompaction';
+import { readRelationshipMemoryState } from '../../store/relationshipMemoryState';
 import type { ArchiveChapter, EndpointConfig, ProviderConfig, GameContext } from '../../types';
 
 interface UseChapterSealingDeps {
@@ -125,6 +127,16 @@ export function useChapterSealing(deps: UseChapterSealingDeps) {
 
             const freshChapters = await api.chapters.list(campaignId);
             deps.setChapters(freshChapters);
+            const relationshipMemoryState = readRelationshipMemoryState();
+            const compaction = compactRelationshipMemoryCollections(
+                relationshipMemoryState.relationshipMemoriesNpcToMc,
+                relationshipMemoryState.relationshipMemoriesNpcToNpc,
+            );
+            const droppedEdges = [compaction.reports.npcToMc, compaction.reports.npcToNpc]
+                .filter(report => report.dropped.length > 0).length;
+            if (droppedEdges > 0) {
+                console.log(`[RelationshipMemory] ${droppedEdges} edge(s) exceed the read-time history bound at chapter seal.`);
+            }
 
             // Phase 3.2 / `EVENTS.md` §6.5 — the second of the two places a seal
             // completes, after the seal landed and the new chapter list is in the
