@@ -92,11 +92,13 @@ ${section('Post-turn tracks', 'Background work that runs after the scene commits
         const outPath = resolve(__dirname, '../../../../Upgrade/EPIC PROJECT - Modularity/Project 5 - Block Architecture/BLOCK_VIEW_ARTIFACT.html');
         writeFileSync(outPath, html);
         expect(html.length).toBeGreaterThan(1000);
-        // Phase 8.3 — 26 built-in TierFeature ids (enemyDiscovery left with the
+        // Phase 8.3 — 27 built-in TierFeature ids (enemyDiscovery left with the
         // enemy subsystem). 2 tracks (npc + pressure; enemy-suggestion left with
-        // the subsystem). 8 contributions (unchanged).
-        expect(tier.length).toBe(26);
-        expect(contributions.length).toBe(8);
+        // the subsystem). 9 contributions (WO-4 §4 added `npc.relations` — the
+        // on-stage NPC↔NPC relations block split out of the structural
+        // `volatile.block` so a mod can suppress it).
+        expect(tier.length).toBe(27);
+        expect(contributions.length).toBe(10);
         expect(tracks.length).toBe(2);
     });
 });

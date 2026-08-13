@@ -1,10 +1,11 @@
-import type { AppSettings } from '../../../types';
+import type { AppSettings, RelationshipStance } from '../../../types';
 import { isThinkingEnabled } from '../stable';
 import { formatAskGmBrief } from '../../ooc/askGmHandoff';
 import { buildAbsoluteCommandBlock } from '../../turn/absoluteCommand';
 import { createContributionRegistry } from './registry';
 import type { ContributionModule, ContributionRegistry } from './registry';
 import type { ContributionSpec } from './types';
+import { renderRelationshipStanceBlock } from '../../npc/relationshipStance';
 
 /**
  * Project 2 / WO-P2-02 — the built-in prompt contributions, as modules.
@@ -54,8 +55,23 @@ export interface FinalUserModuleInput {
     settings: AppSettings;
     /** The player's message for this turn. */
     userMessage: string;
-    /** Pre-composed rules + world + segments + volatile block. Its parts trace themselves. */
+    /** Pre-composed rules + world + segments + volatile state. Its parts trace themselves. */
     volatileBlock: string;
+    /**
+     * WO-4 §4 — the on-stage NPC↔NPC relations block, split out of the structural
+     * `volatile.block` into its own toggleable contribution. Rendered by `buildWorld`
+     * (routed through the canonical relation-key resolver) and passed here so a mod
+     * can suppress it — the prerequisite for v3 to replace the flat scalar with the
+     * stance without the two contradicting each other in the same prompt.
+     *
+     * Empty string when no on-stage NPC↔NPC edges resolve. With no mods the assembled
+     * payload is byte-identical to the pre-split form (the golden test's no-relations
+     * fixture passes untouched).
+     */
+    relationsBlock: string;
+    /** WO-5: scene-specific NPC readings; numbers and flat relationship arrows never enter v3. */
+    relationshipStances?: readonly RelationshipStance[];
+    relationshipStanceBudget?: number;
     directorBrief?: string;
     watchdogNudge?: string;
     absoluteCommand?: string;
@@ -74,6 +90,8 @@ export const GM_REMINDER =
 /** Ids are part of the contract — `suppresses` references them, and mods may target them. */
 export const BUILTIN_IDS = {
     volatileBlock: 'volatile.block',
+    relations: 'npc.relations',
+    stance: 'npcStance',
     writerCot: 'writer.cot',
     directorBrief: 'director.brief',
     gmReminder: 'gm.reminder',
@@ -114,6 +132,48 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             toggleable: false,
         },
         (input) => ({ id: BUILTIN_IDS.volatileBlock, order: 100, text: input.volatileBlock }),
+    ),
+
+    /**
+     * WO-4 §4 — on-stage NPC↔NPC relations, split out of the structural `volatile.block`
+     * into its own toggleable contribution. The relation lines used to ride inside the
+     * `[ACTIVE NPC CONTEXT]` block, which is structural (`toggleable: false`) and listed
+     * in `PROTECTED_SUPPRESSION_IDS` — so nothing could switch them off. v3 needs to
+     * replace the flat scalar with the stance; without a suppressible seam the two would
+     * sit in the same prompt contradicting each other.
+     *
+     * Rendered by `buildWorld` (routed through the canonical relation-key resolver,
+     * `relationResolve.ts`) and passed on `FinalUserModuleInput.relationsBlock`. Empty
+     * string when no on-stage NPC↔NPC edges resolve. With no mods the assembled payload
+     * is byte-identical to the pre-split form — the golden test's no-relations fixture
+     * passes untouched (an empty contribution is dropped before assembly, so the
+     * `\n\n` join never fires).
+     *
+     * `volatile.block` stays protected; only the relationship lines moved out.
+     */
+    single(
+        {
+            id: BUILTIN_IDS.relations,
+            name: 'On-Stage Relations',
+            description: 'Directed NPC↔NPC relationship arrows for on-stage characters.',
+        },
+        (input) => ({ id: BUILTIN_IDS.relations, order: 150, text: input.relationsBlock ?? '' }),
+    ),
+
+    /** WO-5 — the writer-facing replacement for scalar affinity and relation meters. */
+    single(
+        {
+            id: BUILTIN_IDS.stance,
+            name: 'NPC Stances',
+            description: 'Scene-specific NPC wants, boundaries, and relationship memories.',
+        },
+        (input) => ({
+            id: BUILTIN_IDS.stance,
+            order: 150,
+            text: renderRelationshipStanceBlock(input.relationshipStances ?? []),
+            budget: input.relationshipStanceBudget,
+            suppresses: [BUILTIN_IDS.relations],
+        }),
     ),
 
     /**

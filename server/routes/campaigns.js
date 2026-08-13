@@ -222,5 +222,27 @@ export function createCampaignsRouter() {
     // ═══════════════════════════════════════════
 
 
+    router.get('/api/campaigns/:id/relationship-memory/npc-to-mc', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        const filePath = path.join(CAMPAIGNS_DIR, req.params.id + '.relationship-memory.npc-to-mc.json');
+        res.json(readJson(filePath, []));
+    }));
+
+    router.get('/api/campaigns/:id/relationship-memory/npc-to-npc', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        const filePath = path.join(CAMPAIGNS_DIR, req.params.id + '.relationship-memory.npc-to-npc.json');
+        res.json(readJson(filePath, []));
+    }));
+
+    router.put('/api/campaigns/:id/relationship-memory', wrapAsync((req, res) => {
+        validateCampaignId(req.params.id);
+        ensureDirs();
+        const npcToMc = Array.isArray(req.body?.npcToMc) ? req.body.npcToMc : [];
+        const npcToNpc = Array.isArray(req.body?.npcToNpc) ? req.body.npcToNpc : [];
+        writeJson(path.join(CAMPAIGNS_DIR, req.params.id + '.relationship-memory.npc-to-mc.json'), npcToMc);
+        writeJson(path.join(CAMPAIGNS_DIR, req.params.id + '.relationship-memory.npc-to-npc.json'), npcToNpc);
+        res.json({ ok: true });
+    }));
+
     return router;
 }

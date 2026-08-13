@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { AlertCircle, RotateCw } from 'lucide-react';
-import type { ChatMessage, DebugSection } from '../types';
+import type { ChatMessage, DebugSection, RelationshipMemoryFault, RelationshipMemoryRecord, RelationshipStance } from '../types';
 import { DebugPayloadView } from './DebugPayloadView';
 import { ToolCallChips } from './chat/ToolCallChips';
 import { proseForTTS } from '../services/tts/proseStripper';
@@ -47,6 +47,9 @@ interface MessageBubbleProps {
     globalIsStreaming?: boolean;
     /** Smart Retry v1: called when the user taps Retry on a failed/aborted GM bubble. */
     onRetry?: (messageId: string) => void;
+    relationshipMemories?: RelationshipMemoryRecord[];
+    relationshipMemoryFaults?: RelationshipMemoryFault[];
+    relationshipStances?: RelationshipStance[];
 }
 
 export function MessageBubble({
@@ -71,6 +74,9 @@ export function MessageBubble({
     swipeGenLoading,
     globalIsStreaming,
     onRetry,
+    relationshipMemories = [],
+    relationshipMemoryFaults = [],
+    relationshipStances = [],
 }: MessageBubbleProps) {
     let markdownContent: string = typeof msg.displayContent === 'string'
         ? msg.displayContent
@@ -203,8 +209,8 @@ export function MessageBubble({
                     {msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0 && (
                         <ToolCallChips toolCalls={msg.tool_calls} toolResult={toolResult} />
                     )}
-                    {thinkingBlock && showReasoning && (
-                        <ReasoningViewer thinkingBlock={thinkingBlock} spinning={isStreaming && isLastMessage} />
+                    {showReasoning && (thinkingBlock || relationshipMemories.length > 0 || relationshipMemoryFaults.length > 0 || relationshipStances.length > 0) && (
+                        <ReasoningViewer thinkingBlock={thinkingBlock} spinning={isStreaming && isLastMessage} relationshipMemories={relationshipMemories} relationshipMemoryFaults={relationshipMemoryFaults} relationshipStances={relationshipStances} />
                     )}
                     {isEditing ? (
                         <InlineMessageEditor

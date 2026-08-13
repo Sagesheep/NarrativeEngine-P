@@ -23,6 +23,7 @@ export function buildCharacterExportFilename(name: string, date: Date = new Date
  * export can be re-imported as an NPC and vice versa.
  */
 export function buildCharacterExportData(pc: PlayerCharacter): Partial<PlayerCharacter>[] {
-    const { portrait: _p, ...rest } = pc;
+    const rest = { ...pc };
+    delete rest.portrait;
     return [rest];
 }

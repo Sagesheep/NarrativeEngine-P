@@ -3,7 +3,7 @@
 // The contract under test is §2 of the work order: the modder never supplies
 // a path; the app computes the suffix as `.mod-<modId>-<name>.json`. The
 // golden test is that with no mods registered, CAMPAIGN_FILE_SUFFIXES is
-// set-equal to the 18 built-ins.
+// set-equal to the 21 built-ins.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
@@ -112,7 +112,7 @@ describe('WO-P5-05 Step 2 — registration into the server registry', () => {
 
         const suffixes = getCampaignFileSuffixes(serverTableRegistry);
         expect(suffixes).toContain('.mod-compendium-powers.json');
-        // All 18 built-ins still present.
+        // All 21 built-ins still present.
         const { BUILTIN_CAMPAIGN_FILE_SUFFIXES } = await import('../lib/fileStore.js?t=' + Date.now());
         for (const s of BUILTIN_CAMPAIGN_FILE_SUFFIXES) {
             expect(suffixes).toContain(s);
@@ -164,7 +164,7 @@ describe('WO-P5-05 Step 2 — registration into the server registry', () => {
 // built-ins. This is the prime directive: the base app, run with no mods, is
 // byte-identical to today.
 describe('WO-P5-05 — golden test: no mods = the built-in suffixes', () => {
-    it('with no mods installed, the derived suffix set is exactly the 19 built-ins', async () => {
+    it('with no mods installed, the derived suffix set is exactly the 21 built-ins', async () => {
         const { serverTableRegistry, getCampaignFileSuffixes } = await import('../lib/tableRegistry.js?t=' + Date.now());
         const { registerModTables } = await import('../lib/modTableRegistry.js?t=' + Date.now());
         const { BUILTIN_CAMPAIGN_FILE_SUFFIXES } = await import('../lib/fileStore.js?t=' + Date.now());
@@ -180,14 +180,14 @@ describe('WO-P5-05 — golden test: no mods = the built-in suffixes', () => {
         expect(new Set(derived)).toEqual(new Set(builtin));
         // Same count (guards against a hidden duplicate).
         // Phase 8.5 added `.migrations.json` (the adoption ledger), taking the
-        // built-in set from 18 to 19. The number is spelled out rather than
+        // built-in set from 18 to 21. The number is spelled out rather than
         // derived on purpose: it is a guard against a suffix appearing by
         // accident, so it must be changed deliberately when one is added.
-        expect(derived.length).toBe(19);
-        expect(builtin.length).toBe(19);
+        expect(derived.length).toBe(21);
+        expect(builtin.length).toBe(21);
     });
 
-    it('an empty mods directory produces the 19 built-ins through the full route', async () => {
+    it('an empty mods directory produces the 21 built-ins through the full route', async () => {
         const { createModsRouter } = await import('../routes/mods.js?t=' + Date.now());
         const { serverTableRegistry, getCampaignFileSuffixes } = await import('../lib/tableRegistry.js?t=' + Date.now());
         const { BUILTIN_CAMPAIGN_FILE_SUFFIXES } = await import('../lib/fileStore.js?t=' + Date.now());
@@ -201,6 +201,6 @@ describe('WO-P5-05 — golden test: no mods = the built-in suffixes', () => {
 
         const derived = getCampaignFileSuffixes(serverTableRegistry);
         expect(new Set(derived)).toEqual(new Set([...BUILTIN_CAMPAIGN_FILE_SUFFIXES]));
-        expect(derived.length).toBe(19);
+        expect(derived.length).toBe(21);
     });
 });

@@ -225,7 +225,7 @@ export type PromptInterceptor = (
  *   • `revoked`   — the turn path reached an interceptor whose lease was
  *                   revoked (the mod was disabled mid-turn).
  */
-export type InterceptorFaultKind = 'threw' | 'timeout' | 'protected' | 'invalid' | 'revoked';
+export type InterceptorFaultKind = 'threw' | 'timeout' | 'protected' | 'invalid' | 'revoked' | 'suppressed';
 
 /**
  * A narrow mod view the registry needs to attribute a registration. Mirrors

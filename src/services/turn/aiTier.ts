@@ -4,7 +4,7 @@ import { createTierBlockRegistry } from './tierBlockRegistry';
 
 export type TierFeature =
   | 'introEngine' | 'planner' | 'expandQuery' | 'reranker' | 'archiveFunnel'
-  | 'deepScan' | 'recommender'
+  | 'deepScan' | 'recommender' | 'npcStance'
   | 'importanceRating' | 'witnessAux' | 'npcValidate' | 'npcProfileGen'
   | 'npcUpdate' | 'drivesBackfill' | 'profileScan' | 'inventoryScan' | 'locationScan' | 'locationEnrich' | 'sealChapter'
   | 'sceneStakesClassify'
@@ -43,7 +43,7 @@ export type { ModTierEntry } from './tierBlockRegistry';
 export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
     lite: {
         introEngine: false, planner: false, expandQuery: false, reranker: false, archiveFunnel: false,
-        deepScan: false, recommender: false,
+        deepScan: false, recommender: false, npcStance: true,
         importanceRating: false, witnessAux: false, npcValidate: false, npcProfileGen: false,
         npcUpdate: false, drivesBackfill: false, profileScan: false, inventoryScan: false, locationScan: false, locationEnrich: false, sealChapter: false,
         sceneStakesClassify: false,
@@ -55,7 +55,7 @@ export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
     },
     pro: {
         introEngine: false, planner: true, expandQuery: false, reranker: false, archiveFunnel: true,
-        deepScan: true, recommender: true,
+        deepScan: true, recommender: true, npcStance: true,
         importanceRating: false, witnessAux: false, npcValidate: true, npcProfileGen: true,
         npcUpdate: true, drivesBackfill: false, profileScan: false, inventoryScan: false, locationScan: false, locationEnrich: true, sealChapter: true,
         sceneStakesClassify: true,
@@ -67,7 +67,7 @@ export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
     },
     max: {
         introEngine: true, planner: true, expandQuery: true, reranker: true, archiveFunnel: true,
-        deepScan: true, recommender: true,
+        deepScan: true, recommender: true, npcStance: true,
         importanceRating: true, witnessAux: true, npcValidate: true, npcProfileGen: true,
         npcUpdate: true, drivesBackfill: true, profileScan: true, inventoryScan: true, locationScan: true, locationEnrich: true, sealChapter: true,
         sceneStakesClassify: true,
@@ -158,6 +158,7 @@ const TIER_BLOCKS: readonly TierBlock[] = [
     { id: 'reranker', name: 'Semantic Reranker', description: 'Re-ranks archive search results with a utility model after the first-pass retrieval.', toggleable: true, trigger: 'automatic', defaultEnabled: false, callsModel: true },
     { id: 'archiveFunnel', name: 'Chapter Recall Funnel', description: 'Uses a multi-round chapter funnel to find the most relevant sealed-chapter scenes.', toggleable: true, trigger: 'automatic', defaultEnabled: true, callsModel: true },
     { id: 'deepScan', name: 'Deep Archive Search', description: 'Runs a two-round LLM deep scan across sealed chapters when standard recall is not enough.', toggleable: true, trigger: 'automatic', defaultEnabled: true, callsModel: true },
+    { id: 'npcStance', name: 'NPC Stance Reasoning', description: 'Computes a scene-specific per-NPC stance for the Cognitive Process panel.', toggleable: true, trigger: 'automatic', defaultEnabled: true, callsModel: true },
     { id: 'recommender', name: 'Context Recommender', description: 'Asks a utility model which world-state fields the GM should focus on this turn.', toggleable: true, trigger: 'automatic', defaultEnabled: true, callsModel: true },
     { id: 'importanceRating', name: 'Scene Importance Rating', description: 'Rates each committed scene 1–5 so the archive can prioritise high-stakes events.', toggleable: true, trigger: 'automatic', defaultEnabled: false, callsModel: true },
     { id: 'witnessAux', name: 'Witness Capture (Auxiliary)', description: 'Reserved tier slot for an auxiliary witness-capture pass. No call site exists yet — neither a pipeline step nor a button.', toggleable: true, trigger: 'unwired', defaultEnabled: false, callsModel: false },

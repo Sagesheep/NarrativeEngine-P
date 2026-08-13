@@ -7,6 +7,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { getEntriesForNpc, CATEGORY_LABELS, EMPTY_REGISTER } from '../../services/campaign-state/divergenceRegister';
 import { TRAIT_NAMES, TRAIT_VOCAB } from '../../services/npc/agency/agencyPools';
 import { hexBand, relationBand } from '../../services/npc/agency/agencyBands';
+import { RelationshipMemoryEditor } from './RelationshipMemoryEditor';
 
 /**
  * PCEditForm — the player character editor (WO-A rewrite 2 — baseline parity).
@@ -66,6 +67,8 @@ export function PCEditForm({
     const [traitSearch, setTraitSearch] = useState('');
     const [relationTargetId, setRelationTargetId] = useState('');
     const npcLedger = useAppStore(s => s.npcLedger);
+    const relationshipMemoriesNpcToMc = useAppStore(s => s.relationshipMemoriesNpcToMc);
+    const relationshipMemoryEnabled = useAppStore(s => s.context.relationshipMemory === true);
 
     const traitTierMap = useMemo(() => Object.fromEntries(TRAIT_VOCAB.map(t => [t.text, t.tier])), []);
     const HEX_AXES: HexAxis[] = ['drive', 'diligence', 'boldness', 'warmth', 'empathy', 'composure'];
@@ -576,7 +579,7 @@ export function PCEditForm({
                     {/* ── NPC Relations (PC's view of other characters) ──────────── */}
                     <div className="bg-void p-4 rounded border border-border space-y-3">
                         <div className="flex items-center justify-between">
-                            <span className="text-text-primary font-bold uppercase tracking-widest text-xs">Relationships</span>
+                            <span className="text-text-primary font-bold uppercase tracking-widest text-xs">Relationships {relationshipMemoryEnabled && <span className="text-text-dim/50 normal-case tracking-normal">(historical — use memories)</span>}</span>
                         </div>
                         {Object.entries(form.relations || {}).length === 0 && (
                             <p className="text-[10px] text-text-dim/40 italic">No relationships defined. Add one below.</p>
@@ -590,7 +593,7 @@ export function PCEditForm({
                                     <span className="flex-1 text-[12px] text-text-primary truncate">{targetNpc?.name || targetId}</span>
                                     <button
                                         type="button"
-                                        disabled={!isEditing || clamped <= -3}
+                                        disabled={!isEditing || relationshipMemoryEnabled || clamped <= -3}
                                         onClick={() => setForm({ ...form, relations: { ...(form.relations || {}), [targetId]: clamped - 1 } })}
                                         className="p-1 text-text-dim hover:text-terminal disabled:opacity-30 disabled:cursor-not-allowed"
                                     >
@@ -599,14 +602,14 @@ export function PCEditForm({
                                     <span className="text-[12px] font-mono text-text-primary w-4 text-center">{clamped}</span>
                                     <button
                                         type="button"
-                                        disabled={!isEditing || clamped >= 3}
+                                        disabled={!isEditing || relationshipMemoryEnabled || clamped >= 3}
                                         onClick={() => setForm({ ...form, relations: { ...(form.relations || {}), [targetId]: clamped + 1 } })}
                                         className="p-1 text-text-dim hover:text-terminal disabled:opacity-30 disabled:cursor-not-allowed"
                                     >
                                         <ChevronUp size={14} />
                                     </button>
                                     <span className="text-[11px] text-terminal/80 min-w-[60px]">{label}</span>
-                                    {isEditing && (
+                                    {isEditing && !relationshipMemoryEnabled && (
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -622,7 +625,7 @@ export function PCEditForm({
                                 </div>
                             );
                         })}
-                        {isEditing && (
+                        {isEditing && !relationshipMemoryEnabled && (
                             <div className="flex gap-2 items-center">
                                 <select
                                     value={relationTargetId}
@@ -652,6 +655,13 @@ export function PCEditForm({
                     </div>
 
                     {/* ── Behavioral Triggers ────────────────────────────────────── */}
+                    <RelationshipMemoryEditor
+                        records={relationshipMemoriesNpcToMc}
+                        allowAdd={isEditing}
+                        title="NPC → player memories"
+                        compact
+                    />
+
                     <div className="bg-void p-4 rounded border border-border space-y-3">
                         <div className="flex items-center justify-between">
                             <span className="text-text-primary font-bold uppercase tracking-widest text-xs">Behavioral Triggers</span>

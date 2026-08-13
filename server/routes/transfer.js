@@ -3,7 +3,7 @@ import { Router } from 'express';
 import {
     CAMPAIGNS_DIR, readJson, writeJson, ensureDirs,
     archivePath, archiveIndexPath, chaptersPath, factsPath,
-    entitiesPath, timelinePath, validateCampaignId,
+    entitiesPath, timelinePath, validateCampaignId, relationshipMemoryNpcToMcPath, relationshipMemoryNpcToNpcPath,
 } from '../lib/fileStore.js';
 import { isCampaignMetaFile, getTransferableTables, serverTableRegistry } from '../lib/tableRegistry.js';
 import { modTableSuffix, scanModTableFiles } from '../lib/modTableRegistry.js';
@@ -77,6 +77,8 @@ export function createTransferRouter() {
         const facts = readJson(factsPath(id), []);
         const timeline = readJson(timelinePath(id), []);
         const entities = readJson(entitiesPath(id), []);
+        const relationshipMemoryNpcToMc = readJson(relationshipMemoryNpcToMcPath(id), []);
+        const relationshipMemoryNpcToNpc = readJson(relationshipMemoryNpcToNpcPath(id), []);
 
         const fp = archivePath(id);
         const scenes = fs.existsSync(fp)
@@ -97,6 +99,8 @@ export function createTransferRouter() {
             facts,
             timeline,
             entities,
+            relationshipMemoryNpcToMc,
+            relationshipMemoryNpcToNpc,
         };
 
         // Phase 8.5 — only tables that HAVE a file. This used to emit the
@@ -230,6 +234,8 @@ export function createTransferRouter() {
         if (bundle.facts?.length) writeJson(factsPath(newId), bundle.facts);
         if (bundle.timeline?.length) writeJson(timelinePath(newId), bundle.timeline);
         if (bundle.entities?.length) writeJson(entitiesPath(newId), bundle.entities);
+        if (bundle.relationshipMemoryNpcToMc?.length) writeJson(relationshipMemoryNpcToMcPath(newId), bundle.relationshipMemoryNpcToMc);
+        if (bundle.relationshipMemoryNpcToNpc?.length) writeJson(relationshipMemoryNpcToNpcPath(newId), bundle.relationshipMemoryNpcToNpc);
 
         for (const { bundleKey, fileSuffix, recordShape } of getTransferableTables()) {
             const value = bundle[bundleKey];

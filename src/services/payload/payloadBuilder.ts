@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry } from '../../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry, RelationshipStance } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import { createTraceCollector } from './traceCollector';
 import { computeBudgets } from './budgets';
@@ -18,6 +18,8 @@ import type { FactPublicationResult } from '../mods/facts';
 import type { ElevatedScene } from '../archive-memory/dynamicElevation';
 import type { SlottedRagSnippet } from '../archive-memory/slottedRag';
 import { isBlockEnabled } from '../turn/blockEnablement';
+import { BUILTIN_IDS } from './contributions/builtins';
+import { interceptorFaultStore, formatInterceptorFaultReason } from '../mods/interceptors/interceptorFaults';
 
 export type BuildPayloadOptions = {
     settings: AppSettings;
@@ -62,6 +64,8 @@ export type BuildPayloadOptions = {
      *  search hits but did NOT get elevated. Reuses WO-11's scoped search results
      *  (one search, two consumers); no second vector search. Witness-filtered. */
     slottedRagSnippets?: SlottedRagSnippet[];
+    /** WO-5: scene-specific relationship readings rendered as a final-user contribution. */
+    relationshipStances?: readonly RelationshipStance[];
     /** Absolute Command v1: binding out-of-character player instruction for THIS turn only.
      *  When present, GM_REMINDER and the watchdog nudge are omitted, the CoT invocation line
      *  is swapped for a subordination line, and the command block is placed LAST — after
@@ -138,6 +142,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         directorBrief,
         elevatedScenes,
         slottedRagSnippets,
+        relationshipStances,
         absoluteCommand,
         finalUserRegistry,
         interception,
@@ -161,7 +166,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
     const volatileBudget = budgetMap.get('volatile');
     const npcFloor = budgetMap.get('npc');
     const { stableContent, stableTokens, retrievedRulesContent } = buildStable({ settings, context, relevantRules, rulesManifest, rulesBudget, budgetStable: stableBudget, collector });
-    const { worldContent, currentWorldTokens, divergenceContent, divergenceTokens, plannerEventTypes: resolvedEventTypes } = buildWorld({ history, userMessage, condensedUpToIndex, relevantLore, npcLedger, archiveRecall, recommendedNPCNames, semanticFactText, archiveIndex, timelineEvents, deepContextSummary, divergenceRegister, chapters, onStageNpcIds, loreRaw: context.loreRaw, agencyDigest: context.agencyDigest, arcDigest: context.arcDigest, budgetWorld: worldBudget, npcBudgetFloor: npcFloor, plannerEventTypes, matureMode: settings.matureMode, isDebug, collector, elevatedScenes, slottedRagSnippets });
+    const { worldContent, currentWorldTokens, divergenceContent, divergenceTokens, plannerEventTypes: resolvedEventTypes, relationsBlock } = buildWorld({ history, userMessage, condensedUpToIndex, relevantLore, npcLedger, archiveRecall, recommendedNPCNames, semanticFactText, archiveIndex, timelineEvents, deepContextSummary, divergenceRegister, chapters, onStageNpcIds, loreRaw: context.loreRaw, agencyDigest: context.agencyDigest, arcDigest: context.arcDigest, budgetWorld: worldBudget, npcBudgetFloor: npcFloor, plannerEventTypes, matureMode: settings.matureMode, isDebug, collector, elevatedScenes, slottedRagSnippets, relationshipMemoryEnabled: context.relationshipMemory === true });
     const { volatileContent, volatileTokens } = buildVolatile({ context, inventoryCategories, profileFields, budgetVolatile: volatileBudget, collector, plannerEventTypes: resolvedEventTypes, userMessage, history, npcLedger, locationLedger });
     // Phase 7.5 — subsystem segments. `buildPayload` hands each one its budget
     // (resolved by the segment's own id) plus the two relevance inputs, and
@@ -319,6 +324,9 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             settings,
             userMessage,
             volatileBlock,
+            relationsBlock,
+            relationshipStances,
+            relationshipStanceBudget: relationshipStances?.reduce((sum, stance) => sum + (stance.tier === 'deep' ? 80 : 20), 0),
             directorBrief,
             watchdogNudge,
             absoluteCommand,
@@ -350,6 +358,22 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         withInterception,
         interception?.suppress?.length ? { suppress: interception.suppress } : undefined,
     );
+
+    // A mod may suppress the stance contribution, but that omission must be visible in the
+    // existing Extensions fault surface rather than silently reverting to scalar relationship
+    // numbers. The shared arbiter remains feature-name-blind; this is the host-facing disclosure
+    // at the payload boundary.
+    for (const suppression of assembled.suppressed) {
+        if (suppression.id !== BUILTIN_IDS.stance || !suppression.by.startsWith('mod.')) continue;
+        const modId = suppression.by.slice('mod.'.length);
+        interceptorFaultStore.add({
+            modId,
+            file: `mod:${modId}`,
+            kind: 'suppressed',
+            id: suppression.id,
+            reason: formatInterceptorFaultReason({ modName: modId, kind: 'suppressed', id: suppression.id }),
+        });
+    }
 
     messages.push({ role: 'user', content: assembled.text });
 

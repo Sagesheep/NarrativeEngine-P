@@ -24,10 +24,13 @@ export const repressionTrack: PostTurnTrack<SequentialTrackContext> = {
             for (const npc of ctx.npcLedger) {
                 if (!onStageSet.has(npc.id) || !npc.personalityHex) continue;
                 const rng = Math.random; // one fresh roll per turn per NPC — that IS the once-per-turn accrual
-                const menu = buildReactionMenu(npc, 'peaceful', rng, matureMode);
+                const relationshipMemoryEnabled = ctx.state.context.relationshipMemory === true;
+                const menu = relationshipMemoryEnabled
+                    ? buildReactionMenu(npc, 'peaceful', rng, matureMode, true)
+                    : buildReactionMenu(npc, 'peaceful', rng, matureMode);
                 const { event } = applyRepressionToMenu(menu, npc, 'peaceful', rng);
                 if (!event) continue; // nothing repressible this turn
-                const patch = bookRepression(npc, event);
+                const patch = bookRepression(npc, event, ctx.state.context.relationshipMemory === true);
                 if (Object.keys(patch).length > 0) ctx.callbacks.updateNPC(npc.id, patch);
             }
         } catch (err) {

@@ -97,14 +97,19 @@ async function runNPCTrack(ctx: PostTurnTrackContext): Promise<void> {
             if (useBroker || updateProvider) {
                 backgroundQueue.push(
                     `NPC-Update:${npcsDueForUpdate.map(n => n.name).join(',')}`,
-                    () => (useBroker
-                        ? updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC, modelCall)
-                        : updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC))
-                        .then(() => {
-                            for (const npc of npcsDueForUpdate) {
-                                guardedUpdateNPC(npc.id, { lastUpdateScene: sceneNow });
-                            }
-                        })
+                    async () => {
+                        const relationshipMemoryEnabled = ctx.state?.context.relationshipMemory === true;
+                        await (useBroker
+                            ? relationshipMemoryEnabled
+                                ? updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC, modelCall, { relationshipMemoryEnabled: true })
+                                : updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC, modelCall)
+                            : relationshipMemoryEnabled
+                                ? updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC, undefined, { relationshipMemoryEnabled: true })
+                                : updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC));
+                        for (const npc of npcsDueForUpdate) {
+                            guardedUpdateNPC(npc.id, { lastUpdateScene: sceneNow });
+                        }
+                    },
                 ).catch(err => console.warn('[NPC Update] Background update failed:', err));
             }
         }

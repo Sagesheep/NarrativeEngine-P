@@ -182,6 +182,7 @@ export function createTurnContext(args: {
             elevatedScenes: undefined,
             elevatedSceneRankedIds: undefined,
             slottedRagSnippets: undefined,
+            relationshipStances: undefined,
         },
     };
 }

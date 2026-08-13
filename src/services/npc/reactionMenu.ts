@@ -1,6 +1,11 @@
 import type { HexAxis, NPCEntry, PersonalityHex } from '../../types';
 import { REACTION_VOCAB, type ReactionEntry } from './agency/agencyPools';
-import { affinityToPcRelation } from './agency/agencyBands';
+import { pcRelationOf } from './affinityAccess';
+
+// Re-export so existing import sites (`reactionRepression.ts`) keep working.
+// The implementation lives in `affinityAccess.ts` — the one accessor every
+// affinity reader goes through (WO-4 §2).
+export { pcRelationOf };
 
 // NPC Generation Refit (Phase 2 §9.1) — engine-built reaction menu.
 //
@@ -21,15 +26,6 @@ const TRAIT_BONUS    = 2;             // per matching traitKey
 const RELATION_CLOSE = 2;             // pcRelation >= this counts as a "close" bond (loyalty gates engage)
 
 export type ReactionContext = 'peaceful' | 'dangerous';
-
-/**
- * The NPC's relationship toward the PC as a -3..+3 band. Prefers the dedicated `pcRelation`
- * slot; falls back to deriving it from legacy `affinity` so un-homed NPCs (bug B2) still read
- * a sensible relationship instead of defaulting everyone to a stranger.
- */
-export function pcRelationOf(npc: NPCEntry): number {
-    return npc.pcRelation ?? affinityToPcRelation(npc.affinity ?? 50);
-}
 
 /**
  * Fit score for a reaction against an NPC's hex+traits AND their relationship to the PC.
@@ -107,12 +103,13 @@ export function buildReactionMenu(
     npc: NPCEntry,
     context: ReactionContext,
     rng: () => number = Math.random,
-    matureMode: boolean = false
+    matureMode: boolean = false,
+    relationshipMemoryEnabled = false,
 ): string[] {
     // Legacy NPC with no hex → no engine menu (directive omits the line).
     if (!npc.personalityHex) return [];
 
-    const pcRel = pcRelationOf(npc);
+    const pcRel = pcRelationOf(npc, relationshipMemoryEnabled);
     const eligible = REACTION_VOCAB.filter(r => r.context === context && passesGate(r, npc, pcRel, matureMode));
     if (eligible.length === 0) return [];
 

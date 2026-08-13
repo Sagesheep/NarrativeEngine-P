@@ -117,7 +117,7 @@ describe('WO-P5-03 Step 5 — fixture table round-trip', () => {
 
         const suffixes = getCampaignFileSuffixes(reg);
         expect(suffixes).toContain('.fixture.json');
-        expect(suffixes.length).toBe(20); // 19 built-ins (Phase 8.5 added .migrations.json) + fixture
+        expect(suffixes.length).toBe(22); // 21 built-ins (including .migrations.json and relationship-memory files) + fixture
 
         // A fixture file is NOT a meta file (the derived positive filter works).
         expect(isCampaignMetaFile('camp.fixture.json', reg)).toBe(false);
@@ -128,7 +128,7 @@ describe('WO-P5-03 Step 5 — fixture table round-trip', () => {
         const { serverTableRegistry, getCampaignFileSuffixes, getTransferableTables } = await import('../lib/tableRegistry.js?t=' + Date.now());
         serverTableRegistry.clear();
         expect(serverTableRegistry.list()).toEqual([]);
-        expect(getCampaignFileSuffixes()).toHaveLength(19);
+        expect(getCampaignFileSuffixes()).toHaveLength(21);
         expect(getTransferableTables()).toEqual([]);
     });
 });

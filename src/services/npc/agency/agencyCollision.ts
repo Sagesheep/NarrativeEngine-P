@@ -20,6 +20,7 @@ import { rollGoal, nextFailStreak } from './agencyDice';
 import { applyBandToGoal } from './agencyProgress';
 import { visibilityFromBand } from './agencyDigest';
 import type { TickDelta } from './agencyDigest';
+import { relationToward } from '../affinityAccess';
 import {
     COLLISION_OPPORTUNITY_BONUS,
     GOAL_BASE_DC,
@@ -71,10 +72,16 @@ export function topActiveGoal(npc: NPCEntry): Goal | null {
 
 export type RelationTone = 'ally' | 'rival' | 'neutral';
 
-/** Max-magnitude directed edge: a one-sided grudge still counts. Returns the tone + the magnitude. */
+/**
+ * Max-magnitude directed edge: a one-sided grudge still counts. Returns the tone + the magnitude.
+ *
+ * Routed through the one affinity accessor (`relationToward`, WO-4 §2) so the canonical
+ * relation-key resolver fixes the live bug where name-keyed edges read `undefined → 0`
+ * here. The `b.isPC`/`a.isPC` arms preserve the pre-refactor PC-edge fallback exactly.
+ */
 export function relationTone(a: NPCEntry, b: NPCEntry): { tone: RelationTone; magnitude: number } {
-    const aToB = a.relations?.[b.id] ?? (b.isPC && a.pcRelation !== undefined ? a.pcRelation : 0);
-    const bToA = b.relations?.[a.id] ?? (a.isPC && b.pcRelation !== undefined ? b.pcRelation : 0);
+    const aToB = relationToward(a, b);
+    const bToA = relationToward(b, a);
     // Pick the direction with the larger absolute value (max-magnitude, Opus §D ruling)
     const useAToB = Math.abs(aToB) >= Math.abs(bToA);
     const v = useAToB ? aToB : bToA;

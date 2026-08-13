@@ -590,6 +590,9 @@ export function rebuildStateFromLiveStore(
         timeline: store.timeline,
         divergenceRegister: store.divergenceRegister,
         onStageNpcIds: store.onStageNpcIds,
+        relationshipMemoriesNpcToMc: store.relationshipMemoriesNpcToMc,
+        relationshipMemoriesNpcToNpc: store.relationshipMemoriesNpcToNpc,
+        relationshipMemoryFaults: store.relationshipMemoryFaults,
         pinnedExcerpts: store.pinnedExcerpts,
     };
 }

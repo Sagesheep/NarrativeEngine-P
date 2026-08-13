@@ -231,6 +231,7 @@ export type GameContext = {
     // as part of the campaign state JSON. Migration (services/character/migratePC.ts)
     // moves any legacy `isPC: true` row from npcLedger into this field on hydrate.
     playerCharacter?: PlayerCharacter | null;
+    relationshipMemory?: boolean;
     // ── WO-A2 §2.1 — first-send intercept flag. Once the user picks
     // "Proceed anyway" on the no-PC warning modal, this is set true and the
     // intercept never fires again for the rest of this campaign.
@@ -435,7 +436,7 @@ function migrateDiceConfig(ctx: Partial<GameContext>): DiceSystemConfig {
 
 export function normalizeLocationTag(raw?: unknown): string {
     if (typeof raw !== 'string') return 'inventory';
-    const cleaned = raw.replace(/[\r\n\t]/g, ' ').replace(/[\[\]]/g, '').trim();
+    const cleaned = raw.replace(/[\r\n\t]/g, ' ').replace(/\[/g, '').replace(/\]/g, '').trim();
     if (!cleaned) return 'inventory';
     return cleaned.slice(0, 60);
 }
@@ -543,6 +544,7 @@ export function migrateLegacyContext(ctx: Partial<GameContext>): GameContext {
         notebook: [],
         notebookActive: true,
         worldVibe: '',
+        relationshipMemory: false,
         worldEventConfig: {
             initialDC: 498,
             dcReduction: 2,

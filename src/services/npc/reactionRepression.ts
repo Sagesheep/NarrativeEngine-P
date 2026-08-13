@@ -177,13 +177,17 @@ export function applyRepressionToMenu(
  * catharsis pcRelation correction to a ±1 step within [−3, +3] (mirrors the agency-update
  * clamping in update.ts). Returns only the changed fields. Call once per turn per NPC.
  */
-export function bookRepression(npc: NPCEntry, event: RepressionEvent): Partial<NPCEntry> {
+export function bookRepression(
+    npc: NPCEntry,
+    event: RepressionEvent,
+    relationshipMemoryEnabled = false,
+): Partial<NPCEntry> {
     const patch: Partial<NPCEntry> = {};
     const current = npc.repressionPressure ?? 0;
     const nextPressure = Math.max(0, current + event.pressureDelta);
     if (nextPressure !== current) patch.repressionPressure = nextPressure;
 
-    if (event.pcRelationDelta && npc.pcRelation !== undefined) {
+    if (!relationshipMemoryEnabled && event.pcRelationDelta && npc.pcRelation !== undefined) {
         const step = Math.max(-1, Math.min(1, Math.round(event.pcRelationDelta)));
         const next = Math.max(-3, Math.min(3, npc.pcRelation + step));
         if (next !== npc.pcRelation) patch.pcRelation = next;

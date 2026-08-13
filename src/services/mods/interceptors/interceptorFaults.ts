@@ -105,5 +105,7 @@ export function formatInterceptorFaultReason(input: {
             return `${where} returned an invalid contribution${named}${input.message ? ` (${input.message})` : ''}; it was dropped`;
         case 'revoked':
             return `${where} ran after the mod was disabled; its result was discarded`;
+        case 'suppressed':
+            return `${where} suppressed${named}; NPC stances were omitted for this turn and relationship numbers were not used as a replacement`;
     }
 }

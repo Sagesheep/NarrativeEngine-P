@@ -4,7 +4,7 @@ import { listTierBlocks, MATRIX, modTierBlocks, type TierFeature } from '../aiTi
 /**
  * WORKORDER-P5-01 §4 Step 5 — the declaration table tests.
  *
- * 26 TierFeature ids in, 26 TierBlock entries out. One entry per id, no dupes,
+ * 27 TierFeature ids in, 27 TierBlock entries out. One entry per id, no dupes,
  * no omissions. Shape mirrors `ContributionRegistry.list()` and
  * `PostTurnTrackRegistry.list()`. `arcSpawn` is `trigger: 'manual'` and
  * `toggleable: false` per §3 (the press IS the gate; the matrix value is never
@@ -12,7 +12,7 @@ import { listTierBlocks, MATRIX, modTierBlocks, type TierFeature } from '../aiTi
  * are `trigger: 'unwired'`: present-but-inert, shown to the user as "no call
  * site exists yet" so a reader does not hunt for a control that is not there.
  *
- * Phase 8.3 — `enemyDiscovery` is gone from the union (26 built-ins now). The
+ * Phase 8.3 — `enemyDiscovery` is gone from the union (27 built-ins now). The
  * enemies mod (8.5) declares its own `mod.enemies.enemyDiscovery` tier entry
  * through the 7.3 registry; `listTierBlocks` returns it alongside the built-ins
  * once the mod is enabled.
@@ -20,7 +20,7 @@ import { listTierBlocks, MATRIX, modTierBlocks, type TierFeature } from '../aiTi
 
 const TIER_FEATURE_IDS: TierFeature[] = [
     'introEngine', 'planner', 'expandQuery', 'reranker', 'archiveFunnel',
-    'deepScan', 'recommender',
+    'deepScan', 'recommender', 'npcStance',
     'importanceRating', 'witnessAux', 'npcValidate', 'npcProfileGen',
     'npcUpdate', 'drivesBackfill', 'profileScan', 'inventoryScan', 'locationScan', 'locationEnrich', 'sealChapter',
     'sceneStakesClassify',
@@ -34,13 +34,13 @@ const TIER_FEATURE_IDS: TierFeature[] = [
 describe('WORKORDER-P5-01 — listTierBlocks declaration table', () => {
     beforeEach(() => {
         // Phase 7.3 — ensure no mod-declared tier entries leak in from other
-        // test files. The declaration table tests expect exactly 26 built-ins.
+        // test files. The declaration table tests expect exactly 27 built-ins.
         modTierBlocks.clear();
     });
 
     const blocks = listTierBlocks();
 
-    it('returns one entry per TierFeature id (26 in, 26 out)', () => {
+    it('returns one entry per TierFeature id (27 in, 27 out)', () => {
         expect(blocks).toHaveLength(TIER_FEATURE_IDS.length);
         const blockIds = blocks.map(b => b.id);
         for (const id of TIER_FEATURE_IDS) {

@@ -219,4 +219,9 @@ describe('reactionRepression — once-per-turn accrual → burst (WO-3 pipeline 
         const { event } = applyRepressionToMenu(HOSTILE_MENU, GUARDED(), 'peaceful', () => 0.01);
         expect(bookRepression(GUARDED(), event!).repressionPressure).toBe(1); // +1, never +2
     });
+
+    it('freezes only the scalar catharsis correction when relationship memory is enabled', () => {
+        const event = { outcome: 'burst' as const, pressureDelta: -4, pcRelationDelta: 1 };
+        expect(bookRepression({ ...GUARDED(), repressionPressure: 4 }, event, true)).toEqual({ repressionPressure: 0 });
+    });
 });

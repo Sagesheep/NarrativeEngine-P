@@ -7,6 +7,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { getEntriesForNpc, CATEGORY_LABELS, EMPTY_REGISTER } from '../../services/campaign-state/divergenceRegister';
 import { TRAIT_NAMES, TRAIT_VOCAB } from '../../services/npc/agency/agencyPools';
 import { hexBand, relationBand } from '../../services/npc/agency/agencyBands';
+import { RelationshipMemoryEditor } from '../character/RelationshipMemoryEditor';
 
 type Props = {
     form: Partial<NPCEntry>;
@@ -40,6 +41,8 @@ export function NPCEditForm({
     const [relationTargetId, setRelationTargetId] = useState('');
     const npcLedger = useAppStore(s => s.npcLedger);
     const playerCharacter = useAppStore(s => s.playerCharacter);
+    const relationshipMemoriesNpcToMc = useAppStore(s => s.relationshipMemoriesNpcToMc);
+    const relationshipMemoryEnabled = useAppStore(s => s.context.relationshipMemory === true);
 
     const traitTierMap = useMemo(() => Object.fromEntries(TRAIT_VOCAB.map(t => [t.text, t.tier])), []);
     const HEX_AXES: HexAxis[] = ['drive', 'diligence', 'boldness', 'warmth', 'empathy', 'composure'];
@@ -267,7 +270,7 @@ export function NPCEditForm({
                                 max={100}
                                 value={form.affinity ?? 50}
                                 onChange={e => setForm({ ...form, affinity: parseInt(e.target.value, 10) || 50 })}
-                                disabled={!isEditing}
+                                disabled={!isEditing || relationshipMemoryEnabled}
                                 className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
                             />
                             {form.pcRelation !== undefined && (
@@ -618,7 +621,7 @@ export function NPCEditForm({
                     {/* ── PC Relation ─────────────────────────────────────────────── */}
                     <div className="bg-void p-4 rounded border border-border space-y-3">
                         <div className="flex items-center justify-between">
-                            <span className="text-text-primary font-bold uppercase tracking-widest text-xs">PC Relation</span>
+                            <span className="text-text-primary font-bold uppercase tracking-widest text-xs">PC Relation <span className="text-text-dim/50 normal-case tracking-normal">(historical when memory is on)</span></span>
                         </div>
                         {(() => {
                             const val = form.pcRelation ?? 0;
@@ -635,7 +638,7 @@ export function NPCEditForm({
                                 <div className="flex items-center gap-3">
                                     <button
                                         type="button"
-                                        disabled={!isEditing || clamped <= -3}
+                                        disabled={!isEditing || relationshipMemoryEnabled || clamped <= -3}
                                         onClick={() => setClampedPcRelation(clamped - 1)}
                                         className="p-1.5 text-text-dim hover:text-terminal disabled:opacity-30 disabled:cursor-not-allowed"
                                     >
@@ -644,7 +647,7 @@ export function NPCEditForm({
                                     <span className="text-sm font-mono text-text-primary w-5 text-center">{clamped}</span>
                                     <button
                                         type="button"
-                                        disabled={!isEditing || clamped >= 3}
+                                        disabled={!isEditing || relationshipMemoryEnabled || clamped >= 3}
                                         onClick={() => setClampedPcRelation(clamped + 1)}
                                         className="p-1.5 text-text-dim hover:text-terminal disabled:opacity-30 disabled:cursor-not-allowed"
                                     >
@@ -659,7 +662,7 @@ export function NPCEditForm({
                     {/* ── NPC Relations ───────────────────────────────────────────── */}
                     <div className="bg-void p-4 rounded border border-border space-y-3">
                         <div className="flex items-center justify-between">
-                            <span className="text-text-primary font-bold uppercase tracking-widest text-xs">NPC Relations</span>
+                            <span className="text-text-primary font-bold uppercase tracking-widest text-xs">NPC Relations <span className="text-text-dim/50 normal-case tracking-normal">(historical when memory is on)</span></span>
                         </div>
                         {Object.entries(form.relations || {}).length === 0 && (
                             <p className="text-[10px] text-text-dim/40 italic">No NPC relations defined. Add one below.</p>
@@ -703,11 +706,11 @@ export function NPCEditForm({
                                         <ChevronUp size={14} />
                                     </button>
                                     <span className="text-[11px] text-terminal/80 min-w-[60px]">{label}</span>
-                                    {isEditing && (
+                                    {isEditing && !relationshipMemoryEnabled && (
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const { [targetId]: _, ...rest } = form.relations || {};
+                                                const rest = Object.fromEntries(Object.entries(form.relations || {}).filter(([id]) => id !== targetId));
                                                 setForm(prev => ({ ...prev, relations: rest }));
                                             }}
                                             className="text-danger/60 hover:text-danger p-1 shrink-0"
@@ -718,7 +721,7 @@ export function NPCEditForm({
                                 </div>
                             );
                         })}
-                        {isEditing && (
+                        {isEditing && !relationshipMemoryEnabled && (
                             <div className="flex gap-2 items-center">
                                 <select
                                     value={relationTargetId}
@@ -743,15 +746,24 @@ export function NPCEditForm({
                                             patch.pcRelation = 0;
                                         }
                                         setForm(prev => ({ ...prev, ...patch }));
-                                        setRelationTargetId('');
-                                    }}
-                                    className="px-3 py-1.5 bg-terminal text-void font-bold text-[10px] uppercase tracking-wider hover:brightness-110 disabled:opacity-40 transition-all"
-                                >
-                                    Add
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                                         setRelationTargetId('');
+                                     }}
+                                     className="px-3 py-1.5 bg-terminal text-void font-bold text-[10px] uppercase tracking-wider hover:brightness-110 disabled:opacity-40 transition-all"
+                                 >
+                                     Add
+                                 </button>
+                             </div>
+                         )}
+                     </div>
+
+                    <RelationshipMemoryEditor
+                        records={relationshipMemoriesNpcToMc}
+                        subjectId={form.id}
+                        subjectLabel={form.name}
+                        allowAdd={isEditing}
+                        title="NPC → player memories"
+                        compact
+                    />
 
                     {/* ── Behavioral Triggers ────────────────────────────────────── */}
                     <div className="bg-void p-4 rounded border border-border space-y-3">

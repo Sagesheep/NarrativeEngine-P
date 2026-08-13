@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { RefObject } from 'react';
 import { Loader2 } from 'lucide-react';
-import type { ChatMessage, AppSettings, PipelinePhase, StreamingStats } from '../../types';
+import type { ChatMessage, AppSettings, PipelinePhase, StreamingStats, RelationshipMemoryFault, RelationshipMemoryRecord } from '../../types';
 import { MessageBubble } from '../MessageBubble';
 import { ChatEmptyState } from './ChatEmptyState';
 import { UtilityCallStrip } from '../UtilityCallStrip';
@@ -33,6 +33,9 @@ export function ChatMessageList({
     directorBriefRunning,
     onSkipDirectorBrief,
     onRetry,
+    relationshipMemoriesNpcToMc = [],
+    relationshipMemoriesNpcToNpc = [],
+    relationshipMemoryFaults = [],
 }: {
     scrollContainerRef: RefObject<HTMLDivElement | null>;
     bottomRef: RefObject<HTMLDivElement | null>;
@@ -55,6 +58,9 @@ export function ChatMessageList({
     onSkipDirectorBrief: () => void;
     /** Smart Retry v1: retries the failed/aborted GM bubble with the cached precontext. */
     onRetry?: (messageId: string) => void;
+    relationshipMemoriesNpcToMc?: RelationshipMemoryRecord[];
+    relationshipMemoriesNpcToNpc?: RelationshipMemoryRecord[];
+    relationshipMemoryFaults?: RelationshipMemoryFault[];
 }) {
     const [visibleCount, setVisibleCount] = useState(10);
     const [loadStep, setLoadStep] = useState(10);
@@ -98,6 +104,9 @@ export function ChatMessageList({
                     isStreaming={isStreaming}
                     isLastMessage={idx === arr.length - 1}
                     showReasoning={!!settings.showReasoning}
+                    relationshipMemories={msg.sceneId ? [...relationshipMemoriesNpcToMc, ...relationshipMemoriesNpcToNpc].filter(r => r.sceneId === msg.sceneId) : []}
+                    relationshipMemoryFaults={msg.sceneId ? relationshipMemoryFaults.filter(f => f.sceneId === msg.sceneId) : []}
+                    relationshipStances={msg.relationshipStances ?? []}
                     debugMode={!!settings.debugMode}
                     onStartEdit={editor.startEditing}
                     onRegenerate={editor.handleRegenerate}

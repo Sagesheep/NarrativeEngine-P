@@ -92,7 +92,11 @@ const tierBlockToBlock = (b: TierBlock): Block => {
 const contributionToBlock = (m: ListableContribution, meta?: string): Block => {
     const lockReason = lockReasonFor(m.trigger, m.toggleable);
     return {
-        id: m.id,
+        // Contributions and tier features intentionally share the same enablement ids in a few
+        // cases (for example npcStance), but the visual graph must still have one node per
+        // registry entry. The view strips this presentation namespace before reading/writing
+        // settings; payload and mod APIs continue to use the canonical contribution id.
+        id: `contribution:${m.id}`,
         name: m.name,
         description: m.description,
         source: 'contribution',

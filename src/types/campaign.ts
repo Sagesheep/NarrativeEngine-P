@@ -62,6 +62,8 @@ export type ChatMessage = {
     precontext?: { summary: string; capturedPayloadRef?: string };
     /** Inline Scene Image V1 — attachments rendered beneath the source narrative message. */
     attachments?: SceneImageAttachment[];
+    /** WO-3 — computed for the Cognitive Process panel only; never assembled into a payload. */
+    relationshipStances?: RelationshipStance[];
 };
 
 export type Campaign = {
@@ -78,4 +80,82 @@ export type PinnedExcerpt = {
     text: string;
     createdAt: number;
     isFullMessage: boolean;
+};
+
+export type RelationshipMemorySource = 'recorded' | 'user';
+
+export const RELATIONSHIP_MEMORY_MOODS = [
+    'tender', 'companionable', 'triumphant', 'humbling',
+    'hostile', 'fraught', 'grave', 'logistical',
+] as const;
+
+export const RELATIONSHIP_MEMORY_IMPACTS = [
+    'passing', 'remembered', 'formative', 'carried',
+] as const;
+
+export type RelationshipMemoryMood = typeof RELATIONSHIP_MEMORY_MOODS[number];
+export type RelationshipMemoryImpact = typeof RELATIONSHIP_MEMORY_IMPACTS[number];
+
+export type RelationshipMemoryRecord = {
+    sceneId: string;
+    subject: string;
+    target: string;
+    mood: RelationshipMemoryMood;
+    impact: RelationshipMemoryImpact;
+    /** What the OTHER person did, or what happened. Shared truth — both people in the room
+     *  would agree it happened. Optional in TypeScript (legacy records on disk lack it),
+     *  required on write. Hard cap 8 words / 60 chars. Distinct from `outcome`, which is
+     *  this subject's visible reaction. Do not merge them. */
+    event?: string;
+    outcome: string;
+    carriedNote?: string;
+    source: RelationshipMemorySource;
+    subjectInferred?: boolean;
+};
+
+export type RelationshipMemoryFault = {
+    sceneId: string;
+    message: string;
+};
+
+export type RelationshipMemoryViewRecord = RelationshipMemoryRecord & {
+    subjectLabel: string;
+    targetLabel: string;
+};
+
+/** WO-3 — the stable slots returned by the per-NPC stance reasoning pass. */
+export type RelationshipStanceSlots = {
+    wantsNow: string;
+    hiding: string;
+    wont: string;
+    inTension: string[];
+    believes: string;
+    manner: string;
+    strain: string;
+    considered: string[];
+    readRoomAs: string;
+};
+
+/** A scored, displayable relationship record used by the stance tuning panel. */
+export type RelationshipStanceRecord = RelationshipMemoryRecord & {
+    injectionScore: number;
+    line: string;
+};
+
+/** Scene-specific stance result. It is rendered below the payload cache boundary. */
+export type RelationshipStance = {
+    npcId: string;
+    npcName: string;
+    targetName: string;
+    sceneId: string;
+    sceneKey: string;
+    statuses: string;
+    nonNegotiables: string;
+    tier: 'deep' | 'cheap';
+    tierScore: number;
+    clashCount: number;
+    pinCount: number;
+    forcedDeep: boolean;
+    topRecords: RelationshipStanceRecord[];
+    stance?: RelationshipStanceSlots;
 };

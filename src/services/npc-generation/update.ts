@@ -5,6 +5,7 @@ import { relationBand, describeHex } from '../npc/agency/agencyBands';
 import { hexDelta } from '../npc/agency/agencyDrift';
 import { applyRelationTone, isRelationTone } from '../npc/relationMeter';
 import { normalizeRelations } from '../npc/relationDedupe';
+import { readPcAffinity } from '../npc/affinityAccess';
 
 // Mirrors the private descriptor in mobile npcGeneration.ts. Used only for read-only legacy
 // display in the LLM context block (so the model understands pre-migration NPCs without us
@@ -36,7 +37,8 @@ export async function updateExistingNPCs(
     history: ChatMessage[],
     npcsToCheck: NPCEntry[],
     updateNPCStore: (id: string, updates: Partial<NPCEntry>) => void,
-    modelCall?: JsonModelCall
+    modelCall?: JsonModelCall,
+    options?: { relationshipMemoryEnabled?: boolean },
 ) {
     if (!npcsToCheck.length) return;
 
@@ -46,9 +48,12 @@ export async function updateExistingNPCs(
 
     const npcDatas = npcsToCheck.map(npc => {
         // WO-05 §A — send the Phase-4 truth, NOT legacy. No raw 0–100 affinity; no drives.
-        const pcRelationBand = npc.pcRelation !== undefined
-            ? `${relationBand(npc.pcRelation)} (${npc.pcRelation >= 0 ? '+' : ''}${npc.pcRelation})`
-            : (npc.affinity !== undefined ? `${legacyAffinityDescriptor(npc.affinity)} (${npc.affinity}/100 legacy)` : 'Neutral (0)');
+        const affinityRead = readPcAffinity(npc, options?.relationshipMemoryEnabled);
+        const pcRelationBand = affinityRead.kind === 'stance'
+            ? 'Relationship memory is the source of truth; do not infer a scalar relationship.'
+            : affinityRead.kind === 'pcRelation'
+                ? `${relationBand(affinityRead.value)} (${affinityRead.value >= 0 ? '+' : ''}${affinityRead.value})`
+                : (affinityRead.kind === 'legacyAffinity' ? `${legacyAffinityDescriptor(affinityRead.value)} (${affinityRead.value}/100 legacy)` : 'Neutral (0)');
 
         let data = `[NPC: ${npc.name}] (ID: ${npc.id})\n` +
             `Status: ${npc.status || 'Alive'}\n` +
@@ -141,8 +146,9 @@ PERSONALITY HEX DRIFT (the headline of "updates"):
   - NEVER re-emit the full 6-axis hexagon. NEVER send absolute axis values as if setting them.
 
 RELATIONS:
-  - "relations" is a sparse NPC→character edge map (target character ID or name → -3..+3). Shallow-merge only;
-    never wholesale replace. Add or adjust specific edges that shifted this scene.
+  - "relations" is a sparse NPC→character edge map (target NPC **name** → -3..+3). Shallow-merge only;
+    never wholesale replace. Add or adjust specific edges that shifted this scene. Key by the target's
+    **name** (not id) — the engine resolves name, legacy id, and alias keys to the right target.
 
 WANTS UPDATE RULES:
   - "wants" is an object with "short" (string[]), "medium" (string[]), and "long" (string).
@@ -234,7 +240,7 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
                 if (!t?.name || !isRelationTone(t.tone)) continue;
                 const target = findTarget(t.name);
                 if (!target || target.isPC) continue;
-                const patch = applyRelationTone(target, t.tone);
+                const patch = applyRelationTone(target, t.tone, Math.random, options?.relationshipMemoryEnabled);
                 if (Object.keys(patch).length > 0) tonePatchById.set(target.id, patch);
             }
         }

@@ -1,0 +1,35 @@
+[
+  {
+    "_instructions": "Duplicate this object for each monster. Replace the placeholder name and action. Optional text may be an empty string or null; optional lists may be empty arrays or null. The engine ignores this _instructions field during import.",
+    "id": null,
+    "name": "REPLACE WITH MONSTER NAME",
+    "aliases": "",
+    "classification": "",
+    "description": "",
+    "threatTier": "",
+    "tags": [],
+    "faction": "",
+    "stats": [
+      {
+        "name": "HP",
+        "value": ""
+      }
+    ],
+    "actions": [
+      {
+        "name": "REPLACE WITH ACTION NAME",
+        "description": ""
+      }
+    ],
+    "passiveTraits": [],
+    "specialBehaviors": [],
+    "weaknesses": [],
+    "resistances": [],
+    "tactics": "",
+    "loot": "",
+    "gmNotes": "",
+    "promptEnabled": true,
+    "createdAt": null,
+    "updatedAt": null
+  }
+]

@@ -110,12 +110,19 @@ export function BlockViewModal() {
                     <div className="overflow-x-auto border border-border bg-void-light rounded">
                         <div className="flex items-stretch gap-3 p-3 w-max-content">
                             {list.map((block) => (
+                                (() => {
+                                    const settingId = block.source === 'contribution'
+                                        ? block.id.slice('contribution:'.length)
+                                        : block.id;
+                                    return (
                                 <BlockCard
                                     key={`${source}:${block.id}`}
                                     block={block}
-                                    enabled={isEnabled(block.id)}
-                                    onToggle={setEnabled}
+                                    enabled={isEnabled(settingId)}
+                                    onToggle={(_id, enabled) => setEnabled(settingId, enabled)}
                                 />
+                                    );
+                                })()
                             ))}
                         </div>
                     </div>

@@ -113,6 +113,9 @@ export type TurnState = {
      *  `getRawAuxiliaryProvider`. */
     getRawSummariserProvider?: () => EndpointConfig | undefined;
     onStageNpcIds?: string[];
+    relationshipMemoriesNpcToMc?: import('../../types').RelationshipMemoryRecord[];
+    relationshipMemoriesNpcToNpc?: import('../../types').RelationshipMemoryRecord[];
+    relationshipMemoryFaults?: import('../../types').RelationshipMemoryFault[];
     timeline?: TimelineEvent[];
     // Phase 2B: store-lifted fields (eliminate useAppStore.getState() inside runTurn)
     chapters: ArchiveChapter[];

@@ -461,6 +461,7 @@ export function buildTurnPayload(
         absoluteCommand: state.absoluteCommand ?? undefined,
         elevatedScenes: ctx.gathered.elevatedScenes,
         slottedRagSnippets: ctx.gathered.slottedRagSnippets,
+        relationshipStances: ctx.gathered.relationshipStances,
         // Phase 5.2 — the interceptor's blocks and suppressions for this turn.
         // `undefined` when no mod registered one, which is the byte-identical
         // zero-mod path (`buildPayload` then makes exactly the pre-5.2 calls).
@@ -716,6 +717,13 @@ export async function runGenerationStage(
                 const tagPresent = engineText !== stakesStrippedText || parsedStakes !== 'calm';
 
                 callbacks.updateLastAssistant(stakesStrippedText);
+                // WO-3: attach the computed stance to the visible GM message only.
+                // buildHistory/buildPayload read role/content explicitly, so this cannot reach the story model.
+                if (ctx.gathered.relationshipStances && ctx.gathered.relationshipStances.length > 0) {
+                    callbacks.updateLastAssistantMessage({
+                        relationshipStances: ctx.gathered.relationshipStances,
+                    });
+                }
                 // Only store reasoning_content when this is the FIRST (and only) response for this
                 // assistant message — i.e. not a post-tool-call continuation. If accumulatedContent
                 // is non-empty it means a tool call already ran and reasoning_content was already

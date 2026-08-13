@@ -2,6 +2,7 @@ import type { NPCEntry, HexAxis, ArchiveIndexEntry, DivergenceEntry } from '../.
 import { relationBand, describeHex, formatHexShift, formatRungShift } from './agency/agencyBands';
 import { buildReactionMenu, type ReactionContext } from './reactionMenu';
 import { applyRepressionToMenu } from './reactionRepression';
+import { readPcAffinity } from './affinityAccess';
 import { parseKnownByToken, parseFactions } from '../campaign-state/knowledgeScope';
 
 function affinityDescriptor(v: number): string {
@@ -23,17 +24,25 @@ export type BehaviorDirectiveOpts = {
     context?: ReactionContext; // Phase 2 §9.1 — peaceful/dangerous filters the reaction menu
     rng?: () => number;         // injected for deterministic tests
     matureMode?: boolean;       // mirrors agencyWantDraw mature gating
+    relationshipMemoryEnabled?: boolean;
 };
 
 export function buildBehaviorDirective(npc: NPCEntry, opts: BehaviorDirectiveOpts = {}): string {
     const parts: string[] = [];
 
     // Prefer the re-homed PC edge (word-banded -3..+3); fall back to legacy affinity for
-    // un-migrated NPCs. Numbers never reach the LLM — band words only.
-    const affinityLabel = npc.pcRelation !== undefined
-        ? relationBand(npc.pcRelation)
-        : affinityDescriptor(npc.affinity);
-    parts.push(`[Aff: ${affinityLabel}]`);
+    // un-migrated NPCs. Numbers never reach the LLM — band words only. Routed through the
+    // one affinity accessor (WO-4 §2) so the later v3 switch is one change, not six.
+    // The `legacyAffinity`/`none` arms preserve the pre-refactor `affinityDescriptor(npc.affinity)`
+    // call exactly — `none` passes `undefined` through, which yields 'Devoted — deep loyalty'
+    // (the same edge-case behaviour the old code had when affinity was undefined).
+    const affinityRead = readPcAffinity(npc, opts.relationshipMemoryEnabled);
+    if (affinityRead.kind !== 'stance') {
+        const affinityLabel = affinityRead.kind === 'pcRelation'
+            ? relationBand(affinityRead.value)
+            : affinityDescriptor(affinityRead.kind === 'legacyAffinity' ? affinityRead.value : undefined as unknown as number);
+        parts.push(`[Aff: ${affinityLabel}]`);
+    }
 
     if (npc.personalityHex) {
         parts.push(`Personality: ${describeHex(npc.personalityHex)}`);
@@ -112,7 +121,7 @@ export function buildReactionMenuLine(npc: NPCEntry, opts: BehaviorDirectiveOpts
     const context = opts.context ?? 'peaceful';
     const rng = opts.rng ?? Math.random;
     const matureMode = opts.matureMode ?? false;
-    const rawMenu = buildReactionMenu(npc, context, rng, matureMode);
+    const rawMenu = buildReactionMenu(npc, context, rng, matureMode, opts.relationshipMemoryEnabled);
     const { menu } = applyRepressionToMenu(rawMenu, npc, context, rng);
     if (menu.length === 0) return '';
     // Fallback switch point — if playtest shows the AI still always grabs the gentlest, replace the

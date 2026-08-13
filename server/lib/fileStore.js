@@ -240,11 +240,13 @@ export const BUILTIN_CAMPAIGN_FILE_SUFFIXES = Object.freeze([
     '.timeline.json', '.entities.json', '.facts.json',
     '.overworld.json', '.divergence.json',
     MIGRATION_LEDGER_SUFFIX,
+    '.relationship-memory.npc-to-mc.json',
+    '.relationship-memory.npc-to-npc.json',
 ]);
 
 export function campaignFileNames(id) {
     // Derived (WO-P5-03 Step 2.1): with no descriptors registered this is the
-    // built-in 18, byte-identical to the prior hand-written list.
+    // built-in 21, including the two relationship-memory files.
     return getCampaignFileSuffixes().map(s => `${id}${s}`);
 }
 
@@ -261,4 +263,13 @@ export function computeCampaignHash(id) {
 
 export function campaignFiles(id) {
     return campaignFileNames(id).filter(n => fs.existsSync(path.join(CAMPAIGNS_DIR, n)));
+}
+export function relationshipMemoryNpcToMcPath(id) {
+    validateCampaignId(id);
+    return path.join(CAMPAIGNS_DIR, id + '.relationship-memory.npc-to-mc.json');
+}
+
+export function relationshipMemoryNpcToNpcPath(id) {
+    validateCampaignId(id);
+    return path.join(CAMPAIGNS_DIR, id + '.relationship-memory.npc-to-npc.json');
 }

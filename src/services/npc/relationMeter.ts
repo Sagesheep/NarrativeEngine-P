@@ -1,5 +1,5 @@
 import type { NPCEntry } from '../../types';
-import { affinityToPcRelation } from './agency/agencyBands';
+import { pcRelationOf } from './affinityAccess';
 
 // Relationship Meter — engine-owned affinity accumulator.
 //
@@ -61,7 +61,7 @@ function clamp(v: number, lo: number, hi: number): number {
 
 /** The NPC's current band — prefers pcRelation, falls back to the legacy affinity seed. */
 function bandOf(npc: NPCEntry): number {
-    return npc.pcRelation ?? affinityToPcRelation(npc.affinity ?? 50);
+    return pcRelationOf(npc);
 }
 
 /**
@@ -79,7 +79,9 @@ export function applyRelationTone(
     npc: NPCEntry,
     tone: RelationTone,
     rng: () => number = Math.random,
+    relationshipMemoryEnabled = false,
 ): Partial<NPCEntry> {
+    if (relationshipMemoryEnabled) return {};
     const band0 = bandOf(npc);
     const meter0 = npc.relationMeter ?? 0;
 

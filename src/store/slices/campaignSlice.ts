@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion, RelationshipMemoryFault, RelationshipMemoryRecord } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { emitCoreEvent } from '../../services/mods/events';
 import { normalizeRelations } from '../../services/npc/relationDedupe';
@@ -310,6 +310,11 @@ export type CampaignSlice = {
     playerCharacter: PlayerCharacter | null;
     setPlayerCharacter: (pc: PlayerCharacter | null) => void;
     updatePlayerCharacter: (patch: Partial<PlayerCharacter>) => void;
+    relationshipMemoriesNpcToMc: RelationshipMemoryRecord[];
+    relationshipMemoriesNpcToNpc: RelationshipMemoryRecord[];
+    relationshipMemoryFaults: RelationshipMemoryFault[];
+    setRelationshipMemories: (npcToMc: RelationshipMemoryRecord[], npcToNpc: RelationshipMemoryRecord[]) => void;
+    addRelationshipMemoryFault: (fault: RelationshipMemoryFault) => void;
     onStageNpcIds: string[];
     setOnStageNpcIds: (ids: string[]) => void;
     // WO-11.3 — NPC suggestions: auto-detected names awaiting player promotion.
@@ -476,7 +481,7 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
             emitCoreEvent('campaign.closing', { campaignId: currentId, nextCampaignId: id });
         }
 
-        set({ activeCampaignId: id } as Partial<CampaignDeps>);
+        set({ activeCampaignId: id, relationshipMemoriesNpcToMc: [], relationshipMemoriesNpcToNpc: [], relationshipMemoryFaults: [] } as Partial<CampaignDeps>);
         const s = get();
         debouncedSaveSettings(s.settings, id);
 
@@ -738,6 +743,11 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     // also keeps a top-level `playerCharacter` mirror for cheap selector access
     // that doesn't require destructuring `context`. Both are written together.
     playerCharacter: null,
+    relationshipMemoriesNpcToMc: [],
+    relationshipMemoriesNpcToNpc: [],
+    relationshipMemoryFaults: [],
+    setRelationshipMemories: (npcToMc, npcToNpc) => set({ relationshipMemoriesNpcToMc: npcToMc, relationshipMemoriesNpcToNpc: npcToNpc } as Partial<CampaignDeps>),
+    addRelationshipMemoryFault: (fault) => set((state) => ({ relationshipMemoryFaults: [...state.relationshipMemoryFaults, fault] } as Partial<CampaignDeps>)),
     setPlayerCharacter: (pc) => set((s) => {
         const newContext = { ...s.context, playerCharacter: pc ?? null };
         debouncedSaveCampaignState();

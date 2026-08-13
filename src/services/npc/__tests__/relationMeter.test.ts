@@ -103,3 +103,9 @@ describe('relationMeter — band fallback', () => {
         expect(n.relationMeter).toBe(10);
     });
 });
+
+describe('relationMeter — relationship memory freeze', () => {
+    it('does not write pcRelation or relationMeter when the stance feature is enabled', () => {
+        expect(applyRelationTone(npc({ pcRelation: 2, relationMeter: 40 }), 'betrayal', r(0), true)).toEqual({});
+    });
+});

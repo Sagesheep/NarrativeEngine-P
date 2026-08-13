@@ -1,11 +1,14 @@
 import type { NPCEntry, NPCPressureHistory } from '../../types';
+import { npcIdentityKeys } from './relationResolve';
 
 const DECAY_RATE = 0.1;
 const MAX_HISTORY = 50;
 
+// WO-4 §3: routed through the canonical identity resolver (`npcIdentityKeys`) so the
+// alias logic lives in one place — the ledger has needed this generally, and the private
+// duplicate here is the same logic the relation resolver now owns.
 function npcNamePatterns(npc: NPCEntry): string[] {
-    const aliases = (npc.aliases || '').split(',').map(a => a.trim().toLowerCase()).filter(Boolean);
-    return [npc.name.toLowerCase(), ...aliases];
+    return npcIdentityKeys(npc);
 }
 
 function mentionsName(text: string, patterns: string[]): boolean {

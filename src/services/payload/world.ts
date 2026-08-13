@@ -2,6 +2,7 @@ import type { ChatMessage, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry,
 import { countTokens } from '../infrastructure/tokenizer';
 import { buildDriftAlert, buildKnowledgeBoundary, buildReactionMenuLine } from '../npc/npcBehaviorDirective';
 import { relationBand, describeHex } from '../npc/agency/agencyBands';
+import { readPcAffinity, relationToward } from '../npc/affinityAccess';
 import { minifyLoreChunk, minifyNPC } from '../turn/contextMinifier';
 import { resolveTimeline, formatResolvedForContext } from '../campaign-state/timelineResolver';
 import { isFactActive, renderRegisterForPayload } from '../campaign-state/divergenceRegister';
@@ -30,9 +31,13 @@ function fieldTagMatches(
     return tags.some(t => plannerTags.has(t));
 }
 
-export function buildCoreDirective(npc: NPCEntry): string {
+export function buildCoreDirective(npc: NPCEntry, relationshipMemoryEnabled = false): string {
     const parts: string[] = [];
-    const affinityLabel = npc.pcRelation !== undefined ? relationBand(npc.pcRelation) : undefined;
+    // Routed through the one affinity accessor (WO-4 §2). The `pcRelation` arm
+    // preserves the pre-refactor `npc.pcRelation !== undefined` branch exactly;
+    // the legacy/none arms emit no label (matching the old `undefined` path).
+    const affinityRead = readPcAffinity(npc, relationshipMemoryEnabled);
+    const affinityLabel = affinityRead.kind === 'pcRelation' ? relationBand(affinityRead.value) : undefined;
     if (affinityLabel) parts.push(`[Aff: ${affinityLabel}]`);
     if (npc.personalityHex) parts.push(`Personality: ${describeHex(npc.personalityHex)}`);
     if (npc.wants?.short?.[0]) {
@@ -139,7 +144,9 @@ export function buildWorld(opts: {
     // search hits but did NOT get elevated (WO-11). Reuses WO-11's ranked IDs —
     // no second vector search. Witness-filtered, capped at 4 scenes / N per scene.
     slottedRagSnippets?: SlottedRagSnippet[];
-}): { worldContent: string; currentWorldTokens: number; divergenceContent: string; divergenceTokens: number; plannerEventTypes: SceneEventType[] } {
+    /** WO-5: v3 stances replace scalar relationship context in this payload. */
+    relationshipMemoryEnabled?: boolean;
+}): { worldContent: string; currentWorldTokens: number; divergenceContent: string; divergenceTokens: number; plannerEventTypes: SceneEventType[]; relationsBlock: string } {
     const {
         history,
         userMessage,
@@ -166,12 +173,21 @@ export function buildWorld(opts: {
         collector,
         elevatedScenes,
         slottedRagSnippets,
+        relationshipMemoryEnabled = false,
     } = opts;
 
     // --- 3. Gather trimmable World Context (Medium Priority) ---
     const worldBlocks: { source: string; content: string; tokens: number; reason: string }[] = [];
     let divergenceRegText = '';
     let divergenceTokens = 0;
+    // WO-4 §4: the on-stage NPC↔NPC relations block is split out of the structural
+    // volatile.block into its own toggleable contribution. `buildWorld` renders it
+    // here (routed through the canonical relation-key resolver) and returns it
+    // separately; `payloadBuilder` registers it as its own contribution beside the
+    // other built-ins. With no mods the assembled payload is byte-identical to the
+    // pre-split form — the same text, position, spacing, and ordering, assembled
+    // from two modules instead of one.
+    let relationsBlock = '';
     // WO-G: derive plannerEventTypes — explicit param wins; otherwise derive from
     // recent scene events (the desktop adaptation of mobile's turn-time planner).
     let plannerEventTypes: SceneEventType[] = plannerEventTypesOpt ?? [];
@@ -443,8 +459,8 @@ export function buildWorld(opts: {
 
             for (const npc of activeNPCs) {
                 // Core tier — always injected.
-                const coreParts: string[] = [minifyNPC(npc)];
-                const coreDirective = buildCoreDirective(npc);
+                const coreParts: string[] = [minifyNPC(npc, relationshipMemoryEnabled)];
+                const coreDirective = buildCoreDirective(npc, relationshipMemoryEnabled);
                 if (coreDirective) coreParts.push(coreDirective);
                 const coreLine = coreParts.join(' | ');
 
@@ -465,7 +481,7 @@ export function buildWorld(opts: {
                 // 'peaceful' until encounter/combat state is available here. The repression event is
                 // discarded (read path) — booking is once-per-turn in postTurnPipeline (WO-3).
                 if (onStageSet.has(npc.id)) {
-                    const menuLine = buildReactionMenuLine(npc, { matureMode });
+                    const menuLine = buildReactionMenuLine(npc, { matureMode, relationshipMemoryEnabled });
                     if (menuLine) extParts.push(menuLine);
                 }
                 const extLine = extParts.length > 0 ? extParts.join(' | ') : '';
@@ -473,25 +489,28 @@ export function buildWorld(opts: {
                 npcSegments.push({ npcId: npc.id, content: fullLine, tokens: countTokens(fullLine) });
             }
 
-            // On-stage NPC↔NPC relations (sparse, directed). Main's relations are numeric
-            // meters (-100..+100); render as a signed integer arrow.
+            // On-stage NPC↔NPC relations (sparse, directed). Routed through the canonical
+            // relation-key resolver (WO-4 §3) so name-keyed edges — the overwhelming majority —
+            // read non-zero here. Returned as a separate string so it can be split out of the
+            // structural volatile.block into its own toggleable contribution (WO-4 §4).
             const present = activeNPCs.filter(n => onStageSet.has(n.id));
             const relationLines: string[] = [];
             for (let i = 0; i < present.length; i++) {
                 for (let j = 0; j < present.length; j++) {
                     if (i === j) continue;
                     const a = present[i], b = present[j];
-                    const r = a.relations?.[b.id];
+                    const r = relationToward(a, b, relationshipMemoryEnabled);
                     if (typeof r === 'number' && r !== 0) {
                         relationLines.push(`${a.name}\u2192${b.name}: ${r > 0 ? '+' : ''}${r}`);
                     }
                 }
             }
             const relationBlock = relationLines.length > 0
-                ? `\n[ON-STAGE RELATIONS]\n${relationLines.join('\n')}`
+                ? `[ON-STAGE RELATIONS]\n${relationLines.join('\n')}`
                 : '';
+            relationsBlock = relationBlock;
 
-            const npcText = `[ACTIVE NPC CONTEXT]\n${npcSegments.map(s => s.content).join('\n')}${relationBlock}\n[END NPC CONTEXT]`;
+            const npcText = `[ACTIVE NPC CONTEXT]\n${npcSegments.map(s => s.content).join('\n')}\n[END NPC CONTEXT]`;
             worldBlocks.push({
                 source: 'Active NPCs',
                 content: npcText,
@@ -636,5 +655,5 @@ export function buildWorld(opts: {
         }
     }
 
-    return { worldContent, currentWorldTokens, divergenceContent: divergenceRegText, divergenceTokens, plannerEventTypes };
+    return { worldContent, currentWorldTokens, divergenceContent: divergenceRegText, divergenceTokens, plannerEventTypes, relationsBlock };
 }

@@ -36,6 +36,9 @@ export function ChatArea() {
     const activeProvider = useAppStore(s => s.getActiveStoryEndpoint?.());
     const activeUtilityProvider = useAppStore(s => s.getActiveUtilityEndpoint?.());
     const semanticFacts = useAppStore(s => s.semanticFacts ?? []);
+    const relationshipMemoriesNpcToMc = useAppStore(s => s.relationshipMemoriesNpcToMc);
+    const relationshipMemoriesNpcToNpc = useAppStore(s => s.relationshipMemoriesNpcToNpc);
+    const relationshipMemoryFaults = useAppStore(s => s.relationshipMemoryFaults);
 
     const { settings, loreChunks, npcLedger, archiveIndex, chapters, locationLedger } = useAppStore(
         useShallow(s => ({
@@ -208,6 +211,9 @@ export function ChatArea() {
                 messages={messages}
                 isStreaming={isStreaming}
                 settings={settings}
+                relationshipMemoriesNpcToMc={relationshipMemoriesNpcToMc}
+                relationshipMemoriesNpcToNpc={relationshipMemoriesNpcToNpc}
+                relationshipMemoryFaults={relationshipMemoryFaults}
                 editor={editor}
                 pendingMessageId={pendingMessageId}
                 swipe={swipe}

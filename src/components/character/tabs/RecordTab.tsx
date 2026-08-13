@@ -6,6 +6,7 @@ import type { CharacterProfileState, CharacterTrait, DivergenceCategory } from '
 import { TraitRow, IdentityFields } from '../profileFields';
 import { selectPcBonds } from '../pcBonds';
 import { getEntriesForNpc, CATEGORY_LABELS, EMPTY_REGISTER } from '../../../services/campaign-state/divergenceRegister';
+import { RelationshipMemoryEditor } from '../RelationshipMemoryEditor';
 
 const CATEGORY_COLORS: Record<DivergenceCategory, string> = {
     locations: 'text-blue-400',
@@ -38,6 +39,8 @@ export function RecordTab() {
     const toggleNPCLedger = useAppStore(s => s.toggleNPCLedger);
     const divergenceRegister = useAppStore(s => s.divergenceRegister);
     const chapters = useAppStore(s => s.chapters);
+    const relationshipMemoriesNpcToMc = useAppStore(s => s.relationshipMemoriesNpcToMc);
+    const relationshipMemoryEnabled = context.relationshipMemory === true;
 
     const profile: CharacterProfileState = context.characterProfile ?? { identity: {}, activeTraits: [] };
     const active = context.characterProfileActive ?? false;
@@ -204,7 +207,7 @@ export function RecordTab() {
             {/* ── Bonds (read-only — engine-owned pcRelation on NPC rows) ─────── */}
             <div className="border-t border-border/30 pt-3">
                 <h3 className="text-[10px] uppercase tracking-widest text-terminal/70 border-b border-border/50 pb-1 mb-3">
-                    Bonds <span className="text-text-dim/50 normal-case tracking-normal">(read-only — engine-owned)</span>
+                    Bonds <span className="text-text-dim/50 normal-case tracking-normal">({relationshipMemoryEnabled ? 'historical — use memories' : 'read-only — engine-owned'})</span>
                 </h3>
                 {bonds.length === 0 ? (
                     <p className="text-[10px] text-text-dim italic">No established relationships yet.</p>
@@ -238,7 +241,15 @@ export function RecordTab() {
             </div>
 
             {/* ── Established Events for this PC ──────────────────────────────── */}
-            {playerCharacter?.id && pcEntries.length > 0 && (
+             <div className="border-t border-border/30 pt-3">
+                 <RelationshipMemoryEditor
+                     records={relationshipMemoriesNpcToMc}
+                     allowAdd
+                     title="NPC → player memories"
+                 />
+             </div>
+
+             {playerCharacter?.id && pcEntries.length > 0 && (
                 <div className="border-t border-border/30 pt-3">
                     <div className="flex items-center gap-2 text-text-primary font-bold uppercase tracking-widest text-xs mb-2">
                         <ScrollText size={14} /> Events ({pcEntries.length})

@@ -220,11 +220,13 @@ describe('done-when 2 — the suppressible list is queryable and matches the loa
     });
 
     it('the published set is exactly the toggleable built-ins', () => {
-        // The four toggleable ids are the set today.
+        // The five toggleable ids are the set today (WO-4 §4 added `npc.relations` —
+        // the on-stage NPC↔NPC relations block split out of the structural
+        // `volatile.block` so a mod can suppress it).
         expect(SUPPRESSIBLE_BUILTIN_IDS).toEqual(
-            expect.arrayContaining(['writer.cot', 'director.brief', 'gm.reminder', 'watchdog.nudge']),
+            expect.arrayContaining(['writer.cot', 'director.brief', 'gm.reminder', 'watchdog.nudge', 'npc.relations', 'npcStance']),
         );
-        expect(SUPPRESSIBLE_BUILTIN_IDS).toHaveLength(4);
+        expect(SUPPRESSIBLE_BUILTIN_IDS).toHaveLength(6);
     });
 
     it('the published set is the complement of PROTECTED_SUPPRESSION_IDS', () => {

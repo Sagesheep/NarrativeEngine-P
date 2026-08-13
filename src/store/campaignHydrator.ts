@@ -5,6 +5,7 @@ import {
     loadDivergenceRegister, saveDivergenceRegister, saveChapters,
     saveNPCLedger, saveCampaignState,
 } from './campaignStore';
+import { loadRelationshipMemories } from './relationshipMemoryStore';
 import { DEFAULT_CONTEXT, DEFAULT_CONDENSER } from '../services/campaignInit';
 import { migrateLegacyContext } from '../types';
 import type { GameContext, ArchiveChapter, ArchiveIndexEntry, DivergenceRegister, DivergenceEntry, ChatMessage } from '../types';
@@ -276,6 +277,7 @@ export async function hydrateCampaign(campaignId: string) {
         // the prior behaviour (the field was absent before; now it is `{}`).
         hydrateModTablesFromServer(campaignId),
     ]);
+    const relationshipMemories = state?.context?.relationshipMemory === true ? await loadRelationshipMemories(campaignId) : { npcToMc: [], npcToNpc: [] };
 
     const rawContext: GameContext = { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) } as GameContext;
     const migratedContext = migrateLegacyContext(rawContext);
@@ -376,6 +378,9 @@ export async function hydrateCampaign(campaignId: string) {
         inventoryItems: finalContext.inventoryItems,
         characterProfileData: finalContext.characterProfileData,
         playerCharacter: finalContext.playerCharacter ?? null,
+        relationshipMemoriesNpcToMc: relationshipMemories.npcToMc,
+        relationshipMemoriesNpcToNpc: relationshipMemories.npcToNpc,
+        relationshipMemoryFaults: [],
         pinnedExcerpts: state?.pinnedExcerpts ?? [],
         modTables: hydratedModTables,
     });

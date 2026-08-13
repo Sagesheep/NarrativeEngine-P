@@ -9,6 +9,7 @@
  */
 
 import type { LoreChunk, NPCEntry, InventoryItem, InventoryItemCategory, CharacterProfile } from '../../types';
+import { readPcAffinity } from '../npc/affinityAccess';
 
 /**
  * Strip markdown formatting from a block of text.
@@ -141,11 +142,16 @@ export function minifyLoreBlock(chunks: LoreChunk[]): string {
  * Before: [ASH HUANG (None)] Alive | Affinity: 50/100 (Neutral) | Asian male... | Goals: ...
  * After:  ASH_HUANG Alive aff:50 | Asian male... | panicked | Gim:... Glr:... | 6/5/10/1/7/6
  */
-export function minifyNPC(npc: NPCEntry): string {
+export function minifyNPC(npc: NPCEntry, relationshipMemoryEnabled = false): string {
     const aliases = npc.aliases ? `(${npc.aliases})` : '';
     const name = npc.name.toUpperCase();
     const status = npc.status || 'Alive';
-    const aff = npc.affinity ?? 50;
+    const affinityRead = readPcAffinity(npc, relationshipMemoryEnabled);
+    const aff = affinityRead.kind === 'legacyAffinity'
+        ? affinityRead.value
+        : affinityRead.kind === 'pcRelation'
+            ? (npc.affinity ?? 50)
+            : 50;
 
     // Compact appearance: trim to first 80 chars if very long
     const appearance = (npc.appearance || '?').length > 80
@@ -158,14 +164,14 @@ export function minifyNPC(npc: NPCEntry): string {
 
     const goals = npc.goals || '?';
 
-    return `[${name}${aliases}] ${status} aff:${aff} | ${appearance} | ${personality} | ${goals}`;
+    return `[${name}${aliases}] ${status}${affinityRead.kind === 'stance' ? '' : ` aff:${aff}`} | ${appearance} | ${personality} | ${goals}`;
 }
 
 /**
  * Minify the entire NPC context block.
  */
 export function minifyNPCBlock(npcs: NPCEntry[]): string {
-    const lines = npcs.map(minifyNPC).join('\n');
+    const lines = npcs.map(npc => minifyNPC(npc)).join('\n');
     return `[NPC_CTX]\n${lines}\n[/NPC_CTX]`;
 }
 

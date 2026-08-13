@@ -14,6 +14,7 @@ function miniSparkline(history: NPCPressureHistory[], type: 'ignored' | 'engaged
 }
 
 function NPCCard({ npc }: { npc: NPCEntry }) {
+    const relationshipMemoryEnabled = useAppStore(s => s.context.relationshipMemory === true);
     const pressure = npc.pressure;
     const hasDrives = !!npc.drives;
     const hasTriggers = !!npc.behavioralTriggers && npc.behavioralTriggers.length > 0;
@@ -22,7 +23,7 @@ function NPCCard({ npc }: { npc: NPCEntry }) {
         <div className="bg-void border border-border p-2 space-y-1.5">
             <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-text-primary">{npc.name}</span>
-                <span className="text-[9px] text-text-dim">aff:{npc.affinity}</span>
+                <span className="text-[9px] text-text-dim">{relationshipMemoryEnabled ? 'historical aff' : 'aff'}:{npc.affinity}</span>
             </div>
 
             {hasDrives && (

@@ -22,6 +22,14 @@ import type { HostFacade } from './hostFacade';
 import { fetchArchiveScenes } from '../archiveMemory';
 import { EMPTY_REGISTER, getDivergenceSceneIds } from '../campaign-state/divergenceRegister';
 import { formatRoleFaultReason, roleFaultStore, serviceRoles } from '../roles';
+import {
+    buildRelationshipStanceSceneContext,
+    computeRelationshipStances,
+    currentRelationshipSceneId,
+    sceneKeyForRelationshipStance,
+} from '../npc/relationshipStance';
+import { hasHostModelRole } from './hostFacade';
+import { readRelationshipMemoryState, writeRelationshipMemoryState } from '../../store/relationshipMemoryState';
 
 // Friendly, user-facing labels for the live step indicator (keyed by internal stage id).
 const STAGE_LABELS: Record<string, string> = {
@@ -55,6 +63,8 @@ export type GatheredContext = {
     // search hits but did NOT get elevated (WO-11). Reuses WO-11's ranked IDs —
     // no second vector search. Witness-filtered, capped at 4 scenes / N per scene.
     slottedRagSnippets?: SlottedRagSnippet[];
+    // WO-3: UI-only per-NPC stance readings. Never consumed by payload assembly.
+    relationshipStances?: import('../../types').RelationshipStance[];
 };
 
 type GatherDeps = {
@@ -64,6 +74,70 @@ type GatherDeps = {
     deepSearchThisTurn: boolean;
     setLoadingStatus?: (status: string | null) => void;
 };
+
+async function gatherRelationshipStances(
+    state: TurnState,
+    finalInput: string,
+    signal: AbortSignal | undefined,
+    facade: HostFacade | undefined,
+): Promise<import('../../types').RelationshipStance[]> {
+    const data = facade?.data;
+    const context = data?.context ?? state.context;
+    if (context.relationshipMemory !== true || state.settings.moduleEnabled?.npcStance === false) return [];
+
+    const onStageNpcIds = data?.onStageNpcIds ?? state.onStageNpcIds ?? [];
+    const utilityEndpoint = facade ? undefined : state.getUtilityEndpoint?.();
+    const utilityAvailable = facade
+        ? hasHostModelRole(facade, 'utility')
+        : Boolean(utilityEndpoint?.endpoint);
+    const modelCall = facade && utilityAvailable
+        ? (request: import('./hostFacade').ModelRequest) => facade.model.call('utility', request)
+        : undefined;
+
+    const recentMessages = (data?.messages ?? state.messages).slice(-6);
+    const sceneNote = context.sceneNoteActive ? context.sceneNote : '';
+    const sceneId = currentRelationshipSceneId(
+        (data?.archiveIndex ?? state.archiveIndex).map(entry => entry.sceneId),
+    );
+    const sceneKey = sceneKeyForRelationshipStance({
+        onStageNpcIds,
+        sceneNote,
+        currentPlaceId: context.currentPlaceId,
+        currentFeature: context.currentFeature,
+    });
+    const sceneContext = buildRelationshipStanceSceneContext({
+        finalInput,
+        sceneNote,
+        currentPlace: context.currentPlaceId ?? undefined,
+        currentFeature: context.currentFeature,
+        recentMessages,
+    });
+
+    return computeRelationshipStances({
+        campaignId: data?.activeCampaignId ?? state.activeCampaignId,
+        enabled: true,
+        aiTier: facade?.config.aiTier ?? state.settings.aiTier,
+        npcs: data?.npcLedger ?? state.npcLedger,
+        onStageNpcIds,
+        relationshipMemoriesNpcToMc: state.relationshipMemoriesNpcToMc ?? [],
+        playerCharacter: context.playerCharacter,
+        sceneId,
+        sceneKey,
+        sceneMood: 'logistical',
+        sceneContext,
+        modelCall,
+        provider: utilityAvailable ? utilityEndpoint : undefined,
+        signal,
+        // WO-3.5 Fix D: surface dropped stances in the tuning panel so they are
+        // distinguishable from a cheap-tier NPC. Non-blocking, never retried.
+        onFault: (fault) => {
+            const current = readRelationshipMemoryState();
+            writeRelationshipMemoryState({
+                relationshipMemoryFaults: [...current.relationshipMemoryFaults, fault],
+            });
+        },
+    });
+}
 
 /**
  * The `memory.recall` ask site. Exported for the Phase 7.1.1 claim test, which
@@ -181,6 +255,10 @@ export async function gatherContext(
         ? gatherSemanticCandidates(state, signal, facade)
         : Promise.resolve({ semanticArchiveIds: undefined, semanticLoreIds: undefined, semanticRuleIds: undefined }));
 
+    // WO-3: start all present-NPC stance work beside the existing gather tracks.
+    // It is cached at the scene boundary, so later turns in the same scene reuse it.
+    const relationshipStancesPromise = gatherRelationshipStances(state, finalInput, signal, facade);
+
     // The `next-scene` pre-assignment used to run here: a guess at the number the
     // turn WOULD get, fetched before the turn was written and glued onto the reply
     // text. The real id is assigned independently by `appendScene` at commit, and
@@ -237,7 +315,7 @@ export async function gatherContext(
     // Individual calls have their own (tighter) timeouts, so this is just a backstop.
     const CONTEXT_GATHER_TIMEOUT_MS = AI_CALL_TIMEOUT_MS;
     await Promise.race([
-        Promise.all([archiveRecallPromise, recommenderPromise, loreRulesPromise, plannerPromise, elevationPromise]),
+        Promise.all([archiveRecallPromise, recommenderPromise, loreRulesPromise, plannerPromise, elevationPromise, relationshipStancesPromise]),
         new Promise<void>((resolve) => setTimeout(() => {
             console.warn('[ContextGatherer] Context gather timeout — proceeding with partial results');
             resolve();
@@ -251,6 +329,10 @@ export async function gatherContext(
     const plannerSceneIds = await plannerPromise;
     // WO-11: never let elevation failure block the turn — default to empty.
     const elevation = await elevationPromise.catch(() => ({ scenes: [] as ElevatedScene[], rankedSceneIds: [] as string[] }));
+    const relationshipStances = await relationshipStancesPromise.catch(error => {
+        console.warn('[ContextGatherer] Relationship stance pass failed:', error);
+        return [] as import('../../types').RelationshipStance[];
+    });
 
     // WO-12: Slotted RAG — consume WO-11's scoped search results (one search, two
     // consumers). Pure computation from the ranked IDs + archive index; no second
@@ -311,5 +393,6 @@ export async function gatherContext(
         elevatedScenes: elevation.scenes,
         elevatedSceneRankedIds: elevation.rankedSceneIds,
         slottedRagSnippets: slottedRag.snippets,
+        relationshipStances,
     };
 }

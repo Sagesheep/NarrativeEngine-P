@@ -32,6 +32,7 @@ export const DEFAULT_CONTEXT = {
     worldEventConfig: { initialDC: 498, dcReduction: 2, who: [] as string[], where: [] as string[], why: [] as string[], what: [] as string[] },
     notebook: [],
     notebookActive: true,
+    relationshipMemory: false,
 };
 
 export const DEFAULT_CONDENSER = { condensedUpToIndex: -1 };
