@@ -74,6 +74,8 @@ type ModuleRow = {
     id: string;
     name: string;
     description: string;
+    explain?: string;
+    example?: string;
     defaultEnabled: boolean;
     /** Mods only: `v1.2.0 · file.mod.json`, shown under the description. */
     meta?: string;
@@ -172,10 +174,12 @@ const tierOf = (mod: ValidatedMod): 'declarative' | 'sandboxed' | 'native' => {
     return 'declarative';
 };
 
-const toRow = (module: ContributionModule<FinalUserModuleInput>, meta?: string): ModuleRow => ({
+const toRow = (module: ContributionModule<FinalUserModuleInput> & { explain?: string; example?: string }, meta?: string): ModuleRow => ({
     id: module.id,
     name: module.name,
     description: module.description,
+    explain: module.explain,
+    example: module.example,
     defaultEnabled: module.defaultEnabled,
     meta,
 });
@@ -874,9 +878,16 @@ export function ExtensionsTab() {
                             )}
                         </div>
 
-                        <p className="max-w-[640px] text-[9px] text-text-dim leading-tight">
-                            {selectedRow.description}
+                        <p className={selectedRow.explain
+                            ? 'max-w-[65ch] text-[13px] text-text-primary/90 leading-relaxed'
+                            : 'max-w-[640px] text-[9px] text-text-dim leading-tight'}>
+                            {selectedRow.explain ?? selectedRow.description}
                         </p>
+                        {selectedRow.example && (
+                            <div className="ml-2 max-w-[65ch] border-l-2 border-terminal/30 bg-terminal/5 px-5 py-4 text-[12px] text-text-primary/90 leading-relaxed space-y-3 [&>p]:m-0">
+                                <ReactMarkdown>{selectedRow.example}</ReactMarkdown>
+                            </div>
+                        )}
 
                         {selectedRow.apiVersionStale && (
                             <p className="text-[9px] text-amber-400/80 leading-tight max-w-[640px]">

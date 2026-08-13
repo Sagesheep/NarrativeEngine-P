@@ -101,7 +101,10 @@ export const BUILTIN_IDS = {
     absoluteCommand: 'absolute.command',
 } as const;
 
-type Builtin = ContributionModule<FinalUserModuleInput>;
+type Builtin = ContributionModule<FinalUserModuleInput> & {
+    explain?: string;
+    example?: string;
+};
 
 /** Shorthand for a module that contributes exactly one spec (all built-ins do). */
 const single = (
@@ -156,6 +159,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.relations,
             name: 'On-Stage Relations',
             description: 'Directed NPC↔NPC relationship arrows for on-stage characters.',
+            explain: 'Tells the writer how the characters in a scene feel about **each other** — not about you. Without it, everyone in a group scene behaves as though they just met.',
+            example: `Bram and Alden are both at the table when the innkeeper asks who broke the door.
+
+**On** — Alden covers for Bram without being asked.
+
+**Off** — Alden answers honestly. He has no idea they are friends.`,
         },
         (input) => ({ id: BUILTIN_IDS.relations, order: 150, text: input.relationsBlock ?? '' }),
     ),
@@ -166,6 +175,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.stance,
             name: 'NPC Stances',
             description: 'Scene-specific NPC wants, boundaries, and relationship memories.',
+            explain: 'The deep version, pointed at you. For every character on stage it works out what they want in this exact moment, what they are hiding, what they will refuse, and which memories of you are pulling at them right now. When it has something to say it takes over from On-Stage Relations.',
+            example: `She lost a battle to you last week. A year before that, you put a hand on her head at the academy.
+
+**On** — she will not look at you, answers in three words, refuses the food you brought, and eats it after you leave.
+
+**Off** — the writer knows only that she is hostile, and plays her as flatly hostile.`,
         },
         (input) => ({
             id: BUILTIN_IDS.stance,
@@ -189,6 +204,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.writerCot,
             name: 'Chain-of-Thought Invocation',
             description: 'Asks the writer to work through the reasoning framework before writing.',
+            explain: 'Asks the writer to think through the scene before writing it, instead of answering straight away. Only does anything when thinking is switched on for your model — with thinking off it adds nothing at all.',
+            example: `You lie to a character who already knows the truth.
+
+**On** — the reply lands on her deciding whether to let the lie stand.
+
+**Off** — the reply reacts to the words, and often misses that she knows.`,
         },
         (input) => ({
             id: BUILTIN_IDS.writerCot,
@@ -207,6 +228,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.directorBrief,
             name: 'Director Brief',
             description: 'LLM-authored scene directives that steer the next GM reply.',
+            explain: 'Before each reply, a second AI reads the scene and writes short directions for the writer — what this beat needs, and what to leave alone. It is the difference between a scene that goes somewhere and one that answers you politely.',
+            example: `Direction written for the writer: *"The confession landed. Do not resolve it this turn — let her leave the room."*
+
+**On** — she leaves. It sits with you for three scenes.
+
+**Off** — she talks it through and the tension is spent immediately.`,
         },
         (input) => ({
             id: BUILTIN_IDS.directorBrief,
@@ -227,6 +254,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.gmReminder,
             name: 'GM Reminder',
             description: 'Standing reminder that NPCs push back rather than facilitate.',
+            explain: 'A single standing line reminding the writer that characters push back when you cross what they want, instead of going along with it. It is the cheapest guard against everyone becoming agreeable.',
+            example: `You tell the gate guard to let you through.
+
+**On** — he asks who you are, and refuses.
+
+**Off** — he steps aside.`,
         },
         () => ({ id: BUILTIN_IDS.gmReminder, order: 400, text: GM_REMINDER }),
     ),
@@ -237,6 +270,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.watchdogNudge,
             name: 'Director Watchdog',
             description: 'Deterministic stage note when NPC agency has been drifting.',
+            explain: 'Watches across several turns for characters quietly turning into pushovers, and drops in a correction when it sees the drift. It stays silent the rest of the time, and stands down whenever the Director Brief is already speaking.',
+            example: `Four turns in a row where everyone agreed with you.
+
+**On** — *"The room has stopped resisting. Someone objects to this."*
+
+**Off** — the drift continues until you notice it yourself.`,
         },
         (input) => ({
             id: BUILTIN_IDS.watchdogNudge,
