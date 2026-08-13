@@ -83,6 +83,9 @@ server/scripts/migrateEmbeddings.js
 # Debug / stabilization config
 stabs.json
 
+# Local non-SRD compendium research; never distribute with the project
+Example_Setup/Ability Compendium/Dungeons and Dragons 5e 2024/dnd_2024_full_reference_ability_compendium.json
+
 # Local trash folder
 TRASH/
 

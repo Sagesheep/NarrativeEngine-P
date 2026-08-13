@@ -1,0 +1,624 @@
+{
+  "schemaVersion": 2,
+  "terminology": {
+    "originLabels": {
+      "innate": "Innate",
+      "trained": "Trained",
+      "spell": "Spell",
+      "item-granted": "Inventory Power",
+      "enemy-action": "Enemy Action",
+      "lore-granted": "Lore-Granted",
+      "other": "Other"
+    },
+    "categoryLabels": {
+      "active": "Active",
+      "passive": "Passive",
+      "reaction": "Reaction",
+      "sustained": "Sustained",
+      "transformation": "Transformation",
+      "summon": "Summon",
+      "stance": "Stance",
+      "ritual": "Ritual",
+      "crafting": "Crafting",
+      "narrative-permission": "Narrative Permission",
+      "other": "Other"
+    }
+  },
+  "abilities": [
+  {
+    "id": "template-magic-foundation",
+    "name": "[Template] Magical Foundation",
+    "aliases": "",
+    "category": "narrative-permission",
+    "origin": "innate",
+    "description": "Define who can use this magic, how it is acquired, what practitioners can sense, and what is impossible without a specific ability.",
+    "appearance": "Describe the shared sensory signature of the system: light, sound, temperature, symbols, bodily changes, or environmental reactions.",
+    "activation": "Always active while the character retains access to the magic system.",
+    "costs": [],
+    "range": "Self",
+    "targets": "The practitioner",
+    "duration": "Persistent",
+    "area": "",
+    "effect": "Establishes the practitioner's baseline magical permissions. Replace this text with the actions every user of the system may attempt without learning a separate ability.",
+    "outcomeGuidance": "Use this definition to establish boundaries, not to grant unlimited solutions. Specific techniques should still require their own canonical entries.",
+    "limitations": [
+      "Define at least one thing this magic can never accomplish.",
+      "Define what disrupts or suppresses access to the system.",
+      "Do not let this foundation replace specific learned abilities."
+    ],
+    "counters": [
+      "Replace with the system-wide suppression method."
+    ],
+    "prerequisites": [
+      "Replace with the source of magical access: birth, pact, training, exposure, implant, faith, or another cause."
+    ],
+    "interactionTags": [
+      "template-magic"
+    ],
+    "counterTags": [
+      "template-suppression"
+    ],
+    "sourceInventoryItemId": "",
+    "inventoryRequiresEquipped": true,
+    "loreCheckRequired": false,
+    "loreStatus": "unverified",
+    "loreCheckNotes": "",
+    "loreCheckedAt": null,
+    "masteryLadder": [
+      {
+        "id": "foundation-awakened",
+        "name": "Awakened",
+        "requirements": "Gain access to the magic system.",
+        "benefits": "Perceive and perform its baseline magical actions."
+      },
+      {
+        "id": "foundation-attuned",
+        "name": "Attuned",
+        "requirements": "Demonstrate control during meaningful use.",
+        "benefits": "Recognize familiar manifestations and reduce minor accidental side effects."
+      },
+      {
+        "id": "foundation-transcendent",
+        "name": "Transcendent",
+        "requirements": "Complete a defining campaign milestone.",
+        "benefits": "Replace with the highest permission the setting allows without breaking its core limits."
+      }
+    ],
+    "upgradeNodes": [],
+    "tags": [
+      "Template",
+      "Magic System",
+      "Foundation"
+    ],
+    "source": "Original Campaign Magic System Template",
+    "gmNotes": "Edit this entry first. It is the constitution of the magic system. Keep its permissions narrow and put individual effects in separate abilities.",
+    "promptEnabled": true,
+    "createdAt": 0,
+    "updatedAt": 0
+  },
+  {
+    "id": "template-basic-invocation",
+    "name": "[Template] Basic Invocation",
+    "aliases": "",
+    "category": "active",
+    "origin": "spell",
+    "description": "The system's most common deliberate magical technique. Replace this with a concrete effect that demonstrates the system's identity.",
+    "appearance": "Describe what an observer sees and what the caster physically does.",
+    "activation": "One deliberate action requiring a visible gesture, spoken phrase, focused thought, or other defined trigger.",
+    "costs": [
+      {
+        "resource": "Replace: magical resource",
+        "amount": "1",
+        "timing": "On activation",
+        "condition": "Paid whether the effect succeeds or fails after release."
+      }
+    ],
+    "range": "Replace: self, touch, near, sight, or exact distance",
+    "targets": "One creature, object, or point",
+    "duration": "Instant or one scene beat",
+    "area": "",
+    "effect": "Replace with one clear mechanical or narrative outcome. State what changes in the fiction and avoid vague language such as 'controls energy.'",
+    "outcomeGuidance": "On partial success, preserve the intended direction but add a proportionate cost, reduced effect, exposed position, or unstable aftermath.",
+    "limitations": [
+      "Requires an unobstructed method of targeting.",
+      "Cannot produce effects outside the defined magical domain."
+    ],
+    "counters": [
+      "A reaction carrying the template-magic counter relationship can interrupt it."
+    ],
+    "prerequisites": [
+      "[Template] Magical Foundation"
+    ],
+    "interactionTags": [
+      "template-magic",
+      "template-invocation"
+    ],
+    "counterTags": [],
+    "sourceInventoryItemId": "",
+    "inventoryRequiresEquipped": true,
+    "loreCheckRequired": false,
+    "loreStatus": "unverified",
+    "loreCheckNotes": "",
+    "loreCheckedAt": null,
+    "masteryLadder": [
+      {
+        "id": "invocation-novice",
+        "name": "Novice",
+        "requirements": "Learn the invocation.",
+        "benefits": "Produce the base effect under ordinary conditions."
+      },
+      {
+        "id": "invocation-adept",
+        "name": "Adept",
+        "requirements": "Complete three meaningful training uses.",
+        "benefits": "Replace with one bounded improvement to reliability, range, or control."
+      },
+      {
+        "id": "invocation-master",
+        "name": "Master",
+        "requirements": "Use the invocation to resolve a major campaign obstacle.",
+        "benefits": "Replace with the strongest setting-appropriate expression of this technique."
+      }
+    ],
+    "upgradeNodes": [
+      {
+        "id": "invocation-precision",
+        "branch": "Control",
+        "name": "Precision",
+        "description": "Replace with a safer or more selective version of the effect.",
+        "prerequisiteTierId": "invocation-adept",
+        "prerequisiteUpgradeIds": []
+      },
+      {
+        "id": "invocation-overcharge",
+        "branch": "Power",
+        "name": "Overcharge",
+        "description": "Replace with a stronger version that also carries an explicit additional cost or risk.",
+        "prerequisiteTierId": "invocation-adept",
+        "prerequisiteUpgradeIds": []
+      },
+      {
+        "id": "invocation-signature",
+        "branch": "Mastery",
+        "name": "Signature Expression",
+        "description": "Create a character-specific expression without changing the canonical limits of the ability.",
+        "prerequisiteTierId": "invocation-master",
+        "prerequisiteUpgradeIds": [
+          "invocation-precision"
+        ]
+      }
+    ],
+    "tags": [
+      "Template",
+      "Magic System",
+      "Core Technique"
+    ],
+    "source": "Original Campaign Magic System Template",
+    "gmNotes": "Duplicate this entry for the system's common spells or techniques. Keep each duplicate focused on one durable capability.",
+    "promptEnabled": true,
+    "createdAt": 0,
+    "updatedAt": 0
+  },
+  {
+    "id": "template-sustained-ward",
+    "name": "[Template] Sustained Ward",
+    "aliases": "",
+    "category": "sustained",
+    "origin": "spell",
+    "description": "A maintained protective effect that demonstrates duration, upkeep, and disruption rules.",
+    "appearance": "Describe the boundary of the ward and how strain becomes visible as it weakens.",
+    "activation": "One action to establish; concentration, posture, chant, device control, or another sustained behavior to maintain.",
+    "costs": [
+      {
+        "resource": "Replace: magical resource",
+        "amount": "1",
+        "timing": "On activation",
+        "condition": "Additional cost may be required each scene or after absorbing a major effect."
+      }
+    ],
+    "range": "Self or touch",
+    "targets": "One creature, object, or bounded position",
+    "duration": "Sustained while maintained",
+    "area": "Replace if the ward protects an area",
+    "effect": "Replace with the exact threats the ward resists, redirects, reveals, or delays. State what it does not stop.",
+    "outcomeGuidance": "A ward should create protection without erasing consequences. Powerful impacts may drain resources, break the ward, displace the target, or expose a weakness.",
+    "limitations": [
+      "Ends when maintenance is interrupted.",
+      "Does not protect against threats outside its defined domain.",
+      "Only one copy may be maintained by the same practitioner unless an upgrade says otherwise."
+    ],
+    "counters": [
+      "Disruption of the maintenance method.",
+      "An ability carrying the template-ward counter relationship."
+    ],
+    "prerequisites": [
+      "[Template] Magical Foundation"
+    ],
+    "interactionTags": [
+      "template-magic",
+      "template-ward"
+    ],
+    "counterTags": [],
+    "sourceInventoryItemId": "",
+    "inventoryRequiresEquipped": true,
+    "loreCheckRequired": false,
+    "loreStatus": "unverified",
+    "loreCheckNotes": "",
+    "loreCheckedAt": null,
+    "masteryLadder": [
+      {
+        "id": "ward-novice",
+        "name": "Novice",
+        "requirements": "Learn to establish the ward.",
+        "benefits": "Protect one eligible target."
+      },
+      {
+        "id": "ward-adept",
+        "name": "Adept",
+        "requirements": "Maintain the ward through a serious disruption.",
+        "benefits": "Replace with improved duration, resilience, or coverage."
+      }
+    ],
+    "upgradeNodes": [
+      {
+        "id": "ward-shared",
+        "branch": "Coverage",
+        "name": "Shared Boundary",
+        "description": "Replace with a method for protecting an additional target or small area.",
+        "prerequisiteTierId": "ward-adept",
+        "prerequisiteUpgradeIds": []
+      }
+    ],
+    "tags": [
+      "Template",
+      "Magic System",
+      "Defense",
+      "Sustained"
+    ],
+    "source": "Original Campaign Magic System Template",
+    "gmNotes": "Use active effects and runtime state to track this ward during play.",
+    "promptEnabled": true,
+    "createdAt": 0,
+    "updatedAt": 0
+  },
+  {
+    "id": "template-counter-technique",
+    "name": "[Template] Counter Technique",
+    "aliases": "",
+    "category": "reaction",
+    "origin": "trained",
+    "description": "A reactive technique that interrupts, redirects, grounds, or destabilizes magic from this system.",
+    "appearance": "Describe the brief tell that marks a successful counter and how a failed attempt looks different.",
+    "activation": "Reaction when the practitioner perceives an eligible magical effect being formed or released.",
+    "costs": [
+      {
+        "resource": "Replace: magical resource",
+        "amount": "1",
+        "timing": "On reaction",
+        "condition": "Spent when the counter is attempted."
+      }
+    ],
+    "range": "Replace with the maximum countering distance",
+    "targets": "One perceived magical effect",
+    "duration": "Instant",
+    "area": "",
+    "effect": "Replace with whether the counter cancels, weakens, redirects, delays, or exposes the incoming effect. Define how relative mastery changes the outcome.",
+    "outcomeGuidance": "Against a stronger effect, prefer reduction or redirection over automatic cancellation unless the setting explicitly supports absolute counters.",
+    "limitations": [
+      "The incoming effect must be perceived in time.",
+      "Cannot counter domains this practitioner does not understand unless an upgrade permits it."
+    ],
+    "counters": [
+      "Hidden casting, overwhelming force, unfamiliar magical structure, or attacks outside the reaction window."
+    ],
+    "prerequisites": [
+      "[Template] Magical Foundation",
+      "Formal study of magical disruption"
+    ],
+    "interactionTags": [
+      "template-counter"
+    ],
+    "counterTags": [
+      "template-magic",
+      "template-ward"
+    ],
+    "sourceInventoryItemId": "",
+    "inventoryRequiresEquipped": true,
+    "loreCheckRequired": false,
+    "loreStatus": "unverified",
+    "loreCheckNotes": "",
+    "loreCheckedAt": null,
+    "masteryLadder": [
+      {
+        "id": "counter-novice",
+        "name": "Novice",
+        "requirements": "Learn the countering pattern.",
+        "benefits": "Attempt to weaken familiar magic."
+      },
+      {
+        "id": "counter-adept",
+        "name": "Adept",
+        "requirements": "Successfully counter a dangerous effect.",
+        "benefits": "Attempt to cancel familiar magic or weaken unfamiliar magic."
+      }
+    ],
+    "upgradeNodes": [
+      {
+        "id": "counter-reflection",
+        "branch": "Redirection",
+        "name": "Reflection",
+        "description": "Replace with tightly bounded conditions for redirecting rather than cancelling an effect.",
+        "prerequisiteTierId": "counter-adept",
+        "prerequisiteUpgradeIds": []
+      }
+    ],
+    "tags": [
+      "Template",
+      "Magic System",
+      "Counter",
+      "Reaction"
+    ],
+    "source": "Original Campaign Magic System Template",
+    "gmNotes": "The counterTags connect this ability to the sample invocation and ward. Rename the shared tags consistently across your finished system.",
+    "promptEnabled": true,
+    "createdAt": 0,
+    "updatedAt": 0
+  },
+  {
+    "id": "template-transformation",
+    "name": "[Template] Transformation",
+    "aliases": "",
+    "category": "transformation",
+    "origin": "spell",
+    "description": "A state-changing ability with explicit entry, benefits, vulnerabilities, and exit conditions.",
+    "appearance": "Describe the transformation in concrete stages and identify features an observer could recognize.",
+    "activation": "One action under a defined emotional, environmental, ritual, or resource condition.",
+    "costs": [
+      {
+        "resource": "Replace: magical resource",
+        "amount": "2",
+        "timing": "On transformation",
+        "condition": "Cannot be recovered while the form remains active."
+      }
+    ],
+    "range": "Self",
+    "targets": "Self",
+    "duration": "Until dismissed, disrupted, exhausted, or the scene ends",
+    "area": "",
+    "effect": "Replace with the form's precise capabilities and physical changes. Identify what normal actions become harder or impossible.",
+    "outcomeGuidance": "The form changes available options; it should not simply improve every action. Its advantages and liabilities should both matter in the fiction.",
+    "limitations": [
+      "Cannot use abilities incompatible with the transformed body or state.",
+      "Ends under the defined disruption condition.",
+      "Leaves a visible or lasting consequence after use."
+    ],
+    "counters": [
+      "Replace with a material, frequency, oath, condition, or technique that destabilizes the form."
+    ],
+    "prerequisites": [
+      "[Template] Magical Foundation",
+      "Replace with a mastery tier, pact, lineage, or milestone."
+    ],
+    "interactionTags": [
+      "template-magic",
+      "template-transformation"
+    ],
+    "counterTags": [],
+    "sourceInventoryItemId": "",
+    "inventoryRequiresEquipped": true,
+    "loreCheckRequired": false,
+    "loreStatus": "unverified",
+    "loreCheckNotes": "",
+    "loreCheckedAt": null,
+    "masteryLadder": [
+      {
+        "id": "transformation-unstable",
+        "name": "Unstable",
+        "requirements": "Unlock the form.",
+        "benefits": "Enter the base form with all listed liabilities."
+      },
+      {
+        "id": "transformation-controlled",
+        "name": "Controlled",
+        "requirements": "Retain control through a major provocation or hazard.",
+        "benefits": "Replace with one reduced liability or improved exit condition."
+      }
+    ],
+    "upgradeNodes": [
+      {
+        "id": "transformation-adaptation",
+        "branch": "Control",
+        "name": "Adaptive Form",
+        "description": "Choose one bounded adaptation when transforming.",
+        "prerequisiteTierId": "transformation-controlled",
+        "prerequisiteUpgradeIds": []
+      }
+    ],
+    "tags": [
+      "Template",
+      "Magic System",
+      "Transformation"
+    ],
+    "source": "Original Campaign Magic System Template",
+    "gmNotes": "Use the runtime controls to mark this transformation active and to record its remaining duration or effects.",
+    "promptEnabled": true,
+    "createdAt": 0,
+    "updatedAt": 0
+  },
+  {
+    "id": "template-lore-ritual",
+    "name": "[Template] Forbidden Ritual",
+    "aliases": "",
+    "category": "ritual",
+    "origin": "lore-granted",
+    "description": "A rare working whose existence and rules must be confirmed against campaign lore before the Narrative Engine injects it.",
+    "appearance": "Describe the site, materials, participants, and unmistakable signs produced as the ritual progresses.",
+    "activation": "Extended preparation at an eligible place, followed by an uninterrupted rite.",
+    "costs": [
+      {
+        "resource": "Replace: rare material, sacrifice, debt, time, or magical resource",
+        "amount": "Replace with a meaningful amount",
+        "timing": "During preparation and completion",
+        "condition": "The cost is not fully recoverable if the completed rite is interrupted."
+      }
+    ],
+    "range": "Ritual site",
+    "targets": "Replace with the ritual's subject",
+    "duration": "Replace with preparation time and effect duration",
+    "area": "Replace with the ritual boundary",
+    "effect": "Replace with a consequential effect that cannot be achieved by ordinary quick techniques.",
+    "outcomeGuidance": "Ritual failure should follow established preparation, opposition, or lore contradictions. Do not invent arbitrary backlash solely for drama.",
+    "limitations": [
+      "Requires confirmed lore, appropriate materials, sufficient time, and a valid site.",
+      "Cannot be improvised as a normal combat action.",
+      "Consequences must remain within the campaign's established metaphysics."
+    ],
+    "counters": [
+      "Disrupt a required component, participant, site condition, or sequence before completion."
+    ],
+    "prerequisites": [
+      "Verified knowledge of the ritual",
+      "Replace with the required mastery, text, teacher, place, or celestial condition."
+    ],
+    "interactionTags": [
+      "template-magic",
+      "template-ritual"
+    ],
+    "counterTags": [],
+    "sourceInventoryItemId": "",
+    "inventoryRequiresEquipped": true,
+    "loreCheckRequired": true,
+    "loreStatus": "unverified",
+    "loreCheckNotes": "Replace this note with the exact lore claims the engine should verify, then run Lore Check and save the definition.",
+    "loreCheckedAt": null,
+    "masteryLadder": [],
+    "upgradeNodes": [],
+    "tags": [
+      "Template",
+      "Magic System",
+      "Ritual",
+      "Lore Gate"
+    ],
+    "source": "Original Campaign Magic System Template",
+    "gmNotes": "This entry is intentionally blocked from prompt injection until its Lore Check is verified.",
+    "promptEnabled": true,
+    "createdAt": 0,
+    "updatedAt": 0
+  },
+  {
+    "id": "template-focus-item-power",
+    "name": "[Template] Focus-Bound Power",
+    "aliases": "",
+    "category": "active",
+    "origin": "item-granted",
+    "description": "A power granted by carrying or equipping a specific relic, focus, weapon, implant, grimoire, mask, or other inventory item.",
+    "appearance": "Describe the item and the sign that appears when its power becomes active.",
+    "activation": "Use, wield, wear, invoke, or otherwise activate the linked inventory item.",
+    "costs": [
+      {
+        "resource": "Replace: item charge, durability, heat, favor, or magical resource",
+        "amount": "1",
+        "timing": "On activation",
+        "condition": "Replace with how the item tracks or recovers this cost."
+      }
+    ],
+    "range": "Replace with the item's reach or influence",
+    "targets": "Replace with eligible targets",
+    "duration": "Replace with effect duration",
+    "area": "",
+    "effect": "Replace with the exact power the linked item grants.",
+    "outcomeGuidance": "If the item is absent, not carried, depleted, broken, or unequipped when required, the character does not have access to this ability.",
+    "limitations": [
+      "Inactive unless linked to a carried inventory item.",
+      "Inactive unless the linked item is equipped.",
+      "Does not create permanent character ownership."
+    ],
+    "counters": [
+      "Disarm, suppress, disable, deplete, or separate the user from the granting item through established fiction."
+    ],
+    "prerequisites": [
+      "Possess and equip the linked inventory item."
+    ],
+    "interactionTags": [
+      "template-magic",
+      "template-item-power"
+    ],
+    "counterTags": [],
+    "sourceInventoryItemId": "",
+    "inventoryRequiresEquipped": true,
+    "loreCheckRequired": false,
+    "loreStatus": "unverified",
+    "loreCheckNotes": "",
+    "loreCheckedAt": null,
+    "masteryLadder": [],
+    "upgradeNodes": [],
+    "tags": [
+      "Template",
+      "Magic System",
+      "Inventory Power"
+    ],
+    "source": "Original Campaign Magic System Template",
+    "gmNotes": "After import, select this definition and choose its Granting Inventory Item. It remains inactive until linked.",
+    "promptEnabled": true,
+    "createdAt": 0,
+    "updatedAt": 0
+  },
+  {
+    "id": "template-enemy-signature-action",
+    "name": "[Template] Enemy Signature Action",
+    "aliases": "",
+    "category": "active",
+    "origin": "enemy-action",
+    "description": "A canonical supernatural action shared by one enemy type or used as a named signature move.",
+    "appearance": "Describe the observable warning, release, and aftermath so players can learn to recognize it.",
+    "activation": "Enemy action under a clear tactical or fictional condition.",
+    "costs": [
+      {
+        "resource": "Replace: cooldown, charge, position, exposed state, or no resource",
+        "amount": "Replace",
+        "timing": "On use",
+        "condition": "Replace with when the enemy may use it again."
+      }
+    ],
+    "range": "Replace with exact or narrative range",
+    "targets": "Replace with target rules",
+    "duration": "Replace with duration",
+    "area": "Replace if applicable",
+    "effect": "Replace with the enemy action's exact fictional and mechanical consequences.",
+    "outcomeGuidance": "Telegraph dangerous effects in proportion to their severity. Resolve consequences from established positioning and defenses.",
+    "limitations": [
+      "Requires the listed trigger or setup.",
+      "Cannot ignore canonical counters or established battlefield state."
+    ],
+    "counters": [
+      "Replace with at least one readable player response."
+    ],
+    "prerequisites": [
+      "Enemy possesses the relevant nature, training, equipment, or magical source."
+    ],
+    "interactionTags": [
+      "template-magic",
+      "template-enemy-action"
+    ],
+    "counterTags": [],
+    "sourceInventoryItemId": "",
+    "inventoryRequiresEquipped": true,
+    "loreCheckRequired": false,
+    "loreStatus": "unverified",
+    "loreCheckNotes": "",
+    "loreCheckedAt": null,
+    "masteryLadder": [],
+    "upgradeNodes": [],
+    "tags": [
+      "Template",
+      "Magic System",
+      "Enemy Action"
+    ],
+    "source": "Original Campaign Magic System Template",
+    "gmNotes": "After import, open the Enemy Compendium and link an optional enemy action to this canonical ability.",
+    "promptEnabled": true,
+    "createdAt": 0,
+    "updatedAt": 0
+  }
+]
+}

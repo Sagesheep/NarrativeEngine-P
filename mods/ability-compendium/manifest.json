@@ -1,0 +1,35 @@
+{
+  "id": "ability-compendium",
+  "name": "Ability & Power Compendium",
+  "version": "3.0.0",
+  "description": "A modular, genre-neutral ability library with character ownership, runtime state, discovery review, progression, cross-system classifications, imports, exports, and mention-aware prompt context.",
+  "author": "Sagesheep Community",
+  "appVersion": ">=2.0.0",
+  "apiVersion": 1,
+  "loadOrder": 220,
+  "tables": [
+    { "name": "abilities", "recordShape": "array", "label": "Ability Definitions" },
+    { "name": "assignments", "recordShape": "array", "label": "Character Abilities" },
+    { "name": "runtime", "recordShape": "array", "label": "Runtime State" },
+    { "name": "proposals", "recordShape": "array", "label": "Discovery Proposals" },
+    { "name": "config", "recordShape": "single-object", "label": "Compendium Settings" },
+    { "name": "prompt-index", "recordShape": "array", "label": "Prompt Index" }
+  ],
+  "contributions": [
+    { "id": "mentioned-abilities", "order": 155, "budget": 1600, "text": "{{matchedAbilities}}" }
+  ],
+  "compute": {
+    "file": "compute.js",
+    "hook": "postTurn",
+    "capabilities": [
+      "table:read:mod.ability-compendium.abilities", "table:read:mod.ability-compendium.assignments", "table:read:mod.ability-compendium.runtime", "table:read:mod.ability-compendium.proposals", "table:read:mod.ability-compendium.config",
+      "table:write:mod.ability-compendium.proposals", "table:write:mod.ability-compendium.config", "table:write:mod.ability-compendium.prompt-index",
+      "write:setCharacterSheet", "model:utility"
+    ]
+  },
+  "native": {
+    "js": "index.js",
+    "css": "style.css",
+    "hooks": { "activate": "onActivate", "disable": "onDisable" }
+  }
+}

@@ -1,0 +1,11 @@
+.ability-compendium-native-root {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.ability-compendium-native-root > .shell {
+    height: 100%;
+}
