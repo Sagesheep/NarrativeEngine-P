@@ -1,14 +1,33 @@
 import { MAX_JOURNAL_ENTRIES } from './sandboxTypes';
 
 /**
- * Build the classic-script source executed by one browser Worker for one compute run.
+ * The identifier a mod's `export default` binds, when the source names one.
  *
- * This is defence in depth for buggy, hand-installed, local, single-user mods. It blocks the
- * network and the most obvious escape/persistence primitives, but it is not a claim that a
- * determined attacker with JavaScript execution cannot find an escape. Mod code never runs on
- * the server, which is the machine holding the encrypted vault.
+ * Two shapes carry a name: a function declaration (`export default async
+ * function arcCompute(ctx) {…}`) and a bare re-export of something already
+ * declared above (`export default arcCompute;`). Anything else — an anonymous
+ * function, an arrow, any other expression — is nameless, and the caller falls
+ * back to the generic candidates.
+ *
+ * The declaration form is tested first so `async` is never mistaken for the
+ * identifier: the re-export pattern anchors to end-of-line, which a real
+ * declaration cannot satisfy.
  */
-export function buildWorkerSource(modSource: string): string {
+function defaultExportName(modSource: string): string | undefined {
+    const declared = /^\s*export\s+default\s+(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)/m.exec(modSource);
+    if (declared) return declared[1];
+    const reexported = /^\s*export\s+default\s+([A-Za-z_$][\w$]*)\s*;?[ \t]*$/m.exec(modSource);
+    return reexported ? reexported[1] : undefined;
+}
+
+/**
+ * Bind a mod's default export to `globalThis.__sandboxMod`, returning the
+ * statement the worker evaluates. Exported so the tests exercise the real
+ * resolution rather than a copy of it — `arcComputeBinding.test.ts` used to
+ * mirror this logic inline, which meant the mirror, not the shipped loader,
+ * was what stayed green.
+ */
+export function buildComputeBinding(modSource: string): string {
     // Strip ES module syntax so the mod source runs as a classic script in the
     // Worker. The mod source is a valid ES module (it may have `export default`
     // and named `export` declarations so tests can import the pure helpers); the
@@ -55,20 +74,52 @@ export function buildWorkerSource(modSource: string): string {
     // `mods/arc/compute.js` is case (b) and broke the OLD prelude silently:
     // `__sandboxMod` was set to the first comment's `undefined`, then
     // `const ARC_TICK_DC = ...` was a syntax error after the assignment.
+    //
+    // Case (b) resolves the declaration BY NAME, and the name is read out of
+    // the source (`defaultExportName`) rather than guessed. It used to be
+    // guessed, from the literal list `["arcCompute", "compute", "tick",
+    // "default"]` — so the host carried a hardcoded reference to one specific
+    // mod's internal function name, and every compute mod whose default export
+    // was named anything else failed to load with "[sandbox] compute source
+    // must export a default function". The Arc Engine's tick ran only because
+    // its function happens to be called `arcCompute`; renaming it, in a file
+    // that never mentions the sandbox, would have silently killed the tick.
+    //
+    // `compute` and `tick` stay on as fallbacks for a source whose default
+    // export is an expression this cannot name (an arrow at the bottom of a
+    // file, say) but which also declares a conventionally-named function.
+    // `"default"` is gone: it is a reserved word, so `eval("default")` always
+    // threw and it could never have resolved anything.
     const isAnonymousExpression = /^\s*(async\s+)?function\s*\(/.test(stripped);
+    const candidates = [...new Set(
+        [defaultExportName(modSource), 'compute', 'tick'].filter((name): name is string => Boolean(name)),
+    )];
     const defaultSource = isAnonymousExpression
         ? `globalThis.__sandboxMod = ${stripped};`
         : [
             'globalThis.__sandboxMod = (function() {',
             stripped,
-            '  // Look for a named default function declaration (hoisted to this IIFE scope).',
-            '  const __sandboxCandidates = ["arcCompute", "compute", "tick", "default"];',
+            '  // Resolve the default export by name (hoisted to this IIFE scope).',
+            `  const __sandboxCandidates = ${JSON.stringify(candidates)};`,
             '  for (const __sandboxName of __sandboxCandidates) {',
             '    try { if (typeof eval(__sandboxName) === "function") return eval(__sandboxName); } catch {}',
             '  }',
             '  return null;',
             '})();',
         ].join('\n');
+    return defaultSource;
+}
+
+/**
+ * Build the classic-script source executed by one browser Worker for one compute run.
+ *
+ * This is defence in depth for buggy, hand-installed, local, single-user mods. It blocks the
+ * network and the most obvious escape/persistence primitives, but it is not a claim that a
+ * determined attacker with JavaScript execution cannot find an escape. Mod code never runs on
+ * the server, which is the machine holding the encrypted vault.
+ */
+export function buildWorkerSource(modSource: string): string {
+    const defaultSource = buildComputeBinding(modSource);
     return [
         "'use strict';",
         'const __sandboxDenyGlobal = (name) => {',

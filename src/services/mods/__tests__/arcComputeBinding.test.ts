@@ -37,6 +37,7 @@ import { resolve } from 'node:path';
 import type { HostFacade } from '../../turn/hostFacade';
 import { buildHostFacade } from '../../turn/hostFacade';
 import { runSandbox } from '../sandbox/sandboxHost';
+import { buildComputeBinding } from '../sandbox/workerPrelude';
 import type {
     SandboxHostMessage,
     SandboxWorkerLike,
@@ -87,33 +88,21 @@ class FakeWorker implements SandboxWorkerLike {
 
 /**
  * Run the real arc compute source against a constructed `__sandboxContext`
- * inside the fake worker. Mirrors `workerPrelude.ts`'s strip + IIFE case
- * split. Posts RPCs the host services and collects the journal the arc
- * produces; emits `done` with the real journal when the source resolves.
+ * inside the fake worker, bound by `workerPrelude.ts`'s own
+ * `buildComputeBinding`. Posts RPCs the host services and collects the journal
+ * the arc produces; emits `done` with the real journal when the source
+ * resolves.
  */
 function runArcSourceInWorker(
     worker: FakeWorker,
     snapshot: unknown,
     onRpc: (id: number, channel: string, method: string | undefined, args: unknown[]) => void,
 ): void {
-    // Strip ES module syntax (mirror workerPrelude.ts).
-    const stripped = arcComputeSource
-        .replace(/^\s*export\s+default\s+/gm, '')
-        .replace(/^(\s*)export\s+(function|const|let|var|class)\s/gm, '$1$2 ')
-        .replace(/^\s*export\s*\{[^]*?\}\s*;?\s*(?=\n|$)/gm, '');
-    const isAnonymousExpression = /^\s*(async\s+)?function\s*\(/.test(stripped);
-    const defaultSource = isAnonymousExpression
-        ? `globalThis.__sandboxMod = ${stripped};`
-        : [
-            'globalThis.__sandboxMod = (function() {',
-            stripped,
-            '  const __sandboxCandidates = ["arcCompute", "compute", "tick", "default"];',
-            '  for (const __sandboxName of __sandboxCandidates) {',
-            '    try { if (typeof eval(__sandboxName) === "function") return eval(__sandboxName); } catch {}',
-            '  }',
-            '  return null;',
-            '})();',
-        ].join('\n');
+    // The REAL strip + default-export resolution from `workerPrelude.ts`. This
+    // used to be a hand-copied mirror of that logic, which defeated the point
+    // of the test: the copy is what stayed green, and the shipped loader could
+    // drift out from under it unobserved.
+    const defaultSource = buildComputeBinding(arcComputeSource);
 
     const journal: Array<{ kind: 'store' | 'table'; name: string; args?: unknown[]; rows?: unknown }> = [];
     let rpcId = 0;
