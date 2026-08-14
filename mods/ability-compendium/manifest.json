@@ -4,7 +4,7 @@
   "version": "3.0.0",
   "description": "A modular, genre-neutral ability library with character ownership, runtime state, discovery review, progression, cross-system classifications, imports, exports, and mention-aware prompt context.",
   "author": "Sagesheep Community",
-  "appVersion": ">=2.0.0",
+  "appVersion": ">=1.0.0",
   "apiVersion": 1,
   "loadOrder": 220,
   "tables": [
@@ -14,6 +14,9 @@
     { "name": "proposals", "recordShape": "array", "label": "Discovery Proposals" },
     { "name": "config", "recordShape": "single-object", "label": "Compendium Settings" },
     { "name": "prompt-index", "recordShape": "array", "label": "Prompt Index" }
+  ],
+  "screens": [
+    { "id": "manager", "file": "ability-compendium.screen.js", "label": "Open Ability & Power Compendium" }
   ],
   "contributions": [
     { "id": "mentioned-abilities", "order": 155, "budget": 1600, "text": "{{matchedAbilities}}" }
@@ -30,6 +33,7 @@
   "native": {
     "js": "index.js",
     "css": "style.css",
+    "generateInterceptor": "interceptPrompt",
     "hooks": { "activate": "onActivate", "disable": "onDisable" }
   }
 }
