@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Plus, MapPin, Trash2, Search, Navigation } from 'lucide-react';
+import { X, Plus, MapPin, Trash2, Search, Navigation, BookOpen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import type { LocationEntry, LocationConnection } from '../types';
 import { LocationSuggestionsPanel } from './location-ledger/LocationSuggestionsPanel';
 import { LocationEditForm } from './location-ledger/LocationEditForm';
 import { filterLocations } from '../utils/ledgerFilters';
+import { parseLocationsFromLore } from '../services/lore/loreLocationParser';
+import { resolvePlace } from '../services/locationParser';
 
 function newLocationId(): string {
     return `loc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -33,6 +35,7 @@ export function LocationLedgerModal() {
         updateLocation,
         removeLocation,
         locationSuggestions,
+        setLocationLedger,
         context,
         updateContext,
     } = useAppStore();
@@ -121,6 +124,23 @@ export function LocationLedgerModal() {
             removeLocation(id);
             if (selectedId === id) { setSelectedId(null); setIsEditing(false); }
         }
+    };
+
+    // Re-run the import-time seed against the lore already loaded for this
+    // campaign. Additive only: places whose name or alias already resolves in
+    // the ledger are skipped, so a player's edits and the estimator's
+    // enrichment are never overwritten. One batched write keeps the seeded
+    // entries' internal connection ids intact.
+    const handleSeedFromLore = () => {
+        const chunks = useAppStore.getState().loreChunks || [];
+        const parsed = parseLocationsFromLore(chunks);
+        if (parsed.length === 0) { alert('No ## LOCATIONS block found in the lore file.'); return; }
+
+        const additions = parsed.filter(loc => !resolvePlace(loc.name, locationLedger));
+        if (additions.length === 0) { alert('Every lore location is already in the ledger.'); return; }
+
+        setLocationLedger([...locationLedger, ...additions]);
+        alert(`Seeded ${additions.length} place(s) from lore.`);
     };
 
     const handleSetAsCurrent = (loc: LocationEntry) => {
@@ -225,6 +245,13 @@ export function LocationLedgerModal() {
                             className={`w-full flex items-center justify-center gap-2 py-2 px-4 border border-dashed rounded text-xs uppercase tracking-wider transition-colors ${!selectedId && isEditing ? 'border-terminal text-terminal bg-terminal/10' : 'border-border text-text-dim hover:text-terminal hover:border-terminal'}`}
                         >
                             <Plus size={14} /> New Place
+                        </button>
+                        <button
+                            onClick={handleSeedFromLore}
+                            title="Add every place in the world lore's LOCATIONS section that isn't already here"
+                            className="w-full flex items-center justify-center gap-2 py-2 px-4 border border-dashed border-border rounded text-xs uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors"
+                        >
+                            <BookOpen size={14} /> Seed From Lore
                         </button>
                         {currentPlace && (
                             <div className="text-[10px] text-text-dim text-center">

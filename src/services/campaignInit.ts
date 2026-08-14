@@ -6,6 +6,10 @@ import {
 import { chunkLoreFile } from './lore/loreChunker';
 import { extractEngineSeeds } from './lore/loreEngineSeeder';
 import { parseNPCsFromLore } from './lore/loreNPCParser';
+import { parseLocationsFromLore } from './lore/loreLocationParser';
+import { locationTableDescriptor, loadLocationTable } from './tables/locationTable';
+import { genericSave } from './tables/genericAccessor';
+import { resolvePlace } from './locationParser';
 import {
     DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES,
     DEFAULT_ENCOUNTER_TYPES, DEFAULT_ENCOUNTER_TONES,
@@ -48,14 +52,16 @@ export async function initializeCampaignState(params: {
     let seeds: ReturnType<typeof extractEngineSeeds> | null = null;
     if (loreFile) {
         const loreText = await loreFile.text();
-        // Character chunks are RAG-disabled on import: parseNPCsFromLore below turns the
-        // same chunks into ledger entries, and the ledger is the authoritative injection
-        // path for characters (payload/world.ts drops any ledger NPC whose name collides
-        // with a retrieved lore header, so leaving both on lets lore shadow the ledger).
+        // Character and location chunks are RAG-disabled on import: the parsers below turn
+        // the same chunks into ledger entries, and the ledger is the authoritative injection
+        // path for both (payload/world.ts drops any ledger NPC whose name collides with a
+        // retrieved lore header, so leaving both on lets lore shadow the ledger; for places
+        // the shadowing is the reverse — lore says "Flourishing" forever while the ledger's
+        // `status` tracks that the city was sacked in ch. 12).
         // Filters on category, not disabled, so seeding is unaffected. Re-enable per chunk
         // or in bulk from the Context Bank → World tab.
         const chunks = chunkLoreFile(loreText).map(c =>
-            c.category === 'character' ? { ...c, disabled: true } : c
+            c.category === 'character' || c.category === 'location' ? { ...c, disabled: true } : c
         );
         await saveLoreChunks(campaignId, chunks);
 
@@ -78,6 +84,19 @@ export async function initializeCampaignState(params: {
             const existingNPCs = await getNPCLedger(campaignId);
             await saveNPCLedger(campaignId, dedupeNPCLedger([...existingNPCs, ...parsedNPCs]));
         }
+
+        // Same deal for places. Dedupe against the existing ledger by name+alias
+        // (resolvePlace is the ledger's own matcher) so re-importing a lore file
+        // into a campaign in progress tops up rather than duplicating.
+        const parsedLocations = parseLocationsFromLore(chunks);
+        if (parsedLocations.length > 0) {
+            const existingLocations = await loadLocationTable(campaignId);
+            const additions = parsedLocations.filter(loc => !resolvePlace(loc.name, existingLocations));
+            if (additions.length > 0) {
+                await genericSave(locationTableDescriptor as never, campaignId, [...existingLocations, ...additions]);
+            }
+        }
+
         seeds = extractEngineSeeds(chunks);
     }
 
