@@ -198,7 +198,33 @@ const regionListeners = new Map<MountRegionId, Set<() => void>>([
     ['window.layer', new Set()],
 ]);
 
+/**
+ * Publish a fresh snapshot identity for a region, then wake its listeners.
+ *
+ * The identity bump is not cosmetic. `readRegion` hands `store.entries` back by
+ * reference, and every consumer reads it through `useSyncExternalStore`, which
+ * re-renders ONLY when `Object.is(previous, next)` is false. Waking a listener
+ * without a new array is therefore invisible: React calls `getSnapshot`, gets
+ * the array it already holds, and skips the render.
+ *
+ * The register/remove paths got this for free — `sortRegion` reassigns
+ * `store.entries` to a sorted copy — which is why a mod's button appears and
+ * vanishes correctly. `MountHandle.update()` is the one caller that mutates
+ * nothing in the region (the mod changed its own `state()`, not the entry
+ * list), so it had no new identity to publish and repainted nothing: the Arc
+ * Engine's button ran its entire spawn flow — loading, success, error, the
+ * 2.5s reset — with the row frozen on `INJECT ARC`. That is the whole of the
+ * "dead button", and it applies to every mod's chrome in every region, not
+ * just this one.
+ *
+ * Bumping HERE rather than inside `update()` makes the invariant structural:
+ * every notify, from any call site now or later, carries a snapshot React will
+ * actually look at. The copy is a handful of entries on a mount mutation, not
+ * a render-path cost.
+ */
 function notifyRegion(region: MountRegionId): void {
+    const store = regions[region];
+    if (store) store.entries = [...store.entries];
     const listeners = regionListeners.get(region);
     if (!listeners) return;
     for (const listener of [...listeners]) {
@@ -445,6 +471,10 @@ export function registerModChrome(
         update: () => {
             // The row re-reads `state()` on the next render; nothing to do
             // here except wake the listeners so the row re-renders.
+            // `notifyRegion` republishes the region's snapshot as part of that
+            // wake-up — without it React compares the unchanged array against
+            // itself and skips the render, which is exactly how a mod's own
+            // phase changes went unseen.
             notifyRegion(region);
         },
         remove: () => {

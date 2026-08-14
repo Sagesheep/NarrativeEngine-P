@@ -22,8 +22,9 @@
  * that only checks `onSelect` ran would pass against both bugs — the whole
  * suite did.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { render, cleanup, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { useSyncExternalStore } from 'react';
+import { render, cleanup, screen, fireEvent, act } from '@testing-library/react';
 import {
     registerModChrome,
     readRegion,
@@ -68,6 +69,10 @@ describe('the arc mod repaints its own button', () => {
             remove: () => undefined,
         };
 
+        // The mod keeps its press state at module scope, so a shared instance
+        // carries another case's state into this one. Reset so this press
+        // starts from a clean mod.
+        vi.resetModules();
         const { onActivate } = await import('../../../../mods/arc/index.js');
         await onActivate({
             mounts: {
@@ -152,6 +157,56 @@ describe('composer.actions — the region wakes its subscribers on update()', ()
         expect(screen.getByRole('button')).toHaveTextContent('INJECTING');
 
         unsubscribe();
+    });
+
+    /**
+     * The same repaint, through the mechanism the app actually uses.
+     *
+     * The test above asserts the two halves — `update()` wakes the region, and a
+     * FRESH render reads the new `state()` — and passed against a button that
+     * never repainted in the running app, because it supplies the re-render
+     * itself (`cleanup()` + `render()`). `ChatActionStrip` has no such luxury:
+     * it subscribes with `useSyncExternalStore`, which re-renders only when the
+     * snapshot's identity changes. `readRegion` returns `store.entries` by
+     * reference, so a wake-up that left the array alone was compared against
+     * itself and dropped — the listener fired, React shrugged, and every phase
+     * the Arc Engine set was invisible.
+     *
+     * So this renders through the real hook and never re-renders by hand. It
+     * fails on `INJECT` (the idle label, still on screen) if `notifyRegion`
+     * stops republishing the snapshot.
+     */
+    it('repaints a subscribed row without a manual re-render', async () => {
+        let phase: 'idle' | 'loading' = 'idle';
+
+        const handle = registerModChrome('composer.actions', MOD, {
+            id: 'injectProbe',
+            icon: 'Syringe',
+            label: 'INJECT',
+            onSelect: () => undefined,
+            state: () => (phase === 'loading'
+                ? { icon: 'Loader2', label: 'INJECTING', busy: true, disabled: true }
+                : { label: 'INJECT' }),
+        }, 0, {});
+
+        // The composer row, reduced to the subscription it is built on.
+        function Row() {
+            const entries = useSyncExternalStore(
+                (listener) => subscribeToRegion('composer.actions', listener),
+                () => readRegion('composer.actions'),
+                () => readRegion('composer.actions'),
+            );
+            const ref = lastGood();
+            return <>{entries.map((e) => renderComposerModEntry(e, t, ref))}</>;
+        }
+
+        render(<Row />);
+        expect(screen.getByRole('button')).toHaveTextContent('INJECT');
+
+        phase = 'loading';
+        await act(async () => { handle.update(); });
+
+        expect(screen.getByRole('button')).toHaveTextContent('INJECTING');
     });
 });
 
