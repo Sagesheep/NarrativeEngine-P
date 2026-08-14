@@ -13,6 +13,7 @@ export default defineConfig({
   // resolves to the filesystem root, not the dist folder.
   base: './',
   server: {
+    host: process.env.HOST || '127.0.0.1',
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

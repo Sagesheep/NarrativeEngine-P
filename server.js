@@ -58,7 +58,11 @@ if (!vault.isUnlocked()) {
 //   - Vite dev URL → local development via http://localhost:5173
 // Any other origin (e.g. a malicious website in the user's browser) is rejected,
 // preventing cross-origin reads of /api/vault/keys and other sensitive endpoints.
+const BIND_HOST = process.env.HOST || '127.0.0.1';
 const ALLOWED_ORIGINS = new Set(['null', 'http://localhost:5173']);
+if (process.env.ALLOWED_ORIGINS) {
+    process.env.ALLOWED_ORIGINS.split(',').forEach(o => ALLOWED_ORIGINS.add(o.trim()));
+}
 app.use(cors({
     origin(origin, cb) {
         // Allow same-origin requests (no Origin header) and allowlisted origins.
@@ -141,7 +145,7 @@ app.use((err, _req, res, _next) => {
 });
 
 // ─── Start ───
-app.listen(PORT, '127.0.0.1', () => {
-    console.log(`[GM-Cockpit API] ✓ Running on http://localhost:${PORT}`);
+app.listen(PORT, BIND_HOST, () => {
+    console.log(`[GM-Cockpit API] ✓ Running on http://${BIND_HOST}:${PORT}`);
     console.log(`[GM-Cockpit API]   Data dir: ${DATA_DIR}`);
 });
