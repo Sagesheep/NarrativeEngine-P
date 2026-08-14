@@ -76,6 +76,12 @@ type ModuleRow = {
     description: string;
     explain?: string;
     example?: string;
+    details?: {
+        trigger: string;
+        prompt?: string;
+        tokenImpact: string;
+        quietWhen: string;
+    };
     defaultEnabled: boolean;
     /** Mods only: `v1.2.0 · file.mod.json`, shown under the description. */
     meta?: string;
@@ -174,12 +180,13 @@ const tierOf = (mod: ValidatedMod): 'declarative' | 'sandboxed' | 'native' => {
     return 'declarative';
 };
 
-const toRow = (module: ContributionModule<FinalUserModuleInput> & { explain?: string; example?: string }, meta?: string): ModuleRow => ({
+const toRow = (module: ContributionModule<FinalUserModuleInput> & { explain?: string; example?: string; details?: ModuleRow['details'] }, meta?: string): ModuleRow => ({
     id: module.id,
     name: module.name,
     description: module.description,
     explain: module.explain,
     example: module.example,
+    details: module.details,
     defaultEnabled: module.defaultEnabled,
     meta,
 });
@@ -878,17 +885,55 @@ export function ExtensionsTab() {
                             )}
                         </div>
 
-                        <p className={selectedRow.explain
-                            ? 'max-w-[65ch] text-[13px] text-text-primary/90 leading-relaxed'
+                        <div className={selectedRow.explain
+                            ? 'max-w-[90ch] text-[13px] text-text-primary/90 leading-relaxed'
                             : 'max-w-[640px] text-[9px] text-text-dim leading-tight'}>
-                            {selectedRow.explain ?? selectedRow.description}
-                        </p>
+                            {selectedRow.explain
+                                ? <ReactMarkdown>{selectedRow.explain}</ReactMarkdown>
+                                : selectedRow.description}
+                        </div>
                         {selectedRow.example && (
-                            <div className="ml-2 max-w-[65ch] border-l-2 border-terminal/30 bg-terminal/5 px-5 py-4 text-[12px] text-text-primary/90 leading-relaxed space-y-3 [&>p]:m-0">
+                            <div className="ml-2 max-w-[90ch] border-l-2 border-terminal/30 bg-terminal/5 px-5 py-4 text-[12px] text-text-primary/90 leading-relaxed space-y-3 [&>p]:m-0">
                                 <ReactMarkdown>{selectedRow.example}</ReactMarkdown>
                             </div>
                         )}
 
+                        {selectedRow.details && (
+                            <div className="max-w-[90ch] space-y-5 pt-1">
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="border-t border-border pt-2">
+                                        <div className="text-[9px] uppercase tracking-widest text-text-dim font-bold">Runs when</div>
+                                        <p className="mt-1 text-[11px] text-text-primary/85 leading-relaxed">
+                                            {selectedRow.details.trigger}
+                                        </p>
+                                    </div>
+                                    <div className="border-t border-border pt-2">
+                                        <div className="text-[9px] uppercase tracking-widest text-text-dim font-bold">Token impact / limit</div>
+                                        <p className="mt-1 text-[11px] text-text-primary/85 leading-relaxed">
+                                            {selectedRow.details.tokenImpact}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {selectedRow.details.prompt && (
+                                    <div>
+                                        <div className="text-[9px] uppercase tracking-widest text-text-dim font-bold mb-2">
+                                            What reaches the writer
+                                        </div>
+                                        <pre className="overflow-x-auto whitespace-pre-wrap border border-border bg-void px-4 py-3 text-[11px] text-terminal/90 leading-relaxed font-mono">
+                                            {selectedRow.details.prompt}
+                                        </pre>
+                                    </div>
+                                )}
+
+                                <div className="border-l-2 border-text-dim/30 pl-4">
+                                    <div className="text-[9px] uppercase tracking-widest text-text-dim font-bold">When it stays quiet</div>
+                                    <p className="mt-1 text-[11px] text-text-dim leading-relaxed">
+                                        {selectedRow.details.quietWhen}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                         {selectedRow.apiVersionStale && (
                             <p className="text-[9px] text-amber-400/80 leading-tight max-w-[640px]">
                                 {t('settings.extensions.mod.apiVersionStale', {

@@ -101,9 +101,17 @@ export const BUILTIN_IDS = {
     absoluteCommand: 'absolute.command',
 } as const;
 
+type BuiltinDetails = {
+    trigger: string;
+    prompt?: string;
+    tokenImpact: string;
+    quietWhen: string;
+};
+
 type Builtin = ContributionModule<FinalUserModuleInput> & {
     explain?: string;
     example?: string;
+    details?: BuiltinDetails;
 };
 
 /** Shorthand for a module that contributes exactly one spec (all built-ins do). */
@@ -159,6 +167,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.relations,
             name: 'On-Stage Relations',
             description: 'Directed NPC↔NPC relationship arrows for on-stage characters.',
+            details: {
+                "trigger": "Automatic when two or more on-stage NPCs have a non-zero relationship with each other.",
+                "prompt": "[ON-STAGE RELATIONS]\nBram→Alden: +2\nAlden→Bram: +1",
+                "tokenImpact": "No separate feature cap. One line is sent for each non-zero directed pair; the lines count toward the total prompt context.",
+                "quietWhen": "No on-stage NPC pair has a non-zero relationship. NPC Stances also replaces this block when stance text is present."
+            },
             explain: 'Tells the writer how the characters in a scene feel about **each other** — not about you. Without it, everyone in a group scene behaves as though they just met.',
             example: `Bram and Alden are both at the table when the innkeeper asks who broke the door.
 
@@ -175,6 +189,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.stance,
             name: 'NPC Stances',
             description: 'Scene-specific NPC wants, boundaries, and relationship memories.',
+            details: {
+                "trigger": "Automatic for on-stage NPCs when relationship readings are available.",
+                "prompt": "[NPC STANCES]\nSTANCE — Alden · scene 123 · deep\nstatus: guarded\nwon’t: never betray Bram\nwants now: keep the door closed\nhiding: he is afraid\nmanner: clipped\n[END NPC STANCES]",
+                "tokenImpact": "The final prompt reserves 20 tokens for each cheap stance and 80 for each deep stance. Deep readings are limited to 0 on Lite, 2 on Pro, and 3 on Max; up to 5 memories can feed each reading.",
+                "quietWhen": "No NPCs are on stage, relationship readings fail, or there is no stance text to inject. When present, it suppresses On-Stage Relations."
+            },
             explain: 'The deep version, pointed at you. For every character on stage it works out what they want in this exact moment, what they are hiding, what they will refuse, and which memories of you are pulling at them right now. When it has something to say it takes over from On-Stage Relations.',
             example: `She lost a battle to you last week. A year before that, you put a hand on her head at the academy.
 
@@ -204,12 +224,14 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.writerCot,
             name: 'Chain-of-Thought Invocation',
             description: 'Asks the writer to work through the reasoning framework before writing.',
+            details: {
+                "trigger": "Automatic when the active story provider has Thinking Effort set to Low, Medium, High, or Max.",
+                "prompt": "[WRITER REASONING FRAMEWORK]\nWork through these steps in your internal reasoning before writing the narrative. Never show the steps in the narrative output. Always produce the full narrative response after your reasoning ends.\nStep 1 — Deconstruct: break the player's input into discrete intents. Judge each against the rules and MC boundaries. Impossible or implausible demands are narrated as attempts with consequences, not successes.\nStep 2 - Director Brief: if a [DIRECTOR BRIEF] block is present, honor its MANDATORY world-law or fair-adjudication corrections and any compatible SUGGESTION. It does not schedule drama or dictate every character's reaction.\nStep 3 — On-stage minds: first state the player's visible action and result without moral interpretation. For each character in [ACTIVE NPC CONTEXT], consider their current goal and emotional state, what they know and do not know (check [FACTS KNOWN TO ON-STAGE CHARACTERS]), their disposition and competence, and their relationship to the player. Then choose a proportionate response: speech, action, observation, help, challenge, humour, silence, withdrawal, or a shared crowd response. Characters may converge when the same event gives them the same reason to react; they may differ when their perspectives differ. Do not force either. A boundary produces push-back only when the concrete action actually crosses it; never infer a larger injury, hostile intent, or moral failing merely to make drama.\nStep 4 — Engine truth: honor [DICE OUTCOMES] exactly as resolved — never soften failures or upgrade successes. Check each on-stage character against their signature kit. Check [LOCATION] logistics: travel time, weather, era-appropriate technology.\nStep 5 - Beat map: draft 5-8 beats. Include every MANDATORY directive from Step 2 and the reactions that actually follow from Step 3. Give the player a playable opening - a response, consequence, piece of information, offer, challenge, or changed situation - rather than forcing a twist, argument, or lesson.\nStep 6 — Final audit: the player's action drives the scene; reactions are grounded in what each character observed and values; no unearned NPC chorus or retroactive moralisation; no cliches or purple prose. Then write the scene.\n\nFinal-turn invocation:\nWork through the [WRITER REASONING FRAMEWORK] in your reasoning before writing.",
+                "tokenImpact": "The six-step framework is 467 input tokens in the stable prompt. The normal final-turn invocation is 18 more input tokens. There is no separate COT output-token cap; the provider/model controls hidden reasoning and answer limits.",
+                "quietWhen": "Thinking Effort is Off. An Absolute Command swaps the normal invocation for a 38-token instruction that tells the model to follow the command where they conflict."
+            },
             explain: 'Asks the writer to think through the scene before writing it, instead of answering straight away. Only does anything when thinking is switched on for your model — with thinking off it adds nothing at all.',
-            example: `You lie to a character who already knows the truth.
-
-**On** — the reply lands on her deciding whether to let the lie stand.
-
-**Off** — the reply reacts to the words, and often misses that she knows.`,
+            example: "Same request: you lie to a character who already knows the truth.\n\n**Without COT** — \"I believe you.\" She reacts to the words and lets the scene move on.\n\n**With COT** — she notices that the lie is known, decides whether to expose it, and lets that choice shape the reply.\n\nThe wording still varies by model; the difference is what the writer considers before answering.",
         },
         (input) => ({
             id: BUILTIN_IDS.writerCot,
@@ -228,6 +250,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.directorBrief,
             name: 'Director Brief',
             description: 'LLM-authored scene directives that steer the next GM reply.',
+            details: {
+                "trigger": "Automatic on Pro and Max tiers, before the main writer answers; the result is cached for repeated swipes of the same turn.",
+                "prompt": "WRITER BRIEF\n- [MANDATORY] <directive> (0–2 lines)\n- [SUGGESTION] <directive> (0–3 lines)",
+                "tokenImpact": "A separate utility-AI call has a 180-second timeout. Its input NPC summary is capped at 120 tokens and it reads the last 5 timeline events. No explicit output-token cap is set; the line limits above are the output contract.",
+                "quietWhen": "Lite tier, no provider, timeout, parse failure, or no correction worth making. A successful Brief suppresses the Watchdog nudge."
+            },
             explain: 'Before each reply, a second AI reads the scene and writes short directions for the writer — what this beat needs, and what to leave alone. It is the difference between a scene that goes somewhere and one that answers you politely.',
             example: `Direction written for the writer: *"The confession landed. Do not resolve it this turn — let her leave the room."*
 
@@ -254,6 +282,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.gmReminder,
             name: 'GM Reminder',
             description: 'Standing reminder that NPCs push back rather than facilitate.',
+            details: {
+                "trigger": "Automatic on every turn while enabled.",
+                "prompt": "[GM REMINDER: NPCs push back when their wants/boundaries are crossed. Do not default to facilitation.]",
+                "tokenImpact": "24 input tokens when present. It has no output call and no separate cap.",
+                "quietWhen": "An Absolute Command suppresses it for that turn. Otherwise it is deliberately always present, even in a quiet scene."
+            },
             explain: 'A single standing line reminding the writer that characters push back when you cross what they want, instead of going along with it. It is the cheapest guard against everyone becoming agreeable.',
             example: `You tell the gate guard to let you through.
 
@@ -270,6 +304,12 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             id: BUILTIN_IDS.watchdogNudge,
             name: 'Director Watchdog',
             description: 'Deterministic stage note when NPC agency has been drifting.',
+            details: {
+                "trigger": "Automatic deterministic check on every turn while enabled; it makes no AI call.",
+                "prompt": "[STAGE NOTE: Alden has not initiated toward the PC recently — give Alden a beat to reach out this scene.]",
+                "tokenImpact": "No separate token cap. It emits only the highest-priority one-line correction from its signals.",
+                "quietWhen": "No signal is found, or a Director Brief is present. It scans 3 recent assistant replies for silence, 5 assistant replies for initiation, and 5 recent messages for stalled goals."
+            },
             explain: 'Watches across several turns for characters quietly turning into pushovers, and drops in a correction when it sees the drift. It stays silent the rest of the time, and stands down whenever the Director Brief is already speaking.',
             example: `Four turns in a row where everyone agreed with you.
 
