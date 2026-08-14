@@ -29,12 +29,12 @@ export const PORTRAIT_STYLE_PROMPTS: Record<string, string> = {
     'Classical Ink & Colour': 'classical ink-and-colour character portrait, expressive brushwork, mineral-pigment palette, graceful composition, fine historical costume detail',
     'Graphic Novel': 'premium graphic-novel character portrait, confident linework, deliberate shapes, cinematic contrast, sophisticated colour design',
     'Western RPG Concept Art': 'high-detail fantasy concept-art portrait, believable materials, atmospheric lighting, grounded character design',
-    'Stylized Anime': 'polished stylized animation portrait, clean expressive linework, refined colour and lighting, mature character design',
+    'Stylized Anime': 'polished semi-realistic stylized-animation portrait, clean expressive linework over realistic proportions, finely rendered individual hair strands, ornate layered costume detail, dramatic rim and backlighting, cinematic colour grading, mature character design',
     'Chibi': 'polished chibi character portrait, expressive proportions, clean shapes, charming but detailed costume design',
     // Existing saves retain their prior value but receive vendor-neutral directions.
     'Cinematic Fantasy': 'cinematic fantasy character portrait, refined painterly realism, dramatic but natural lighting, richly textured materials, grounded expression',
     'Realistic': 'high-detail realistic digital character portrait, natural lighting, believable materials',
-    'Anime Realistic': 'detailed stylized-animation portrait with realistic proportions, luminous natural lighting, refined character design',
+    'Anime Realistic': 'highly detailed semi-realistic stylized-animation portrait with realistic proportions, luminous natural lighting, finely rendered hair and fabric, ornate costume embroidery, dramatic backlit sky, cinematic depth of field, refined character design',
     'Anime': 'polished stylized-animation portrait, crisp linework, expressive features, refined colour design',
     'Western RPG': 'high-detail fantasy concept-art portrait, believable materials, atmospheric lighting, grounded character design',
 };

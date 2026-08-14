@@ -11,7 +11,11 @@ import {
 // Image Generation API
 // ============================================================================
 
-const PORTRAIT_NEGATIVE = 'multiple people, group, crowd, split screen, twins, double, text, watermark, signature';
+// Matches the scene-image negative list (server/services/imageProvider.js) — the portrait
+// path used to carry a much shorter one, which let name captions and seal stamps through.
+// OpenRouter has no negative_prompt field, so buildPortraitPrompt() states the same rule
+// in the positive prompt; both are needed.
+const PORTRAIT_NEGATIVE = 'multiple people, group, crowd, split screen, twins, double, text, words, writing, letters, font, typography, calligraphy, handwriting, captions, subtitles, nameplate, seal stamp, watermark, logo, signature';
 
 /** Returns either a hosted image URL or a `data:` URI — both are accepted by
  *  downloadImageToLocal(), which hands the value to the server to fetch and store. */

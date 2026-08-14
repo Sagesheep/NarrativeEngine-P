@@ -2,7 +2,7 @@ import type { NPCVisualProfile } from '../../types';
 import { DEFAULT_VISUAL_PROFILE } from '../../types';
 import { DEFAULT_PORTRAIT_ART_STYLE, PORTRAIT_STYLE_PROMPTS } from '../../data/portraitStyles';
 
-const MAX_PORTRAIT_PROMPT_CHARS = 1_100;
+const MAX_PORTRAIT_PROMPT_CHARS = 1_300;
 
 function isMeaningful(value: string | undefined): value is string {
     const normalized = value?.trim().toLowerCase();
@@ -18,17 +18,26 @@ function compact(value: string, maxLength: number): string {
     return normalized.length <= maxLength ? normalized : `${normalized.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
 }
 
-/** Builds a provider-safe, single-subject portrait prompt for individual and bulk generation. */
+/** Builds a provider-safe, single-subject portrait prompt for individual and bulk generation.
+ *
+ *  `_name` is deliberately NOT sent to the image model. A name carries no visual
+ *  information, and labelling it in the prompt reads as an instruction to letter it
+ *  into the frame — models render it as a caption, signature, or (for CJK rosters)
+ *  calligraphy and seal stamps. The parameter is kept so the two call sites stay
+ *  unchanged and so the intent is documented where someone would re-add it.
+ *
+ *  The no-writing rule lives in the positive prompt because OpenRouter's image API
+ *  has no `negative_prompt` field, so there it is the only defence we get. */
 export function buildPortraitPrompt(
     vp: NPCVisualProfile | undefined,
-    name: string,
+    _name: string,
     appearance?: string
 ): string {
     const profile = vp || DEFAULT_VISUAL_PROFILE;
     const style = PORTRAIT_STYLE_PROMPTS[profile.artStyle] || PORTRAIT_STYLE_PROMPTS[DEFAULT_PORTRAIT_ART_STYLE];
-    const base = `Create a polished waist-up RPG character dossier portrait of one person only. Face, hair, and upper torso clearly visible. No text, interface, collage, split frame, duplicate, or group. Use an uncluttered atmospheric background suitable for a ledger thumbnail. Style: ${style}.`;
+    const base = `Single-subject waist-up character dossier portrait: one person only, three-quarter view, face, hair and upper torso clearly visible, detailed costume, cinematic lighting, softly blurred atmospheric background that stays behind the subject. Keep the frame completely free of writing — no text, letters, calligraphy, seals, stamps, signatures, watermarks, captions, or name plates. No collage, split frame, duplicate, or second person. Style: ${style}.`;
     const fields: Array<[string, string | undefined]> = [
-        ['Name', name], ['Race', profile.race], ['Gender', profile.gender], ['Age', profile.ageRange],
+        ['Race', profile.race], ['Gender', profile.gender], ['Age', profile.ageRange],
         ['Build', profile.build], ['Features', profile.symmetry], ['Hair', profile.hairStyle],
         ['Eyes', profile.eyeColor], ['Skin', profile.skinTone], ['Posture', profile.gait],
         ['Clothing', profile.clothing], ['Marks', profile.distinctMarks],

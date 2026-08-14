@@ -17,12 +17,26 @@ describe('buildPortraitPrompt', () => {
         expect(prompt).not.toContain('THIS LEGACY TEXT MUST NOT BE INCLUDED');
     });
 
+    it('never sends the character name to the image model', () => {
+        // A name is not visual information, and labelling it makes models letter it into
+        // the frame — as a caption, a signature, or CJK calligraphy for rosters like this.
+        const prompt = buildPortraitPrompt(populatedProfile, 'Diao Chan');
+        expect(prompt).not.toContain('Diao Chan');
+        expect(prompt).not.toContain('Name:');
+    });
+
+    it('forbids writing in the positive prompt, which is all OpenRouter honours', () => {
+        const prompt = buildPortraitPrompt(populatedProfile, 'Diao Chan');
+        expect(prompt).toContain('free of writing');
+        expect(prompt).toContain('calligraphy');
+    });
+
     it('keeps even long structured profiles within the image-provider limit', () => {
         const longProfile = Object.fromEntries(
             Object.keys(populatedProfile).map(key => [key, key + ' ' + 'detail '.repeat(80)]),
         ) as unknown as NPCVisualProfile;
         longProfile.artStyle = 'Stylized Game Realism';
 
-        expect(buildPortraitPrompt(longProfile, 'A very long name '.repeat(30), 'Legacy text '.repeat(200)).length).toBeLessThanOrEqual(1_100);
+        expect(buildPortraitPrompt(longProfile, 'A very long name '.repeat(30), 'Legacy text '.repeat(200)).length).toBeLessThanOrEqual(1_300);
     });
 });
