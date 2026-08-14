@@ -357,6 +357,13 @@ export function renderComposerModEntry(
     const { icon: Icon } = resolveMountIcon(iconName);
     const label = resolveModText(mod.id, state?.label ?? entry.entry.label, t);
     const shortLabel = shortModLabel(label);
+    // The hover text prefers the entry's `tooltip`, falling back to the label —
+    // the same precedence the header renderer uses. It used to be the label
+    // unconditionally, so a composer entry's `tooltip` was accepted at
+    // registration, typed on `ChromeState`, and then silently dropped. It is
+    // the only room a disabled button has to say WHY it is disabled, which a
+    // label as short as "ARC ACTIVE" cannot carry on its own.
+    const tooltip = resolveModText(mod.id, state?.tooltip ?? entry.entry.tooltip, t);
     const isExitTone = false;
     const classes = composerClasses(state);
     void isExitTone;
@@ -380,7 +387,7 @@ export function renderComposerModEntry(
             key={entry.qualifiedId}
             onClick={handleClick}
             disabled={state?.disabled}
-            title={label}
+            title={tooltip ?? label}
             className={classes}
         >
             <Icon size={13} className={state?.busy ? 'animate-spin' : ''} />

@@ -327,6 +327,59 @@ function setPhase(phase) {
     if (composerHandle) composerHandle.update();
 }
 
+// ── One arc at a time ──
+//
+// The Arc Engine runs ONE arc. A second arc spawned alongside the first does
+// not add a second story — it adds a second voice whispering into
+// `[WORLD UNDERCURRENT]` every scene, and the GM gets two unrelated systemic
+// pressures to weave at once. `MAX_ACTIVE_ARCS = 3` exists in `compute.js` and
+// is read by nothing; the only description of it as a gate is a comment in the
+// host's `arcSpawn.ts`, describing the automatic seam spawn that was deleted
+// when the button became the spawn gate. So the rule was never enforced
+// anywhere, and every press stacked another arc.
+//
+// The gate is self-clearing by construction: an arc that finishes climbing its
+// ladder is flipped to `boiled_over` by the tick (`compute.js::advanceRung`),
+// and one crit-failed at rung 0 while opposed becomes `defused`. Neither is
+// `active`, so the button frees itself the moment the arc is spent — nothing
+// has to remember to release it.
+//
+// The count the BUTTON paints from is cached here, because `state()` is
+// synchronous and reading the table is not. The cache is refreshed on
+// `turn.committed` (the tick has settled by then — the post-turn pipeline
+// awaits its tracks) and on `campaign.opened`. The cache is a display
+// convenience only: `onSelect` enforces the rule against the table as it reads
+// it, so a stale cache can never let a second arc through.
+let activeArcCount = 0;
+
+function countActiveArcs(arcs) {
+    let count = 0;
+    for (const arc of arcs) {
+        if (arc && arc.status === 'active') count += 1;
+    }
+    return count;
+}
+
+/** Re-read the arcs table and repaint the button if the gate changed. */
+async function refreshActiveArcs(ctx) {
+    if (!ctx) return;
+    try {
+        // Always through a refreshed context: `activate` fires before a
+        // campaign is open (the 4.0 load cycle), so the context captured there
+        // is bound to no campaign and its table reads would stay empty for the
+        // life of the session.
+        const live = typeof ctx.refresh === 'function' ? await ctx.refresh() : ctx;
+        if (!live || !live.table) return;
+        const arcs = await live.table.read('arcs');
+        const next = countActiveArcs(Array.isArray(arcs) ? arcs : []);
+        if (next === activeArcCount) return;
+        activeArcCount = next;
+        if (composerHandle) composerHandle.update();
+    } catch (err) {
+        if (ctx.log) ctx.log('[ArcInjector] could not read arcs for the active gate:', err);
+    }
+}
+
 export async function onActivate(ctx) {
     if (!ctx || !ctx.mounts) {
         // No context (load before a campaign) or no mounts API (sandbox).
@@ -350,6 +403,20 @@ export async function onActivate(ctx) {
             try {
                 const arcs = await modCtx.table.read('arcs');
                 const arcList = Array.isArray(arcs) ? arcs : [];
+
+                // One arc at a time, enforced against the table as it reads
+                // right now rather than against the cached count the button
+                // painted from. The button is already greyed in this case, so
+                // reaching here means the cache was stale (an arc spawned in
+                // another window, a press racing the tick) — repaint and stop
+                // before spending the LLM call.
+                if (countActiveArcs(arcList) > 0) {
+                    activeArcCount = countActiveArcs(arcList);
+                    modCtx.log('[ArcInjector] an arc is already active — nothing to inject');
+                    setPhase('idle');
+                    return;
+                }
+
                 const chapters = modCtx.data.chapters ?? [];
                 // The mod projection (`ModChapter`) carries `sealedAt` and
                 // `sceneIds`; the open-threads extractor reads the raw
@@ -426,7 +493,12 @@ export async function onActivate(ctx) {
                     return;
                 }
 
-                await modCtx.table.write('arcs', [...arcList, arc]);
+                const nextArcs = [...arcList, arc];
+                await modCtx.table.write('arcs', nextArcs);
+                // Close the gate immediately, so the button goes straight from
+                // INJECTED to ARC ACTIVE without a window in which it invites a
+                // second press.
+                activeArcCount = countActiveArcs(nextArcs);
                 setPhase('success');
                 setTimeout(() => setPhase('idle'), 1600);
             } catch (err) {
@@ -444,10 +516,38 @@ export async function onActivate(ctx) {
                 case 'error':
                     return { icon: 'AlertCircle', label: 'FAILED — TAP TO RETRY', tone: 'danger' };
                 default:
+                    // An arc is still climbing: greyed out and saying so. It
+                    // releases itself when the tick spends the arc — no press,
+                    // no timer, nothing to remember.
+                    if (activeArcCount > 0) {
+                        return {
+                            icon: 'Hourglass',
+                            label: 'ARC ACTIVE',
+                            tooltip: 'An arc is already simmering — it frees up once it plays out',
+                            disabled: true,
+                        };
+                    }
                     return { tone: 'warn' };
             }
         },
     });
+
+    // Keep the gate honest without a press.
+    //
+    // `turn.committed` fires downstream of `runPostTurnPipeline`, which awaits
+    // its tracks — so by the time it lands, this turn's arc tick has already
+    // run and written back. An arc that boiled over on that tick is no longer
+    // `active`, and this is what un-greys the button for it.
+    //
+    // `campaign.opened` covers the switch: arcs are per-campaign, so the gate
+    // has to be re-read against the campaign now in front of the player.
+    if (ctx.events) {
+        ctx.events.on('turn.committed', () => { void refreshActiveArcs(ctx); });
+        ctx.events.on('campaign.opened', () => { void refreshActiveArcs(ctx); });
+    }
+    // And once now, so a reload into a campaign with a live arc paints the
+    // gate on first render rather than after the next turn.
+    void refreshActiveArcs(ctx);
 }
 
 export function onDisable() {
@@ -457,4 +557,7 @@ export function onDisable() {
     // state so a re-enable starts clean.
     composerHandle = undefined;
     pressState = { phase: 'idle' };
+    // The gate is re-read from the table on the next activate; a stale count
+    // here would grey out a freshly re-enabled button against nothing.
+    activeArcCount = 0;
 }
