@@ -9,6 +9,14 @@
    * Professional minimalist — clean, readable, modern.
    */
 
+  /* The `xs` breakpoint — used by `hidden xs:inline` / `inline xs:hidden`
+     label pairs across the composer strip and mod chrome renderers. Tailwind
+     v4 has no `xs` default, so without this the `xs:inline` half never
+     activates and the label stays `display: none` on every screen. 400px
+     sits below the default `sm` (640px) and matches the "very narrow" tier
+     the pair was designed for. */
+  --breakpoint-xs: 400px;
+
   /* ═══ SEEDS — the only raw hex in this file. Swap to re-brand. ═══
      WO-ui-polish §B1: brand identity lives here as 4 lines. The tokens
      below derive; the dark block overrides the tokens (and the accent

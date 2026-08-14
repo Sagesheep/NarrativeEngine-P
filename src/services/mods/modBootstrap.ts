@@ -193,8 +193,30 @@ function buildNativeModContext(mod: {
         // to), and a mod that needs the live input reads it through
         // `ctx.subscribe('playerInput')` or awaits a `turn.start` event.
         const state = rebuildStateFromLiveStore(store, '');
-        const callbacks = buildCommitCallbacks(state.activeCampaignId ?? '', store);
-        const facade = buildHostFacade(state, callbacks, { reactiveStore: useAppStore });
+        const activeCampaignId = state.activeCampaignId ?? '';
+        const callbacks = buildCommitCallbacks(activeCampaignId, store);
+        // `getState`/`getCallbacks` let `facade.refresh()` rebuild from the
+        // LIVE store. Without them, refresh reuses the snapshot captured here
+        // at activate time — so a mod that activated before a campaign was
+        // open (empty `data.chapters`, `data.npcLedger`, `data.messages`)
+        // would see that empty snapshot on every click forever, even after a
+        // campaign loaded. The Arc Engine's "Inject Arc" button is the worked
+        // example: `onSelect` reads `modCtx.data.*` and `modCtx.table.read`,
+        // and a stale context yields no anchor so the click silently no-ops.
+        // `getCallbacks` re-derives from the current `activeCampaignId` so a
+        // campaign switch mid-session routes writes to the right campaign.
+        const facade = buildHostFacade(state, callbacks, {
+            reactiveStore: useAppStore,
+            getState: () => {
+                const liveStore = useAppStore.getState();
+                return rebuildStateFromLiveStore(liveStore, '');
+            },
+            getCallbacks: () => {
+                const liveStore = useAppStore.getState();
+                const liveCampaignId = (rebuildStateFromLiveStore(liveStore, '').activeCampaignId) ?? '';
+                return buildCommitCallbacks(liveCampaignId, liveStore);
+            },
+        });
         const freshLocation = callbacks.getFreshLocationState();
         const locationState = freshLocation && freshLocation.activeCampaignId
             ? {

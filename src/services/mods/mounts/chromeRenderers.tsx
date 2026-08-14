@@ -85,6 +85,78 @@ function readStateSafe(
     }
 }
 
+/**
+ * Resolve a fresh `ModContext` for a click. The context captured at
+ * registration (`entry.context`) is a snapshot from activate time — if the
+ * mod activated at app load (no active campaign), that snapshot's `table`
+ * and `data` read empty forever, so a click silently no-ops (the Arc
+ * Engine's `onSelect` finds no anchor and returns). `ModContext` exposes
+ * `refresh()` (API.md §6.3) which rebuilds from the live store; calling it
+ * here honors the "live ModContext" contract `mountTypes.ts` documents for
+ * `onSelect`.
+ *
+ * Returns the refreshed context as a Promise when `refresh` is present
+ * (production), or the captured context synchronously when it is absent
+ * (tests inject a bare sentinel object). The call sites branch on the
+ * return shape so a no-`refresh` context keeps synchronous dispatch —
+ * `phase92ChromeIdentity.test.tsx` asserts that the registered object is
+ * delivered to `onSelect` before the click handler returns.
+ */
+function resolveFreshContext(entry: RegisteredChromeEntry): unknown | Promise<unknown> {
+    const ctx = entry.context as { refresh?: () => Promise<unknown> } | undefined;
+    if (ctx && typeof ctx.refresh === 'function') {
+        try {
+            return ctx.refresh().catch(() => ctx);
+        } catch {
+            return ctx;
+        }
+    }
+    return ctx;
+}
+
+/**
+ * Dispatch `onSelect` with a context resolved by `resolveFreshContext`, after
+ * an optional §8.8 pending-commit drain.
+ *
+ * The drain runs BEFORE the refresh, not after. That ordering is the whole
+ * point of §8.8: the drain writes the committed turn into `archiveIndex` /
+ * `chapters` / the NPC ledger, and a context refreshed ahead of it is a
+ * snapshot of the state the commit was about to replace. The Arc Engine is the
+ * worked example — injecting straight after a swipe would read the previous
+ * scene as `bornScene` and the previous chapter as `worldContext`.
+ *
+ * Synchronous when there is no drain and the context has no `refresh`
+ * (preserves the identity contract and the test that asserts synchronous
+ * delivery); async otherwise (production — the click handler has no
+ * synchronous requirement). Errors are contained either way.
+ */
+function dispatchOnSelect(
+    entry: RegisteredChromeEntry,
+    message?: MessageRef,
+    drain?: () => Promise<void>,
+): void {
+    if (drain) {
+        drain()
+            .then(() => dispatchResolved(entry, message))
+            .catch(() => { /* the drain already warned */ });
+        return;
+    }
+    dispatchResolved(entry, message);
+}
+
+/** Resolve the live context and hand it to `onSelect`. See `dispatchOnSelect`. */
+function dispatchResolved(entry: RegisteredChromeEntry, message?: MessageRef): void {
+    const fresh = resolveFreshContext(entry);
+    if (fresh instanceof Promise) {
+        fresh
+            .then((ctx) => entry.entry.onSelect(ctx, message))
+            .catch(() => { /* a mod onSelect fault is contained by the lifecycle host */ });
+    } else {
+        Promise.resolve(entry.entry.onSelect(fresh, message))
+            .catch(() => { /* a mod onSelect fault is contained by the lifecycle host */ });
+    }
+}
+
 /** The header's button classes. Matches `Header.tsx`'s built-in classes exactly. */
 const HEADER_BASE = 'chrome-label flex items-center gap-1.5 h-8 px-2.5 rounded-sm border transition-colors shrink-0 cursor-pointer text-[10px] font-bold uppercase tracking-wider font-mono';
 const HEADER_INACTIVE = 'border-border/40 hover:border-terminal bg-void-lighter hover:bg-terminal/5 text-text-dim hover:text-terminal';
@@ -131,10 +203,9 @@ export function renderHeaderModEntry(
 
     const handleClick = () => {
         // The header is not chat-scoped, so no §8.8 pending-commit drain.
-        // Phase 9.2 — the mod's live context, captured at registration. Not
-        // message-scoped, so no `MessageRef`.
-        Promise.resolve(entry.entry.onSelect(entry.context))
-            .catch(() => { /* a mod onSelect fault is contained by the lifecycle host */ });
+        // Phase 9.2 — refresh the mod's live context so a click sees current
+        // store state, not the snapshot captured at activate time.
+        dispatchOnSelect(entry);
     };
 
     return (
@@ -197,8 +268,7 @@ export function renderHeaderModMenuItem(
     const isDanger = state?.tone === 'danger';
 
     const handleClick = () => {
-        Promise.resolve(entry.entry.onSelect(entry.context))
-            .catch(() => { /* a mod onSelect fault is contained by the lifecycle host */ });
+        dispatchOnSelect(entry);
         // Close the menu on activation. A toolbar button has no menu to close;
         // this is the one behavioural difference between the two renderers.
         onSelected?.();
@@ -271,6 +341,7 @@ export function renderComposerModEntry(
     entry: RegisteredChromeEntry,
     t: ModT,
     lastGoodRef: { current: ChromeState | undefined },
+    drain?: () => Promise<void>,
 ): ReactNode | null {
     const { state, threw } = readStateSafe(entry, lastGoodRef.current);
     if (threw) {
@@ -285,18 +356,23 @@ export function renderComposerModEntry(
     const iconName = state?.icon ?? entry.entry.icon;
     const { icon: Icon } = resolveMountIcon(iconName);
     const label = resolveModText(mod.id, state?.label ?? entry.entry.label, t);
+    const shortLabel = shortModLabel(label);
     const isExitTone = false;
     const classes = composerClasses(state);
     void isExitTone;
 
     const handleClick = () => {
         // §8.8: the host drains a pending commit before dispatching a mod
-        // `onSelect` from `composer.actions`. The drain lives in
-        // `ComposerActions` (the row component), not here, because it must
-        // happen exactly once per click and the row owns the `commitPendingTurn`
-        // import. This handler is called AFTER the drain resolves.
-        Promise.resolve(entry.entry.onSelect(entry.context))
-            .catch(() => { /* contained */ });
+        // `onSelect` from `composer.actions`. The drain is injected by the
+        // caller (`ChatActionStrip`) because the row owns the
+        // `commitPendingTurn` import; the renderer stays free of the turn
+        // pipeline, exactly as `message.actions` does it.
+        //
+        // Passing it through `dispatchOnSelect` rather than wrapping the
+        // entry's `onSelect` is what keeps drain-then-refresh in that order —
+        // a wrapper drains INSIDE the dispatch, after the Phase 9.2 refresh
+        // has already snapshotted the pre-commit store.
+        dispatchOnSelect(entry, undefined, drain);
     };
 
     return (
@@ -308,9 +384,30 @@ export function renderComposerModEntry(
             className={classes}
         >
             <Icon size={13} className={state?.busy ? 'animate-spin' : ''} />
-            {label ? <span className="hidden xs:inline">{label}</span> : null}
+            {label ? (
+                <>
+                    <span className="hidden xs:inline">{label}</span>
+                    <span className="inline xs:hidden">{shortLabel}</span>
+                </>
+            ) : null}
         </button>
     );
+}
+
+/**
+ * The narrow-screen fallback for a mod composer entry's label. The built-in
+ * composer buttons pair a full label (`hidden xs:inline`) with a short
+ * fallback (`inline xs:hidden`) so a narrow viewport still shows something.
+ * The generic mod renderer mirrors that pair; this helper derives the short
+ * form from the full label — the first word (e.g. "INJECT ARC" → "INJECT").
+ * A one-word label passes through unchanged. Empty/undefined yields undefined.
+ */
+function shortModLabel(label: string | undefined): string | undefined {
+    if (!label) return undefined;
+    const trimmed = label.trim();
+    if (trimmed.length === 0) return undefined;
+    const firstWord = trimmed.split(/\s+/)[0];
+    return firstWord.length > 0 ? firstWord : trimmed;
 }
 
 /**
@@ -372,16 +469,12 @@ export function renderMessageActionModEntry(
         // `onSelect` from `message.actions`. The drain is injected by the
         // caller because the rail component owns the `commitPendingTurn`
         // import path; the renderer stays free of the turn pipeline.
-        drain()
-            .then(() => {
-                // Phase 9.2 / 6.9.2 — the live context AND the row this button
-                // was rendered on. Without the second argument a rail of
-                // one-button-per-row could only ever act on "the latest
-                // message", which is not what the rail visually promises.
-                Promise.resolve(entry.entry.onSelect(entry.context, message))
-                    .catch(() => { /* a mod onSelect fault is contained */ });
-            })
-            .catch(() => { /* the drain already warned */ });
+        // Phase 9.2 / 6.9.2 — the live context AND the row this button was
+        // rendered on. Without the message argument a rail of
+        // one-button-per-row could only ever act on "the latest message",
+        // which is not what the rail visually promises. `dispatchOnSelect`
+        // drains first, then refreshes, so the click sees post-commit state.
+        dispatchOnSelect(entry, message, drain);
     };
 
     const title = tooltip ?? label;

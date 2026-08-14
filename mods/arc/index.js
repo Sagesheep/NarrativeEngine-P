@@ -307,8 +307,24 @@ function pickArcSpawnInput(params) {
 // by the `onSelect` guard.
 let pressState = { phase: 'idle' };
 
+// The `composer.actions` mount handle, kept so `setPhase` can repaint.
+// `mounts.composer()` returns a `MountHandle` whose `update()` is the ONLY
+// way a mod makes its own button re-render: the generic chrome renderer
+// reads `state()` at render time, and the row re-renders only when the
+// region's listeners are woken (`mountRegistry.ts::notifyRegion`), which
+// happens on register, unregister, and `handle.update()`. Nothing observes
+// `pressState` on its own.
+//
+// Dropping this handle is what made the button look dead: every terminal
+// branch of `onSelect` — success, no-anchor, LLM rejection, thrown error —
+// sets a phase nothing repaints, and `ModContext` carries no toast surface,
+// so there was no feedback channel left at all. `anno-mark` and
+// `ability-compendium` both keep their handles for exactly this reason.
+let composerHandle;
+
 function setPhase(phase) {
     pressState = { phase };
+    if (composerHandle) composerHandle.update();
 }
 
 export async function onActivate(ctx) {
@@ -322,7 +338,7 @@ export async function onActivate(ctx) {
     const mounts = ctx && ctx.mounts;
     if (!mounts) return;
 
-    mounts.composer({
+    composerHandle = mounts.composer({
         id: 'injectArc',
         icon: 'Syringe',
         label: 'INJECT ARC',
@@ -392,7 +408,14 @@ export async function onActivate(ctx) {
                 });
 
                 if (!spawnInput) {
-                    setPhase('idle');
+                    // No anchor: no open thread, no pressured NPC, and no GM
+                    // line to fall back on. Surfaced as `error` rather than a
+                    // silent return to `idle` — a press that resolves to
+                    // nothing visible is indistinguishable from a dead button,
+                    // which is the failure mode this whole path just had.
+                    modCtx.log('[ArcInjector] no anchor available — nothing to ground an arc on');
+                    setPhase('error');
+                    setTimeout(() => setPhase('idle'), 2500);
                     return;
                 }
 
@@ -429,7 +452,9 @@ export async function onActivate(ctx) {
 
 export function onDisable() {
     // The host removes the composer entry on disable (MOUNTS.md §8.5 —
-    // teardown is host-owned). Nothing to do here except reset the press
+    // teardown is host-owned). Drop our handle to the removed entry first,
+    // so the reset below cannot call `update()` on it, then reset the press
     // state so a re-enable starts clean.
+    composerHandle = undefined;
     pressState = { phase: 'idle' };
 }

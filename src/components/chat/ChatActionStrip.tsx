@@ -131,8 +131,15 @@ export function ChatActionStrip({
 
 /**
  * A mod's composer entry. The §8.8 pending-commit drain fires before the
- * mod's `onSelect`. The generic renderer (`renderComposerModEntry`) draws
- * the button; this wrapper intercepts the click to drain first.
+ * mod's `onSelect`, and the drain is handed to the renderer rather than
+ * wrapped around `onSelect`.
+ *
+ * The wrapper this replaced drained INSIDE the dispatch — but the renderer's
+ * Phase 9.2 context refresh runs before it calls `onSelect`, so the mod was
+ * handed a context snapshotted ahead of the commit it was supposed to see.
+ * Passing `drainPendingCommit` through keeps the order the region promises:
+ * drain, then refresh, then dispatch. `message.actions` already worked this
+ * way; this is the same shape.
  */
 function ModComposerEntry({
     entry,
@@ -141,22 +148,7 @@ function ModComposerEntry({
     entry: RegisteredChromeEntry;
     t: (key: string, vars?: Record<string, string | number>) => string;
 }) {
-    // We render the generic button but swap its onClick for one that drains
-    // first. The simplest way: render the generic node, then wrap its click.
-    // `renderComposerModEntry` already calls `onSelect` on click; we need to
-    // run the drain *before* that. So we render the entry with a wrapped
-    // `onSelect` that drains then calls the original.
-    const wrappedEntry: RegisteredChromeEntry = {
-        ...entry,
-        entry: {
-            ...entry.entry,
-            onSelect: async (ctx) => {
-                await drainPendingCommit();
-                await entry.entry.onSelect(ctx);
-            },
-        },
-    };
-    return <>{renderComposerModEntry(wrappedEntry, t, NO_LAST_GOOD)}</>;
+    return <>{renderComposerModEntry(entry, t, NO_LAST_GOOD, drainPendingCommit)}</>;
 }
 
 /** A stable `lastGoodRef` sentinel — see Header.tsx's NO_LAST_GOOD. */
