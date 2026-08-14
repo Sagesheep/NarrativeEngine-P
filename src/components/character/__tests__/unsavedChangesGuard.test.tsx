@@ -52,7 +52,9 @@ describe('CharacterLedgerModal — unsaved-changes close guard', () => {
         const user = userEvent.setup();
         render(<CharacterLedgerModal />);
         expect(screen.getByRole('dialog', { name: 'Character Ledger' })).toBeInTheDocument();
-        await user.click(screen.getByLabelText('Close'));
+        // ScreenLightbox names its close button "Close <title>", so the screen
+        // is identifiable when several are open. Was a bare "Close".
+        await user.click(screen.getByLabelText('Close Character Ledger'));
         expect(useAppStore.getState().pcPanelOpen).toBe(false);
     });
 

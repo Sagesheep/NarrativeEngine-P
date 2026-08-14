@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, UserCircle, FileText, ScrollText, Package, BarChart3, Upload, Download } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
+import { FileText, ScrollText, Package, BarChart3, Upload, Download } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { SheetTab, type SheetTabHandle } from './tabs/SheetTab';
 import { RecordTab } from './tabs/RecordTab';
@@ -11,6 +11,7 @@ import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { prepareImportedNpcs, type NpcImportMode } from '../../services/npc/importTransform';
 import { buildCharacterExportData, buildCharacterExportFilename } from '../../services/npc/characterExport';
 import { toast } from '../Toast';
+import { ScreenLightbox } from '../ScreenLightbox';
 import { uid } from '../../utils/uid';
 import type { NPCEntry, PlayerCharacter } from '../../types';
 
@@ -92,13 +93,10 @@ export function CharacterLedgerModal() {
         togglePCPanel();
     }, [togglePCPanel]);
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && pcPanelOpen) requestClose();
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [pcPanelOpen, requestClose]);
+    // Escape-to-close is ScreenLightbox's job now — it calls `onClose`, which is
+    // `requestClose`, so the unsaved-changes guard still runs. Keeping a second
+    // listener here would call requestClose twice per keypress and toggle the
+    // panel closed then straight back open.
 
     if (!pcPanelOpen) return null;
 
@@ -151,17 +149,38 @@ export function CharacterLedgerModal() {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-void/80 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="Character Ledger" onClick={requestClose}>
-            <div
-                className="bg-surface border border-border shadow-2xl rounded-lg w-full max-w-4xl max-h-[88vh] flex flex-col overflow-hidden transition-[max-width] duration-200 relative"
-                style={guidedMode ? { maxWidth: 1200 } : undefined}
-                onClick={e => e.stopPropagation()}
-            >
-                {/* Hidden import input lives INSIDE the stopPropagation container. If it sat
-                    on the backdrop, importRef.current.click() would bubble a click to the
-                    overlay's onClick={requestClose}, closing the modal and unmounting the
-                    input before the OS file dialog resolved — so onChange never fired.
-                    (Same bug class just fixed in NPCLedgerModal — do not reintroduce it.) */}
+        <ScreenLightbox
+            size="full"
+            width="wide"
+            title="Character Ledger"
+            onClose={requestClose}
+            headerRight={
+                <>
+                    <button onClick={() => importRef.current?.click()} title="Import character from JSON" className="flex items-center gap-1 py-1 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors">
+                        <Upload size={12} /> Import
+                    </button>
+                    <button onClick={handleExport} disabled={!playerCharacter} title="Export character to JSON" className="flex items-center gap-1 py-1 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                        <Download size={12} /> Export
+                    </button>
+                </>
+            }
+        >
+            {/* The screen root is a flex child of the lightbox wrapper (Shape A);
+                the tab panels below own the scrolling, so this must be a
+                continuous flex column with no percentage heights.
+
+                `guidedMode` used to animate the panel between 896px and 1200px
+                via `transition-[max-width]` — the whole shell resized under the
+                user when the wizard opened. At full-screen there is nothing to
+                widen to, so the resize is gone. */}
+            <div className="flex-1 min-h-0 flex flex-col">
+                {/* Hidden import input stays inside the panel. On the old shell it
+                    had to sit inside a stopPropagation container or
+                    importRef.current.click() would bubble to the backdrop's
+                    onClick={requestClose}, unmounting the input before the OS file
+                    dialog resolved — so onChange never fired. ScreenLightbox already
+                    stops propagation on its panel; keeping the input in here means
+                    the bug cannot come back if that ever changes. */}
                 <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
 
                 {pendingImport && (
@@ -180,23 +199,6 @@ export function CharacterLedgerModal() {
                         onCancel={() => setShowUnsavedPrompt(false)}
                     />
                 )}
-
-                <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
-                    <div className="flex items-center gap-2 text-terminal font-bold uppercase tracking-widest text-sm">
-                        <UserCircle size={16} /> CHARACTER LEDGER
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => importRef.current?.click()} title="Import character from JSON" className="flex items-center gap-1 py-1 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors">
-                            <Upload size={12} /> Import
-                        </button>
-                        <button onClick={handleExport} disabled={!playerCharacter} title="Export character to JSON" className="flex items-center gap-1 py-1 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-                            <Download size={12} /> Export
-                        </button>
-                        <button onClick={requestClose} className="text-text-dim hover:text-text-bright transition-colors text-lg leading-none" aria-label="Close">
-                            <X size={18} />
-                        </button>
-                    </div>
-                </div>
 
                 {guidedMode ? (
                     <AIGuidedCreationWizard
@@ -227,8 +229,11 @@ export function CharacterLedgerModal() {
                             ))}
                         </div>
 
-                        {/* Tab Panels */}
-                        <div className="flex-1 overflow-y-auto flex flex-col">
+                        {/* Tab Panels — `min-h-0` is what lets this scroller
+                            actually bound itself; without it the default
+                            `min-height: auto` on a flex item resolves to
+                            min-content and the panel grows instead of scrolling. */}
+                        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
                             {activeTab === 'sheet' && <SheetTab ref={sheetRef} onStartGuidedCreation={() => setGuidedMode(true)} />}
                             {activeTab === 'record' && <RecordTab />}
                             {activeTab === 'inventory' && <InventoryTab />}
@@ -237,6 +242,6 @@ export function CharacterLedgerModal() {
                     </>
                 )}
             </div>
-        </div>
+        </ScreenLightbox>
     );
 }

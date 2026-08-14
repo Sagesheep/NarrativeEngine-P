@@ -178,6 +178,12 @@ export function ContextNavigationDrawer() {
                 <ScreenLightbox
                     title={screenTitle}
                     onClose={closeContextScreen}
+                    // These are full working surfaces (a ~3,000-token editor, a
+                    // chunk manager, card collections), not dialogs. The default
+                    // 90vw/90vh left a ring of backdrop the content could have
+                    // used — on a 2133x1200 viewport that measured 213x120px of
+                    // margin around a screen whose editor still wanted more room.
+                    size="full"
                     // WO-screen-modernization §1 + §A-1 — width is per-screen,
                     // assigned by the shape classification.
                     //   - System Context (sys) is `wide`: §A-1 lays it out as an

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, ChevronDown, ChevronRight, Plus, Download, FileText } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Download, FileText } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import type { WorldLoreDraft } from '../types';
 import { uid } from '../utils/uid';
@@ -7,6 +7,7 @@ import { AccordionList } from './AccordionList';
 import { LoreTextarea } from './LoreTextarea';
 import { downloadMarkdown } from '../services/lore/worldLoreExport';
 import { LoreImportReviewModal } from './LoreImportReviewModal';
+import { ScreenLightbox } from './ScreenLightbox';
 
 const FLAT_SECTIONS: { key: keyof WorldLoreDraft; label: string; placeholder: string }[] = [
     { key: 'background', label: 'World Background', placeholder: 'Describe the world\'s history, core conflict, and tone...' },
@@ -41,15 +42,10 @@ export function WorldLoreModal() {
 
     const activeDraft = worldLoreDrafts.find((d) => d.id === worldLoreActiveDraftId) ?? null;
 
-    useEffect(() => {
-        const handleKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && worldLoreModalOpen) {
-                toggleWorldLoreModal();
-            }
-        };
-        window.addEventListener('keydown', handleKey);
-        return () => window.removeEventListener('keydown', handleKey);
-    }, [worldLoreModalOpen, toggleWorldLoreModal]);
+    // Escape-to-close is ScreenLightbox's job now. This component used to run
+    // its own `window` keydown listener; once it moved onto the shell BOTH
+    // fired for one keypress, calling the toggle twice — the screen closed and
+    // immediately reopened, so Escape looked like it did nothing.
 
     const toggleSection = useCallback((key: string) => {
         setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -88,22 +84,36 @@ export function WorldLoreModal() {
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center" role="dialog" aria-modal="true" aria-label="World Lore Builder">
-            <div className="absolute inset-0 bg-ember/40 backdrop-blur-sm" onClick={toggleWorldLoreModal} />
-
-            <div className="relative bg-surface border border-border w-full h-full sm:h-[90vh] sm:max-w-3xl sm:mx-4 flex flex-col shadow-2xl overflow-hidden">
-                {/* Header */}
-                <div className="flex items-center justify-between p-4 sm:p-6 border-b border-border shrink-0 bg-void z-10">
-                    <h2 className="text-terminal text-sm font-bold tracking-[0.2em] uppercase">
-                        World Lore Builder
-                    </h2>
-                    <button onClick={toggleWorldLoreModal} className="text-text-dim hover:text-danger transition-colors">
-                        <X size={18} />
-                    </button>
-                </div>
-
-                {/* Draft selector + content */}
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-20">
+        <>
+            <ScreenLightbox
+                size="full"
+                width="wide"
+                title="World Lore Builder"
+                onClose={toggleWorldLoreModal}
+                footer={activeDraft ? (
+                    <div className="flex items-center justify-between p-4">
+                        <button
+                            onClick={() => setImportModalOpen(true)}
+                            className="flex items-center gap-1.5 text-xs text-text-dim hover:text-terminal transition-colors uppercase tracking-wider"
+                        >
+                            <FileText size={13} /> Import existing lore
+                        </button>
+                        <button
+                            onClick={handleExport}
+                            className="flex items-center gap-1.5 text-xs text-terminal hover:text-terminal/80 transition-colors uppercase tracking-wider bg-terminal/10 border border-terminal/40 px-3 py-1.5"
+                        >
+                            <Download size={13} /> Export to Markdown
+                        </button>
+                    </div>
+                ) : undefined}
+            >
+                {/* Draft selector + content. Auto height on purpose — this is a
+                    long stacked document, so it should scroll in the shell's
+                    scroller rather than be squeezed into the panel height. The
+                    old `pb-20` that cleared the in-panel footer is gone: the
+                    footer is now a real pinned slot on the shell. Capped at the
+                    same 120rem design width the other converted screens use. */}
+                <div className="w-full mx-auto max-w-[120rem]">
                     {/* Draft tabs */}
                     <div className="flex items-center gap-1 border-b border-border mb-6 overflow-x-auto pb-px">
                         {worldLoreDrafts.map((d) => (
@@ -268,27 +278,10 @@ export function WorldLoreModal() {
                         </div>
                     )}
                 </div>
+            </ScreenLightbox>
 
-                {/* Footer */}
-                {activeDraft && (
-                    <div className="shrink-0 flex items-center justify-between p-4 border-t border-border bg-void">
-                        <button
-                            onClick={() => setImportModalOpen(true)}
-                            className="flex items-center gap-1.5 text-xs text-text-dim hover:text-terminal transition-colors uppercase tracking-wider"
-                        >
-                            <FileText size={13} /> Import existing lore
-                        </button>
-                        <button
-                            onClick={handleExport}
-                            className="flex items-center gap-1.5 text-xs text-terminal hover:text-terminal/80 transition-colors uppercase tracking-wider bg-terminal/10 border border-terminal/40 px-3 py-1.5"
-                        >
-                            <Download size={13} /> Export to Markdown
-                        </button>
-                    </div>
-                )}
-            </div>
-
-            {/* Import Modal */}
+            {/* Import Modal — a sibling of the lightbox, not a child, so it
+                layers above the screen rather than inside its scroll area. */}
             {importModalOpen && activeDraft && (
                 <LoreImportReviewModal
                     draft={activeDraft}
@@ -297,6 +290,6 @@ export function WorldLoreModal() {
                     onClose={() => setImportModalOpen(false)}
                 />
             )}
-        </div>
+        </>
     );
 }

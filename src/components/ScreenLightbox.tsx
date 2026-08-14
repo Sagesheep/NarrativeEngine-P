@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
+import { useUiScale } from '../hooks/useUiScale';
 
 export interface ScreenLightboxProps {
     /** `default` is the normal 90% lightbox; `full` is reserved for app-sized screens. */
@@ -17,6 +18,19 @@ export interface ScreenLightboxProps {
     width?: 'form' | 'wide';
     title: string;
     onClose: () => void;
+    /**
+     * Actions rendered in the title bar, left of the close button. Screens that
+     * own toolbar controls (Import / Export …) need these to survive the move
+     * onto this shell — without the slot, converting such a screen would mean
+     * dropping its buttons or rebuilding a second header inside the content.
+     */
+    headerRight?: React.ReactNode;
+    /**
+     * Pinned action bar below the scroll container. A footer passed here stays
+     * put while the content scrolls; putting the same markup in `children`
+     * would scroll it away.
+     */
+    footer?: React.ReactNode;
     children: React.ReactNode;
 }
 
@@ -37,7 +51,8 @@ const FOCUSABLE_SELECTOR = [
  * The panel owns the backdrop, heading, close affordance, keyboard handling,
  * and focus lifecycle; its children only own the screen content.
  */
-export function ScreenLightbox({ size = 'default', width = 'form', title, onClose, children }: ScreenLightboxProps) {
+export function ScreenLightbox({ size = 'default', width = 'form', title, onClose, headerRight, footer, children }: ScreenLightboxProps) {
+    const uiScale = useUiScale();
     const panelRef = useRef<HTMLDivElement | null>(null);
     const restoreFocusRef = useRef<HTMLElement | null>(null);
 
@@ -106,14 +121,17 @@ export function ScreenLightbox({ size = 'default', width = 'form', title, onClos
                     <h2 id={titleId} className="chrome-label text-terminal text-sm font-bold tracking-[0.2em] uppercase truncate">
                         {title}
                     </h2>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="text-text-dim hover:text-danger transition-colors shrink-0"
-                        aria-label={`Close ${title}`}
-                    >
-                        <X size={18} />
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                        {headerRight}
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="text-text-dim hover:text-danger transition-colors shrink-0"
+                            aria-label={`Close ${title}`}
+                        >
+                            <X size={18} />
+                        </button>
+                    </div>
                 </div>
                 {/* WO-screen-modernization §0 + §0-B — the cap, padding AND the
                     height chain live on one inner wrapper. Three bugs in the
@@ -146,11 +164,33 @@ export function ScreenLightbox({ size = 'default', width = 'form', title, onClos
                     No percentage heights anywhere in the chain. Verified in the
                     browser with getBoundingClientRect, not jsdom — jsdom has no
                     layout engine and returns 0 for every dimension. */}
-                <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-                    <div className={`p-4 sm:p-6 flex-1 min-h-0 flex flex-col ${
-                        width === 'form' ? 'max-w-5xl w-full mx-auto' : 'w-full'}`}>
-                        {children}
+                {/* `scrollbar-gutter: stable` reserves the scrollbar track even
+                    when the content fits. Without it, moving between a short
+                    screen and a tall one (Settings' Providers → Global) shifts
+                    the whole layout ~6px sideways as the scrollbar appears —
+                    the same class of nav-chrome jitter the per-tab width cap
+                    used to cause, just smaller. */}
+                {/* `zoom` sits on this wrapper — above BOTH the scroller and the
+                    pinned footer, so a footer scales with the content it belongs
+                    to instead of drifting out of proportion. It is the one place
+                    every screen shares, so scaling is inherited rather than
+                    re-implemented per screen, and it can never be applied twice.
+                    Nested `zoom` MULTIPLIES: no descendant may set it again. See
+                    useUiScale for why `zoom` and not `transform: scale` — it
+                    participates in layout, which is what keeps the
+                    `flex-1 min-h-0` chain below resolving. */}
+                <div className="flex-1 min-h-0 flex flex-col" style={{ zoom: uiScale }}>
+                    <div className="flex-1 min-h-0 overflow-y-auto flex flex-col [scrollbar-gutter:stable]">
+                        <div className={`p-4 sm:p-6 flex-1 min-h-0 flex flex-col ${
+                            width === 'form' ? 'max-w-5xl w-full mx-auto' : 'w-full'}`}>
+                            {children}
+                        </div>
                     </div>
+                    {footer && (
+                        <div className="shrink-0 border-t border-border bg-void">
+                            {footer}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

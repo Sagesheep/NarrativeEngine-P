@@ -182,7 +182,15 @@ export function ProvidersTab() {
                         </button>
 
                         {isExpanded && (
-                            <div className="p-4 space-y-4 border-t border-border bg-void">
+                            /* Two columns once there is room for them. DOM order
+                               already pairs up the way the layout wants —
+                               Label|Endpoint, then Format full-width, then
+                               Model|Key, then Streaming|Thinking — so nothing
+                               is reordered here; the fields that need the full
+                               row just declare `xl:col-span-2`. Without this a
+                               full-stretch pane turns the API key into a
+                               1900px-wide single-line input. */
+                            <div className="p-4 border-t border-border bg-void grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-4 items-start">
                                 <div>
                                     <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Label</label>
                                     <input
@@ -209,7 +217,7 @@ export function ProvidersTab() {
                                         </p>
                                     )}
                                 </div>
-                                <div>
+                                <div className="xl:col-span-2">
                                     <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">API Format</label>
                                     <div className="flex border border-border overflow-hidden rounded">
                                         {(['openai', 'ollama', 'claude', 'gemini', 'comfyui', 'openrouter'] as ApiFormat[]).map(fmt => (
@@ -297,7 +305,8 @@ export function ProvidersTab() {
                                         </div>
                                     </div>
                                 )}
-                                <div className="pt-2">
+                                <div className="pt-2 xl:col-span-2 grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-3 items-start">
+                                  <div>
                                     <button
                                         onClick={handleTest}
                                         disabled={isTesting || !config.endpoint}
@@ -311,8 +320,8 @@ export function ProvidersTab() {
                                             {testResult.detail}
                                         </div>
                                     )}
-                                </div>
-                                <div className="pt-2">
+                                  </div>
+                                  <div>
                                     <button
                                         onClick={() => handleRemoveProvider(config.id)}
                                         disabled={!canDelete}
@@ -323,6 +332,7 @@ export function ProvidersTab() {
                                     {!canDelete && (
                                         <p className="text-[10px] text-text-dim mt-1 text-center">Cannot delete the last provider</p>
                                     )}
+                                  </div>
                                 </div>
                             </div>
                         )}
@@ -346,14 +356,17 @@ function ComfyUiFields({
 }) {
     return (
         <>
-            <div className="border border-terminal/20 bg-terminal/5 rounded px-3 py-2">
+            {/* Rendered as grid items of the provider form above — the workflow
+                editor and the info banner want the whole row, the numeric knobs
+                tile across it. */}
+            <div className="xl:col-span-2 border border-terminal/20 bg-terminal/5 rounded px-3 py-2">
                 <p className="text-[10px] text-text-dim leading-relaxed">
                     <span className="text-terminal font-bold uppercase tracking-wider">Image Generation AI only.</span>{' '}
                     Point this at a local ComfyUI server. Leave the workflow blank to use the built-in basic txt2img graph, or paste a workflow exported from ComfyUI via <span className="font-mono">Save (API Format)</span>.
                 </p>
             </div>
 
-            <div>
+            <div className="xl:col-span-2">
                 <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Custom API Workflow JSON</label>
                 <textarea
                     value={comfy.customWorkflowJson || ''}
@@ -368,7 +381,7 @@ function ComfyUiFields({
                 </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="xl:col-span-2 grid grid-cols-2 xl:grid-cols-5 gap-3">
                 <div>
                     <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Steps</label>
                     <input
