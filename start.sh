@@ -68,6 +68,8 @@ echo ""
 # ===== Main flow (unchanged) =====
 echo "Installing dependencies..."
 npm install
+echo "Building engine..."
+npm run build --prefix packages/engine
 echo "Starting the application..."
 (sleep 3 && xdg-open http://localhost:5173) &
 npm run dev
