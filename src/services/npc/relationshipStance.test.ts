@@ -7,6 +7,7 @@ import {
     clearRelationshipStanceCache,
     computeRelationshipStances,
     formatRelationshipStanceRecord,
+    renderRelationshipStanceBlock,
     type RelationshipStanceInput,
 } from './relationshipStance';
 
@@ -145,6 +146,14 @@ describe('relationship stance reasoning', () => {
         expect(result[0].tier).toBe('cheap');
         expect(result[0].topRecords).toHaveLength(5);
         expect(result[0].stance).toBeUndefined();
+    });
+
+    it('keeps the stance terminator when the renderer admits a whole stance', async () => {
+        const result = await computeRelationshipStances(input({ aiTier: 'lite' }));
+        const rendered = renderRelationshipStanceBlock(result, 320);
+
+        expect(rendered).toContain('STANCE');
+        expect(rendered.endsWith('[END NPC STANCES]')).toBe(true);
     });
 
     it('runs deep NPC calls in parallel', async () => {
@@ -355,5 +364,11 @@ describe('relationship stance reasoning', () => {
         await computeRelationshipStances(input({ modelCall: throwingCall, onFault, sceneKey: 'thrown' }));
         expect(faults.some(f => f.message.includes('call failed'))).toBe(true);
     });
+    it("passes the configured output cap to the owned model call", async () => {
+        const call = vi.fn(async () => ({ content: validModelContent() }));
+        await computeRelationshipStances(input({ modelCall: call, maxTokens: 3000, sceneKey: "token-cap" }));
+        expect(call).toHaveBeenCalledWith(expect.objectContaining({ maxTokens: 3000 }));
+    });
+
 });
 

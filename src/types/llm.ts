@@ -29,6 +29,10 @@ export type EndpointConfig = {
     modelName: string;
     apiFormat?: ApiFormat;
     thinkingEffort?: ThinkingEffort;
+    /** The endpoint's maximum output tokens per response. Optional — unset means unknown,
+     * and the thinking reserve stays conservative (see WORKORDER-thinking-token-floor §3.2).
+     * This is an OUTPUT ceiling, not a context window; they are different and much different sizes. */
+    maxOutputTokens?: number;
 };
 
 export type SamplingConfig = {
@@ -62,6 +66,10 @@ export type LLMProvider = {
     streamingEnabled?: boolean;
     apiFormat?: ApiFormat;
     thinkingEffort?: ThinkingEffort;
+    /** The endpoint's maximum output tokens per response. Optional — unset means unknown,
+     * and the thinking reserve stays conservative (see WORKORDER-thinking-token-floor §3.2).
+     * This is an OUTPUT ceiling, not a context window; they are different and much different sizes. */
+    maxOutputTokens?: number;
     /** Present only when apiFormat === 'comfyui'. Native ComfyUI image-generation config. */
     comfyUi?: ComfyUiSettings;
 };
@@ -121,6 +129,8 @@ export type AppSettings = {
      *  so an empty map is today's behaviour. Structural modules ignore this entirely — a stale
      *  or corrupt entry can never delete the player's own message from the prompt. */
     moduleEnabled?: Record<string, boolean>;
+    /** Optional per-module output-token caps, keyed by contribution/module id. */
+    moduleTokens?: Record<string, number>;
     /** Phase 6.2 — the user's chosen load order for installed mods, as an
      *  array of mod ids ascending. The server's topological sort uses this
      *  as the primary tiebreak (before `manifest.loadOrder`); the dependency

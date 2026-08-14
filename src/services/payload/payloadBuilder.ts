@@ -20,6 +20,7 @@ import type { SlottedRagSnippet } from '../archive-memory/slottedRag';
 import { isBlockEnabled } from '../turn/blockEnablement';
 import { BUILTIN_IDS } from './contributions/builtins';
 import { interceptorFaultStore, formatInterceptorFaultReason } from '../mods/interceptors/interceptorFaults';
+import { RELATIONSHIP_STANCE_TOKEN_BUDGET } from '../npc/relationshipStance';
 
 export type BuildPayloadOptions = {
     settings: AppSettings;
@@ -318,6 +319,12 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         if (overlay.onStageNpcNames !== undefined) facts.onStageNpcNames = overlay.onStageNpcNames;
     }
 
+    const relationshipStanceBudget = relationshipStances && relationshipStances.length > 0
+        ? Math.min(
+            relationshipStances.reduce((sum, stance) => sum + RELATIONSHIP_STANCE_TOKEN_BUDGET[stance.tier], 0),
+            npcFloor,
+        )
+        : undefined;
     const registry = finalUserRegistry ?? createFinalUserRegistryWithExtensions();
     const contributions = registry.collect(
         {
@@ -326,7 +333,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             volatileBlock,
             relationsBlock,
             relationshipStances,
-            relationshipStanceBudget: relationshipStances?.reduce((sum, stance) => sum + (stance.tier === 'deep' ? 80 : 20), 0),
+            relationshipStanceBudget,
             directorBrief,
             watchdogNudge,
             absoluteCommand,

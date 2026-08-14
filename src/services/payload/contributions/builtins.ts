@@ -108,10 +108,19 @@ type BuiltinDetails = {
     quietWhen: string;
 };
 
+export type ModuleTokenCap = {
+    /** The trackingLabel of the utility call owned by this module. */
+    callLabel: string;
+    default: number;
+    min: number;
+    max: number;
+};
+
 type Builtin = ContributionModule<FinalUserModuleInput> & {
     explain?: string;
     example?: string;
     details?: BuiltinDetails;
+    tokenCap?: ModuleTokenCap;
 };
 
 /** Shorthand for a module that contributes exactly one spec (all built-ins do). */
@@ -192,8 +201,14 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             details: {
                 "trigger": "Automatic for on-stage NPCs when relationship readings are available.",
                 "prompt": "[NPC STANCES]\nSTANCE — Alden · scene 123 · deep\nstatus: guarded\nwon’t: never betray Bram\nwants now: keep the door closed\nhiding: he is afraid\nmanner: clipped\n[END NPC STANCES]",
-                "tokenImpact": "The final prompt reserves 20 tokens for each cheap stance and 80 for each deep stance. Deep readings are limited to 0 on Lite, 2 on Pro, and 3 on Max; up to 5 memories can feed each reading.",
+                "tokenImpact": "The stance call returns up to 1200 output tokens by default (user-adjustable from 400 to 8000). The final prompt allows 320 tokens for each cheap stance and 600 for each deep stance, clamped to 5% of the tokens remaining after rules. Stances are admitted whole in priority order; a stance that does not fit is dropped rather than trimmed. Deep readings are limited to 0 on Lite, 2 on Pro, and 3 on Max; up to 5 memories can feed each reading.",
                 "quietWhen": "No NPCs are on stage, relationship readings fail, or there is no stance text to inject. When present, it suppresses On-Stage Relations."
+            },
+            tokenCap: {
+                callLabel: "npc-stance",
+                default: 1200,
+                min: 400,
+                max: 8000,
             },
             explain: 'The deep version, pointed at you. For every character on stage it works out what they want in this exact moment, what they are hiding, what they will refuse, and which memories of you are pulling at them right now. When it has something to say it takes over from On-Stage Relations.',
             example: `She lost a battle to you last week. A year before that, you put a hand on her head at the academy.
@@ -205,7 +220,7 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
         (input) => ({
             id: BUILTIN_IDS.stance,
             order: 150,
-            text: renderRelationshipStanceBlock(input.relationshipStances ?? []),
+            text: renderRelationshipStanceBlock(input.relationshipStances ?? [], input.relationshipStanceBudget),
             budget: input.relationshipStanceBudget,
             suppresses: [BUILTIN_IDS.relations],
         }),
@@ -253,8 +268,14 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
             details: {
                 "trigger": "Automatic on Pro and Max tiers, before the main writer answers; the result is cached for repeated swipes of the same turn.",
                 "prompt": "WRITER BRIEF\n- [MANDATORY] <directive> (0–2 lines)\n- [SUGGESTION] <directive> (0–3 lines)",
-                "tokenImpact": "A separate utility-AI call has a 180-second timeout. Its input NPC summary is capped at 120 tokens and it reads the last 5 timeline events. No explicit output-token cap is set; the line limits above are the output contract.",
+                "tokenImpact": "A separate utility-AI call has a 180-second timeout and a 1500-token output cap by default (user-adjustable from 400 to 8000). Its input NPC summary is capped at 120 tokens and it reads the last 5 timeline events; the line limits above remain the output contract.",
                 "quietWhen": "Lite tier, no provider, timeout, parse failure, or no correction worth making. A successful Brief suppresses the Watchdog nudge."
+            },
+            tokenCap: {
+                callLabel: "director-brief",
+                default: 1500,
+                min: 400,
+                max: 8000,
             },
             explain: 'Before each reply, a second AI reads the scene and writes short directions for the writer — what this beat needs, and what to leave alone. It is the difference between a scene that goes somewhere and one that answers you politely.',
             example: `Direction written for the writer: *"The confession landed. Do not resolve it this turn — let her leave the room."*
@@ -383,6 +404,10 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
         }),
     ),
 ];
+
+export function getBuiltinTokenCap(blockId: string): ModuleTokenCap | undefined {
+    return BUILTIN_FINAL_USER_MODULES.find((module) => module.id === blockId)?.tokenCap;
+}
 
 /**
  * Phase 5.3 — the suppressible built-in ids, derived from the module list rather

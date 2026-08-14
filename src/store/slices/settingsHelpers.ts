@@ -4,6 +4,7 @@ import { encryptSettingsProviders } from '../../services/infrastructure/settings
 import { uid } from '../../utils/uid';
 import { toast } from '../../components/Toast';
 import { applyLocale, detectLocale, isLocaleCode } from '../../i18n';
+import { getBuiltinTokenCap } from '../../services/payload/contributions/builtins';
 
 import { API_BASE as API } from '../../lib/apiBase';
 
@@ -186,6 +187,18 @@ function migrateModuleEnabled(raw: unknown): Record<string, boolean> | undefined
     return out;
 }
 
+function migrateModuleTokens(raw: unknown): Record<string, number> | undefined {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+    const source = raw as Record<string, unknown>;
+    const out: Record<string, number> = {};
+    for (const [key, value] of Object.entries(source)) {
+        if (!getBuiltinTokenCap(key)) continue;
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) continue;
+        out[key] = value;
+    }
+    return out;
+}
+
 /**
  * Migrate settings to the two-tier (providers[] + presets with *AIProviderId) model.
  * Handles three input shapes:
@@ -204,6 +217,11 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         if (!config || typeof config !== 'object') return null;
         const endpoint = (config.endpoint ?? '').trim();
         if (!endpoint) return null;
+        const maxOutputTokens = typeof config.maxOutputTokens === 'number'
+            && Number.isFinite(config.maxOutputTokens)
+            && config.maxOutputTokens > 0
+            ? config.maxOutputTokens
+            : undefined;
         return {
             id: config.id || uid(),
             label: config.label || config.modelName || 'Provider',
@@ -213,6 +231,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
             streamingEnabled: config.streamingEnabled ?? true,
             apiFormat: config.apiFormat || 'openai',
             thinkingEffort: config.thinkingEffort,
+            ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
             // Preserve native ComfyUI config; the reconstruction above would otherwise
             // silently drop it and every ComfyUI provider would fall back to the built-in graph.
             ...(config.comfyUi && typeof config.comfyUi === 'object' ? { comfyUi: config.comfyUi } : {}),
@@ -223,7 +242,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         // Include the Comfy config so two workflows aimed at the same endpoint/model
         // (e.g. built-in vs a pasted API workflow) are not collapsed into one provider.
         const comfy = p.comfyUi ? JSON.stringify(p.comfyUi) : '';
-        return `${p.endpoint}|${p.modelName}|${p.apiKey}|${p.apiFormat || 'openai'}|${comfy}`;
+        return `${p.endpoint}|${p.modelName}|${p.apiKey}|${p.apiFormat || 'openai'}|${p.maxOutputTokens ?? ''}|${comfy}`;
     }
 
     function getOrAddProvider(config: any): string {
@@ -398,6 +417,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         // works and is remembered") rests on `moduleEnabled` persisting. The
         // data was never at risk — only the user's choice about it was.
         moduleEnabled: migrateModuleEnabled(raw.moduleEnabled),
+        moduleTokens: migrateModuleTokens(raw.moduleTokens),
         modLoadOrder: Array.isArray(raw.modLoadOrder)
             ? (raw.modLoadOrder as unknown[]).filter((id): id is string => typeof id === 'string')
             : undefined,

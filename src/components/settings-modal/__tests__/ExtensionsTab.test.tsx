@@ -182,6 +182,23 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────
 
 describe('ExtensionsTab — Phase 6.1 Mod Management', () => {
+    it('renders editable caps only for modules that declare one', async () => {
+        mocks.refreshMods.mockResolvedValueOnce({ mods: [], faults: [] });
+        seedStore();
+        render(<ExtensionsTab />);
+        await waitFor(() => expect(screen.getByText('NPC Stances')).toBeInTheDocument());
+
+        expect(screen.queryByLabelText('Output token cap')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'NPC Stances' }));
+        expect(screen.getByLabelText('Output token cap')).toHaveValue(1200);
+
+        fireEvent.change(screen.getByLabelText('Output token cap'), { target: { value: '3000' } });
+        expect(mocks.updateSettings).toHaveBeenCalledWith({ moduleTokens: { npcStance: 3000 } });
+
+        fireEvent.click(screen.getByRole('button', { name: 'On-Stage Relations' }));
+        expect(screen.queryByLabelText('Output token cap')).toBeNull();
+    });
+
     describe('native-tier trust dialog', () => {
         // Start the native mod DISABLED so clicking the checkbox enables it
         // (absent = enabled, so the checkbox starts checked unless we seed

@@ -300,9 +300,12 @@ export interface DirectorBriefInput {
     getAuxiliaryProvider?: () => EndpointConfig | undefined;
     /** Optional abort signal from the turn's AbortController. */
     signal?: AbortSignal;
+    /** User-selected output-token cap for the owned director-brief call. */
+    maxTokens?: number;
     /** Facade-brokered model call used by the production turn path. */
     modelCall?: (prompt: string, options: {
         signal?: AbortSignal;
+        maxTokens: number;
         priority: 'low';
         trackingLabel: string;
         timeoutMs: number;
@@ -370,12 +373,14 @@ export async function runDirectorBrief(input: DirectorBriefInput): Promise<strin
         const raw = input.modelCall
             ? await input.modelCall(prompt, {
                 signal: input.signal,
+                maxTokens: input.maxTokens ?? 1500,
                 priority: 'low',
                 trackingLabel: TRACKING_LABEL,
                 timeoutMs: DIRECTOR_BRIEF_TIMEOUT_MS,
             })
             : await llmCall(provider!, prompt, {
                 signal: input.signal,
+                maxTokens: input.maxTokens ?? 1500,
                 priority: 'low',
                 // WO-04b §3: no thinkingEffort option — let llmCall inherit the
                 // chosen endpoint's configured `thinkingEffort` (llmCall.ts:95).

@@ -42,6 +42,8 @@ import { hasHostModelRole, type HostFacade } from './hostFacade';
 import { emitCoreEvent, emitCoreEventLazy } from '../mods/events';
 import { runPromptInterceptors } from '../mods/interceptors';
 import { runFactPublishers } from '../mods/facts';
+import { blockTokenCap } from './blockEnablement';
+import { BUILTIN_IDS, getBuiltinTokenCap } from '../payload/contributions/builtins';
 
 const MAX_TOOL_CALLS_PER_TURN = 5;
 
@@ -316,6 +318,11 @@ export async function runDirectorStage(
                 campaignId: facade?.data.activeCampaignId ?? state.activeCampaignId,
                 getAuxiliaryProvider: facade ? undefined : state.getFreshAuxiliaryProvider,
                 signal: directorSignal,
+                maxTokens: blockTokenCap(
+                    BUILTIN_IDS.directorBrief,
+                    getBuiltinTokenCap(BUILTIN_IDS.directorBrief)?.default ?? 1500,
+                    state.settings.moduleTokens,
+                ),
                 modelCall: facade && hasHostModelRole(facade, 'auxiliary')
                     ? (prompt, request) => facade.model.call('auxiliary', { prompt, ...request }).then(result => result.content)
                     : undefined,

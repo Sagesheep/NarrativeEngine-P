@@ -1,5 +1,6 @@
 import type { AiTier } from '../../types';
 import { MATRIX, type TierFeature } from './aiTier';
+import { getBuiltinTokenCap } from '../payload/contributions/builtins';
 
 /**
  * WORKORDER-P5-01 §4 Step 2 — the single enablement resolver.
@@ -43,4 +44,20 @@ export function isBlockEnabled(
     }
 
     return true;
+}
+/** Resolve a module-owned utility call cap from persisted settings. */
+export function blockTokenCap(
+    blockId: string,
+    declaredDefault: number,
+    moduleTokens: Record<string, number> | undefined,
+): number {
+    const declaration = getBuiltinTokenCap(blockId);
+    const min = declaration?.min ?? 0;
+    const max = declaration?.max ?? Number.POSITIVE_INFINITY;
+    const fallback = Number.isFinite(declaredDefault) && declaredDefault > 0
+        ? Math.min(max, Math.max(min, declaredDefault))
+        : min;
+    const persisted = moduleTokens?.[blockId];
+    if (typeof persisted !== "number" || !Number.isFinite(persisted) || persisted <= 0) return fallback;
+    return Math.min(max, Math.max(min, persisted));
 }

@@ -267,7 +267,7 @@ async function validateChapterRelevance(
 
     try {
         const raw = modelCall
-            ? (await modelCall({ prompt, signal: controller.signal, maxTokens: 10, trackingLabel: 'archive-funnel', timeoutMs: 5000 })).content
+            ? (await modelCall({ prompt, signal: controller.signal, maxTokens: 10, thinkingEffort: 'off', trackingLabel: 'archive-funnel', timeoutMs: 5000 })).content
             : provider
                 ? await (async () => {
                     const url = getChatUrl(provider);
@@ -278,7 +278,7 @@ async function validateChapterRelevance(
                         const sep = fetchUrl.includes('?') ? '&' : '?';
                         fetchUrl = `${fetchUrl}${sep}key=${provider.apiKey}`;
                     }
-                    const fetchBody = buildChatBody(provider, [{ role: 'user', content: prompt }], { stream: false, max_tokens: 10 });
+                    const fetchBody = buildChatBody(provider, [{ role: 'user', content: prompt }], { stream: false, max_tokens: 10, thinkingEffort: 'off' });
                     const res = await llmFetch(fetchUrl, { method: 'POST', headers, signal: controller.signal, body: JSON.stringify(fetchBody) });
                     if (!res.ok) return 'YES';
                     const data = await res.json();

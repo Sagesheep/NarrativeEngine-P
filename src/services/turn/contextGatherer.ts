@@ -29,6 +29,8 @@ import {
     sceneKeyForRelationshipStance,
 } from '../npc/relationshipStance';
 import { hasHostModelRole } from './hostFacade';
+import { blockTokenCap } from './blockEnablement';
+import { BUILTIN_IDS, getBuiltinTokenCap } from '../payload/contributions/builtins';
 import { readRelationshipMemoryState, writeRelationshipMemoryState } from '../../store/relationshipMemoryState';
 
 // Friendly, user-facing labels for the live step indicator (keyed by internal stage id).
@@ -125,6 +127,11 @@ async function gatherRelationshipStances(
         sceneKey,
         sceneMood: 'logistical',
         sceneContext,
+        maxTokens: blockTokenCap(
+            BUILTIN_IDS.stance,
+            getBuiltinTokenCap(BUILTIN_IDS.stance)?.default ?? 1200,
+            state.settings.moduleTokens,
+        ),
         modelCall,
         provider: utilityAvailable ? utilityEndpoint : undefined,
         signal,

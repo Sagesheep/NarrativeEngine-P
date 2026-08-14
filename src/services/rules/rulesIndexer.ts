@@ -120,6 +120,7 @@ List 3-5 keywords a player would type to trigger this rule, and 1-2 secondary ke
             temperature: 0.1,
             priority: 'normal',
             maxTokens: 150,
+            thinkingEffort: 'off',
         });
 
         const { value: parsed } = extractJsonRobust<{ primary?: string[]; secondary?: string[] }>(

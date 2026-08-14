@@ -23,6 +23,33 @@ const CLAUDE_BUDGET_MAP: Record<ThinkingEffort, number | undefined> = {
 const GEMINI_LEVEL_MAP: Record<ThinkingEffort, number | undefined> = {
     off: undefined, low: 512, medium: 2048, high: 4096, max: 8192
 };
+const OPENAI_THINKING_RESERVE: Record<ThinkingEffort, number> = {
+    off: 0, low: 4096, medium: 8192, high: 16384, max: 32768,
+};
+
+export function withThinkingReserve(
+    format: ApiFormat,
+    effort: ThinkingEffort | undefined,
+    answerTokens: number,
+    declaredCeiling: number | undefined,
+): number {
+    if (!effort || effort === 'off' || format === 'ollama') return answerTokens;
+
+    const exactBudget = format === 'claude'
+        ? CLAUDE_BUDGET_MAP[effort]
+        : format === 'gemini'
+            ? GEMINI_LEVEL_MAP[effort]
+            : undefined;
+    if (exactBudget !== undefined) return answerTokens + exactBudget;
+
+    const reserve = OPENAI_THINKING_RESERVE[effort];
+    const ceiling = typeof declaredCeiling === 'number'
+        && Number.isFinite(declaredCeiling)
+        && declaredCeiling > 0
+        ? declaredCeiling
+        : 8192;
+    return Math.max(answerTokens, Math.min(answerTokens + reserve, ceiling));
+}
 
 export function getApiFormat(provider: AnyProvider): ApiFormat {
     return (provider as EndpointConfig).apiFormat || 'openai';
@@ -250,7 +277,8 @@ export function buildChatBody(
 
     if (format === 'claude') {
         const { system, messages: convMessages } = transformClaudeMessages(messages);
-        const maxTokens = options?.sampling?.max_tokens ?? options?.max_tokens ?? 16384;
+        const answerTokens = options?.sampling?.max_tokens ?? options?.max_tokens ?? 16384;
+        const maxTokens = withThinkingReserve(format, effort, answerTokens, (provider as EndpointConfig).maxOutputTokens);
         const body: Record<string, unknown> = {
             model: provider.modelName,
             messages: convMessages,
@@ -283,7 +311,8 @@ export function buildChatBody(
         if (systemInstruction) body.systemInstruction = systemInstruction;
 
         const genConfig: Record<string, unknown> = {};
-        genConfig.maxOutputTokens = options?.sampling?.max_tokens ?? options?.max_tokens ?? 8192;
+        const answerTokens = options?.sampling?.max_tokens ?? options?.max_tokens ?? 8192;
+        genConfig.maxOutputTokens = withThinkingReserve(format, effort, answerTokens, (provider as EndpointConfig).maxOutputTokens);
         if (options?.temperature !== undefined) genConfig.temperature = options.temperature;
         else if (options?.sampling?.temperature !== undefined) genConfig.temperature = options.sampling.temperature;
         if (options?.sampling?.top_p !== undefined) genConfig.topP = options.sampling.top_p;
@@ -326,8 +355,12 @@ export function buildChatBody(
         body.stream_options = { include_usage: true };
     }
 
-    if (options?.sampling?.max_tokens !== undefined) body.max_tokens = options.sampling.max_tokens;
-    else if (options?.max_tokens !== undefined) body.max_tokens = options.max_tokens;
+    const answerTokens = options?.sampling?.max_tokens ?? options?.max_tokens;
+    if (answerTokens !== undefined) {
+        body.max_tokens = isOllama
+            ? answerTokens
+            : withThinkingReserve(format, effort, answerTokens, (provider as EndpointConfig).maxOutputTokens);
+    }
 
     if (options?.temperature !== undefined) body.temperature = options.temperature;
     else if (options?.sampling?.temperature !== undefined) body.temperature = options.sampling.temperature;

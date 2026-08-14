@@ -12,6 +12,7 @@ import type {
     RelationshipStanceSlots,
 } from '../../types';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
+import { countTokens } from '../infrastructure/tokenizer';
 import { llmCall } from '../../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import {
@@ -96,6 +97,13 @@ export const RELATIONSHIP_STANCE_DEEP_BUDGET: Record<AiTier, number> = {
     max: 3,
 };
 
+export const RELATIONSHIP_STANCE_TOKEN_BUDGET: Record<RelationshipStance['tier'], number> = {
+    /** WO-7 measured allowance with room for a long boundary list. */
+    cheap: 320,
+    /** WO-7 measured allowance with room for a wordy event field. */
+    deep: 600,
+};
+
 export type RelationshipStanceModelCall = (request: ModelRequest) => Promise<ModelResponse>;
 
 export type RelationshipStanceInput = {
@@ -110,6 +118,8 @@ export type RelationshipStanceInput = {
     sceneKey: string;
     sceneMood: RelationshipMemoryMood;
     sceneContext: string;
+    /** User-selected output-token cap for the owned npc-stance call. */
+    maxTokens?: number;
     modelCall?: RelationshipStanceModelCall;
     provider?: EndpointConfig | ProviderConfig;
     signal?: AbortSignal;
@@ -406,7 +416,7 @@ function buildSceneStances(input: RelationshipStanceInput): Promise<Relationship
                 ? (await input.modelCall({
                     prompt: built.prompt,
                     signal: input.signal,
-                    maxTokens: 800,
+                    maxTokens: input.maxTokens ?? 1200,
                     temperature: 0.1,
                     priority: 'low',
                     trackingLabel: 'npc-stance',
@@ -414,7 +424,7 @@ function buildSceneStances(input: RelationshipStanceInput): Promise<Relationship
                 })).content
                 : await llmCall(input.provider!, built.prompt, {
                     signal: input.signal,
-                    maxTokens: 800,
+                    maxTokens: input.maxTokens ?? 1200,
                     temperature: 0.1,
                     priority: 'low',
                     trackingLabel: 'npc-stance',
@@ -458,10 +468,37 @@ export function computeRelationshipStances(input: RelationshipStanceInput): Prom
  * Memory lines are already canonicalised by `formatRelationshipStanceRecord` and must pass through
  * unchanged so the writer and the tuning panel cite the same text.
  */
-export function renderRelationshipStanceBlock(stances: readonly RelationshipStance[]): string {
-    if (stances.length === 0) return '';
+function compareStancePriority(
+    left: RelationshipStance,
+    right: RelationshipStance,
+): number {
+    if (left.tier !== right.tier) return left.tier === 'deep' ? -1 : 1;
 
-    const rendered = stances.map((stance) => {
+    const leftScore = Number.isNaN(left.tierScore) ? Number.NEGATIVE_INFINITY : left.tierScore;
+    const rightScore = Number.isNaN(right.tierScore) ? Number.NEGATIVE_INFINITY : right.tierScore;
+    if (rightScore !== leftScore) return rightScore > leftScore ? 1 : -1;
+    return 0;
+}
+
+function buildRelationshipStanceBlock(rendered: readonly string[]): string {
+    return rendered.length > 0
+        ? `[NPC STANCES]\n${rendered.join('\n\n')}\n[END NPC STANCES]`
+        : '';
+}
+
+export function renderRelationshipStanceBlock(
+    stances: readonly RelationshipStance[],
+    budget?: number,
+): string {
+    if (stances.length === 0 || (budget !== undefined && (Number.isNaN(budget) || budget <= 0))) return '';
+
+    const ordered = budget === undefined
+        ? [...stances]
+        : stances
+            .map((stance, index) => ({ stance, index }))
+            .sort((left, right) => compareStancePriority(left.stance, right.stance) || left.index - right.index)
+            .map(entry => entry.stance);
+    const rendered = ordered.map((stance) => {
         const lines = [
             `STANCE — ${stance.npcName} · scene ${stance.sceneId} · ${stance.tier}`,
             `status: ${stance.statuses}`,
@@ -485,7 +522,14 @@ export function renderRelationshipStanceBlock(stances: readonly RelationshipStan
         return lines.join('\n');
     });
 
-    return `[NPC STANCES]\n${rendered.join('\n\n')}\n[END NPC STANCES]`;
+    if (budget === undefined) return buildRelationshipStanceBlock(rendered);
+
+    const selected: string[] = [];
+    for (const stanceText of rendered) {
+        const candidate = buildRelationshipStanceBlock([...selected, stanceText]);
+        if (countTokens(candidate) <= budget) selected.push(stanceText);
+    }
+    return buildRelationshipStanceBlock(selected);
 }
 
 /** Convenience adapter used by the turn gather stage. */

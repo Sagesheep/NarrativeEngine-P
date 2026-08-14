@@ -70,6 +70,19 @@ export function ProvidersTab() {
         updateProvider(activeProvider.id, { [field]: value });
     };
 
+    const handleOutputCeilingChange = (rawValue: string) => {
+        if (!activeProvider) return;
+        const trimmed = rawValue.trim();
+        if (trimmed === "") {
+            updateProvider(activeProvider.id, { maxOutputTokens: undefined });
+            return;
+        }
+        const parsed = Number(trimmed);
+        updateProvider(activeProvider.id, {
+            maxOutputTokens: Number.isFinite(parsed) && parsed > 0 ? parsed : undefined,
+        });
+    };
+
     const handleApiFormatChange = (newFormat: ApiFormat) => {
         if (!activeProvider) return;
         let endpoint = (activeProvider.endpoint || '').replace(/\/+$/, '');
@@ -303,6 +316,25 @@ export function ProvidersTab() {
                                                 </button>
                                             ))}
                                         </div>
+                                    </div>
+                                )}
+                                {!isComfy && (
+                                    <div>
+                                        <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">
+                                            Output ceiling
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            step={1}
+                                            value={config.maxOutputTokens ?? ""}
+                                            onChange={(e) => handleOutputCeilingChange(e.target.value)}
+                                            placeholder="Leave blank if unsure"
+                                            className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
+                                        />
+                                        <p className="text-[10px] text-text-dim mt-1 leading-relaxed">
+                                            Maximum tokens this endpoint can return in one response  -  <strong>not its context window</strong>. Leave blank if unsure; the app stays conservative when reasoning is enabled.
+                                        </p>
                                     </div>
                                 )}
                                 <div className="pt-2 xl:col-span-2 grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-3 items-start">

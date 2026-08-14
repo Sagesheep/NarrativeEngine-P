@@ -17,6 +17,7 @@ import type {
     EndpointConfig,
     SemanticFact,
     TimelineEvent,
+    ThinkingEffort,
 } from '../../types';
 import { llmCall, type LLMCallPriority } from '../../utils/llmCall';
 import { extractJson } from '../infrastructure/jsonExtract';
@@ -42,6 +43,7 @@ export type ModelRequest = {
     priority?: LLMCallPriority;
     trackingLabel?: string;
     timeoutMs?: number;
+    thinkingEffort?: ThinkingEffort;
 };
 
 export type ModelResponse = {
@@ -473,6 +475,7 @@ export function buildHostFacade(
             maxTokens: request.maxTokens,
             temperature: request.temperature,
             priority: request.priority,
+            thinkingEffort: request.thinkingEffort,
             trackingLabel: request.trackingLabel,
             timeoutMs: request.timeoutMs,
         });

@@ -13,7 +13,8 @@ import modGuideMarkdown from '../../../docs/MODDING.md?raw';
 import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { createFinalUserRegistry } from '../../services/payload/contributions/builtins';
-import type { FinalUserModuleInput } from '../../services/payload/contributions/builtins';
+import { blockTokenCap } from '../../services/turn/blockEnablement';
+import type { FinalUserModuleInput, ModuleTokenCap } from '../../services/payload/contributions/builtins';
 import type { ContributionModule } from '../../services/payload/contributions/registry';
 import { refreshMods, enableNativeMod, disableNativeMod, cleanModData } from '../../services/mods/modBootstrap';
 import { modToContributionModule } from '../../services/mods/modAdapter';
@@ -82,6 +83,7 @@ type ModuleRow = {
         tokenImpact: string;
         quietWhen: string;
     };
+    tokenCap?: ModuleTokenCap;
     defaultEnabled: boolean;
     /** Mods only: `v1.2.0 · file.mod.json`, shown under the description. */
     meta?: string;
@@ -180,13 +182,14 @@ const tierOf = (mod: ValidatedMod): 'declarative' | 'sandboxed' | 'native' => {
     return 'declarative';
 };
 
-const toRow = (module: ContributionModule<FinalUserModuleInput> & { explain?: string; example?: string; details?: ModuleRow['details'] }, meta?: string): ModuleRow => ({
+const toRow = (module: ContributionModule<FinalUserModuleInput> & { explain?: string; example?: string; details?: ModuleRow['details']; tokenCap?: ModuleTokenCap }, meta?: string): ModuleRow => ({
     id: module.id,
     name: module.name,
     description: module.description,
     explain: module.explain,
     example: module.example,
     details: module.details,
+    tokenCap: module.tokenCap,
     defaultEnabled: module.defaultEnabled,
     meta,
 });
@@ -485,6 +488,24 @@ export function ExtensionsTab() {
      * it directly without re-running the trust check. Fires the native
      * lifecycle hooks for native-tier mods (Phase 1.5).
      */
+    const setModuleTokenCap = (row: ModuleRow, rawValue: string) => {
+        const declaration = row.tokenCap;
+        if (!declaration) return;
+        const next = { ...(settings.moduleTokens ?? {}) };
+        const trimmed = rawValue.trim();
+        if (trimmed === "") {
+            delete next[row.id];
+        } else {
+            const parsed = Number(trimmed);
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+                delete next[row.id];
+            } else {
+                next[row.id] = Math.min(declaration.max, Math.max(declaration.min, parsed));
+            }
+        }
+        updateSettings({ moduleTokens: Object.keys(next).length > 0 ? next : undefined });
+    };
+
     const doEnable = (id: string, mod: ValidatedMod | undefined, enabled: boolean) => {
         const next = { ...(moduleEnabled ?? {}), [id]: enabled };
         updateSettings({ moduleEnabled: next });
@@ -908,7 +929,30 @@ export function ExtensionsTab() {
                                         </p>
                                     </div>
                                     <div className="border-t border-border pt-2">
-                                        <div className="text-[9px] uppercase tracking-widest text-text-dim font-bold">Token impact / limit</div>
+                                        {selectedRow.tokenCap && (
+                                            <div className="flex items-center justify-between gap-3">
+                                                <label
+                                                    htmlFor={"extension-token-cap-" + selectedRow.id}
+                                                    className="text-[9px] uppercase tracking-widest text-text-dim font-bold"
+                                                >
+                                                    Output token cap
+                                                </label>
+                                                <input
+                                                    id={"extension-token-cap-" + selectedRow.id}
+                                                    aria-label="Output token cap"
+                                                    type="number"
+                                                    min={selectedRow.tokenCap.min}
+                                                    max={selectedRow.tokenCap.max}
+                                                    step={1}
+                                                    value={blockTokenCap(selectedRow.id, selectedRow.tokenCap.default, settings.moduleTokens)}
+                                                    onChange={(event) => setModuleTokenCap(selectedRow, event.target.value)}
+                                                    className="w-24 text-[11px] font-mono bg-void border border-border px-2 py-1 text-text-primary focus:border-terminal focus:outline-none"
+                                                />
+                                            </div>
+                                        )}
+                                        <div className={selectedRow.tokenCap ? "mt-2 text-[9px] uppercase tracking-widest text-text-dim font-bold" : "text-[9px] uppercase tracking-widest text-text-dim font-bold"}>
+                                            Token impact / limit
+                                        </div>
                                         <p className="mt-1 text-[11px] text-text-primary/85 leading-relaxed">
                                             {selectedRow.details.tokenImpact}
                                         </p>

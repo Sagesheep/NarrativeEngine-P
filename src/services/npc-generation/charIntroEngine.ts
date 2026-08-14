@@ -28,9 +28,9 @@ async function resolveLocation(
     try {
         const prompt = `${LOCATION_PROMPT}\n\n${excerpt}`;
         const raw = modelCall
-            ? (await modelCall({ prompt, temperature: 0.1, priority: 'high', maxTokens: 60 })).content
+            ? (await modelCall({ prompt, temperature: 0.1, priority: 'high', maxTokens: 60, thinkingEffort: 'off' })).content
             : provider
-                ? await llmCall(provider, prompt, { temperature: 0.1, priority: 'high', maxTokens: 60 })
+                ? await llmCall(provider, prompt, { temperature: 0.1, priority: 'high', maxTokens: 60, thinkingEffort: 'off' })
                 : '';
         return extractLocationFromResponse(raw);
     } catch (err) {
