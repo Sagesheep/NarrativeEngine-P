@@ -288,6 +288,45 @@ describe('Phase 2.3 — buildModContext', () => {
             expect(ctx.data.location.ledger[0].id).toBe('place-a');
         });
 
+        it('prefers getLocationState over the captured locationState value', () => {
+            const stale: LocationEntry[] = [];
+            const live: LocationEntry[] = [
+                { id: 'place-b', name: 'Point B', broadLocation: '', features: [], firstSeenScene: '002', lastSeenScene: '002', source: 'llm' },
+            ];
+            const ctx = buildModContext({
+                mod: { id: 'm', name: 'M', version: '1.0.0' },
+                facade: makeFacade(),
+                locationState: { currentPlaceId: null, currentFeature: null, ledger: stale },
+                getLocationState: () => ({ currentPlaceId: 'place-b', currentFeature: null, ledger: live }),
+            });
+            expect(ctx.data.location.ledger).toHaveLength(1);
+            expect(ctx.data.location.ledger[0].id).toBe('place-b');
+        });
+
+        // The World Map's solver came back with zero anchors while four
+        // locations sat in the ledger: its context was built before a campaign
+        // opened, and `refresh()` — the documented escape hatch — rebuilt with
+        // the same captured `locationState`. `data.location` was the one entry
+        // `refresh()` could never refresh.
+        it('refresh() re-reads the ledger through getLocationState', async () => {
+            let ledger: LocationEntry[] = [];
+            const ctx = buildModContext({
+                mod: { id: 'm', name: 'M', version: '1.0.0' },
+                facade: makeFacade(),
+                getLocationState: () => ({ currentPlaceId: null, currentFeature: null, ledger }),
+            });
+            expect(ctx.data.location.ledger).toEqual([]);
+
+            ledger = [
+                { id: 'place-a', name: 'Point A', broadLocation: '', features: [], firstSeenScene: '001', lastSeenScene: '001', source: 'llm' },
+            ];
+            const refreshed = await ctx.refresh();
+            expect(refreshed.data.location.ledger).toHaveLength(1);
+            expect(refreshed.data.location.ledger[0].id).toBe('place-a');
+            // The original lease keeps its snapshot — `data` is still frozen.
+            expect(ctx.data.location.ledger).toEqual([]);
+        });
+
         it('falls back to context.currentPlaceId / currentFeature when no locationState is supplied', () => {
             const ctx = buildModContext({
                 mod: { id: 'm', name: 'M', version: '1.0.0' },

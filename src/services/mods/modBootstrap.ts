@@ -164,7 +164,9 @@ function loadIndexOf(modId: string): number {
  *
  * `locationState` is read through `getFreshLocationState()`, which
  * `buildCommitCallbacks` wires to `useAppStore.getState()`; without it,
- * `data.location.ledger` is `[]` (`API.md` §4.2).
+ * `data.location.ledger` is `[]` (`API.md` §4.2). It is passed as a *getter*
+ * (`getLocationState`), not a value — this context is long-lived, and a
+ * captured value survives `refresh()` and goes stale for the session.
  *
  * Phase 4.2 / `MOUNTS.md` §3.1 — `loadIndex` is the mod's resolved load
  * index, supplied by the bootstrap when it has the resolved `mods[]` array.
@@ -217,19 +219,29 @@ function buildNativeModContext(mod: {
                 return buildCommitCallbacks(liveCampaignId, liveStore);
             },
         });
-        const freshLocation = callbacks.getFreshLocationState();
-        const locationState = freshLocation && freshLocation.activeCampaignId
-            ? {
-                currentPlaceId: freshLocation.context.currentPlaceId ?? null,
-                currentFeature: freshLocation.context.currentFeature ?? null,
-                ledger: freshLocation.locationLedger ?? [],
-            }
-            : undefined;
+        // Read LIVE, on every build, for the same reason `getState`/
+        // `getCallbacks` above are live: this context outlives the moment it
+        // was created. The previous code read `locationState` once, here, and
+        // handed the value to `buildModContext` — and `refresh()` passed that
+        // same captured value through, so `data.location.ledger` was the one
+        // field `refresh()` could not refresh. A mod activating before a
+        // campaign opened saw an empty ledger for the rest of the session.
+        const readLocationState = () => {
+            const liveStore = useAppStore.getState();
+            const liveCampaignId = rebuildStateFromLiveStore(liveStore, '').activeCampaignId ?? '';
+            const fresh = buildCommitCallbacks(liveCampaignId, liveStore).getFreshLocationState?.();
+            if (!fresh || !fresh.activeCampaignId) return undefined;
+            return {
+                currentPlaceId: fresh.context.currentPlaceId ?? null,
+                currentFeature: fresh.context.currentFeature ?? null,
+                ledger: fresh.locationLedger ?? [],
+            };
+        };
         return buildModContext({
             mod: { id: mod.id, name: mod.name, version: mod.version, folder: mod.folder },
             facade,
             commitPoint: 'immediate',
-            locationState,
+            getLocationState: readLocationState,
             loadIndex: mod.loadIndex,
             declaredRoles: mod.roles,
         });

@@ -440,6 +440,17 @@ export type ModCommitPoint = 'immediate' | 'on-return';
  */
 const OWN_TABLE_PREFIX = 'mod.';
 
+/**
+ * The projection of `TurnCallbacks.getFreshLocationState()` that `data.location`
+ * (§4.2) is derived from. Named so the value form and the getter form below
+ * cannot drift apart.
+ */
+export interface ModLocationStateInput {
+    readonly currentPlaceId: string | null;
+    readonly currentFeature: string | null;
+    readonly ledger: readonly LocationEntry[];
+}
+
 export interface ModContextBuildOptions {
     /**
      * The mod this context is being built for. The object is per-mod, so table
@@ -464,11 +475,27 @@ export interface ModContextBuildOptions {
      * callbacks in scope; the facade itself does not reach the callbacks, so
      * the derived `data.location` entry (§4.2) needs this passed in.
      */
-    readonly locationState?: {
-        readonly currentPlaceId: string | null;
-        readonly currentFeature: string | null;
-        readonly ledger: readonly LocationEntry[];
-    };
+    readonly locationState?: ModLocationStateInput;
+    /**
+     * Live read of the same state, for callers that outlive the moment the
+     * context was built. `locationState` is a value, so a long-lived native
+     * context captures whatever was true at activate time — and because
+     * `refresh()` rebuilds with the *same* captured value, `data.location`
+     * was the one entry `refresh()` could never actually refresh. A mod that
+     * activated before a campaign opened saw `ledger: []` forever, which is
+     * how the World Map's solver came back with zero anchors while four
+     * locations sat in the ledger.
+     *
+     * Preferred over `locationState` when supplied. `data` stays a frozen
+     * snapshot either way — the getter is read once per build, so the
+     * documented contract ("`ctx.data` is a snapshot; `refresh()` gets you a
+     * new one") is unchanged. It just becomes true of `location` as well.
+     *
+     * The reactive path already reads live (`hostFacade.ts:414`), so this is
+     * also what keeps a `subscribe('location')` value and a fresh
+     * `data.location` read agreeing, per `API.md` §8.6 item 7.
+     */
+    readonly getLocationState?: () => ModLocationStateInput | undefined;
     /**
      * Injectable `refresh()` for tests. Production wires this to the
      * facade's `refresh()` plus a fresh `buildModContext` call, so a native mod
@@ -552,7 +579,9 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         version: mod.version,
     });
 
-    const data: ModData = Object.freeze(buildModData(facade, options.locationState));
+    const data: ModData = Object.freeze(
+        buildModData(facade, options.getLocationState?.() ?? options.locationState),
+    );
     const config: ModConfig = Object.freeze({ aiTier: facade.config.aiTier });
     const write: ModWrites = Object.freeze(buildModWrites(facade));
     const model: ModModel = Object.freeze({
@@ -655,6 +684,7 @@ export function buildModContext(options: ModContextBuildOptions): ModContext {
         facade: facade.refresh(),
         commitPoint,
          locationState: options.locationState,
+         getLocationState: options.getLocationState,
          loadIndex: options.loadIndex,
          declaredRoles: options.declaredRoles,
      })));
@@ -795,11 +825,7 @@ function projectChapter(chapter: ArchiveChapter): ModChapter {
 
 function buildModData(
     facade: HostFacade,
-    locationState?: {
-        readonly currentPlaceId: string | null;
-        readonly currentFeature: string | null;
-        readonly ledger: readonly LocationEntry[];
-    },
+    locationState?: ModLocationStateInput,
 ): ModData {
     const facadeData = facade.data;
     const context = facadeData.context as GameContext;
