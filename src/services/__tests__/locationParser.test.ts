@@ -8,7 +8,7 @@ import {
     mergeLocationScanLedger,
     type LocationScanResult,
 } from '../locationParser';
-import { buildLocationBlock } from '../payload/volatile';
+import { buildLocationBlock, buildTravelBlock } from '../payload/volatile';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -330,6 +330,124 @@ describe('buildLocationBlock', () => {
     });
 });
 
+// ── WO2 — The Clock: Day: line + day-with-no-place + zero-regression ──
+
+describe('buildLocationBlock (WO2 — clock)', () => {
+    function makeCtx(overrides: Partial<GameContext> = {}): GameContext {
+        return { ...({} as GameContext), currentPlaceId: null, ...overrides };
+    }
+
+    it('no worldDay: byte-identical to the pre-clock output', () => {
+        const a = makeEntry({
+            id: 'loc_a', name: 'Academy', broadLocation: 'Konoha',
+            description: 'A ninja training school.',
+            features: ['Class A', 'training yard'],
+            connections: [{ toId: 'loc_b', band: 'adjacent' }, { toId: 'loc_c' }],
+        });
+        const b = makeEntry({ id: 'loc_b', name: 'Barracks' });
+        const c = makeEntry({ id: 'loc_c', name: 'Shrine' });
+        const ctx = makeCtx({ currentPlaceId: 'loc_a', currentFeature: 'Class A' });
+        const block = buildLocationBlock(ctx, [a, b, c]);
+        // The exact pre-clock string — no `Day:` line anywhere.
+        expect(block).toBe(
+            '[LOCATION]\n' +
+            'At: Academy (Konoha) — Class A\n' +
+            'A ninja training school.\n' +
+            'Nearby: Barracks (adjacent), Shrine\n' +
+            'Known rooms/features: Class A, training yard',
+        );
+        expect(block).not.toContain('Day:');
+    });
+
+    it('worldDay set: Day: line is the first body line, above At:', () => {
+        const a = makeEntry({
+            id: 'loc_a', name: 'Academy', broadLocation: 'Konoha',
+            description: 'A ninja training school.',
+            features: ['Class A'],
+            connections: [],
+        });
+        const ctx = makeCtx({ currentPlaceId: 'loc_a', worldDay: 12 });
+        const block = buildLocationBlock(ctx, [a]);
+        const lines = block.split('\n');
+        expect(lines[0]).toBe('[LOCATION]');
+        expect(lines[1]).toBe('Day: 12');
+        expect(lines[2]).toBe('At: Academy (Konoha)');
+        expect(block).toContain('Day: 12');
+    });
+
+    it('worldDay set + currentPlaceId unresolved: emits [LOCATION]\\nDay: N and nothing else', () => {
+        const ctx = makeCtx({ currentPlaceId: 'loc_missing', worldDay: 12 });
+        const block = buildLocationBlock(ctx, []);
+        expect(block).toBe('[LOCATION]\nDay: 12');
+    });
+
+    it('worldDay set + currentPlaceId null: emits [LOCATION]\\nDay: N and nothing else', () => {
+        const ctx = makeCtx({ currentPlaceId: null, worldDay: 12 });
+        expect(buildLocationBlock(ctx, [])).toBe('[LOCATION]\nDay: 12');
+    });
+
+    it('no worldDay + no place: empty string (unchanged)', () => {
+        const ctx = makeCtx({ currentPlaceId: null });
+        expect(buildLocationBlock(ctx, [])).toBe('');
+    });
+
+    it('no worldDay + missing place: empty string (unchanged)', () => {
+        const ctx = makeCtx({ currentPlaceId: 'loc_missing' });
+        expect(buildLocationBlock(ctx, [])).toBe('');
+    });
+
+    it('Day: line survives the 400-char trim (features trim before it; Day is exempt)', () => {
+        const a = makeEntry({
+            id: 'loc_a', name: 'Academy', broadLocation: 'Konoha',
+            description: 'A ninja training school.',
+            features: Array.from({ length: 60 }, (_, i) => `FeatureRoom${i + 1}`),
+            connections: [{ toId: 'loc_b', band: 'adjacent' }],
+        });
+        const b = makeEntry({ id: 'loc_b', name: 'Barracks' });
+        const ctx = makeCtx({ currentPlaceId: 'loc_a', worldDay: 12 });
+        const block = buildLocationBlock(ctx, [a, b]);
+        expect(block.length).toBeLessThanOrEqual(400);
+        const lines = block.split('\n');
+        expect(lines[0]).toBe('[LOCATION]');
+        expect(lines[1]).toBe('Day: 12');
+        // Day line survived; the cap still holds.
+        expect(block).toContain('Day: 12');
+        // Header survives (the cap trims features first, then Nearby — header is core).
+        expect(block).toContain('At: Academy (Konoha)');
+    });
+
+    it('Day: line survives the hard truncate last-resort step (it is first, ~8 chars)', () => {
+        // Make the header + description so long that even after dropping features and Nearby
+        // the block still exceeds 400 chars, forcing the `block.slice(0, CAP)` path.
+        const longDesc = 'X'.repeat(500);
+        const a = makeEntry({
+            id: 'loc_a', name: 'Academy', broadLocation: 'Konoha',
+            description: longDesc,
+            features: [],
+            connections: [],
+        });
+        const ctx = makeCtx({ currentPlaceId: 'loc_a', worldDay: 12 });
+        const block = buildLocationBlock(ctx, [a]);
+        expect(block.length).toBe(400);
+        const lines = block.split('\n');
+        expect(lines[0]).toBe('[LOCATION]');
+        expect(lines[1]).toBe('Day: 12');
+    });
+
+    it('NaN / Infinity worldDay is treated as unset (no Day: line)', () => {
+        const a = makeEntry({ id: 'loc_a', name: 'Academy', broadLocation: 'Konoha' });
+        const ctx = makeCtx({ currentPlaceId: 'loc_a', worldDay: Number.NaN });
+        expect(buildLocationBlock(ctx, [a])).not.toContain('Day:');
+        const ctx2 = makeCtx({ currentPlaceId: 'loc_a', worldDay: Number.POSITIVE_INFINITY });
+        expect(buildLocationBlock(ctx2, [a])).not.toContain('Day:');
+    });
+
+    it('worldDay: 0 is a valid day and emits Day: 0', () => {
+        const ctx = makeCtx({ currentPlaceId: null, worldDay: 0 });
+        expect(buildLocationBlock(ctx, [])).toBe('[LOCATION]\nDay: 0');
+    });
+});
+
 // ── Guard behavior: campaign-switch during scan drops the write ────────
 // Reuses the campaignGuard.test.ts approach: mock the store, flip activeCampaignId,
 // assert the guarded setters don't fire. Mirrors inventory scan guards.
@@ -355,5 +473,139 @@ describe('Guard behavior (campaign-switch during scan)', () => {
             expect(out.currentPlaceId).toBe('loc_a');
             expect(out.ledger).toEqual([a]);
         }
+    });
+});
+
+// ── WO3 §3 — transit nodes are excluded from the Nearby line ─────────────
+
+describe('buildLocationBlock (WO3 — transit exclusion from Nearby)', () => {
+    function makeCtx(overrides: Partial<GameContext> = {}): GameContext {
+        return { ...({} as GameContext), currentPlaceId: null, ...overrides };
+    }
+
+    it('Nearby omits kind: transit entries', () => {
+        const a = makeEntry({
+            id: 'loc_a', name: 'Academy', broadLocation: 'Konoha',
+            connections: [{ toId: 'loc_t' }, { toId: 'loc_b', band: 'regional' }],
+        });
+        const transit = makeEntry({
+            id: 'loc_t', name: 'Road between Academy and Barracks', kind: 'transit',
+            connections: [{ toId: 'loc_a' }, { toId: 'loc_b' }],
+        });
+        const b = makeEntry({ id: 'loc_b', name: 'Barracks' });
+        const block = buildLocationBlock(makeCtx({ currentPlaceId: 'loc_a' }), [a, transit, b]);
+        expect(block).toContain('Nearby: Barracks (regional, 3–5d)');
+        expect(block).not.toContain('Road between');
+        expect(block).not.toContain('loc_t');
+    });
+
+    it('Nearby still lists place entries that are not transit', () => {
+        const a = makeEntry({
+            id: 'loc_a', name: 'Academy',
+            connections: [{ toId: 'loc_b', band: 'adjacent' }, { toId: 'loc_c' }],
+        });
+        const b = makeEntry({ id: 'loc_b', name: 'Barracks' });
+        const c = makeEntry({ id: 'loc_c', name: 'Shrine' });
+        const block = buildLocationBlock(makeCtx({ currentPlaceId: 'loc_a' }), [a, b, c]);
+        expect(block).toContain('Barracks (adjacent)');
+        expect(block).toContain('Shrine');
+    });
+});
+
+// ── WO3 §8 — the [TRAVEL] block ──────────────────────────────────────────
+
+describe('buildTravelBlock (WO3 §8)', () => {
+    function makeCtx(overrides: Partial<GameContext> = {}): GameContext {
+        return { ...({} as GameContext), currentPlaceId: null, ...overrides };
+    }
+    function makeTravel(overrides: Partial<NonNullable<GameContext['travel']>> = {}): NonNullable<GameContext['travel']> {
+        return {
+            fromId: 'loc_a',
+            toId: 'loc_b',
+            transitId: 'loc_t',
+            mode: 'cart',
+            leg: 2,
+            totalLegs: 3,
+            agency: 'free',
+            ...overrides,
+        };
+    }
+
+    it('emits nothing when context.travel is not set (zero-regression)', () => {
+        const ctx = makeCtx();
+        expect(buildTravelBlock(ctx, [])).toBe('');
+    });
+
+    it('emits nothing when context.travel is null', () => {
+        const ctx = makeCtx({ travel: null });
+        expect(buildTravelBlock(ctx, [])).toBe('');
+    });
+
+    it('mid-journey: emits Day leg/total, from → to by mode, and the stop instruction', () => {
+        const a = makeEntry({ id: 'loc_a', name: 'Point A' });
+        const b = makeEntry({ id: 'loc_b', name: 'Point B' });
+        const ctx = makeCtx({ travel: makeTravel({ leg: 2, totalLegs: 3, mode: 'cart' }) });
+        const block = buildTravelBlock(ctx, [a, b]);
+        expect(block).toContain('[TRAVEL]');
+        expect(block).toContain('Day 2 of 3 — Point A → Point B by cart.');
+        expect(block).toContain('End this scene at nightfall. Do not reach Point B.');
+    });
+
+    it('final leg: the second line says the party reaches the destination', () => {
+        const a = makeEntry({ id: 'loc_a', name: 'Point A' });
+        const b = makeEntry({ id: 'loc_b', name: 'Point B' });
+        const ctx = makeCtx({ travel: makeTravel({ leg: 3, totalLegs: 3, mode: 'cart' }) });
+        const block = buildTravelBlock(ctx, [a, b]);
+        expect(block).toContain('Day 3 of 3 — Point A → Point B by cart.');
+        expect(block).toContain('The party reaches Point B in this scene.');
+        expect(block).not.toContain('Do not reach');
+    });
+
+    it('constrained agency: the second line is the control line, on every leg', () => {
+        const a = makeEntry({ id: 'loc_a', name: 'Point A' });
+        const b = makeEntry({ id: 'loc_b', name: 'Point B' });
+        const ctx = makeCtx({ travel: makeTravel({ leg: 2, totalLegs: 3, agency: 'constrained' }) });
+        const block = buildTravelBlock(ctx, [a, b]);
+        expect(block).toContain('The party does not control this journey.');
+        expect(block).not.toContain('Do not reach');
+        expect(block).not.toContain('reaches Point B');
+    });
+
+    it('constrained agency on the final leg still shows the control line (no arrival instruction)', () => {
+        const a = makeEntry({ id: 'loc_a', name: 'Point A' });
+        const b = makeEntry({ id: 'loc_b', name: 'Point B' });
+        const ctx = makeCtx({ travel: makeTravel({ leg: 3, totalLegs: 3, agency: 'constrained' }) });
+        const block = buildTravelBlock(ctx, [a, b]);
+        expect(block).toContain('The party does not control this journey.');
+        expect(block).not.toContain('reaches Point B');
+    });
+
+    it('honors the 200-char hard cap', () => {
+        const a = makeEntry({ id: 'loc_a', name: 'A'.repeat(80) });
+        const b = makeEntry({ id: 'loc_b', name: 'B'.repeat(80) });
+        const ctx = makeCtx({ travel: makeTravel({ leg: 2, totalLegs: 3 }) });
+        const block = buildTravelBlock(ctx, [a, b]);
+        expect(block.length).toBeLessThanOrEqual(200);
+        expect(block.startsWith('[TRAVEL]')).toBe(true);
+    });
+
+    it('uses the id fallback when the ledger is missing an endpoint', () => {
+        const ctx = makeCtx({ travel: makeTravel({ leg: 2, totalLegs: 3, fromId: 'loc_x', toId: 'loc_y' }) });
+        const block = buildTravelBlock(ctx, []);
+        expect(block).toContain('Day 2 of 3 — loc_x → loc_y by cart.');
+    });
+
+    it('zero-regression: a context with no travel produces byte-identical volatile payload', () => {
+        // The [TRAVEL] block is the only new volatile part. When travel is unset,
+        // buildTravelBlock returns '' and is not pushed into volatileParts, so
+        // the assembled volatileContent is byte-identical to the pre-WO3 output.
+        const a = makeEntry({
+            id: 'loc_a', name: 'Academy', broadLocation: 'Konoha',
+            description: 'A ninja training school.',
+            features: ['Class A'],
+            connections: [],
+        });
+        const ctx = makeCtx({ currentPlaceId: 'loc_a' });
+        expect(buildTravelBlock(ctx, [a])).toBe('');
     });
 });

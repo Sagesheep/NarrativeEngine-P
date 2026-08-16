@@ -6,6 +6,9 @@
 // on GameContext tracks where the PC is right now.
 
 import type { DistanceBand } from '../services/location/distance';
+import type { TravelMode } from '../services/location/travelModes';
+
+export type { TravelMode };
 
 export type LocationConnection = {
     toId: string;                          // id of another LocationEntry
@@ -25,6 +28,9 @@ export type LocationEntry = {
     firstSeenScene: string;
     lastSeenScene: string;
     source: 'llm' | 'manual';
+    /** 'transit' = the road/route occupied while traversing an edge, not a
+     *  destination. Undefined means 'place' — every existing entry stays a place. */
+    kind?: 'place' | 'transit';
 };
 
 /** A place the estimator noticed but did NOT add — the player decides. (Mirrors NpcSuggestion.) */

@@ -17,6 +17,12 @@ const classificationBg: Record<string, string> = {
     scene_local: 'bg-purple-400/5',
 };
 
+// WO2-Clock §5: sections with `role: 'utility'` are NEVER sent to the GM — they live
+// only in debugSections. Today exactly one call site emits this role (the Director
+// world_facts entry in volatile.ts). Badge them so QA off this view is not misled
+// into thinking the Director's payload duplicates the GM's payload.
+const UTILITY_BADGE = 'NOT SENT TO GM';
+
 interface DebugPayloadViewProps {
     debugPayload: { sections?: DebugSection[]; raw?: unknown };
 }
@@ -38,13 +44,27 @@ export const DebugPayloadView: React.FC<DebugPayloadViewProps> = ({ debugPayload
                     sections.map((section, idx) => {
                         const colorClass = classificationColors[section.classification || ''] || 'text-text-dim border-border/40';
                         const bgClass = classificationBg[section.classification || ''] || 'bg-void';
+                        const isUtility = section.role === 'utility';
                         return (
-                            <details key={idx} className={`border-l-2 ${colorClass} ${bgClass} rounded-r overflow-hidden`}>
+                            <details
+                                key={idx}
+                                className={`border-l-2 ${colorClass} ${bgClass} rounded-r overflow-hidden ${isUtility ? 'opacity-70 border-dashed' : ''}`}
+                                data-role={section.role}
+                                data-utility={isUtility ? 'true' : 'false'}
+                            >
                                 <summary className="cursor-pointer px-2 py-1 hover:brightness-125 transition-all select-none flex items-center justify-between gap-2">
                                     <span className="font-bold uppercase tracking-tighter text-[10px]">
                                         {section.label}
                                     </span>
                                     <div className="flex items-center gap-2 text-[8px] shrink-0">
+                                        {isUtility && (
+                                            <span
+                                                className="px-1 py-0.5 border border-dashed border-ember/60 text-ember bg-ember-wash rounded font-bold uppercase tracking-wider"
+                                                title="This section is debug-only — it is supplied to the Continuity Director, never to the GM."
+                                            >
+                                                {UTILITY_BADGE}
+                                            </span>
+                                        )}
                                         <span className="px-1 bg-void-darker rounded">{section.role}</span>
                                         {section.tokens !== undefined && (
                                             <span className="text-text-dim">{section.tokens}t</span>

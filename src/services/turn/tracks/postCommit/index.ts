@@ -9,6 +9,7 @@ import { inventoryScanTrack } from './inventoryScanTrack';
 import { locationScanTrack } from './locationScanTrack';
 import { pcDriftTrack } from './pcDriftTrack';
 import { relationshipMemoryTrack } from './relationshipMemoryTrack';
+import { travelAdvanceTrack } from './travelAdvanceTrack';
 
 /** Stage C registry. Tracks are started fire-and-forget by the archive host. */
 export const postCommitTracks = createPostTurnTrackRegistry<PostCommitTrackContext>();
@@ -21,6 +22,7 @@ postCommitTracks.register(inventoryScanTrack);
 postCommitTracks.register(locationScanTrack);
 postCommitTracks.register(pcDriftTrack);
 postCommitTracks.register(relationshipMemoryTrack);
+postCommitTracks.register(travelAdvanceTrack);
 
 export function startPostCommitTracks(
     ctx: PostCommitTrackContext,

@@ -1,0 +1,30 @@
+{
+    "id": "worldmap",
+    "name": "World Map",
+    "version": "0.2.0",
+    "description": "Places your world on a map from the relations in your lore. Switch it off and the ledger goes back to plain topology — every place stays exactly where it was.",
+    "tables": [
+        {
+            "name": "anchors",
+            "recordShape": "array",
+            "label": "Anchors"
+        },
+        {
+            "name": "settings",
+            "recordShape": "single-object",
+            "label": "Settings"
+        },
+        {
+            "name": "visited",
+            "recordShape": "array",
+            "label": "Hardened cells"
+        }
+    ],
+    "native": {
+        "js": "index.js",
+        "hooks": {
+            "install": "onInstall",
+            "activate": "onActivate"
+        }
+    }
+}

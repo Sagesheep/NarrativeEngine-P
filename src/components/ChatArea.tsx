@@ -183,6 +183,12 @@ export function ChatArea() {
         setInput(e.target.value);
         if (deepArmed) setDeepArmed(false);
         resizeToContent();
+        // WO3 §5 — clearing the draft clears a pending travel intent. The
+        // composer is the confirmation: an empty draft means no departure.
+        if (e.target.value === '') {
+            const st = useAppStore.getState();
+            if (st.pendingTravelIntent) st.setPendingTravelIntent(null);
+        }
     };
 
     return (

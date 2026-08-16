@@ -32,6 +32,7 @@ export function buildVolatile(opts: {
     let profileBlock = '';
     let notebookBlock = '';
     let locationBlock = '';
+    let travelBlockStr = '';
 
     const hasSmart = context.smartBookkeepingActive;
     const hasStructured = (context.inventoryItems?.length ?? 0) > 0 || context.characterProfileData?.name;
@@ -114,6 +115,17 @@ export function buildVolatile(opts: {
             volatileParts.push(locationBlock);
         }
     }
+    // ── [TRAVEL] block (WO3 §8) — sibling of [LOCATION], emitted only when the
+    // party is mid-journey. Hard cap 200 chars. The stop instruction is the entire
+    // point of this work order: a leg advances whether or not the scene is about
+    // travel, so the GM is told where to end the scene.
+    {
+        const travelBlock = buildTravelBlock(context, locationLedger ?? []);
+        if (travelBlock) {
+            travelBlockStr = travelBlock;
+            volatileParts.push(travelBlockStr);
+        }
+    }
     if (context.notebookActive && context.notebook && context.notebook.length > 0) {
         // Notebook is the only unbounded volatile source. Reserve whatever budget remains after the
         // higher-priority character/inventory/profile parts and admit newest-first entries until full,
@@ -153,6 +165,7 @@ export function buildVolatile(opts: {
     if (profileBlock) collector.addTrace({ source: 'Player Profile', classification: 'volatile_state', tokens: countTokens(profileBlock), reason: hasSmart ? 'Recommender-selected profile fields' : 'Scene-selected PC traits', included: true, position: 'system_dynamic', preview: profileBlock });
     if (notebookBlock) collector.addTrace({ source: 'Scene Notebook', classification: 'volatile_state', tokens: countTokens(notebookBlock), reason: 'Volatile working memory notebook', included: true, position: 'system_dynamic', preview: notebookBlock });
     if (locationBlock) collector.addTrace({ source: 'Location', classification: 'volatile_state', tokens: countTokens(locationBlock), reason: 'Current place + nearby connections + known features', included: true, position: 'system_dynamic', preview: locationBlock });
+    if (travelBlockStr) collector.addTrace({ source: 'Travel', classification: 'volatile_state', tokens: countTokens(travelBlockStr), reason: 'Active journey leg + stop instruction', included: true, position: 'system_dynamic', preview: travelBlockStr });
     if (directorWorldFacts && directorWorldFacts.length > 0) {
         const worldFactsText = directorWorldFacts.join('\n');
         const currentPlace = context.currentPlaceId ? locationLedger?.find(place => place.id === context.currentPlaceId) : undefined;
@@ -165,23 +178,32 @@ export function buildVolatile(opts: {
     return { volatileContent, volatileTokens };
 }
 
-// ── [LOCATION] block builder (WO-Location) ──────────────────────────────
-// Format (verbatim from workorder §5.2):
+// ── [LOCATION] block builder (WO-Location + WO2-Clock) ─────────────────
+// Format (verbatim from workorder §5.2 + WO2 §2):
 //   [LOCATION]
+//   Day: <worldDay>           ← first body line, only when worldDay is set
 //   At: <name> (<broadLocation>)<currentFeature ? ` — <feature>` : ''><status ? ` — <status>` : ''>
 //   <description>
 //   Nearby: <connection names, band in parens when not local, comma-separated>
 //   Known rooms/features: <features, comma-separated>
 //
 // Hard cap ~400 chars. Truncate `features` first (drop entries from the end), then `Nearby`.
-// Returns empty string when there is no resolved current place (zero-regression).
+// The `Day:` line is exempt from the trim order (~8 chars, the most load-bearing fact in
+// the block); it sits first and survives every trim step including the hard slice.
+// Zero-regression: when `worldDay` is unset the `Day:` line is absent and the block is
+// byte-identical to the pre-clock output. Returns '' only when there is NEITHER a resolved
+// place NOR a `worldDay` (a day with no place still emits `[LOCATION]\nDay: N`).
 const LOCATION_BLOCK_CHAR_CAP = 400;
 
 export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]): string {
+    const hasDay = context.worldDay !== undefined && Number.isFinite(context.worldDay);
+    const dayLine = hasDay ? `Day: ${context.worldDay}` : '';
+
     const placeId = context.currentPlaceId;
-    if (!placeId) return '';
-    const place = ledger.find(l => l.id === placeId);
-    if (!place) return '';
+    const place = placeId ? ledger.find(l => l.id === placeId) : undefined;
+
+    // Day with no place: emit the date and nothing else. Neither day nor place: ''.
+    if (!place) return dayLine ? `[LOCATION]\n${dayLine}` : '';
 
     const featureSuffix = context.currentFeature ? ` — ${context.currentFeature}` : '';
     const statusSuffix = place.status ? ` — ${place.status}` : '';
@@ -189,10 +211,12 @@ export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]
 
     // Nearby: local remains bare; every other band teaches the scale and its
     // baseline day range. Legacy short values normalize to local above.
+    // Transit nodes (WO3 §3) are excluded — they are roads, not destinations.
     const nearbyParts: string[] = [];
     for (const conn of place.connections) {
         const other = ledger.find(l => l.id === conn.toId);
         if (!other) continue;
+        if (other.kind === 'transit') continue;
         const band = connectionBand(conn);
         nearbyParts.push(band === 'local'
             ? other.name
@@ -205,9 +229,10 @@ export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]
     // Known rooms/features
     const featuresLine = place.features.length > 0 ? `Known rooms/features: ${place.features.join(', ')}` : '';
 
-    // Assemble, then enforce the ~400-char cap by trimming features first, then Nearby.
+    // Assemble. `dayLine` leads the body when present; `.filter(Boolean)` drops it
+    // when empty so the no-worldDay path is byte-identical to the pre-clock block.
     const assemble = (featLine: string, nearLine: string) => {
-        const lines = [header, place.description || '', nearLine, featLine].filter(Boolean);
+        const lines = [dayLine, header, place.description || '', nearLine, featLine].filter(Boolean);
         return `[LOCATION]\n${lines.join('\n')}`;
     };
 
@@ -227,8 +252,50 @@ export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]
     block = assemble(features.length > 0 ? `Known rooms/features: ${features.join(', ')}` : '', '');
     if (block.length <= LOCATION_BLOCK_CHAR_CAP) return block;
 
-    // Last resort: hard truncate
+    // Last resort: hard truncate. `Day:` is first and ~8 chars, so it survives.
     return block.slice(0, LOCATION_BLOCK_CHAR_CAP);
+}
+
+// ── [TRAVEL] block builder (WO3 §8) ─────────────────────────────────────
+// Sibling of [LOCATION], emitted immediately after it, only when
+// `context.travel` is set. Hard cap 200 chars. Format:
+//
+//   [TRAVEL]
+//   Day 2 of 3 — Point A → Point B by cart.
+//   End this scene at nightfall. Do not reach Point B.
+//
+// Final leg replaces the second line with the arrival instruction. Constrained
+// agency replaces the second line with the control line. Zero-regression: a
+// context with no `travel` produces '' (byte-identical volatile payload).
+const TRAVEL_BLOCK_CHAR_CAP = 200;
+
+export function buildTravelBlock(context: GameContext, ledger: LocationEntry[]): string {
+    const travel = context.travel;
+    if (!travel) return '';
+
+    const from = ledger.find(l => l.id === travel.fromId);
+    const to = ledger.find(l => l.id === travel.toId);
+    const fromName = from?.name ?? travel.fromId;
+    const toName = to?.name ?? travel.toId;
+    const modeWord = travel.mode; // lowercase id — "foot", "cart", "horseback", "flying"
+
+    const headerLine = `Day ${travel.leg} of ${travel.totalLegs} — ${fromName} → ${toName} by ${modeWord}.`;
+
+    let secondLine: string;
+    if (travel.agency === 'constrained') {
+        secondLine = 'The party does not control this journey.';
+    } else if (travel.leg >= travel.totalLegs) {
+        secondLine = `The party reaches ${toName} in this scene.`;
+    } else {
+        secondLine = `End this scene at nightfall. Do not reach ${toName}.`;
+    }
+
+    const block = `[TRAVEL]\n${headerLine}\n${secondLine}`;
+    if (block.length <= TRAVEL_BLOCK_CHAR_CAP) return block;
+
+    // The cap holds. If names are very long, hard truncate — the header line
+    // carries the load-bearing facts (which leg, which destinations, which mode).
+    return block.slice(0, TRAVEL_BLOCK_CHAR_CAP);
 }
 
 /**

@@ -1,9 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Plus, MapPin, Trash2, Search, Navigation, BookOpen } from 'lucide-react';
+import { X, Plus, MapPin, Trash2, Search, Navigation, BookOpen, Compass } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import type { LocationEntry } from '../types';
 import { connectionBand } from '../services/locationParser';
 import type { DistanceBand } from '../services/location/distance';
+import { DISTANCE_BANDS } from '../services/location/distance';
+import { TRAVEL_MODES, type TravelMode } from '../services/location/travelModes';
+import { buildDepartureSentence } from '../services/turn/travelState';
 import { LocationSuggestionsPanel } from './location-ledger/LocationSuggestionsPanel';
 import { LocationEditForm } from './location-ledger/LocationEditForm';
 import { filterLocations } from '../utils/ledgerFilters';
@@ -38,6 +41,8 @@ export function LocationLedgerModal() {
         context,
         updateContext,
     } = useAppStore();
+    const injectToComposer = useAppStore(s => s.injectToComposer);
+    const setPendingTravelIntent = useAppStore(s => s.setPendingTravelIntent);
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
@@ -48,6 +53,13 @@ export function LocationLedgerModal() {
     const [newConnectionTo, setNewConnectionTo] = useState('');
     const [newConnectionBand, setNewConnectionBand] = useState<DistanceBand>('local');
     const [newConnectionNote, setNewConnectionNote] = useState('');
+    // WO3 §5 — TRAVEL HERE departure flow. `travelTargetId` is the place the
+    // player clicked TRAVEL HERE on; the inline panel shows a band picker
+    // (only when no direct connection exists) + a mode dropdown, and a
+    // confirm that composes the departure sentence without sending.
+    const [travelTargetId, setTravelTargetId] = useState<string | null>(null);
+    const [travelBand, setTravelBand] = useState<DistanceBand>('regional');
+    const [travelMode, setTravelMode] = useState<TravelMode>('foot');
 
     const displayed = useMemo(() => filterLocations(locationLedger, searchQuery), [locationLedger, searchQuery]);
 
@@ -155,6 +167,73 @@ export function LocationLedgerModal() {
 
     const handleSetAsCurrent = (loc: LocationEntry) => {
         updateContext({ currentPlaceId: loc.id, currentFeature: null });
+    };
+
+    // ── WO3 §5 — TRAVEL HERE departure flow ───────────────────────────────
+    // `TRAVEL HERE` is available on any place that is not the current place and
+    // is not a transit node. Clicking it opens an inline panel with a band
+    // picker (only when no direct connection exists) + a mode dropdown. The
+    // confirm composes a sentence into the composer and sets a pending travel
+    // intent; the composer is the confirmation — no modal confirm step.
+    const handleTravelHere = (loc: LocationEntry) => {
+        if (loc.id === context.currentPlaceId) return;
+        if (loc.kind === 'transit') return;
+        setTravelTargetId(loc.id);
+        const hasConnection = locationLedger.some(
+            l => l.id === context.currentPlaceId && l.connections.some(c => c.toId === loc.id),
+        );
+        setTravelBand(hasConnection ? 'regional' : 'regional');
+        setTravelMode(context.travelMode ?? 'foot');
+    };
+
+    const handleConfirmTravel = () => {
+        if (!travelTargetId) return;
+        const target = locationLedger.find(l => l.id === travelTargetId);
+        if (!target) return;
+        const fromId = context.currentPlaceId;
+        if (!fromId) return;
+        const from = locationLedger.find(l => l.id === fromId);
+        if (!from) return;
+
+        // Ensure a direct connection exists at the chosen band (bidirectional).
+        const hasConn = from.connections.some(c => c.toId === travelTargetId);
+        let bandToUse = travelBand;
+        if (hasConn) {
+            const existing = from.connections.find(c => c.toId === travelTargetId)!;
+            bandToUse = connectionBand(existing);
+        } else {
+            // Create bidirectional connection at the picked band.
+            updateLocation(fromId, {
+                connections: [...from.connections, { toId: travelTargetId, band: bandToUse }],
+            });
+            const reciprocal = target.connections.some(c => c.toId === fromId);
+            updateLocation(travelTargetId, {
+                connections: reciprocal
+                    ? target.connections.map(c => c.toId === fromId ? { ...c, band: bandToUse } : c)
+                    : [...target.connections, { toId: fromId, band: bandToUse }],
+            });
+        }
+
+        // Remember the mode choice.
+        updateContext({ travelMode: travelMode });
+
+        // Compose, do not send. The composer is the confirmation.
+        const sentence = buildDepartureSentence(target.name, travelMode);
+        injectToComposer(sentence);
+        setPendingTravelIntent({
+            toId: travelTargetId,
+            mode: travelMode,
+            agency: 'free',
+            injectedText: sentence,
+        });
+
+        // Close the modal + reset the travel panel.
+        setTravelTargetId(null);
+        toggleLocationLedger();
+    };
+
+    const handleCancelTravel = () => {
+        setTravelTargetId(null);
     };
 
     const handleAddConnection = () => {
@@ -324,6 +403,7 @@ export function LocationLedgerModal() {
                         {displayed.length > 0 && displayed.map(loc => {
                             const isActive = selectedId === loc.id && !isEditing;
                             const isCurrent = context.currentPlaceId === loc.id;
+                            const canTravelHere = context.currentPlaceId && loc.id !== context.currentPlaceId && loc.kind !== 'transit';
                             return (
                                 <div
                                     key={loc.id}
@@ -336,6 +416,7 @@ export function LocationLedgerModal() {
                                             <p className={`text-sm font-bold truncate ${isActive ? 'text-terminal glow-green-sm' : 'text-text-primary'}`}>
                                                 {loc.name}
                                                 {isCurrent && <span className="text-[9px] text-terminal ml-1">●</span>}
+                                                {loc.kind === 'transit' && <span className="text-[9px] text-text-dim ml-1">road</span>}
                                             </p>
                                             <div className="flex items-center gap-1 text-[10px] mt-0.5 text-text-dim truncate">
                                                 {loc.broadLocation && <span className="bg-terminal/10 text-terminal px-1 rounded uppercase">{loc.broadLocation}</span>}
@@ -343,6 +424,15 @@ export function LocationLedgerModal() {
                                             </div>
                                         </div>
                                     </div>
+                                    {canTravelHere && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleTravelHere(loc); }}
+                                            title="Travel here"
+                                            className="p-1.5 text-text-dim hover:text-terminal hover:bg-terminal/10 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
+                                        >
+                                            <Compass size={12} />
+                                        </button>
+                                    )}
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleSetAsCurrent(loc); }}
                                         title="Set as current place"
@@ -360,6 +450,73 @@ export function LocationLedgerModal() {
                             );
                         })}
                     </div>
+
+                    {/* WO3 §5 — TRAVEL HERE inline departure panel. Shown when the
+                        player clicked TRAVEL HERE on a place. Band picker only
+                        appears when no direct connection exists; mode dropdown
+                        always appears. Confirm composes the sentence and closes. */}
+                    {travelTargetId && (
+                        <div className="border-t border-border bg-void p-3 space-y-2 shrink-0">
+                            <div className="flex items-center gap-2 text-terminal text-[10px] uppercase tracking-wider font-bold">
+                                <Compass size={12} />
+                                {(() => {
+                                    const fromId = context.currentPlaceId;
+                                    const from = locationLedger.find(l => l.id === fromId);
+                                    return from && from.connections.some(c => c.toId === travelTargetId)
+                                        ? 'Confirm departure'
+                                        : 'How far is it?';
+                                })()}
+                            </div>
+                            {(() => {
+                                const fromId = context.currentPlaceId;
+                                const from = locationLedger.find(l => l.id === fromId);
+                                const hasConn = from && from.connections.some(c => c.toId === travelTargetId);
+                                if (hasConn) return null;
+                                return (
+                                    <label className="block text-[10px] uppercase tracking-wider text-text-dim">
+                                        Distance band
+                                        <select
+                                            value={travelBand}
+                                            onChange={e => setTravelBand(e.target.value as DistanceBand)}
+                                            className="mt-1 w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-terminal transition-colors"
+                                        >
+                                            {DISTANCE_BANDS
+                                                .filter(b => b.id !== 'adjacent')
+                                                .map(({ id, label }) => (
+                                                    <option key={id} value={id}>{label}</option>
+                                                ))}
+                                        </select>
+                                    </label>
+                                );
+                            })()}
+                            <label className="block text-[10px] uppercase tracking-wider text-text-dim">
+                                Travel mode
+                                <select
+                                    value={travelMode}
+                                    onChange={e => setTravelMode(e.target.value as TravelMode)}
+                                    className="mt-1 w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-terminal transition-colors"
+                                >
+                                    {TRAVEL_MODES.map(({ id, label, gridsPerDay }) => (
+                                        <option key={id} value={id}>{label} ({gridsPerDay} grids/day)</option>
+                                    ))}
+                                </select>
+                            </label>
+                            <div className="flex gap-2 pt-1">
+                                <button
+                                    onClick={handleConfirmTravel}
+                                    className="flex-1 px-3 py-1.5 border border-terminal bg-terminal/10 rounded text-[10px] uppercase tracking-wider text-terminal hover:bg-terminal/20 transition-colors"
+                                >
+                                    Compose departure
+                                </button>
+                                <button
+                                    onClick={handleCancelTravel}
+                                    className="px-3 py-1.5 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-text-primary transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Right Detail Pane */}

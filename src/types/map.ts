@@ -59,12 +59,6 @@ export type WorldMapGenerateResult = {
     biomeZones: BiomeZone[];
 };
 
-export type TravelState = {
-    playerPosition: { x: number; y: number };
-    travelMethod: string;
-    destination?: { x: number; y: number };
-};
-
 export type EngineSeed = {
     surpriseTypes: string[];
     surpriseTones: string[];

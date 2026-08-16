@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { runTurn } from '../services/turn/turnOrchestrator';
 import { commitPendingTurn, findRetryableMessage, persistPendingTurn } from '../services/turn/pendingCommit';
+import { commitTravelIntent, sentTextCommitsIntent, mergeUpserts } from '../services/turn/travelState';
 import { debouncedSaveCampaignState } from '../store/slices/campaignSlice';
 import type { InventoryProposal } from '../types';
 import type { useSceneContinue } from '../components/hooks/useSceneContinue';
@@ -198,6 +199,31 @@ export function useChatOperations({
         // swipe result still streaming in the background finishes and fills its
         // slot (the onDone guard drops it silently once commit fired).
         await commitPendingTurn().catch(e => console.warn('[ChatArea] commit failed:', e));
+
+        // WO3 §5 — consume a pending travel intent set by `TRAVEL HERE`. The
+        // composer is the confirmation: sending the injected sentence commits
+        // the departure; sending anything else drops the intent. `depart()`
+        // writes the transit node + connection, sets `context.travel`, and
+        // moves `currentPlaceId` to the transit node — all before `runTurn`
+        // gathers context, so the first travel turn's payload already carries
+        // the `[TRAVEL]` block.
+        const stNow = useAppStore.getState();
+        const pendingIntent = stNow.pendingTravelIntent;
+        if (pendingIntent) {
+            stNow.setPendingTravelIntent(null);
+            const fromId = stNow.context.currentPlaceId ?? null;
+            const ledger = stNow.locationLedger ?? [];
+            if (fromId && sentTextCommitsIntent(textToUse, pendingIntent)) {
+                const result = commitTravelIntent(pendingIntent, fromId, ledger);
+                if (result) {
+                    stNow.updateContext(result.contextPatch);
+                    if (result.ledgerUpsert && result.ledgerUpsert.length > 0) {
+                        stNow.setLocationLedger(mergeUpserts(ledger, result.ledgerUpsert));
+                    }
+                }
+            }
+        }
+
         const storyProvider = storeSnapshot.getActiveStoryEndpoint();
         if (!storyProvider) return;
         const useAskGmBrief = armedAskGmBrief?.campaignId === activeCampaignId ? armedAskGmBrief.text : undefined;

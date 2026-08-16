@@ -6,6 +6,7 @@ import type { LoreChunk, RuleChunkMeta } from './lore';
 import type { ArcRecord } from './arc';
 export type { ArcRecord };
 import type { LootTree } from './loot';
+import type { TravelMode } from '../services/location/travelModes';
 
 // WO-A rewrite 2 §2: PlayerCharacter is an NPCEntry-shaped record stored at
 // `context.playerCharacter`. It is NOT a row in `npcLedger`. `isPC` is vestigial
@@ -153,6 +154,22 @@ export type NotebookNote = {
     timestamp: number;
 };
 
+/** Active journey. Optional — a campaign that never travels is byte-identical
+ *  to one that does. Set by `depart`, advanced each committed turn, cleared on
+ *  `arrive` or when the fiction names an unrelated place (safety valve). */
+export type TravelState = {
+    fromId: string;
+    toId: string;
+    transitId: string;
+    mode: TravelMode;
+    /** 1-based: the leg being played this turn. */
+    leg: number;
+    totalLegs: number;
+    /** 'constrained' = bound, escorted, carried. A forced journey is a normal
+     *  journey with constrained agency — legs still apply. */
+    agency: 'free' | 'constrained';
+};
+
 export type GameContext = {
     loreRaw: string;
     rulesRaw: string;
@@ -230,6 +247,10 @@ export type GameContext = {
      * travel or deadlines simply never set it, and every consumer treats
      * `undefined` as "this campaign does not track time". */
     worldDay?: number;
+    /** Remembers the player's last travel-mode choice. Defaults to `'foot'`. */
+    travelMode?: TravelMode;
+    /** Active journey, or null/undefined when settled. */
+    travel?: TravelState | null;
     // ── Player Character (WO-A rewrite 2 §2 — D1: PC leaves npcLedger) ──
     // The PC is an NPCEntry-shaped record. `null` = no PC created yet. Persisted
     // as part of the campaign state JSON. Migration (services/character/migratePC.ts)

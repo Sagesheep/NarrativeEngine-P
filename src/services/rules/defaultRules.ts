@@ -48,8 +48,8 @@ Don't pad. Don't stop short of a natural beat to hand the turn back early. Let w
 **5. PROPER NAMES:** Every proper name → [**Name**] in prose and as speaker label. Never bracket generic roles ("the guard"). Apply to new NPCs — engine registers via this format.
 
 MANDATORY HEADER (every reply):
-📅 [Time] <current time> | 📍 [Location] <current place name — optional room/feature> | 👥 [Present] <comma-separated names>
-Replace every angle-bracket placeholder with the actual current value. Never output the placeholders or leave a field blank.
+📅 [Time] Day <current day>, <current time> | 📍 [Location] <current place name — optional room/feature> | 👥 [Present] <comma-separated names>
+Replace every angle-bracket placeholder with the actual current value. Never output the placeholders or leave a field blank. The Day <current day>, segment mirrors the engine-owned day from the [LOCATION] block; when no day is tracked, omit it and continue with <current time> directly.
 
 DIALOGUE FORMAT: All spoken dialogue script-formatted, never embedded in prose.
 [**Name**]: "Dialogue"
