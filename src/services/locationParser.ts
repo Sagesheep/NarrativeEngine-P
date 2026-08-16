@@ -19,6 +19,7 @@ import type { ChatMessage, ProviderConfig, EndpointConfig, LocationEntry, Locati
 import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
 import type { ModelRequest, ModelResponse } from './turn/hostFacade';
+import { DISTANCE_BANDS, type DistanceBand } from './location/distance';
 
 export type LocationScanResult = {
     ledger: LocationEntry[];            // updated ledger (features/connections merged into existing entries)
@@ -237,12 +238,12 @@ export function applyLocationOps(
                 if (target.connections.length >= MAX_CONNECTIONS) break;
                 // Forward A→B
                 if (!target.connections.some(c => c.toId === other.id)) {
-                    target.connections.push({ toId: other.id, band: 'short' });
+                    target.connections.push({ toId: other.id, band: 'local' });
                 }
                 // Reverse B→A (bidirectional default) — only if B has room
                 if (other.connections.length < MAX_CONNECTIONS) {
                     if (!other.connections.some(c => c.toId === target.id)) {
-                        other.connections.push({ toId: target.id, band: 'short' });
+                        other.connections.push({ toId: target.id, band: 'local' });
                     }
                 }
             }
@@ -324,7 +325,10 @@ export function mergeLocationScanLedger(
     return changed ? merged : live;
 }
 /** Helper used by the [LOCATION] volatile block + modal: find a connection's
- *  band label, falling back to 'short' when unset. */
-export function connectionBand(c: LocationConnection): 'adjacent' | 'short' | 'long' {
-    return c.band ?? 'short';
+ *  normalized band, lazily migrating legacy values without writing them back. */
+export function connectionBand(c: LocationConnection): DistanceBand {
+    const raw = c.band as string | undefined;
+    if (raw === 'short' || raw === undefined) return 'local';
+    if (raw === 'long') return 'far';
+    return DISTANCE_BANDS.some(b => b.id === raw) ? raw as DistanceBand : 'local';
 }

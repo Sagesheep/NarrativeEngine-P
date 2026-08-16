@@ -58,11 +58,11 @@ export function LocationSuggestionsPanel({ suggestions }: Props) {
         if (sug.connectedTo) {
             const other = resolveByNameOrAlias(sug.connectedTo, locationLedger);
             if (other && other.id !== newEntry.id) {
-                newEntry.connections.push({ toId: other.id, band: 'short' });
+                newEntry.connections.push({ toId: other.id, band: 'local' });
                 // Bidirectional default: back-link the other entry too
                 if (!other.connections.some(c => c.toId === newEntry.id)) {
                     updateLocation(other.id, {
-                        connections: [...other.connections, { toId: newEntry.id, band: 'short' }],
+                        connections: [...other.connections, { toId: newEntry.id, band: 'local' }],
                     });
                 }
             }

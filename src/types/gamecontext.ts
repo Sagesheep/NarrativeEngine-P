@@ -226,6 +226,10 @@ export type GameContext = {
     //    absent on existing campaigns → undefined → "no current place".
     currentPlaceId?: string | null;
     currentFeature?: string | null;   // free-string feature within the current place
+    /** In-game day counter, 1-based. Optional: campaigns that never engage with
+     * travel or deadlines simply never set it, and every consumer treats
+     * `undefined` as "this campaign does not track time". */
+    worldDay?: number;
     // ── Player Character (WO-A rewrite 2 §2 — D1: PC leaves npcLedger) ──
     // The PC is an NPCEntry-shaped record. `null` = no PC created yet. Persisted
     // as part of the campaign state JSON. Migration (services/character/migratePC.ts)

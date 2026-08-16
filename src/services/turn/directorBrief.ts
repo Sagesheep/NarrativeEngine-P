@@ -195,6 +195,9 @@ VERIFIED FACTS (do not re-derive; act on them):
 <recent_events>
 {recentEvents}
 </recent_events>
+<world_facts>
+{worldFacts}
+</world_facts>
 
 Use the supplied context as your complete evidence. Do not invent canon, unseen actions, private knowledge, motives, injuries, or social harm. Do not turn a clever, lawful, or tactically sound player action into a moral failing merely to create friction.
 
@@ -217,13 +220,15 @@ export function renderDirectorPrompt(input: {
     userMessage: string;
     npcSummary: string;
     recentEvents: string;
+    worldFacts?: string[];
 }): string {
     return DIRECTOR_PROMPT_TEMPLATE
         .replace('{dossierText}', input.dossierText)
         .replace('{lastAssistant}', input.lastAssistant)
         .replace('{userMessage}', input.userMessage)
         .replace('{npcSummary}', input.npcSummary)
-        .replace('{recentEvents}', input.recentEvents);
+        .replace('{recentEvents}', input.recentEvents)
+        .replace('{worldFacts}', input.worldFacts?.length ? input.worldFacts.join('\n') : '(none)');
 }
 
 // ── Output parsing ──────────────────────────────────────────────────────────
@@ -294,6 +299,10 @@ export interface DirectorBriefInput {
     onStageNpcIds?: string[];
     /** Timeline events from `state.timeline`. */
     timeline?: TimelineEvent[];
+    /** Hard-world facts supplied by upstream systems for the Director to audit
+     * against. Rendered verbatim into VERIFIED FACTS. Generic by design — travel
+     * is the first caller, not the only one. */
+    worldFacts?: string[];
     /** Campaign id for the once-per-input cache key. */
     campaignId: string | null;
     /** Auxiliary-endpoint resolver (mirrors `getFreshAuxiliaryProvider`). */
@@ -368,6 +377,7 @@ export async function runDirectorBrief(input: DirectorBriefInput): Promise<strin
             userMessage: input.userMessage,
             npcSummary,
             recentEvents,
+            worldFacts: input.worldFacts,
         });
 
         const raw = input.modelCall

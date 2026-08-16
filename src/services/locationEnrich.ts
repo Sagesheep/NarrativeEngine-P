@@ -15,7 +15,7 @@
 import type { ChatMessage, ProviderConfig, EndpointConfig, LocationEntry } from '../types';
 import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
-import { resolvePlace } from './locationParser';
+import { connectionBand, resolvePlace } from './locationParser';
 import { useAppStore } from '../store/useAppStore';
 import { tierAllows } from './turn/aiTier';
 import { toast } from '../components/Toast';
@@ -85,7 +85,7 @@ export function sanitizeEnrichPatch(
             if (!other || other.id === entry.id) continue;
             if (conns.some(c => c.toId === other.id)) continue;
             if (conns.length >= MAX_CONNECTIONS) break;
-            conns.push({ toId: other.id, band: 'short' });
+            conns.push({ toId: other.id, band: 'local' });
         }
         if (conns.length > entry.connections.length) patch.connections = conns;
     }
@@ -197,7 +197,7 @@ export function queueLocationEnrichment(entryId: string): void {
                 const other = after.locationLedger.find(l => l.id === conn.toId);
                 if (other && !other.connections.some(c => c.toId === entryId)) {
                     after.updateLocation(other.id, {
-                        connections: [...other.connections, { toId: entryId, band: conn.band ?? 'short' }],
+                        connections: [...other.connections, { toId: entryId, band: connectionBand(conn) }],
                     });
                 }
             }

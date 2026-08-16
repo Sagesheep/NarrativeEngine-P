@@ -246,12 +246,16 @@ describe('resolvePlace', () => {
 // ── connectionBand (exported helper) ───────────────────────────────────
 
 describe('connectionBand', () => {
-    it('returns the band when set', () => {
+    it('returns an authored band when set', () => {
         expect(connectionBand({ toId: 'x', band: 'adjacent' })).toBe('adjacent');
-        expect(connectionBand({ toId: 'x', band: 'long' })).toBe('long');
+        expect(connectionBand({ toId: 'x', band: 'regional' })).toBe('regional');
     });
-    it('defaults to "short" when unset', () => {
-        expect(connectionBand({ toId: 'x' })).toBe('short');
+    it('lazily migrates legacy long to far', () => {
+        const legacyLong = 'long' as unknown as LocationEntry['connections'][number]['band'];
+        expect(connectionBand({ toId: 'x', band: legacyLong })).toBe('far');
+    });
+    it('defaults to local when unset', () => {
+        expect(connectionBand({ toId: 'x' })).toBe('local');
     });
 });
 
@@ -288,6 +292,17 @@ describe('buildLocationBlock', () => {
         expect(block).toContain('A ninja training school.');
         expect(block).toContain('Nearby: Barracks (adjacent), Shrine');
         expect(block).toContain('Known rooms/features: Class A, training yard');
+    });
+
+    it('renders band ranges in Nearby', () => {
+        const a = makeEntry({
+            id: 'loc_a',
+            connections: [{ toId: 'loc_b', band: 'far' }, { toId: 'loc_c' }],
+        });
+        const b = makeEntry({ id: 'loc_b', name: 'Ravenhold' });
+        const c = makeEntry({ id: 'loc_c', name: 'Ashfen Deep' });
+        const block = buildLocationBlock(makeCtx({ currentPlaceId: 'loc_a' }), [a, b, c]);
+        expect(block).toContain('Nearby: Ravenhold (far, 6–10d), Ashfen Deep');
     });
 
     it('status suffix appears when set', () => {

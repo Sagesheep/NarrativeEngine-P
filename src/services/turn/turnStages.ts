@@ -35,6 +35,7 @@ import { extractAndStripSceneStakes } from './sceneStakesTag';
 import { capturePendingTurnSnapshot } from './pendingCommit';
 import { buildWatchdogDossier } from './directorWatchdog';
 import { runDirectorBrief, lastAssistantContent } from './directorBrief';
+import { buildTravelFacts } from './travelFacts';
 import type { TurnContext } from './turnContext';
 import type { GatheredContext } from './contextGatherer';
 import type { TurnState, TurnCallbacks } from './turnOrchestrator';
@@ -256,6 +257,12 @@ export async function runDirectorStage(
     callbacks.setPipelinePhase?.('building-prompt');
     callbacks.setLoadingStatus?.('Architecting AI Prompt...');
 
+    const locationState = callbacks.getFreshLocationState?.();
+    const worldFacts = buildTravelFacts(
+        locationState?.context ?? state.context,
+        locationState?.locationLedger ?? ctx.locationLedger,
+    );
+
     // Absolute Command v1: the player has issued a binding OOC instruction for this
     // turn. Skip the Director entirely — both the blocking LLM call and the
     // deterministic watchdog nudge exist to steer the GM, which is precisely what the
@@ -265,6 +272,7 @@ export async function runDirectorStage(
     // tierAllows check below is untouched — Absolute Command works on every tier,
     // including `lite` (which has no Director anyway).
     if (state.absoluteCommand) {
+        ctx.worldFacts = worldFacts;
         return;
     }
 
@@ -315,6 +323,7 @@ export async function runDirectorStage(
                 npcLedger,
                 onStageNpcIds: facade?.data.onStageNpcIds ?? state.onStageNpcIds,
                 timeline: facade?.data.timeline ?? state.timeline,
+                ...(worldFacts.length > 0 ? { worldFacts } : {}),
                 campaignId: facade?.data.activeCampaignId ?? state.activeCampaignId,
                 getAuxiliaryProvider: facade ? undefined : state.getFreshAuxiliaryProvider,
                 signal: directorSignal,
@@ -338,6 +347,7 @@ export async function runDirectorStage(
         }
     }
 
+    ctx.worldFacts = worldFacts;
     ctx.watchdogNudge = watchdogNudge;
     ctx.directorBrief = directorBrief ?? undefined;
 }
@@ -462,6 +472,7 @@ export function buildTurnPayload(
         pinnedExcerpts: state.pinnedExcerpts,
         // plannerEventTypes omitted — recomputed inside buildWorld.
         locationLedger: ctx.locationLedger,
+        ...(ctx.worldFacts && ctx.worldFacts.length > 0 ? { directorWorldFacts: ctx.worldFacts } : {}),
         nextTurnOocBrief: state.nextTurnOocBrief,
         watchdogNudge: ctx.watchdogNudge,
         directorBrief: ctx.directorBrief,

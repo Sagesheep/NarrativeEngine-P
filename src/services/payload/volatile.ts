@@ -5,6 +5,7 @@ import { minifyBookkeepingStub, minifySelectedInventory, minifySelectedProfile }
 import { queryTraits, formatTraitsForContext } from '../retrieval/semanticMemory';
 import type { TraceCollector } from './traceCollector';
 import { connectionBand } from '../locationParser';
+import { formatDayRange } from '../location/distance';
 
 export function buildVolatile(opts: {
     context: GameContext;
@@ -17,8 +18,10 @@ export function buildVolatile(opts: {
     history?: ChatMessage[];
     npcLedger?: NPCEntry[];
     locationLedger?: LocationEntry[];
+    directorWorldFacts?: string[];
+    directorBrief?: string;
 }): { volatileContent: string; volatileTokens: number } {
-    const { context, inventoryCategories, profileFields, budgetVolatile, collector, plannerEventTypes, userMessage, history, npcLedger, locationLedger } = opts;
+    const { context, inventoryCategories, profileFields, budgetVolatile, collector, plannerEventTypes, userMessage, history, npcLedger, locationLedger, directorWorldFacts, directorBrief } = opts;
 
     // --- 5. Volatile State (Profile, Inventory) — Smart Injection ---
     // WO-I: capture each module's text so we can emit per-module trace rows with previews
@@ -150,6 +153,13 @@ export function buildVolatile(opts: {
     if (profileBlock) collector.addTrace({ source: 'Player Profile', classification: 'volatile_state', tokens: countTokens(profileBlock), reason: hasSmart ? 'Recommender-selected profile fields' : 'Scene-selected PC traits', included: true, position: 'system_dynamic', preview: profileBlock });
     if (notebookBlock) collector.addTrace({ source: 'Scene Notebook', classification: 'volatile_state', tokens: countTokens(notebookBlock), reason: 'Volatile working memory notebook', included: true, position: 'system_dynamic', preview: notebookBlock });
     if (locationBlock) collector.addTrace({ source: 'Location', classification: 'volatile_state', tokens: countTokens(locationBlock), reason: 'Current place + nearby connections + known features', included: true, position: 'system_dynamic', preview: locationBlock });
+    if (directorWorldFacts && directorWorldFacts.length > 0) {
+        const worldFactsText = directorWorldFacts.join('\n');
+        const currentPlace = context.currentPlaceId ? locationLedger?.find(place => place.id === context.currentPlaceId) : undefined;
+        const travelTrace = `[travel-spike] day=${context.worldDay} at=${currentPlace?.name ?? '?'} facts=${directorWorldFacts.length} directorBrief=${directorBrief ? 'yes' : 'no'}`;
+        collector.addTrace({ source: travelTrace, classification: 'world_context', tokens: countTokens(worldFactsText), reason: 'Travel facts supplied to the Continuity Director', included: true, position: 'director_brief', preview: `<world_facts>\n${worldFactsText}\n</world_facts>` });
+        collector.addSection({ label: 'Director world_facts', role: 'utility', tokens: countTokens(worldFactsText), content: `<world_facts>\n${worldFactsText}\n</world_facts>`, classification: 'world_context' });
+    }
     collector.addSection({ label: 'Profile/Inventory', role: 'system', tokens: volatileTokens, content: volatileContent, classification: 'volatile_state' });
 
     return { volatileContent, volatileTokens };
@@ -160,7 +170,7 @@ export function buildVolatile(opts: {
 //   [LOCATION]
 //   At: <name> (<broadLocation>)<currentFeature ? ` — <feature>` : ''><status ? ` — <status>` : ''>
 //   <description>
-//   Nearby: <connection names, band in parens when not 'short', comma-separated>
+//   Nearby: <connection names, band in parens when not local, comma-separated>
 //   Known rooms/features: <features, comma-separated>
 //
 // Hard cap ~400 chars. Truncate `features` first (drop entries from the end), then `Nearby`.
@@ -177,13 +187,18 @@ export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]
     const statusSuffix = place.status ? ` — ${place.status}` : '';
     const header = `At: ${place.name} (${place.broadLocation || '?'})${featureSuffix}${statusSuffix}`;
 
-    // Nearby: connection names with band in parens when band !== 'short'
+    // Nearby: local remains bare; every other band teaches the scale and its
+    // baseline day range. Legacy short values normalize to local above.
     const nearbyParts: string[] = [];
     for (const conn of place.connections) {
         const other = ledger.find(l => l.id === conn.toId);
         if (!other) continue;
         const band = connectionBand(conn);
-        nearbyParts.push(band === 'short' ? other.name : `${other.name} (${band})`);
+        nearbyParts.push(band === 'local'
+            ? other.name
+            : band === 'adjacent'
+                ? `${other.name} (${band})`
+                : `${other.name} (${band}, ${formatDayRange(band).replace(' days', 'd').replace(' day', 'd')})`);
     }
     const nearbyLine = nearbyParts.length > 0 ? `Nearby: ${nearbyParts.join(', ')}` : '';
 

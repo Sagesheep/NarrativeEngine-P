@@ -667,12 +667,22 @@ describe('renderDirectorPrompt', () => {
             userMessage: 'USER_MSG',
             npcSummary: 'NPC_SUMMARY',
             recentEvents: 'EVENTS',
+            worldFacts: ['WORLD_FACT'],
         });
         expect(prompt).toContain('<watchdog_dossier>\nDOSSIER\n</watchdog_dossier>');
         expect(prompt).toContain('<previous_gm_turn>\nLAST_GM\n</previous_gm_turn>');
         expect(prompt).toContain('<player_input>\nUSER_MSG\n</player_input>');
         expect(prompt).toContain('<active_npcs>\nNPC_SUMMARY\n</active_npcs>');
         expect(prompt).toContain('<recent_events>\nEVENTS\n</recent_events>');
+        expect(prompt).toContain('<world_facts>\nWORLD_FACT\n</world_facts>');
+    });
+
+    it('uses (none) for absent world facts and never leaves the slot unsubstituted', () => {
+        const prompt = renderDirectorPrompt({
+            dossierText: '', lastAssistant: '', userMessage: '', npcSummary: '', recentEvents: '',
+        });
+        expect(prompt).toContain('<world_facts>\n(none)\n</world_facts>');
+        expect(prompt).not.toContain('{worldFacts}');
     });
 
     it('contains the continuity-first consideration steps and output contract', () => {

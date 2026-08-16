@@ -1,5 +1,7 @@
 import { Link2, Trash2, X } from 'lucide-react';
 import type { LocationEntry, LocationConnection } from '../../types';
+import { connectionBand } from '../../services/locationParser';
+import { DISTANCE_BANDS, type DistanceBand } from '../../services/location/distance';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
     return (
@@ -24,8 +26,8 @@ type Props = {
     setFeaturesDraft: React.Dispatch<React.SetStateAction<string>>;
     newConnectionTo: string;
     setNewConnectionTo: React.Dispatch<React.SetStateAction<string>>;
-    newConnectionBand: 'adjacent' | 'short' | 'long';
-    setNewConnectionBand: React.Dispatch<React.SetStateAction<'adjacent' | 'short' | 'long'>>;
+    newConnectionBand: DistanceBand;
+    setNewConnectionBand: React.Dispatch<React.SetStateAction<DistanceBand>>;
     newConnectionNote: string;
     setNewConnectionNote: React.Dispatch<React.SetStateAction<string>>;
     locationLedger: LocationEntry[];
@@ -175,7 +177,7 @@ export function LocationEditForm({
             {/* Connections */}
             <Field label="Connections">
                 <div className="space-y-2">
-                    {(renderedForm.connections ?? []).length > 0 && (
+                    {(renderedForm.connections ?? []).length > 0 ? (
                         <div className="space-y-1">
                             {(renderedForm.connections ?? []).map((c: LocationConnection) => {
                                 const other = locationLedger.find(l => l.id === c.toId);
@@ -184,12 +186,13 @@ export function LocationEditForm({
                                         <Link2 size={11} className="text-text-dim shrink-0" />
                                         <span className="flex-1 truncate">
                                             {other?.name ?? c.toId}
-                                            <span className="text-text-dim text-[10px] ml-1">({c.band ?? 'short'})</span>
+                                            <span className="text-text-dim text-[10px] ml-1">({connectionBand(c)})</span>
                                             {c.note && <span className="text-text-dim text-[10px] ml-1">— {c.note}</span>}
                                         </span>
                                         {isEditing && (
                                             <button
                                                 onClick={() => onRemoveConnection(c.toId)}
+                                                aria-label={`Remove connection to ${other?.name ?? c.toId}`}
                                                 className="text-text-dim hover:text-danger shrink-0"
                                             >
                                                 <X size={11} />
@@ -199,7 +202,11 @@ export function LocationEditForm({
                                 );
                             })}
                         </div>
-                    )}
+                    ) : !isEditing ? (
+                        <p className="text-[10px] text-text-dim/60 italic">
+                            No connections recorded.
+                        </p>
+                    ) : null}
                     {isEditing && (
                         <div className="flex flex-col sm:flex-row gap-2">
                             <select
@@ -216,13 +223,14 @@ export function LocationEditForm({
                             </select>
                             <select
                                 value={newConnectionBand}
-                                onChange={e => setNewConnectionBand(e.target.value as 'adjacent' | 'short' | 'long')}
+                                onChange={e => setNewConnectionBand(e.target.value as DistanceBand)}
                                 className="bg-void border border-border rounded px-2 py-1.5 text-xs text-text-primary"
                             >
-                                <option value="adjacent">adjacent</option>
-                                <option value="short">short</option>
-                                <option value="long">long</option>
+                                {DISTANCE_BANDS.map(({ id, label }) => (
+                                    <option key={id} value={id}>{label}</option>
+                                ))}
                             </select>
+
                             <input
                                 type="text"
                                 value={newConnectionNote}

@@ -34,7 +34,7 @@ describe('sanitizeEnrichPatch', () => {
         expect(patch.broadLocation).toBe('Konoha');
         expect(patch.aliases).toBe('home, the house');
         expect(patch.features).toEqual(['kitchen', 'balcony']);
-        expect(patch.connections).toEqual([{ toId: 'loc_street', band: 'short' }]);
+        expect(patch.connections).toEqual([{ toId: 'loc_street', band: 'local' }]);
     });
 
     it('never overwrites fields the player already filled', () => {
@@ -57,7 +57,7 @@ describe('sanitizeEnrichPatch', () => {
         const patch = sanitizeEnrichPatch({
             connections: ['the academy', "MC's House", 'Atlantis', 'the academy'],
         }, shell, LEDGER);
-        expect(patch.connections).toEqual([{ toId: 'loc_academy', band: 'short' }]);
+        expect(patch.connections).toEqual([{ toId: 'loc_academy', band: 'local' }]);
     });
 
     it('tolerates garbage shapes without throwing', () => {

@@ -1,0 +1,137 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { LocationLedgerModal } from '../LocationLedgerModal';
+import { normalizeLocationIds } from '../../utils/locationIds';
+import { useAppStore } from '../../store/useAppStore';
+import type { LocationEntry } from '../../types';
+
+function makeLocation(id: string, name: string): LocationEntry {
+    return {
+        id,
+        name,
+        aliases: '',
+        broadLocation: '',
+        features: [],
+        connections: [],
+        description: '',
+        firstSeenScene: '1',
+        lastSeenScene: '1',
+        source: 'manual',
+    };
+}
+
+function saveNewLocation(name: string) {
+    fireEvent.click(screen.getByRole('button', { name: 'New Place' }));
+    fireEvent.change(screen.getByPlaceholderText('Ninja Academy'), { target: { value: name } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+}
+
+describe('LocationLedgerModal', () => {
+    beforeEach(() => {
+        useAppStore.setState({
+            locationLedgerOpen: true,
+            locationLedger: [],
+        });
+    });
+
+    afterEach(() => {
+        cleanup();
+        useAppStore.setState({
+            locationLedgerOpen: false,
+            locationLedger: [],
+        });
+    });
+
+    it('keeps the saved place selected after creating and connecting two places', () => {
+        render(<LocationLedgerModal />);
+
+        saveNewLocation('Point A');
+
+        expect(screen.getByText('No connections recorded.')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Place Details' })).toBeInTheDocument();
+
+        saveNewLocation('Point B');
+        expect(screen.getByRole('heading', { name: 'Place Details' })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByText('Point A'));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.change(screen.getByDisplayValue('Select place...'), { target: { value: useAppStore.getState().locationLedger.find(location => location.name === 'Point B')?.id } });
+        fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(screen.getByRole('heading', { name: 'Place Details' })).toBeInTheDocument();
+        expect(screen.getAllByText('Point B')).toHaveLength(2);
+
+        const pointA = useAppStore.getState().locationLedger.find(location => location.name === 'Point A');
+        const pointB = useAppStore.getState().locationLedger.find(location => location.name === 'Point B');
+        expect(pointA?.id).toBeTruthy();
+        expect(pointB?.id).toBeTruthy();
+        expect(pointA?.id).not.toBe(pointB?.id);
+        expect(pointA?.connections).toEqual(expect.arrayContaining([
+            expect.objectContaining({ toId: pointB?.id }),
+        ]));
+        expect(pointB?.connections).toEqual(expect.arrayContaining([
+            expect.objectContaining({ toId: pointA?.id }),
+        ]));
+
+    });
+
+
+    it('propagates a selected band onto an existing reciprocal connection', () => {
+        render(<LocationLedgerModal />);
+
+        saveNewLocation('Point A');
+        saveNewLocation('Point B');
+
+        const pointA = useAppStore.getState().locationLedger.find(location => location.name === 'Point A')!;
+        const pointB = useAppStore.getState().locationLedger.find(location => location.name === 'Point B')!;
+        useAppStore.getState().updateLocation(pointB.id, {
+            connections: [{ toId: pointA.id, band: 'local' }],
+        });
+
+        fireEvent.click(screen.getByText('Point A'));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        const selects = screen.getAllByRole('combobox');
+        fireEvent.change(selects[0], { target: { value: pointB.id } });
+        fireEvent.change(selects[1], { target: { value: 'regional' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+        const updatedPointB = useAppStore.getState().locationLedger.find(location => location.id === pointB.id)!;
+        expect(updatedPointB.connections).toEqual(expect.arrayContaining([
+            expect.objectContaining({ toId: pointA.id, band: 'regional' }),
+        ]));
+    });
+    it('removes a connection from the existing reciprocal location', () => {
+        render(<LocationLedgerModal />);
+
+        saveNewLocation('Point A');
+        saveNewLocation('Point B');
+
+        const pointB = useAppStore.getState().locationLedger.find(location => location.name === 'Point B')!;
+        fireEvent.click(screen.getByText('Point A'));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.change(screen.getByDisplayValue('Select place...'), { target: { value: pointB.id } });
+        fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Remove connection to Point B' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+        const pointAAfter = useAppStore.getState().locationLedger.find(location => location.name === 'Point A')!;
+        const pointBAfter = useAppStore.getState().locationLedger.find(location => location.name === 'Point B')!;
+        expect(pointAAfter.connections.some(connection => connection.toId === pointBAfter.id)).toBe(false);
+        expect(pointBAfter.connections.some(connection => connection.toId === pointAAfter.id)).toBe(false);
+    });
+    it('repairs legacy blank IDs so existing places can be selected', () => {
+        const locations = normalizeLocationIds([makeLocation('', 'Point A'), makeLocation('', 'Point B')]);
+        useAppStore.setState({ locationLedger: locations });
+        render(<LocationLedgerModal />);
+        expect(locations.every(location => location.id)).toBe(true);
+        expect(new Set(locations.map(location => location.id)).size).toBe(2);
+
+        fireEvent.click(screen.getAllByText('Point A')[0]);
+        expect(screen.getByRole('heading', { name: 'Place Details' })).toBeInTheDocument();
+    });
+});

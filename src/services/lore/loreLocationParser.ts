@@ -220,10 +220,10 @@ export function parseLocationsFromLore(chunks: LoreChunk[]): LocationEntry[] {
             const to = locations[toIndex];
             if (from.connections.length >= MAX_CONNECTIONS) break;
             if (!from.connections.some((c: LocationConnection) => c.toId === to.id)) {
-                from.connections.push({ toId: to.id, band: 'short' });
+                from.connections.push({ toId: to.id, band: 'local' });
             }
             if (to.connections.length < MAX_CONNECTIONS && !to.connections.some((c: LocationConnection) => c.toId === from.id)) {
-                to.connections.push({ toId: from.id, band: 'short' });
+                to.connections.push({ toId: from.id, band: 'local' });
             }
         }
     }

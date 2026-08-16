@@ -5,9 +5,11 @@
 // LocationLedgerModal. One pointer (currentPlaceId + optional currentFeature)
 // on GameContext tracks where the PC is right now.
 
+import type { DistanceBand } from '../services/location/distance';
+
 export type LocationConnection = {
     toId: string;                          // id of another LocationEntry
-    band?: 'adjacent' | 'short' | 'long';  // travel-distance texture; default 'short'
+    band?: DistanceBand;
     note?: string;                         // "locked at night", "guarded gate"
 };
 

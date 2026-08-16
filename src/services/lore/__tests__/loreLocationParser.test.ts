@@ -138,8 +138,8 @@ describe('parseLocationsFromLore — connections', () => {
             locChunk('LOCATION -- Caldera City', '**ConnectedTo:** [The Northern Marches]\nProse.'),
             locChunk('LOCATION -- The Northern Marches', 'Prose.'),
         ]);
-        expect(a.connections).toEqual([{ toId: b.id, band: 'short' }]);
-        expect(b.connections).toEqual([{ toId: a.id, band: 'short' }]);
+        expect(a.connections).toEqual([{ toId: b.id, band: 'local' }]);
+        expect(b.connections).toEqual([{ toId: a.id, band: 'local' }]);
     });
 
     it('resolves through an alias', () => {

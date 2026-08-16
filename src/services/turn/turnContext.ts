@@ -102,6 +102,8 @@ export type TurnContext = {
     watchdogNudge?: string;
     /** The LLM-authored Director Brief (or undefined on lite tier / failure). */
     directorBrief?: string;
+    /** Hard-world facts supplied to the Director and surfaced in debug traces. */
+    worldFacts?: string[];
 
     // ── Prompt interception (set by the interception stage) ───────────────
     /**

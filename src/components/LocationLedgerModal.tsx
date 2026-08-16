@@ -1,16 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Plus, MapPin, Trash2, Search, Navigation, BookOpen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import type { LocationEntry, LocationConnection } from '../types';
+import type { LocationEntry } from '../types';
+import { connectionBand } from '../services/locationParser';
+import type { DistanceBand } from '../services/location/distance';
 import { LocationSuggestionsPanel } from './location-ledger/LocationSuggestionsPanel';
 import { LocationEditForm } from './location-ledger/LocationEditForm';
 import { filterLocations } from '../utils/ledgerFilters';
 import { parseLocationsFromLore } from '../services/lore/loreLocationParser';
 import { resolvePlace } from '../services/locationParser';
-
-function newLocationId(): string {
-    return `loc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-}
+import { newLocationId, normalizeLocationIds } from '../utils/locationIds';
 
 const EMPTY_ENTRY: LocationEntry = {
     id: '',
@@ -47,10 +46,16 @@ export function LocationLedgerModal() {
     // Draft fields kept as comma-separated strings for the chip/field UX
     const [featuresDraft, setFeaturesDraft] = useState('');
     const [newConnectionTo, setNewConnectionTo] = useState('');
-    const [newConnectionBand, setNewConnectionBand] = useState<'adjacent' | 'short' | 'long'>('short');
+    const [newConnectionBand, setNewConnectionBand] = useState<DistanceBand>('local');
     const [newConnectionNote, setNewConnectionNote] = useState('');
 
     const displayed = useMemo(() => filterLocations(locationLedger, searchQuery), [locationLedger, searchQuery]);
+
+    useEffect(() => {
+        if (!locationLedgerOpen) return;
+        const normalized = normalizeLocationIds(locationLedger);
+        if (normalized !== locationLedger) setLocationLedger(normalized);
+    }, [locationLedgerOpen, locationLedger, setLocationLedger]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -67,7 +72,7 @@ export function LocationLedgerModal() {
         setForm({ ...loc });
         setFeaturesDraft(loc.features.join(', '));
         setNewConnectionTo('');
-        setNewConnectionBand('short');
+        setNewConnectionBand('local');
         setNewConnectionNote('');
         setIsEditing(false);
     };
@@ -85,7 +90,7 @@ export function LocationLedgerModal() {
         setForm({ ...EMPTY_ENTRY });
         setFeaturesDraft('');
         setNewConnectionTo('');
-        setNewConnectionBand('short');
+        setNewConnectionBand('local');
         setNewConnectionNote('');
         setIsEditing(true);
     };
@@ -98,7 +103,7 @@ export function LocationLedgerModal() {
             .filter(Boolean)
             .slice(0, 20);
         const payload: LocationEntry = {
-            id: selectedId ?? form.id ?? newLocationId(),
+            id: selectedId || form.id || newLocationId(),
             name: form.name!.trim(),
             aliases: (form.aliases ?? '').trim(),
             broadLocation: (form.broadLocation ?? '').trim(),
@@ -115,6 +120,11 @@ export function LocationLedgerModal() {
         } else {
             addLocation(payload);
         }
+
+        // Keep the saved place selected so the detail pane does not fall back to
+        // the empty state after creating or editing a location.
+        setSelectedId(payload.id);
+        setForm(payload);
         setIsEditing(false);
     };
 
@@ -152,20 +162,24 @@ export function LocationLedgerModal() {
         const other = locationLedger.find(l => l.id === newConnectionTo);
         if (!other || other.id === selectedId) return;
         const current = form.connections ?? [];
-        if (current.some(c => c.toId === other.id)) return;
-        const newConn: LocationConnection = {
+        const existing = current.find(c => c.toId === other.id);
+        const connection = existing ?? {
             toId: other.id,
             band: newConnectionBand,
             note: newConnectionNote.trim() || undefined,
         };
-        const updated = [...current, newConn];
-        setForm(prev => ({ ...prev, connections: updated }));
-        // Bidirectional default: back-link the other entry too if room and not present
-        if (other.connections.length < 8 && !other.connections.some(c => c.toId === selectedId)) {
-            updateLocation(other.id, {
-                connections: [...other.connections, { toId: selectedId, band: newConnectionBand, note: newConnectionNote.trim() || undefined }],
-            });
+        if (!existing) {
+            setForm(prev => ({ ...prev, connections: [...current, connection] }));
         }
+        // Connections are symmetric: keep an existing reciprocal entry in sync
+        // too, rather than leaving a stale default band on the other place.
+        const reciprocalBand = connectionBand(connection);
+        const reciprocalExists = other.connections.some(c => c.toId === selectedId);
+        updateLocation(other.id, {
+            connections: reciprocalExists
+                ? other.connections.map(c => c.toId === selectedId ? { ...c, band: reciprocalBand, ...(connection.note !== undefined ? { note: connection.note } : {}) } : c)
+                : [...other.connections, { toId: selectedId, band: reciprocalBand, note: connection.note }],
+        });
         setNewConnectionTo('');
         setNewConnectionNote('');
     };
@@ -174,6 +188,14 @@ export function LocationLedgerModal() {
         if (!selectedId) return;
         const updated = (form.connections ?? []).filter(c => c.toId !== toId);
         setForm(prev => ({ ...prev, connections: updated }));
+
+        // Connections are symmetric: remove the reciprocal entry as well.
+        const other = locationLedger.find(location => location.id === toId);
+        if (other && other.connections.some(c => c.toId === selectedId)) {
+            updateLocation(other.id, {
+                connections: other.connections.filter(c => c.toId !== selectedId),
+            });
+        }
     };
 
     const handleCancelEdit = () => {
@@ -258,6 +280,17 @@ export function LocationLedgerModal() {
                                 Current: <span className="text-terminal">{currentPlace.name}</span>
                             </div>
                         )}
+                        <label className="block text-[10px] uppercase tracking-wider text-text-dim">
+                            In-game day
+                            <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={context.worldDay ?? ''}
+                                onChange={e => updateContext({ worldDay: e.target.value === '' ? undefined : Number(e.target.value) })}
+                                className="mt-1 w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-terminal transition-colors"
+                            />
+                        </label>
                     </div>
 
                     {!searchQuery.trim() && locationSuggestions && locationSuggestions.length > 0 && (
