@@ -1,6 +1,7 @@
 import { solveWorldMap } from './solver.js';
 import { mountMapRenderer } from './renderer.js';
 import {
+    ChunkStore,
     biomeAt,
     buildWarpField,
     deserializeHardened,
@@ -13,6 +14,9 @@ const reportsByCampaign = new Map();
 const reportListeners = new Set();
 const mapPaintListeners = new Set();
 const hardenedByCampaign = new Map();
+const chunkStoreByCampaign = new Map();
+const worldVersionByCampaign = new Map();
+const snapshotCacheByCampaign = new Map();
 let solveQueue = Promise.resolve();
 
 function validSettings(value) {
@@ -57,8 +61,36 @@ async function ensureSettings(ctx) {
     return settings;
 }
 
+function worldVersion(campaignId) {
+    return worldVersionByCampaign.get(campaignId) ?? 0;
+}
+
+function bumpWorldVersion(campaignId) {
+    const next = (worldVersionByCampaign.get(campaignId) ?? 0) + 1;
+    worldVersionByCampaign.set(campaignId, next);
+    snapshotCacheByCampaign.delete(campaignId);
+    const store = chunkStoreByCampaign.get(campaignId);
+    if (store) store.bumpWorldVersion();
+    return next;
+}
+
+function ensureChunkStore(campaignId, settings, controls, hardened) {
+    const existing = chunkStoreByCampaign.get(campaignId);
+    if (existing
+        && existing.worldSeed === settings.worldSeed
+        && existing.climateGradient === settings.climateGradient) {
+        existing.setControls(controls);
+        existing.hardened = hardened;
+        return existing;
+    }
+    const store = new ChunkStore(settings.worldSeed, settings.climateGradient, controls, hardened);
+    chunkStoreByCampaign.set(campaignId, store);
+    return store;
+}
+
 function publishResult(campaignId, result, settings) {
     reportsByCampaign.set(campaignId, { ...result, settings });
+    bumpWorldVersion(campaignId);
     for (const listener of reportListeners) listener(campaignId);
     for (const listener of mapPaintListeners) listener(campaignId);
 }
@@ -76,6 +108,7 @@ async function writeHardened(ctx, hardened) {
     const campaignId = fresh.data.campaignId;
     await fresh.table.write('visited', serializeHardened(hardened));
     hardenedByCampaign.set(campaignId, hardened);
+    bumpWorldVersion(campaignId);
     for (const listener of mapPaintListeners) listener(campaignId);
 }
 
@@ -191,7 +224,7 @@ function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
         button.disabled = true;
         button.textContent = 'Solving…';
         await queueSolve(ctx);
-        if (node.isConnected) paintReport(node, ctx);
+        if (node.isConnected) paintReport(node, ctx, campaignId);
     };
     button.addEventListener('click', onClick);
     node.append(button);
@@ -238,6 +271,22 @@ function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
 function mountReport(node, ctx) {
     let currentCampaignId = ctx.data.campaignId;
     let cleanupPaint = paintReport(node, ctx, currentCampaignId);
+
+    // `ctx.data` is a frozen snapshot taken when this context was built. For a
+    // window registered from `activate` that is cold start — before any campaign
+    // is open — so `campaignId` is null forever and the Solve button stays
+    // disabled. Re-read it live on mount, the same way `hardenCurrentCell` does.
+    // `subscribe` alone cannot cover this: it fires on *change*, and a campaign
+    // opened before this window was opened never changes again.
+    let disposed = false;
+    freshCampaignContext(ctx).then(fresh => {
+        const campaignId = fresh?.data.campaignId ?? null;
+        if (disposed || campaignId === currentCampaignId) return;
+        currentCampaignId = campaignId;
+        cleanupPaint?.();
+        cleanupPaint = paintReport(node, ctx, currentCampaignId);
+    });
+
     const repaint = campaignId => {
         if (campaignId !== currentCampaignId) return;
         cleanupPaint?.();
@@ -254,6 +303,7 @@ function mountReport(node, ctx) {
         cleanupPaint?.();
         unsubscribeCampaign();
         unsubscribeAnchors();
+        disposed = true;
         reportListeners.delete(repaint);
         node.replaceChildren();
     };
@@ -277,31 +327,62 @@ function registerReportWindow(ctx) {
     });
 }
 
-function mapSnapshot(ctx) {
+/**
+ * Build the snapshot the renderer reads. Memoised against `worldVersion`: two
+ * calls with no intervening world change return the *same object identity*
+ * (WORKORDER 5.3 §7), so the renderer's `terrainKey`/`getSnapshot` hot path
+ * becomes an integer compare instead of a `JSON.stringify` over every
+ * transect on every paint.
+ *
+ * The location ledger is indexed into a `Map` once per snapshot instead of
+ * the old O(anchors × ledger) `.find()` per anchor.
+ *
+ * Exported for the renderer-invariant test (`worldMapRenderer.test.js`) so the
+ * `getSnapshot()` identity contract (§11) can be asserted against the real
+ * memoisation, not a simulation of it.
+ */
+export function mapSnapshot(ctx) {
     const campaignId = ctx.data?.campaignId;
     const result = campaignId ? reportsByCampaign.get(campaignId) : null;
     if (!result) return null;
+    const version = worldVersion(campaignId);
+    const cached = snapshotCacheByCampaign.get(campaignId);
+    if (cached && cached.worldVersion === version) return cached.snapshot;
+
     const hardened = hardenedByCampaign.get(campaignId) ?? new Map();
+    const ledger = ctx.data?.location?.ledger ?? [];
+    const ledgerById = new Map(ledger.map(entry => [entry.id, entry]));
     const anchors = (result.anchors || []).map(anchor => {
-        const location = (ctx.data?.location?.ledger ?? []).find(entry => entry.id === anchor.locationId);
+        const location = ledgerById.get(anchor.locationId);
         return { ...anchor, name: location?.name ?? anchor.locationId };
     });
-    return {
+    const controls = buildWarpField(result.transects || []);
+    const chunkStore = ensureChunkStore(campaignId, result.settings, controls, hardened);
+    const snapshot = {
         anchors,
         transects: result.transects || [],
         connections: result.connections || [],
         settings: result.settings,
         hardened,
         locationId: ctx.data?.location?.currentPlaceId ?? null,
+        worldVersion: version,
+        chunkStore,
+        controls,
     };
+    snapshotCacheByCampaign.set(campaignId, { snapshot, worldVersion: version });
+    return snapshot;
 }
 
 function mountMap(node, ctx) {
     let cleanupRenderer = null;
+    // See the note in `mountReport`: `ctx.data` is a snapshot from activate-time
+    // cold start. `liveCtx` is swapped for a freshly-read context on mount, which
+    // is what makes place names and the current place resolve at all.
+    let liveCtx = ctx;
     let currentCampaignId = ctx.data.campaignId;
     const render = () => {
         if (cleanupRenderer) { cleanupRenderer(); cleanupRenderer = null; }
-        const snapshot = () => mapSnapshot(ctx);
+        const snapshot = () => mapSnapshot(liveCtx);
         if (!snapshot()) {
             node.replaceChildren();
             const placeholder = makeElement('p', 'No solve has completed for this campaign yet.', {
@@ -340,11 +421,16 @@ function mountMap(node, ctx) {
         hardenedByCampaign.set(currentCampaignId, await readHardened(ctx));
         repaint(currentCampaignId);
     });
-    readHardened(ctx).then(map => {
-        hardenedByCampaign.set(currentCampaignId, map);
-        render();
+    let disposed = false;
+    freshCampaignContext(ctx).then(async fresh => {
+        if (disposed || !fresh) return;
+        liveCtx = fresh;
+        currentCampaignId = fresh.data.campaignId;
+        hardenedByCampaign.set(currentCampaignId, await readHardened(fresh));
+        if (!disposed) render();
     });
     return () => {
+        disposed = true;
         if (cleanupRenderer) { cleanupRenderer(); cleanupRenderer = null; }
         mapPaintListeners.delete(repaint);
         unsubscribeCampaign();
