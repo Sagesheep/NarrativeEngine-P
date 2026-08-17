@@ -4,9 +4,9 @@ import { useAppStore } from '../store/useAppStore';
 import type { LocationEntry } from '../types';
 import { connectionBand } from '../services/locationParser';
 import type { DistanceBand } from '../services/location/distance';
-import { DISTANCE_BANDS } from '../services/location/distance';
-import { TRAVEL_MODES, type TravelMode } from '../services/location/travelModes';
-import { buildDepartureSentence } from '../services/turn/travelState';
+import { DISTANCE_BANDS, formatDayRangeForMode } from '../services/location/distance';
+import { TRAVEL_MODES, type TravelMode, gridsPerDayFor } from '../services/location/travelModes';
+import { composeDeparture } from '../services/turn/departureComposer';
 import { LocationSuggestionsPanel } from './location-ledger/LocationSuggestionsPanel';
 import { LocationEditForm } from './location-ledger/LocationEditForm';
 import { filterLocations } from '../utils/ledgerFilters';
@@ -197,36 +197,21 @@ export function LocationLedgerModal() {
         const from = locationLedger.find(l => l.id === fromId);
         if (!from) return;
 
-        // Ensure a direct connection exists at the chosen band (bidirectional).
-        const hasConn = from.connections.some(c => c.toId === travelTargetId);
-        let bandToUse = travelBand;
-        if (hasConn) {
-            const existing = from.connections.find(c => c.toId === travelTargetId)!;
-            bandToUse = connectionBand(existing);
-        } else {
-            // Create bidirectional connection at the picked band.
-            updateLocation(fromId, {
-                connections: [...from.connections, { toId: travelTargetId, band: bandToUse }],
-            });
-            const reciprocal = target.connections.some(c => c.toId === fromId);
-            updateLocation(travelTargetId, {
-                connections: reciprocal
-                    ? target.connections.map(c => c.toId === fromId ? { ...c, band: bandToUse } : c)
-                    : [...target.connections, { toId: fromId, band: bandToUse }],
-            });
-        }
-
-        // Remember the mode choice.
-        updateContext({ travelMode: travelMode });
-
-        // Compose, do not send. The composer is the confirmation.
-        const sentence = buildDepartureSentence(target.name, travelMode);
-        injectToComposer(sentence);
-        setPendingTravelIntent({
+        // WO 3.1 — shared path. Both the `TRAVEL HERE` row button and the
+        // composer `TRAVEL` button go through `composeDeparture`, so the
+        // injected sentence and the armed intent are byte-identical.
+        composeDeparture({
+            fromId,
             toId: travelTargetId,
             mode: travelMode,
-            agency: 'free',
-            injectedText: sentence,
+            band: travelBand,
+            ledger: locationLedger,
+            deps: {
+                updateLocation,
+                updateContext,
+                injectToComposer,
+                setPendingTravelIntent,
+            },
         });
 
         // Close the modal + reset the travel panel.
@@ -427,12 +412,19 @@ export function LocationLedgerModal() {
                                         </div>
                                     </div>
                                     {canTravelHere && (
+                                        // WO 3.1 §1 — the travel control is always
+                                        // visible (no hover-reveal) and carries a
+                                        // text label, not a bare glyph. The Places
+                                        // panel's primary action must be findable
+                                        // without hover, and reachable on touch.
                                         <button
                                             onClick={(e) => { e.stopPropagation(); handleTravelHere(loc); }}
-                                            title="Travel here"
-                                            className="p-1.5 text-text-dim hover:text-terminal hover:bg-terminal/10 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
+                                            title={`Travel to ${loc.name}`}
+                                            aria-label={`Travel to ${loc.name}`}
+                                            className="shrink-0 flex items-center gap-1 px-2 py-1 ml-1 text-[10px] uppercase tracking-wider border border-terminal/30 text-terminal rounded hover:bg-terminal/10 transition-colors"
                                         >
                                             <Compass size={12} />
+                                            <span>Travel</span>
                                         </button>
                                     )}
                                     <button
@@ -503,6 +495,24 @@ export function LocationLedgerModal() {
                                     ))}
                                 </select>
                             </label>
+                            {(() => {
+                                // WO 3.1 §3 — show the live day estimate for the
+                                // currently selected (band, mode). A cart and a
+                                // walker should visibly differ before the player
+                                // commits.
+                                const fromId = context.currentPlaceId;
+                                const from = locationLedger.find(l => l.id === fromId);
+                                if (!from) return null;
+                                const conn = from.connections.find(c => c.toId === travelTargetId);
+                                const band = conn ? connectionBand(conn) : travelBand;
+                                const estimate = formatDayRangeForMode(band, gridsPerDayFor(travelMode));
+                                return (
+                                    <div className="text-[10px] text-text-dim flex justify-between">
+                                        <span>Estimated travel time</span>
+                                        <span className="text-terminal tabular-nums">{estimate}</span>
+                                    </div>
+                                );
+                            })()}
                             <div className="flex gap-2 pt-1">
                                 <button
                                     onClick={handleConfirmTravel}

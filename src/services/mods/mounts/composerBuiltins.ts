@@ -25,6 +25,10 @@ import { registerBuiltin, __registerBuiltinGuardReset } from './mountRegistry';
  * trailing group (`archive`) is recorded in the registry's region store and
  * sorts last within the built-ins (§3.3).
  *
+ * `travel` (WO 3.1) sits between `absoluteCommand` and `askGm` — it is the
+ * app's central verb and belongs in the same row as the other "start a
+ * structured action" buttons.
+ *
  * The parked "Inject Arc" button is NOT in this list — it returns in 4.2 as
  * a mod-claimed `composer.actions` entry the arc mod registers from its
  * `activate` hook (MOUNTS.md §2.3, where `mods/arc/compute.js:14-20` always
@@ -38,6 +42,7 @@ export const COMPOSER_BUILTIN_IDS = Object.freeze([
     'rollLoot',
     'oneShot',
     'absoluteCommand',
+    'travel',
     'askGm',
     'archive',
 ] as const);

@@ -22,6 +22,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import { IndexingSpeedPrompt } from './components/IndexingSpeedPrompt';
 import { VaultUnlockModal } from './components/VaultUnlockModal';
+import { WorldMapTravelBridge } from './components/WorldMapTravelBridge';
 // import { MapPanel } from './components/map/MapPanel';
 import { hydrateCampaign } from './store/campaignHydrator';
 import { useRulesIndexer } from './hooks/useRulesIndexer';
@@ -194,6 +195,10 @@ export default function App() {
           to pre-4.5. Sits beside the modals below; pointer-events-none layer
           so the chat underneath stays interactive. */}
       <WindowManager />
+      {/* WO 6.1 — bridges the World Map mod's `travelRequest` event to the
+          shared `composeDeparture` flow, so a click-to-travel commit produces
+          a byte-identical departure sentence. Side-effect-only; renders null. */}
+      <WorldMapTravelBridge />
       {/* <MapPanel /> */}
       <SettingsModal />
       <NPCLedgerModal />

@@ -34,9 +34,36 @@ export function bandToDayRange(band: DistanceBand): { min: number; max: number }
     };
 }
 
-/** Format a band’s baseline travel-time range for player-facing context. */
+/**
+ * Day range for a band at the given travel speed (grids/day). The mode-aware
+ * estimate shown in the picker — a cart and a walker visibly differ before the
+ * player commits (WO 3.1 §3). `adjacent` → { min: 0, max: 0 }.
+ */
+export function bandToDayRangeForMode(band: DistanceBand, gridsPerDay: number): { min: number; max: number } {
+    const { minGrids, maxGrids } = bandDefinition(band);
+    const step = Math.max(1, gridsPerDay);
+    return {
+        min: Math.ceil(minGrids / step),
+        max: Number.isFinite(maxGrids) ? Math.ceil(maxGrids / step) : Infinity,
+    };
+}
+
+/** Format a band's travel-time range for player-facing context. */
 export function formatDayRange(band: DistanceBand): string {
     const { min, max } = bandToDayRange(band);
+    if (min === 0 && max === 0) return 'no travel';
+    if (max === Infinity) return `${min}+ days`;
+    if (min === max) return `about ${min} day`;
+    return `${min}–${max} days`;
+}
+
+/**
+ * Format a `(band, mode)` day-range for the picker. Mode-aware companion to
+ * `formatDayRange`. `adjacent` reads "no travel"; `farthest` reads "N+ days";
+ * a single-day band reads "about 1 day"; otherwise "M–N days".
+ */
+export function formatDayRangeForMode(band: DistanceBand, gridsPerDay: number): string {
+    const { min, max } = bandToDayRangeForMode(band, gridsPerDay);
     if (min === 0 && max === 0) return 'no travel';
     if (max === Infinity) return `${min}+ days`;
     if (min === max) return `about ${min} day`;

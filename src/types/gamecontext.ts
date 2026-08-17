@@ -156,18 +156,42 @@ export type NotebookNote = {
 
 /** Active journey. Optional — a campaign that never travels is byte-identical
  *  to one that does. Set by `depart`, advanced each committed turn, cleared on
- *  `arrive` or when the fiction names an unrelated place (safety valve). */
+ *  `arrive` or when the fiction names an unrelated place (safety valve).
+ *
+ *  WO 6.1 §2 — multi-hop: a journey may route A→B→C through intermediate places
+ *  when no direct A→C connection exists. `hops` carries the per-hop legs; the
+ *  overall `fromId`/`toId` stay the journey's endpoints so the `[TRAVEL]` block
+ *  names only the destination (WO 6.1 §2: "do not enumerate every intermediate
+ *  place in the prose"). `hopIndex` is the 0-based current hop. Single-hop
+ *  journeys (the original WO 3 case) leave `hops`/`hopIndex` undefined — they
+ *  are byte-identical to pre-6.1 state. */
+export type TravelHop = {
+    fromId: string;
+    toId: string;
+    transitId: string;
+    /** Legs (≡ days) for this hop, terrain-real when the route came from the
+     *  pathfinder (WO 6.1 §2). */
+    legs: number;
+};
+
 export type TravelState = {
     fromId: string;
     toId: string;
     transitId: string;
     mode: TravelMode;
-    /** 1-based: the leg being played this turn. */
+    /** 1-based: the leg being played this turn. Counts across the whole journey;
+     *  for a multi-hop journey this is the cumulative leg, not the per-hop leg. */
     leg: number;
     totalLegs: number;
     /** 'constrained' = bound, escorted, carried. A forced journey is a normal
      *  journey with constrained agency — legs still apply. */
     agency: 'free' | 'constrained';
+    /** WO 6.1 §2 — the per-hop breakdown for a multi-hop journey. Absent for a
+     *  single-hop journey (the WO 3 case). When present, `hopIndex` is the
+     *  0-based index of the hop currently being traversed, `transitId` is that
+     *  hop's transit node, and `totalLegs` is the sum of all hops' legs. */
+    hops?: TravelHop[];
+    hopIndex?: number;
 };
 
 export type GameContext = {

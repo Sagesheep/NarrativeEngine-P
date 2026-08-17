@@ -77,6 +77,16 @@ function installCanvasStubs() {
     }
     globalThis.OffscreenCanvas = FakeOffscreen;
     stubs.push(() => { globalThis.OffscreenCanvas = originalOffscreen; });
+    // Fire requestAnimationFrame synchronously so paint completes before the
+    // stubs are torn down — otherwise a pending RAF fires after afterEach
+    // and hits a null canvas context (jsdom's default), surfacing as an
+    // uncaught exception in the full suite.
+    const originalRAF = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = (cb) => { try { cb(performance.now()); } catch { /* non-fatal */ } return 1; };
+    stubs.push(() => { globalThis.requestAnimationFrame = originalRAF; });
+    const originalCancelRAF = globalThis.cancelAnimationFrame;
+    globalThis.cancelAnimationFrame = () => undefined;
+    stubs.push(() => { globalThis.cancelAnimationFrame = originalCancelRAF; });
     return () => { for (const restore of stubs) restore(); };
 }
 

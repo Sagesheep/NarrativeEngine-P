@@ -5,6 +5,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { toast } from '../Toast';
 import { OneShotInjectorButton } from '../OneShotInjectorButton';
 import { AbsoluteCommandButton } from '../AbsoluteCommandButton';
+import { TravelButton } from '../TravelButton';
 import { useTranslation } from '../../i18n/useTranslation';
 import { readRegion, subscribeToRegion, type RegisteredChromeEntry } from '../../services/mods/mounts/mountRegistry';
 import { registerComposerBuiltins, COMPOSER_BUILTIN_ID_SET } from '../../services/mods/mounts/composerBuiltins';
@@ -271,6 +272,10 @@ function renderComposerBuiltin(id: string, deps: {
             return deps.activeCampaignId ? <OneShotInjectorButton key="oneShot" /> : null;
         case 'absoluteCommand':
             return deps.activeCampaignId ? <AbsoluteCommandButton key="absoluteCommand" /> : null;
+        case 'travel':
+            // WO 3.1 §2 — TRAVEL is a first-class composer entry point. Only
+            // render when a campaign is active, matching oneShot/absoluteCommand.
+            return deps.activeCampaignId ? <TravelButton key="travel" /> : null;
         case 'askGm':
             return (
                 <button

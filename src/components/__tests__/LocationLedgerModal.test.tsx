@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocationLedgerModal } from '../LocationLedgerModal';
 import { normalizeLocationIds } from '../../utils/locationIds';
 import { useAppStore } from '../../store/useAppStore';
@@ -145,5 +145,61 @@ describe('LocationLedgerModal', () => {
 
         fireEvent.click(screen.getAllByText('Point A')[0]);
         expect(screen.getByRole('heading', { name: 'Place Details' })).toBeInTheDocument();
+    });
+
+    // WO 3.1 — Travel discoverability. The travel control on each row must be
+    // visible without hover, reachable by keyboard, and produce a departure
+    // sentence byte-identical to the composer TRAVEL button's output (the two
+    // surfaces share `composeDeparture`, so they cannot drift).
+    it('shows the Travel button on a non-current row without any hover interaction', () => {
+        const a = makeLocation('a', 'Point A');
+        const b = makeLocation('b', 'Point B');
+        useAppStore.setState({
+            locationLedger: [a, b],
+            context: { currentPlaceId: 'a' },
+        });
+        render(<LocationLedgerModal />);
+
+        // The Travel control on Point B's row is a labelled button, present
+        // in the DOM without any hover interaction, and not disabled.
+        const travelBtn = screen.getByRole('button', { name: /travel to point b/i });
+        expect(travelBtn).toBeVisible();
+        expect(travelBtn).not.toHaveAttribute('disabled');
+        // It carries the Compass glyph + "Travel" text label (not a bare glyph).
+        expect(travelBtn.textContent).toMatch(/travel/i);
+
+        // The current place row does not show a Travel button.
+        expect(screen.queryByRole('button', { name: /travel to point a/i })).not.toBeInTheDocument();
+    });
+
+    it('composes the same departure sentence the composer TRAVEL button produces', () => {
+        const a = makeLocation('a', 'Point A');
+        const b = makeLocation('b', 'Point B');
+        useAppStore.setState({
+            locationLedger: [a, b],
+            context: { currentPlaceId: 'a', travelMode: 'foot' },
+        });
+
+        const injectSpy = vi.spyOn(useAppStore.getState(), 'injectToComposer');
+        const intentSpy = vi.spyOn(useAppStore.getState(), 'setPendingTravelIntent');
+
+        render(<LocationLedgerModal />);
+        fireEvent.click(screen.getByRole('button', { name: /travel to point b/i }));
+        // Default mode is foot (from context.travelMode). Confirm departure.
+        fireEvent.click(screen.getByRole('button', { name: /compose departure/i }));
+
+        // The byte-identical guarantee — the composer TRAVEL button (tested in
+        // TravelButton.test.tsx) calls composeDeparture with the same args and
+        // produces the same string. The two surfaces cannot drift.
+        expect(injectSpy).toHaveBeenCalledWith('We set out for Point B by foot.');
+        expect(intentSpy).toHaveBeenCalledWith(expect.objectContaining({
+            toId: 'b',
+            mode: 'foot',
+            agency: 'free',
+            injectedText: 'We set out for Point B by foot.',
+        }));
+
+        injectSpy.mockRestore();
+        intentSpy.mockRestore();
     });
 });

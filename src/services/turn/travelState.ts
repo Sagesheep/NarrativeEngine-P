@@ -1,7 +1,8 @@
-import type { GameContext, LocationEntry, TravelState, TravelMode } from '../../types';
+import type { GameContext, LocationEntry, TravelHop, TravelState, TravelMode } from '../../types';
 import type { DistanceBand } from '../location/distance';
+import { DISTANCE_BANDS } from '../location/distance';
 import { connectionBand } from '../locationParser';
-import { legsFor } from '../location/travelModes';
+import { legsFor, gridsPerDayFor } from '../location/travelModes';
 import { newLocationId } from '../../utils/locationIds';
 
 /** Result of a transition: the new travel state plus the context writes it implies. */
@@ -28,6 +29,13 @@ export type PendingTravelIntent = {
      *  (drop). The player may edit the sentence; we match on a prefix so a
      *  lightly-edited send still commits. */
     injectedText: string;
+    /** WO 6.1 §2 — the multi-hop route, terrain-priced, when the journey is
+     *  more than one hop. Each hop carries `fromId`/`toId` (ledger place ids)
+     *  and `legs` (terrain-real leg count from the pathfinder). The host's
+     *  `commitTravelIntent` resolves these into transit nodes per hop. Absent
+     *  for a single-hop journey (the WO 3 case) — `commitTravelIntent` then
+     *  looks up the direct connection's band, as before. */
+    hops?: TravelHop[];
 };
 
 const EMPTY: TransitionResult = { travel: null, contextPatch: {} };
@@ -166,9 +174,94 @@ export function depart(params: {
 }
 
 /**
+ * WO 6.1 §2 — start a multi-hop journey. Each hop is a leg of the route
+ * through the ledger graph (A→B→C where no direct A→C connection exists).
+ * The pathfinder costs each hop terrain-realistically; the mod supplies the
+ * hop sequence with per-hop leg counts.
+ *
+ * A transit node is created (or reused) for each hop. The overall `fromId`
+ * and `toId` are the journey's endpoints, so the `[TRAVEL]` block names only
+ * the destination — intermediate places are the engine's business, not the
+ * prose's (WO 6.1 §2). `totalLegs` is the sum of all hops' legs; `leg` is the
+ * cumulative leg across the whole journey.
+ *
+ * Direct connections are ensured for every adjacent pair in the route, so the
+ * ledger's topology reflects the journey the party actually walked. The
+ * departure sentence (built by the caller via `buildDepartureSentence`) names
+ * only the final destination.
+ */
+export function departMultiHop(params: {
+    fromId: string;
+    toId: string;
+    mode: TravelMode;
+    hops: TravelHop[];
+    agency?: 'free' | 'constrained';
+    ledger: LocationEntry[];
+}): TransitionResult {
+    const { fromId, toId, mode, hops, agency = 'free', ledger } = params;
+    if (fromId === toId) return EMPTY;
+    if (hops.length === 0) return EMPTY;
+    if (hops.length === 1) {
+        // A single-hop route is an ordinary depart. Derive the band from the
+        // hop's leg count so the transit node and connection are created at a
+        // band consistent with the terrain-real distance.
+        const band = bandFromLegs(hops[0].legs, mode);
+        return depart({ fromId, toId, band, mode, agency, ledger });
+    }
+
+    // Ensure direct connections + transit nodes for every hop. Each hop's
+    // band is derived from its terrain-real leg count, so the ledger records
+    // the distance the party actually covered, not a guessed midpoint.
+    let workingLedger = ledger;
+    const allUpserts: LocationEntry[] = [];
+    const resolvedHops: TravelHop[] = [];
+    for (const hop of hops) {
+        const band = bandFromLegs(hop.legs, mode);
+        const connectionUpserts = ensureDirectConnection(hop.fromId, hop.toId, band, workingLedger);
+        if (connectionUpserts.length > 0) {
+            allUpserts.push(...connectionUpserts);
+            workingLedger = mergeUpserts(workingLedger, connectionUpserts);
+        }
+        const { transitId, upsert: transitUpserts } = ensureTransitNode(hop.fromId, hop.toId, band, workingLedger);
+        if (transitUpserts.length > 0) {
+            allUpserts.push(...transitUpserts);
+            workingLedger = mergeUpserts(workingLedger, transitUpserts);
+        }
+        resolvedHops.push({ ...hop, transitId, legs: Math.max(1, hop.legs) });
+    }
+
+    const totalLegs = resolvedHops.reduce((sum, h) => sum + h.legs, 0);
+    const firstHop = resolvedHops[0];
+    const travel: TravelState = {
+        fromId,
+        toId,
+        transitId: firstHop.transitId,
+        mode,
+        leg: 1,
+        totalLegs,
+        agency,
+        hops: resolvedHops,
+        hopIndex: 0,
+    };
+    const contextPatch: Partial<GameContext> = {
+        travel,
+        travelMode: mode,
+        currentPlaceId: firstHop.transitId,
+        currentFeature: null,
+    };
+    return { travel, contextPatch, ledgerUpsert: allUpserts.length > 0 ? allUpserts : undefined };
+}
+
+/**
  * `advance()` — move to the next leg. Called at commit while travelling.
  * Increments `leg` and `worldDay` by 1. When `leg` exceeds `totalLegs`, the
  * journey is over — see `arrive`.
+ *
+ * For a multi-hop journey (WO 6.1 §2), advancing past a hop's leg range
+ * arrives at that hop's destination and starts the next hop from there: the
+ * party reaches the intermediate place, `currentPlaceId` moves to it for one
+ * turn, then the next hop's transit node takes over. The overall `fromId`/
+ * `toId` stay the journey's endpoints; only `hopIndex` and `transitId` move.
  *
  * Returns the new travel state (with leg+1) and a context patch that writes
  * `worldDay + 1`. The caller decides whether to also apply `arrive`.
@@ -178,6 +271,30 @@ export function advance(state: TravelState, currentWorldDay: number | undefined)
     const nextDay = (currentWorldDay ?? 0) + 1;
     if (nextLeg > state.totalLegs) {
         return arrive(state, nextDay);
+    }
+    // Multi-hop: check whether we're crossing a hop boundary. Each hop covers
+    // a leg range; when the new leg falls in the next hop, the party has
+    // reached the current hop's destination and starts the next hop from its
+    // transit node.
+    if (state.hops && state.hops.length > 1 && state.hopIndex !== undefined) {
+        let cumulative = 0;
+        for (let i = 0; i < state.hops.length; i += 1) {
+            cumulative += state.hops[i].legs;
+            if (nextLeg <= cumulative) {
+                if (i === state.hopIndex) break;
+                // Crossing into hop i: the party arrived at hop (i-1)'s
+                // destination (which is hop i's fromId) and now sits on hop
+                // i's transit node.
+                const nextHop = state.hops[i];
+                const travel: TravelState = {
+                    ...state,
+                    leg: nextLeg,
+                    hopIndex: i,
+                    transitId: nextHop.transitId,
+                };
+                return { travel, contextPatch: { travel, worldDay: nextDay, currentPlaceId: nextHop.transitId, currentFeature: null } };
+            }
+        }
     }
     const travel: TravelState = { ...state, leg: nextLeg };
     return { travel, contextPatch: { travel, worldDay: nextDay } };
@@ -222,10 +339,21 @@ export function jump(toId: string): TransitionResult {
  * Detect the safety-valve condition: the header named a place that is neither
  * the transit node nor the destination. Returns true when the header's place
  * is unrelated to the active journey.
+ *
+ * For a multi-hop journey (WO 6.1 §2), every hop endpoint and every transit
+ * node is a valid place to be — the party passes through intermediate places.
+ * Only a place that is none of those triggers the safety valve.
  */
 export function isUnrelatedPlace(headerPlaceId: string | null | undefined, state: TravelState): boolean {
     if (!headerPlaceId) return false;
-    return headerPlaceId !== state.transitId && headerPlaceId !== state.toId;
+    if (headerPlaceId === state.transitId || headerPlaceId === state.toId) return false;
+    if (state.hops) {
+        for (const hop of state.hops) {
+            if (headerPlaceId === hop.transitId || headerPlaceId === hop.toId || headerPlaceId === hop.fromId) return false;
+        }
+    }
+    if (headerPlaceId === state.fromId) return false;
+    return true;
 }
 
 /** Merge upserts into a ledger, replacing by id. Pure; does not mutate input. */
@@ -255,6 +383,11 @@ export function buildDepartureSentence(destinationName: string, mode: TravelMode
  * `TRAVEL HERE` flow ensures the connection exists before setting the intent).
  * Returns `null` when the journey cannot start (same place, or `adjacent` —
  * adjacent destinations never enter the travel state, WO3 §6).
+ *
+ * WO 6.1 §2 — when the intent carries `hops` (a multi-hop route from the
+ * pathfinder), resolves via `departMultiHop` instead. The hops' terrain-real
+ * leg counts drive the transit nodes and the total leg count; the departure
+ * sentence (already injected by the caller) names only the final destination.
  */
 export function commitTravelIntent(
     intent: PendingTravelIntent,
@@ -262,6 +395,16 @@ export function commitTravelIntent(
     ledger: LocationEntry[],
 ): TransitionResult | null {
     if (intent.toId === fromId) return null;
+    if (intent.hops && intent.hops.length > 0) {
+        return departMultiHop({
+            fromId,
+            toId: intent.toId,
+            mode: intent.mode,
+            hops: intent.hops,
+            agency: intent.agency,
+            ledger,
+        });
+    }
     const from = ledger.find(l => l.id === fromId);
     if (!from) return null;
     const conn = from.connections.find(c => c.toId === intent.toId);
@@ -276,6 +419,27 @@ export function commitTravelIntent(
         agency: intent.agency,
         ledger,
     });
+}
+
+/**
+ * WO 6.1 §2 — derive a `DistanceBand` from a terrain-real leg count. The
+ * pathfinder costs each hop in terrain-weighted grids; `bandFromLegs` maps
+ * that to the nearest band so the transit node and connection are labelled
+ * consistently with the journey's actual distance. Used by `departMultiHop`
+ * when creating transit nodes for each hop.
+ *
+ * The leg count is converted back to a grid estimate via the mode's
+ * `gridsPerDay` (one leg ≈ one day ≈ `gridsPerDay` grids), then matched
+ * against `DISTANCE_BANDS`. `adjacent` is never returned — a hop always
+ * covers ground.
+ */
+function bandFromLegs(legs: number, mode: TravelMode): DistanceBand {
+    const grids = Math.max(1, Math.round(legs * gridsPerDayFor(mode)));
+    for (const band of DISTANCE_BANDS) {
+        if (band.id === 'adjacent') continue;
+        if (grids >= band.minGrids && grids <= band.maxGrids) return band.id;
+    }
+    return 'farthest';
 }
 
 /**

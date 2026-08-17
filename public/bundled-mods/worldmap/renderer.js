@@ -539,10 +539,28 @@ function refreshTokenCache(root) {
  *   },
  *   onDragAnchor: (locationId: string, x: number, y: number) => void,
  *   log?: (...args: unknown[]) => void,
+ *   onClickCell?: (x: number, y: number) => void,
+ *   onRouteAction?: (action: 'commit' | 'cancel' | 'setMode', payload?: unknown) => void,
+ *   getRoutePreview?: () => (null | {
+ *     cells: Array<{x: number, y: number}>,
+ *     cost: number,
+ *     days: number,
+ *     mode: string,
+ *     blocked?: { reason: string, label?: string },
+ *     fromAnchor?: { locationId: string, name: string },
+ *     toAnchor?: { locationId: string, name: string } | { snapped: boolean, name?: string },
+ *     cellCount?: number,
+ *   }),
+ *   getTravelMode?: () => string,
+ *   travelModes?: Array<{ id: string, label: string }>,
  * }} options
  */
 export function mountMapRenderer(root, options) {
-    const { getSnapshot, onDragAnchor, log = () => undefined } = options;
+    const {
+        getSnapshot, onDragAnchor, log = () => undefined,
+        onClickCell, onRouteAction, getRoutePreview, getTravelMode,
+        travelModes,
+    } = options;
 
     applyStyle(root, {
         boxSizing: 'border-box',
@@ -575,7 +593,7 @@ export function mountMapRenderer(root, options) {
     });
     overlay.appendChild(hud);
 
-    const help = makeElement('div', 'Scroll to zoom · Drag to pan · Drag a pin to move it', {
+    const help = makeElement('div', 'Scroll to zoom · Drag to pan · Drag a pin to move it · Click a cell to travel', {
         position: 'absolute', bottom: '8px', left: '8px', padding: '4px 8px', borderRadius: '4px',
         background: 'var(--color-void-lighter, rgba(20,21,25,0.72))',
         color: 'var(--color-text-dim, inherit)',
@@ -583,6 +601,60 @@ export function mountMapRenderer(root, options) {
         pointerEvents: 'none', opacity: '0.78',
     });
     overlay.appendChild(help);
+
+    // WO 6.1 §3 — a compact mode selector adjacent to the route, plus the
+    // route-preview readout (distance in cells, derived days, or a blocked
+    // explanation). `pointerEvents: auto` so the mode selector is clickable;
+    // the readout stays non-interactive. Both sit top-right so they don't
+    // fight the HUD (top-left) or the help line (bottom-left).
+    const routePanel = makeElement('div', undefined, {
+        position: 'absolute', top: '8px', right: '8px', padding: '6px 8px', borderRadius: '5px',
+        background: 'var(--color-void-lighter, rgba(20,21,25,0.82))',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.18))',
+        color: 'var(--color-text-primary, inherit)',
+        font: '11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace',
+        pointerEvents: 'auto', opacity: '0.95',
+        display: 'none', flexDirection: 'column', gap: '4px', minWidth: '160px',
+    });
+    overlay.appendChild(routePanel);
+
+    const modeRow = makeElement('div', undefined, { display: 'flex', alignItems: 'center', gap: '6px' });
+    const modeLabel = makeElement('span', 'Mode', { opacity: '0.7', fontSize: '10px' });
+    const modeSelect = document.createElement('select');
+    modeSelect.setAttribute('aria-label', 'Travel mode');
+    applyStyle(modeSelect, {
+        background: 'var(--color-void, #0e0f12)',
+        color: 'inherit',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.22))',
+        borderRadius: '3px', padding: '2px 4px', font: 'inherit', fontSize: '11px',
+    });
+    const modeOptions = travelModes && travelModes.length > 0
+        ? travelModes
+        : [{ id: 'foot', label: 'On foot' }, { id: 'cart', label: 'Cart' }, { id: 'horseback', label: 'Horseback' }, { id: 'flying', label: 'Flying' }];
+    for (const mode of modeOptions) {
+        const opt = document.createElement('option');
+        opt.value = mode.id;
+        opt.textContent = mode.label;
+        modeSelect.appendChild(opt);
+    }
+    modeSelect.addEventListener('change', () => {
+        if (onRouteAction) onRouteAction('setMode', modeSelect.value);
+    });
+    modeRow.append(modeLabel, modeSelect);
+    routePanel.appendChild(modeRow);
+
+    const routeReadout = makeElement('div', undefined, { fontSize: '11px', whiteSpace: 'pre-wrap' });
+    routePanel.appendChild(routeReadout);
+
+    const routeCancelButton = makeElement('button', 'Cancel route', {
+        padding: '3px 8px', border: '1px solid var(--color-border, rgba(255,255,255,0.22))',
+        borderRadius: '3px', background: 'transparent', color: 'inherit',
+        font: 'inherit', fontSize: '10px', cursor: 'pointer', alignSelf: 'flex-start',
+    });
+    routeCancelButton.addEventListener('click', () => {
+        if (onRouteAction) onRouteAction('cancel');
+    });
+    routePanel.appendChild(routeCancelButton);
 
     const view = { cx: FIELD_WORLD_SIZE / 2, cy: FIELD_WORLD_SIZE / 2, cellPixels: ZOOM_LEVELS[1].cellPixels };
 
@@ -603,6 +675,17 @@ export function mountMapRenderer(root, options) {
     let resizeObserver = null;
     let rafHandle = 0;
     let disposed = false;
+
+    // WO 6.1 §1 — click-to-travel state. A terrain click (no anchor hit, no
+    // drag) is a two-phase gesture: first click previews the route, second
+    // click on the same cell commits. A click elsewhere re-routes. The
+    // previewed cell is tracked so the second click can be matched. The
+    // renderer reports the click to the host via `onClickCell`; the host
+    // computes the route (the pathfinder lives in the mod) and surfaces it
+    // back through `getRoutePreview`. Commit/cancel/mode-change go through
+    // `onRouteAction`.
+    let travelClickCell = null; // { x, y } — the cell the current preview is for
+    let panStarted = false;     // true if the current gesture moved enough to be a pan
 
     // WO 4.2 §2 — during a drag the renderer keeps the moving anchor's
     // position in `dragPreview` and paints it at the cursor. No host call,
@@ -725,8 +808,10 @@ export function mountMapRenderer(root, options) {
         drawTiles(snapshot, currentAtlas, width, height, cell);
         drawGridOverlay(width, height, cell);
         drawConnections(snapshot, cell);
+        drawRoutePreview(cell);
         drawAnchors(snapshot, cell);
         drawHud(snapshot, cell);
+        updateRoutePanel();
 
         refreshTokenCache(root);
     }
@@ -918,6 +1003,80 @@ export function mountMapRenderer(root, options) {
         }
     }
 
+    function drawRoutePreview(cell) {
+        if (!getRoutePreview) return;
+        const preview = getRoutePreview();
+        if (!preview) return;
+        const cells = preview.cells;
+        if (!cells || cells.length === 0) return;
+        // WO 6.1 §1 — the preview polyline over the terrain. Highlighted, not
+        // the base road colour, so it reads as "planned" not "walked". A
+        // blocked route still draws its cells (if any) so the player sees
+        // where the attempt was; the readout panel carries the reason.
+        const previewStroke = readTokenOnce(root, '--color-terminal', '#A78BFA');
+        const blockedStroke = readTokenOnce(root, '--color-command-accent', '#E01B1B');
+        const isBlocked = Boolean(preview.blocked);
+        ctx.save();
+        ctx.lineWidth = Math.max(1.5, cell / 4);
+        ctx.strokeStyle = isBlocked ? blockedStroke : previewStroke;
+        ctx.globalAlpha = 0.85;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        const first = cellToScreen(cells[0].x, cells[0].y);
+        ctx.moveTo(first.x, first.y);
+        for (let i = 1; i < cells.length; i += 1) {
+            const s = cellToScreen(cells[i].x, cells[i].y);
+            ctx.lineTo(s.x, s.y);
+        }
+        ctx.stroke();
+        // Endpoints: a ring at the destination cell so the click target reads.
+        if (cells.length > 0) {
+            const end = cells[cells.length - 1];
+            const endScreen = cellToScreen(end.x, end.y);
+            ctx.globalAlpha = 0.9;
+            ctx.beginPath();
+            ctx.arc(endScreen.x, endScreen.y, Math.max(6, cell / 1.8), 0, Math.PI * 2);
+            ctx.strokeStyle = isBlocked ? blockedStroke : previewStroke;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    function updateRoutePanel() {
+        if (!getRoutePreview) { routePanel.style.display = 'none'; return; }
+        const preview = getRoutePreview();
+        if (!preview) {
+            routePanel.style.display = 'none';
+            // If the host cleared the preview (commit, cancel, or campaign
+            // switch), clear the renderer's click target too so the next
+            // click is a fresh preview, not a commit.
+            travelClickCell = null;
+            return;
+        }
+        routePanel.style.display = 'flex';
+        // Keep the mode selector in sync with the host's current mode without
+        // firing a change event (the host is the source of truth).
+        const currentMode = getTravelMode ? getTravelMode() : preview.mode;
+        if (currentMode && modeSelect.value !== currentMode) {
+            modeSelect.value = currentMode;
+        }
+        if (preview.blocked) {
+            const reason = preview.blocked.label || preview.blocked.reason || 'no route';
+            const toName = (preview.toAnchor && preview.toAnchor.name) || 'destination';
+            routeReadout.textContent = `Blocked: ${reason}`;
+            routeReadout.style.color = 'var(--color-command-accent, #E01B1B)';
+            routeCancelButton.textContent = 'Dismiss';
+        } else {
+            const cellCount = preview.cellCount != null ? preview.cellCount : Math.max(0, (preview.cells || []).length - 1);
+            const toName = (preview.toAnchor && preview.toAnchor.name) || 'destination';
+            routeReadout.textContent = `→ ${toName}\n${cellCount} cells · ${preview.days} day${preview.days === 1 ? '' : 's'}\nClick again to travel`;
+            routeReadout.style.color = 'var(--color-text-primary, inherit)';
+            routeCancelButton.textContent = 'Cancel route';
+        }
+    }
+
     function drawHud(snapshot, cell) {
         const anchorCount = (snapshot.anchors || []).length;
         const currentPlaceId = snapshot.locationId ?? null;
@@ -978,6 +1137,7 @@ export function mountMapRenderer(root, options) {
             view.cx -= (px - panLast.px) / cell;
             view.cy -= (py - panLast.py) / cell;
             panLast = { px, py };
+            panStarted = true;
             clampView();
             scheduleRender();
             return;
@@ -1030,12 +1190,34 @@ export function mountMapRenderer(root, options) {
                     }
                 }
             }
+        } else if (panLast && onClickCell && !panStarted) {
+            // WO 6.1 §1 — a terrain click (no anchor hit, no movement). This
+            // is the click-to-travel entry point. The first click on a cell
+            // previews the route; a second click on the SAME cell commits; a
+            // click on a different cell re-routes. The renderer only reports
+            // the cell — the mod computes the route (pathfinder + anchor
+            // snap) and surfaces it back through `getRoutePreview`.
+            const world = screenToCell(px, py);
+            if (Number.isFinite(world.x) && Number.isFinite(world.y)) {
+                const cx = clamp(Math.round(world.x), 0, FIELD_WORLD_SIZE - 1);
+                const cy = clamp(Math.round(world.y), 0, FIELD_WORLD_SIZE - 1);
+                if (travelClickCell && travelClickCell.x === cx && travelClickCell.y === cy) {
+                    // Second click on the same cell → commit.
+                    if (onRouteAction) onRouteAction('commit');
+                    travelClickCell = null;
+                } else {
+                    // First click (or click on a different cell) → preview.
+                    travelClickCell = { x: cx, y: cy };
+                    onClickCell(cx, cy);
+                }
+            }
         }
         pendingDragId = null;
         pendingDragStart = null;
         dragging = null;
         dragPreview = null;
         panLast = null;
+        panStarted = false;
         root.style.cursor = 'grab';
         detachWindowListeners();
         scheduleRender();
