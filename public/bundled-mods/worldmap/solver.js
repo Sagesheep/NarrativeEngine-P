@@ -51,6 +51,26 @@ const ROAD_BANDS = Object.freeze({
     far: 'far',
 });
 
+/**
+ * Kind → terrain requirement (WO 4.1 §4). Deliberately minimal: core has two
+ * kinds, and this is the single table that maps them to a cell predicate.
+ * Adding `port` ("land, with ocean within 2 cells") later is a row here, not
+ * a refactor. `notOcean` is the rule for both `place` and `transit` today.
+ *
+ * Each entry is a predicate `(cell, chunkStore, x, y) => boolean` so the
+ * terrain-snap pass can ask "does this cell satisfy the kind's requirement?"
+ * without knowing what the requirement is. `chunkStore` is optional — when
+ * absent (no field wired up) every cell passes and the pass is a no-op.
+ */
+export const TERRAIN_REQUIREMENTS = Object.freeze({
+    place: Object.freeze({ id: 'notOcean', predicate: cell => cell?.biome !== 'ocean' }),
+    transit: Object.freeze({ id: 'notOcean', predicate: cell => cell?.biome !== 'ocean' }),
+});
+
+function terrainRequirementForKind(kind) {
+    return TERRAIN_REQUIREMENTS[kind === 'transit' ? 'transit' : 'place'];
+}
+
 const DIRECTION_VECTORS = Object.freeze({
     center: Object.freeze({ x: 0, y: 0 }),
     n: Object.freeze({ x: 0, y: -1 }),
@@ -537,6 +557,7 @@ function sanitizeLocations(input, warnings) {
             name: raw.name.trim(),
             aliases: String(raw.aliases ?? ''),
             connections: Array.isArray(raw.connections) ? raw.connections : [],
+            kind: raw.kind === 'transit' ? 'transit' : 'place',
         });
     }
     return locations.sort(stableNodeCompare);
@@ -546,8 +567,22 @@ function pairKey(leftId, rightId) {
     return compareText(leftId, rightId) <= 0 ? `${leftId}\u241f${rightId}` : `${rightId}\u241f${leftId}`;
 }
 
-function buildDistanceConstraints(locations, lore, warnings) {
+/**
+ * WO 4.2 §5 — `buildDistanceConstraints` used to build `ids` from places
+ * only, so every place→transit connection was reported as a missing
+ * location. On the live campaign that was two warnings naming a location
+ * that was right there in the ledger. Dropping the constraint is correct
+ * (a transit node is not a layout constraint — that is §3), but the
+ * diagnosis was wrong. The fix: pass the transit ids in as a separate set
+ * and skip a connection pointing at a known transit node **silently**.
+ * The warning is reserved for a `toId` that names nothing at all, which is
+ * the real data error it was written for.
+ */
+function buildDistanceConstraints(locations, lore, warnings, transitLocations) {
     const ids = new Set(locations.map(location => location.id));
+    const transitIds = transitLocations instanceof Array
+        ? new Set(transitLocations.map(location => location.id))
+        : new Set();
     const byName = locationLookup(locations);
     const constraints = [];
     const seen = new Set();
@@ -562,12 +597,14 @@ function buildDistanceConstraints(locations, lore, warnings) {
 
     for (const location of locations) {
         for (const connection of location.connections) {
-            if (!connection || typeof connection.toId !== 'string' || !ids.has(connection.toId) || connection.toId === location.id) {
-                if (connection?.toId && !ids.has(connection.toId)) {
-                    warnings.push(makeWarning(`${location.name} has a connection to missing location "${connection.toId}" — connection dropped`, {
-                        kind: 'missing-connection', locationId: location.id, locationName: location.name,
-                    }));
-                }
+            if (!connection || typeof connection.toId !== 'string' || connection.toId === location.id) continue;
+            if (!ids.has(connection.toId)) {
+                // A connection to a known transit node is silently dropped —
+                // transit is a waypoint on the edge, not a layout constraint.
+                if (transitIds.has(connection.toId)) continue;
+                warnings.push(makeWarning(`${location.name} has a connection to missing location "${connection.toId}" — connection dropped`, {
+                    kind: 'missing-connection', locationId: location.id, locationName: location.name,
+                }));
                 continue;
             }
             const range = connectionRange(connection.band);
@@ -656,24 +693,52 @@ function buildDistanceConstraints(locations, lore, warnings) {
     return constraints.sort((left, right) => compareText(left.id, right.id));
 }
 
-function collectPins(locations, existingAnchors, lorePins, warnings, refusals) {
+/**
+ * WO 4.2 §4 — `collectPins` is called twice with subsets: `places` at the
+ * first call site and `transit` at the second. Each call used to build
+ * `byId` from its own subset and warn for any anchor whose `locationId` was
+ * absent — so the `places` call warned about every transit pin and the
+ * `transit` call warned about every place pin. Three false warnings on the
+ * live campaign, whose stored anchors are entirely valid.
+ *
+ * The fix: thread the **full** known-ids set in as an extra parameter. An
+ * anchor belonging to the other partition is **not** malformed and produces
+ * no warning. The genuine cases still warn — an anchor naming a location
+ * that exists in *neither* partition, or with a non-finite coordinate.
+ *
+ * WO 4.2 §1 — pin coordinates are rounded to integer cells here, so a
+ * fractional player pin (a drag that landed mid-cell before this fix) is
+ * rounded rather than preserved and rather than rejected. The occupancy
+ * key in `resolveRoundedCollisions` is integer-precise, so the pin must
+ * agree.
+ */
+function collectPins(locations, existingAnchors, lorePins, warnings, refusals, knownIds) {
     const byId = new Map(locations.map(location => [location.id, location]));
+    const known = knownIds instanceof Set ? knownIds : byId;
     const candidates = [];
     for (const anchor of Array.isArray(existingAnchors) ? existingAnchors : []) {
         if (!anchor || anchor.source !== 'player' || anchor.pinned !== true) continue;
-        if (!byId.has(anchor.locationId) || !finiteNumber(anchor.x) || !finiteNumber(anchor.y)) {
-            warnings.push(makeWarning('malformed player anchor — pin dropped', {
-                kind: 'invalid-pin', locationId: anchor?.locationId ?? null,
-            }));
+        if (!known.has(anchor.locationId) || !finiteNumber(anchor.x) || !finiteNumber(anchor.y)) {
+            // Only warn when the anchor names a location in neither partition
+            // or has a non-finite coordinate. An anchor that belongs to the
+            // *other* partition (the place call seeing a transit pin, or
+            // vice versa) is valid and silent.
+            const inOtherPartition = byId.has(anchor.locationId) === false && known.has(anchor.locationId);
+            if (!inOtherPartition) {
+                warnings.push(makeWarning('malformed player anchor — pin dropped', {
+                    kind: 'invalid-pin', locationId: anchor?.locationId ?? null,
+                }));
+            }
             continue;
         }
+        if (!byId.has(anchor.locationId)) continue;
         const location = byId.get(anchor.locationId);
         candidates.push({
             id: `player:${location.id}`,
             locationId: location.id,
             locationName: location.name,
-            x: anchor.x,
-            y: anchor.y,
+            x: clampToCell(anchor.x),
+            y: clampToCell(anchor.y),
             source: 'player',
             description: `${location.name} player pin at ${anchor.x},${anchor.y}`,
             order: 0,
@@ -1005,13 +1070,33 @@ function resolveFieldConflicts(fieldClausesInput, positions, relaxations, refusa
     return fieldClausesInput.filter((_, index) => active.has(index));
 }
 
+function clampToCell(value) {
+    return Math.max(0, Math.min(WORLD_SIZE - 1, Math.round(value)));
+}
+
+/**
+ * WO 4.2 §1 — every anchor, pinned or solved alike, commits to an integer
+ * cell. The occupancy key is `${x},${y}` at integer precision, so two places
+ * landing on the same cell is now common — the displacement and hard-pin
+ * refusal paths below finally execute. They were effectively untested code
+ * under the old three-decimal quantise, which is why the work order asks us
+ * to read them carefully.
+ *
+ * The displacement walk uses integer spiral steps: it scans ring-by-ring
+ * outward from the contested cell in the same deterministic dy-major /
+ * dx-minor order as `spiralSearchRequirement`, so the move is reproducible
+ * and bounded (cap 100 rings, well past any plausible occupancy). The
+ * deterministic unit vector is still consulted to choose the *direction*
+ * of the first ring sweep, which keeps the test for "two unpinned places
+ * on the same cell trigger the displacement path" deterministic.
+ */
 function resolveRoundedCollisions(locations, pins, positions, refusals) {
     const occupied = new Map();
     for (let index = 0; index < locations.length; index += 1) {
         const location = locations[index];
         const position = positions.get(location.id);
-        position.x = pins.has(location.id) ? position.x : quantize(position.x, 3);
-        position.y = pins.has(location.id) ? position.y : quantize(position.y, 3);
+        position.x = clampToCell(position.x);
+        position.y = clampToCell(position.y);
         let key = `${position.x},${position.y}`;
         const collision = occupied.get(key);
         if (!collision) {
@@ -1029,20 +1114,37 @@ function resolveRoundedCollisions(locations, pins, positions, refusals) {
         }
         const movable = pins.has(location.id) ? collision : location;
         const movablePosition = positions.get(movable.id);
-        let step = 1;
-        do {
-            const unit = deterministicUnit('collision', movable.id, `${index}:${step}`);
-            movablePosition.x = quantize(movablePosition.x + (unit.x * 0.01 * step), 3);
-            movablePosition.y = quantize(movablePosition.y + (unit.y * 0.01 * step), 3);
-            key = `${movablePosition.x},${movablePosition.y}`;
-            step += 1;
-        } while (occupied.has(key) && step < 100);
+        const originX = position.x >> 0;
+        const originY = position.y >> 0;
+        let placed = false;
+        // Deterministic spiral walk over integer cells. The seed direction
+        // picks the first dy sign so the same collision resolves the same
+        // way every solve, but the walk itself is the canonical ring sweep.
+        const dir = deterministicUnit('collision', movable.id, `${index}`);
+        const dySign = dir.y < 0 ? -1 : 1;
+        const dxSign = dir.x < 0 ? -1 : 1;
+        for (let ring = 1; ring < 100 && !placed; ring += 1) {
+            for (let dyRaw = -ring; dyRaw <= ring && !placed; dyRaw += 1) {
+                const dy = dySign >= 0 ? dyRaw : -dyRaw;
+                for (let dxRaw = -ring; dxRaw <= ring && !placed; dxRaw += 1) {
+                    const dx = dxSign >= 0 ? dxRaw : -dxRaw;
+                    if (Math.abs(dx) + Math.abs(dy) !== ring) continue;
+                    const candidateX = clampToCell(originX + dx);
+                    const candidateY = clampToCell(originY + dy);
+                    const candidateKey = `${candidateX},${candidateY}`;
+                    if (occupied.has(candidateKey)) continue;
+                    movablePosition.x = candidateX;
+                    movablePosition.y = candidateY;
+                    occupied.set(candidateKey, movable);
+                    placed = true;
+                }
+            }
+        }
         // If the current row is pinned, it takes ownership of the original
         // coordinate while the earlier unpinned row moves away.
         if (movable === collision) {
             occupied.set(`${position.x},${position.y}`, location);
         }
-        occupied.set(key, movable);
     }
 }
 
@@ -1063,7 +1165,11 @@ function buildTransects(fieldClauses, positions) {
     }));
 }
 
-function buildReport(locations, activeDistanceConstraints, activeFieldClauses, warnings, relaxations, refusals, positions) {
+function buildReport(locations, activeDistanceConstraints, activeFieldClauses, warnings, relaxations, refusals, positions, anchors) {
+    // Transit nodes are derived as waypoints after the place layout settles;
+    // their positions live in `anchors`, not in the place-only `positions`
+    // map. Look up either way so the report names every row.
+    const anchorById = new Map((anchors || []).map(anchor => [anchor.locationId, anchor]));
     const entries = locations.map(location => {
         const constraints = [
             ...activeDistanceConstraints.filter(constraint => constraint.locationIds.includes(location.id)),
@@ -1072,11 +1178,13 @@ function buildReport(locations, activeDistanceConstraints, activeFieldClauses, w
         const ownWarnings = warnings.filter(warning => warning.locationId === location.id);
         const ownRelaxations = relaxations.filter(relaxation => relaxation.locationIds.includes(location.id));
         const ownRefusals = refusals.filter(refusal => refusal.locationIds.includes(location.id));
+        const placePosition = positions.get(location.id);
+        const anchor = anchorById.get(location.id);
         return {
             locationId: location.id,
             name: location.name,
-            x: positions.get(location.id).x,
-            y: positions.get(location.id).y,
+            x: placePosition?.x ?? anchor?.x ?? 0,
+            y: placePosition?.y ?? anchor?.y ?? 0,
             satisfied: constraints.length,
             total: constraints.length + ownRelaxations.length + ownRefusals.length,
             warnings: ownWarnings.map(item => item.message),
@@ -1138,8 +1246,338 @@ function applyHardenedCells(fieldClauses, positions, hardened, relaxations) {
 }
 
 /**
+ * Split locations into free-layout places and derived transit waypoints.
+ * A `kind: 'transit'` entry is not a third vertex competing for position —
+ * it is a point *on* the edge between the two places it connects, so it is
+ * excluded from the relaxation pass and re-derived after the place layout
+ * settles (WO 4.1 §3).
+ */
+function partitionByKind(locations) {
+    const places = [];
+    const transit = [];
+    for (const location of locations) {
+        if (location.kind === 'transit') transit.push(location);
+        else places.push(location);
+    }
+    return { places, transit };
+}
+
+function bandMid(bandId) {
+    const band = bandDefinition(bandId);
+    return midpoint(band.minGrids, band.maxGrids);
+}
+
+/**
+ * Derive a transit waypoint's position by interpolating along its edge.
+ * `t = mid(bandFrom) / (mid(bandFrom) + mid(bandTo))`; `local`+`local` → 0.5
+ * (dead centre), `nearby`+`regional` → close to the `nearby` endpoint. The
+ * edge band sets the edge's length; the leg bands set the position along
+ * it. No contradiction, no double-storage, existing data works unchanged.
+ *
+ * Degenerate cases (WO 4.1 §3.3) — all deterministic, all warn, none drop:
+ *   • <2 connections, or 2 connections with no edge between them (endpoints
+ *     aren't places, or aren't in the layout) → treat as a normal place and
+ *     fall back to its solved/free position. Warn.
+ *   • >2 connections → pick the two whose bands are smallest, tie-broken by
+ *     `stableNodeCompare`. Warn.
+ *   • Both endpoints resolve to the same position → place at that position.
+ *     Warn.
+ *
+ * A player-dragged pin on a transit node (tier 2) is the one exception to
+ * "transit is never pinned by the solver": respect it and record in the
+ * report that the waypoint is manually placed.
+ */
+function deriveTransitWaypoints(transit, placePositions, placeById, pins, warnings) {
+    const waypoints = [];
+    for (const node of transit) {
+        const pin = pins.get(node.id);
+        if (pin) {
+            waypoints.push({
+                id: node.id,
+                locationId: node.id,
+                x: pin.x,
+                y: pin.y,
+                fromId: null,
+                toId: null,
+                t: null,
+                manuallyPlaced: true,
+            });
+            warnings.push(makeWarning(`${node.name} is a manually-pinned waypoint — staying where the player dragged it`, {
+                kind: 'transit-pinned', locationId: node.id, locationName: node.name,
+            }));
+            continue;
+        }
+
+        const connections = node.connections
+            .filter(c => placeById.has(c.toId) && c.toId !== node.id)
+            .map(c => ({ toId: c.toId, mid: bandMid(c.band), band: c.band }));
+
+        if (connections.length < 2) {
+            warnings.push(makeWarning(`${node.name} has fewer than two place connections — treating as a place`, {
+                kind: 'transit-underconnected', locationId: node.id, locationName: node.name,
+            }));
+            const fallback = placePositions.get(node.id) ?? { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
+            waypoints.push({
+                id: node.id,
+                locationId: node.id,
+                x: clampToCell(fallback.x),
+                y: clampToCell(fallback.y),
+                fromId: null,
+                toId: null,
+                t: null,
+                fallback: true,
+            });
+            continue;
+        }
+
+        if (connections.length > 2) {
+            connections.sort((a, b) =>
+                (a.mid - b.mid)
+                || stableNodeCompare({ id: a.toId, name: placeById.get(a.toId)?.name ?? '' }, { id: b.toId, name: placeById.get(b.toId)?.name ?? '' }));
+            warnings.push(makeWarning(`${node.name} has more than two connections — using the two shortest legs`, {
+                kind: 'transit-overconnected', locationId: node.id, locationName: node.name,
+            }));
+        }
+
+        const [legA, legB] = connections;
+        const fromPos = placePositions.get(legA.toId);
+        const toPos = placePositions.get(legB.toId);
+        if (!fromPos || !toPos) {
+            const fallback = placePositions.get(node.id) ?? { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
+            waypoints.push({
+                id: node.id,
+                locationId: node.id,
+                x: clampToCell(fallback.x),
+                y: clampToCell(fallback.y),
+                fromId: null,
+                toId: null,
+                t: null,
+                fallback: true,
+            });
+            continue;
+        }
+
+        const t = (legA.mid + legB.mid) > 0
+            ? legA.mid / (legA.mid + legB.mid)
+            : 0.5;
+        const x = fromPos.x + ((toPos.x - fromPos.x) * t);
+        const y = fromPos.y + ((toPos.y - fromPos.y) * t);
+
+        if (Math.hypot(toPos.x - fromPos.x, toPos.y - fromPos.y) < 0.000001) {
+            warnings.push(makeWarning(`${node.name}'s endpoints coincide — placing the waypoint at that point`, {
+                kind: 'transit-coincident', locationId: node.id, locationName: node.name,
+            }));
+        }
+
+        waypoints.push({
+            id: node.id,
+            locationId: node.id,
+            x: clampToCell(x),
+            y: clampToCell(y),
+            fromId: legA.toId,
+            toId: legB.toId,
+            t: quantize(t),
+        });
+    }
+    return waypoints;
+}
+
+/**
+ * Deterministic spiral search for the nearest cell that satisfies the kind's
+ * terrain requirement (WO 4.1 §5). Fixed ring order (ascending Manhattan
+ * radius), fixed within-ring order (the canonical [-dy, +dy] × [-dx, +dx]
+ * sweep with a stable dy-major then dx-minor ordering). Capped at 8 cells.
+ *
+ * Returns the offset `{ dx, dy }` of the first satisfying cell, or `null` if
+ * nothing within the cap satisfies. Determinism: the same input yields the
+ * same walk on every machine — there is no `Math.random()` here.
+ */
+const FIELD_SEA_LEVEL_EPS = 0.06;
+const TERRAIN_SNAP_CAP = 8;
+function spiralSearchRequirement(centerX, centerY, requirement, chunkStore) {
+    if (!chunkStore || !requirement) return null;
+    const cx = centerX >> 0;
+    const cy = centerY >> 0;
+    // Ring 0 = the anchor cell itself.
+    for (let ring = 0; ring <= TERRAIN_SNAP_CAP; ring += 1) {
+        if (ring === 0) {
+            const cell = chunkStore.getCell(cx, cy);
+            if (requirement.predicate(cell, chunkStore, cx, cy)) {
+                return { dx: 0, dy: 0, ring: 0 };
+            }
+            continue;
+        }
+        // Within a ring, walk every (dx, dy) with |dx| + |dy| == ring, in a
+        // stable order: dy from -ring to +ring, and for each dy, dx from
+        // -ring to +ring (filtered to the ring). This is the canonical
+        // spiral order — deterministic, no preferred compass direction.
+        for (let dy = -ring; dy <= ring; dy += 1) {
+            for (let dx = -ring; dx <= ring; dx += 1) {
+                if (Math.abs(dx) + Math.abs(dy) !== ring) continue;
+                const x = cx + dx;
+                const y = cy + dy;
+                if (x < 0 || y < 0 || x >= WORLD_SIZE || y >= WORLD_SIZE) continue;
+                const cell = chunkStore.getCell(x, y);
+                if (requirement.predicate(cell, chunkStore, x, y)) {
+                    return { dx, dy, ring };
+                }
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Build an implicit terrain clause that warps the field to satisfy the
+ * anchor's requirement at its current position (WO 4.1 §5.1). "Prose writes
+ * the map" — the story says there is a town there; the terrain yields. This
+ * is the doctrinal answer, not a workaround: it is recorded in the report as
+ * a field relaxation so it is visible rather than silent.
+ *
+ * The clause is a `center`-direction transect with one control point at the
+ * anchor, target = "just above sea level" so the classifier flips the cell
+ * off ocean and the warp pass holds it there with the standard falloff.
+ */
+function implicitTerrainClause(location, requirement, positions) {
+    const pos = positions.get(location.id);
+    if (!pos) return null;
+    const target = requirement.id === 'notOcean'
+        ? { elev: FIELD_SEA_LEVEL_EPS, temp: null, moist: null }
+        : { elev: FIELD_SEA_LEVEL_EPS, temp: null, moist: null };
+    return {
+        kind: 'transect',
+        direction: 'center',
+        directionVector: { x: 0, y: 0 },
+        distance: '0',
+        priority: 6,
+        hard: true,
+        parts: [{ kind: 'terrain', terrain: requirement.id }],
+        controlPoints: [{
+            kind: 'terrain',
+            terrain: requirement.id,
+            target,
+            distance: 0,
+            dx: 0,
+            dy: 0,
+        }],
+        noiseResumeDistance: 5,
+        source: `terrain: ${requirement.id} (implicit — no land within ${TERRAIN_SNAP_CAP} cells)`,
+        locationId: location.id,
+        locationName: location.name,
+        implicit: true,
+    };
+}
+
+/**
+ * Apply terrain-aware placement (WO 4.1 §5). After the layout settles, for
+ * each anchor: read the cell via `chunkStore.getCell`, check it against its
+ * kind's requirement, and if it fails spiral outward for the nearest cell
+ * that satisfies it (capped at 8). Move the anchor there and re-run the
+ * existing relaxation pass with the moved anchor as a soft pin so distance
+ * constraints re-settle around it. If nothing is within reach, emit an
+ * implicit terrain clause raising elevation to just above sea level at that
+ * point, with the standard falloff — the field bends to accommodate the
+ * place. Move first, warp second.
+ *
+ * Returns `{ positions, movedPins, implicitClauses, relaxations }`.
+ */
+function applyTerrainAwarePlacement(
+    places,
+    transit,
+    pins,
+    constraints,
+    fieldClauses,
+    positions,
+    chunkStore,
+    worldSeed,
+    relaxations,
+) {
+    if (!chunkStore) {
+        return { positions, movedPins: new Map(), implicitClauses: [], reifiedTransit: [] };
+    }
+    const movedPins = new Map();
+    const implicitClauses = [];
+
+    // First pass: move each unsnapped anchor to the nearest valid cell.
+    // Hardened pins and player pins are respected — they never move here.
+    for (const place of places) {
+        if (pins.has(place.id)) continue;
+        const pos = positions.get(place.id);
+        if (!pos) continue;
+        const requirement = terrainRequirementForKind(place.kind);
+        const cell = chunkStore.getCell(pos.x >> 0, pos.y >> 0);
+        if (requirement.predicate(cell, chunkStore, pos.x >> 0, pos.y >> 0)) continue;
+
+        const move = spiralSearchRequirement(pos.x, pos.y, requirement, chunkStore);
+        if (move) {
+            const newX = clampToCell((pos.x >> 0) + move.dx);
+            const newY = clampToCell((pos.y >> 0) + move.dy);
+            positions.set(place.id, { x: newX, y: newY });
+            movedPins.set(place.id, {
+                id: `terrain-move:${place.id}`,
+                locationId: place.id,
+                locationName: place.name,
+                x: newX,
+                y: newY,
+                source: 'terrain-snap',
+                description: `${place.name} moved ${move.ring} cell${move.ring === 1 ? '' : 's'} to the nearest ${requirement.id} cell`,
+                order: 2,
+            });
+            relaxations.push({
+                kind: 'relaxed',
+                locationIds: [place.id],
+                constraintId: `terrain-move:${place.id}`,
+                message: `${place.name} moved ${move.ring} cell${move.ring === 1 ? '' : 's'} to the nearest ${requirement.id} cell`,
+            });
+        } else {
+            // Nothing within reach — emit an implicit terrain clause that
+            // warps the field at this point. Do not move the anchor.
+            const clause = implicitTerrainClause(place, requirement, positions);
+            if (clause) {
+                implicitClauses.push(clause);
+                relaxations.push({
+                    kind: 'relaxed',
+                    locationIds: [place.id],
+                    constraintId: `terrain-warp:${place.id}`,
+                    message: `${place.name} has no ${requirement.id} cell within ${TERRAIN_SNAP_CAP} cells — field warped to ${requirement.id} at this point`,
+                });
+            }
+        }
+    }
+
+    // Re-run relaxation with moved anchors as soft pins so distance
+    // constraints re-settle around them. The existing `runLayout` already
+    // handles pins; we just feed the moved anchors in as extra pins.
+    if (movedPins.size > 0) {
+        const mergedPins = new Map(pins);
+        for (const [id, pin] of movedPins) mergedPins.set(id, pin);
+        const resettled = runLayout(places, mergedPins, constraints, fieldClauses, worldSeed);
+        // Preserve moved-pin positions (they are not negotiable).
+        for (const [id, pin] of movedPins) resettled.set(id, { x: pin.x, y: pin.y });
+        // Preserve original pins too.
+        for (const [id, pin] of pins) resettled.set(id, { x: pin.x, y: pin.y });
+        for (const [id, pos] of resettled) positions.set(id, pos);
+    }
+
+    return { positions, movedPins, implicitClauses };
+}
+
+/**
  * Solve every known ledger location. Lower priorities are removed first;
  * hard conflicts are returned as refusals and are never silently discarded.
+ *
+ * `kind: 'transit'` entries are waypoints, not anchors: they are excluded
+ * from the free layout and derived after the place layout settles, by
+ * interpolating along the edge between the two places they connect. Their
+ * connections still define the edge (and contribute distance constraints)
+ * — the road is *on* the edge, not a third vertex competing for position.
+ *
+ * `chunkStore` is optional. When present, terrain-aware placement runs
+ * after the place layout settles: each anchor whose cell fails its kind's
+ * terrain requirement is snapped to the nearest valid cell (spiral search,
+ * capped at 8), and if nothing is within reach the field is warped to
+ * accommodate the place (an implicit terrain clause, recorded as a
+ * relaxation).
  *
  * `hardenedCells` is an optional Map of `"x,y"` → biome for cells the party
  * has occupied. They are priority-1 hard constraints: no field clause may
@@ -1152,14 +1590,27 @@ export function solveWorldMap(input = {}) {
     const locations = sanitizeLocations(input.locations, warnings);
     const worldSeed = String(input.worldSeed ?? 'worldmap-default-seed');
     const hardened = input.hardenedCells instanceof Map ? input.hardenedCells : new Map();
-    const lore = parseLoreConstraints(locations, input.loreChunks);
+    const chunkStore = input.chunkStore ?? null;
+    const { places, transit } = partitionByKind(locations);
+
+    // Solve places only. Transit nodes never take part in relaxation and are
+    // never pinned by the solver (a player-dragged pin on a transit node is
+    // the one exception — see `deriveTransitWaypoints`).
+    const lore = parseLoreConstraints(places, input.loreChunks);
     warnings.push(...lore.warnings);
-    const pins = collectPins(locations, input.existingAnchors, lore.pins, warnings, refusals);
-    const distanceConstraints = buildDistanceConstraints(locations, lore, warnings);
+    // WO 4.2 §4 — both `collectPins` calls share the full known-ids set so an
+    // anchor belonging to the other partition is not reported as malformed.
+    const knownIds = new Set(locations.map(location => location.id));
+    const pins = collectPins(places, input.existingAnchors, lore.pins, warnings, refusals, knownIds);
+    // Transit pins are collected separately — they do not affect the place
+    // layout, but `deriveTransitWaypoints` reads them to respect a
+    // player-dragged waypoint (WO 4.1 §3.4).
+    const transitPins = collectPins(transit, input.existingAnchors, [], warnings, refusals, knownIds);
+    const distanceConstraints = buildDistanceConstraints(places, lore, warnings, transit);
     let fieldClauses = lore.clauses.filter(clause => clause.kind === 'transect');
 
     let graph = relaxDistanceConstraints(
-        locations,
+        places,
         pins,
         distanceConstraints,
         fieldClauses,
@@ -1170,7 +1621,7 @@ export function solveWorldMap(input = {}) {
     fieldClauses = resolveFieldConflicts(fieldClauses, graph.positions, relaxations, refusals);
     fieldClauses = applyHardenedCells(fieldClauses, graph.positions, hardened, relaxations);
     graph = relaxDistanceConstraints(
-        locations,
+        places,
         pins,
         graph.active,
         fieldClauses,
@@ -1178,19 +1629,57 @@ export function solveWorldMap(input = {}) {
         relaxations,
         refusals,
     );
-    resolveRoundedCollisions(locations, pins, graph.positions, refusals);
+    resolveRoundedCollisions(places, pins, graph.positions, refusals);
 
-    const anchors = locations.map(location => {
-        const position = graph.positions.get(location.id);
-        const pin = pins.get(location.id);
-        return {
-            locationId: location.id,
-            x: position.x,
-            y: position.y,
-            pinned: Boolean(pin),
-            source: pin ? 'player' : 'solved',
-        };
-    });
+    // Terrain-aware placement (WO 4.1 §5). Move first, warp second. The
+    // implicit clauses are appended to the field-clause set so the chunk
+    // store picks them up via `buildWarpField` on its next rebuild.
+    const placeById = new Map(places.map(place => [place.id, place]));
+    const terrainResult = applyTerrainAwarePlacement(
+        places,
+        transit,
+        pins,
+        graph.active,
+        fieldClauses,
+        graph.positions,
+        chunkStore,
+        worldSeed,
+        relaxations,
+    );
+    const implicitClauses = terrainResult.implicitClauses;
+    if (implicitClauses.length > 0) {
+        fieldClauses = [...fieldClauses, ...implicitClauses];
+    }
+
+    // Re-derive waypoints after terrain moves — their endpoints may have
+    // moved. The place positions are the source of truth; the transit
+    // positions are a pure function of them. Transit pins (player-dragged
+    // waypoints) are merged in here only — they never affected the place
+    // layout and must not start now.
+    const waypointPins = new Map(pins);
+    for (const [id, pin] of transitPins) waypointPins.set(id, pin);
+    const waypoints = deriveTransitWaypoints(transit, graph.positions, placeById, waypointPins, warnings);
+
+    const anchors = [
+        ...places.map(location => {
+            const position = graph.positions.get(location.id);
+            const pin = pins.get(location.id);
+            return {
+                locationId: location.id,
+                x: position.x,
+                y: position.y,
+                pinned: Boolean(pin),
+                source: pin ? 'player' : 'solved',
+            };
+        }),
+        ...waypoints.map(waypoint => ({
+            locationId: waypoint.locationId,
+            x: waypoint.x,
+            y: waypoint.y,
+            pinned: waypoint.manuallyPlaced === true,
+            source: waypoint.manuallyPlaced ? 'player' : 'derived',
+        })),
+    ];
     const transects = buildTransects(fieldClauses, graph.positions);
     const connections = graph.active.map(constraint => ({
         fromId: constraint.fromId,
@@ -1207,7 +1696,8 @@ export function solveWorldMap(input = {}) {
         relaxations,
         refusals,
         graph.positions,
+        anchors,
     );
-    return { anchors, transects, connections, report };
+    return { anchors, transects, connections, report, waypoints };
 }
 

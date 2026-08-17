@@ -26,6 +26,7 @@ const EMPTY_ENTRY: LocationEntry = {
     firstSeenScene: '',
     lastSeenScene: '',
     source: 'manual',
+    kind: 'place',
 };
 
 export function LocationLedgerModal() {
@@ -126,6 +127,7 @@ export function LocationLedgerModal() {
             firstSeenScene: form.firstSeenScene || String(Date.now()),
             lastSeenScene: form.lastSeenScene || String(Date.now()),
             source: form.source ?? 'manual',
+            kind: form.kind === 'transit' ? 'transit' : 'place',
         };
         if (selectedId) {
             updateLocation(selectedId, payload);

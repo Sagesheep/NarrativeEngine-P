@@ -129,6 +129,22 @@ export function LocationEditForm({
                 </Field>
             </div>
 
+            {/* Kind — WO 4.1 §2. A `kind` selector next to the existing fields.
+                Defaults to `place`; a transit row is treated by the solver as a
+                waypoint on the edge between the two places it connects, not as a
+                free vertex. Explicit data — never inferred from the name. */}
+            <Field label="Kind">
+                <select
+                    value={renderedForm.kind ?? 'place'}
+                    onChange={e => setForm(prev => ({ ...prev, kind: e.target.value as LocationEntry['kind'] }))}
+                    disabled={!isEditing}
+                    className={inputClass(isEditing)}
+                >
+                    <option value="place">Place (a destination)</option>
+                    <option value="transit">Transit (road / route between two places)</option>
+                </select>
+            </Field>
+
             {/* Description */}
             <Field label="Description">
                 <textarea

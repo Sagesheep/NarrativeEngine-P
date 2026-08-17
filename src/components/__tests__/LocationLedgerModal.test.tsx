@@ -91,9 +91,21 @@ describe('LocationLedgerModal', () => {
 
         fireEvent.click(screen.getByText('Point A'));
         fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-        const selects = screen.getAllByRole('combobox');
-        fireEvent.change(selects[0], { target: { value: pointB.id } });
-        fireEvent.change(selects[1], { target: { value: 'regional' } });
+        // The form has multiple selects (Kind, connection place, connection
+        // band, ...). Locate the connection selects by the options they
+        // present rather than by positional index, so adding a new select
+        // elsewhere in the form does not shift these.
+        const allSelects = screen.getAllByRole('combobox');
+        const placeSelect = allSelects.find(select => {
+            const options = [...select.querySelectorAll('option')];
+            return options.some(opt => opt.textContent === 'Point B');
+        })!;
+        const bandSelect = allSelects.find(select => {
+            const options = [...select.querySelectorAll('option')];
+            return options.some(opt => opt.textContent?.includes('regional'));
+        })!;
+        fireEvent.change(placeSelect, { target: { value: pointB.id } });
+        fireEvent.change(bandSelect, { target: { value: 'regional' } });
         fireEvent.click(screen.getByRole('button', { name: 'Add' }));
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 

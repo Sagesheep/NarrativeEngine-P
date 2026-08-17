@@ -82,6 +82,52 @@ function clamp(value, min, max) {
     return value < min ? min : value > max ? max : value;
 }
 
+// WO 4.1 §3.1 — one polyline per edge, routed through any waypoints on it in
+// `t` order. The waypoint-grouping helpers live at module scope so they are
+// reusable and so WO 6 can swap the straight segment for the pathfound route
+// and the waypoint snaps to a point on *that* by changing one call site.
+function edgeKey(fromId, toId) {
+    return fromId < toId ? `${fromId}\u241f${toId}` : `${toId}\u241f${fromId}`;
+}
+
+/**
+ * Group waypoints by the edge they sit on. A waypoint with `fromId` and
+ * `toId` belongs to the undirected edge between them. Waypoints missing
+ * both (degenerate fallback cases) are not grouped and do not draw on any
+ * edge — they still render as anchors. The per-edge list is sorted by `t`
+ * so the polyline walks from the `from` endpoint to the `to` endpoint
+ * through the waypoints in order.
+ */
+function groupWaypointsByEdge(waypoints) {
+    const byEdge = new Map();
+    for (const waypoint of waypoints) {
+        if (!waypoint || !waypoint.fromId || !waypoint.toId) continue;
+        const key = edgeKey(waypoint.fromId, waypoint.toId);
+        if (!byEdge.has(key)) byEdge.set(key, []);
+        byEdge.get(key).push(waypoint);
+    }
+    for (const list of byEdge.values()) {
+        list.sort((a, b) => (a.t ?? 0.5) - (b.t ?? 0.5));
+    }
+    return byEdge;
+}
+
+/**
+ * Return the waypoints on the edge between `fromId` and `toId`, in t-order
+ * relative to the `fromId` endpoint. The solver stores `t` as the fraction
+ * from `fromId` to `toId`; if the connection is asked for in the reverse
+ * direction (the ledger's symmetric connection was authored on the other
+ * row), flip `t` so the polyline still walks in connection order.
+ */
+function waypointsForEdge(fromId, toId, byEdge) {
+    const list = byEdge.get(edgeKey(fromId, toId));
+    if (!list || list.length === 0) return [];
+    return list.map(waypoint => {
+        if (waypoint.fromId === fromId) return waypoint;
+        return { ...waypoint, t: 1 - (waypoint.t ?? 0.5) };
+    }).sort((a, b) => (a.t ?? 0.5) - (b.t ?? 0.5));
+}
+
 function normaliseRenderSettings(settings = {}) {
     const configured = settings.render || settings;
     const lightAzimuth = Number(configured.lightAzimuth);
@@ -558,6 +604,15 @@ export function mountMapRenderer(root, options) {
     let rafHandle = 0;
     let disposed = false;
 
+    // WO 4.2 §2 — during a drag the renderer keeps the moving anchor's
+    // position in `dragPreview` and paints it at the cursor. No host call,
+    // no solve, no table write. The commit happens once, on pointer-up,
+    // when the gesture rounds to a cell, validates, and calls
+    // `onDragAnchor`. This removes the ~60 Hz read-modify-write storm that
+    // raced `solveAndPersist` and produced the transient
+    // `malformed player anchor` warnings.
+    let dragPreview = null;
+
     // Tile pyramid + atlas. The pyramid is dropped wholesale on a world
     // version change; the atlas is rebuilt only when the theme changes.
     let pyramid = new TilePyramid();
@@ -738,20 +793,77 @@ export function mountMapRenderer(root, options) {
 
     function drawConnections(snapshot, cell) {
         if (!snapshot.connections || cell < LABEL_MIN_CELL_PIXELS) return;
-        ctx.lineWidth = Math.max(1, cell / 6);
-        ctx.strokeStyle = readTokenOnce(root, '--color-border', 'rgba(220,220,220,0.55)');
         const byId = new Map((snapshot.anchors || []).map(a => [a.locationId, a]));
+        // WO 4.1 §3.1 — one polyline per edge, routed through any waypoints
+        // on it in `t` order. The A—B connection becomes a single line
+        // A→Road→B instead of drawing the triangle. The polyline
+        // construction lives in one function so WO 6 can swap the straight
+        // segment for the pathfound route and the waypoint snaps to a point
+        // on *that*.
+        const waypointsByEdge = groupWaypointsByEdge(snapshot.waypoints || []);
+        // WO 4.2 §3 — when the party is on a transit node mid-journey, the
+        // road it sits on is emphasised so "two days along the road to B"
+        // reads at a glance. The current waypoint's edge is identified by
+        // either endpoint matching `snapshot.locationId`.
+        const currentPlaceId = snapshot.locationId ?? null;
+        const emphasisedEdges = new Set();
+        if (currentPlaceId) {
+            for (const [key, list] of waypointsByEdge) {
+                if (list.some(waypoint => waypoint.locationId === currentPlaceId)) {
+                    emphasisedEdges.add(key);
+                }
+            }
+        }
+        const baseWidth = Math.max(1, cell / 6);
+        const baseStroke = readTokenOnce(root, '--color-border', 'rgba(220,220,220,0.55)');
+        const emphasisStroke = readTokenOnce(root, '--color-terminal', '#A78BFA');
+        // Draw the base pass for every connection, then a second emphasised
+        // pass for the current waypoint's road so it sits on top.
         for (const connection of snapshot.connections) {
             const from = byId.get(connection.fromId);
             const to = byId.get(connection.toId);
             if (!from || !to) continue;
+            const key = edgeKey(connection.fromId, connection.toId);
+            const isEmphasised = emphasisedEdges.has(key);
+            ctx.lineWidth = isEmphasised ? Math.max(baseWidth * 2.2, baseWidth + 2) : baseWidth;
+            ctx.strokeStyle = isEmphasised ? emphasisStroke : baseStroke;
             const fromScreen = cellToScreen(from.x, from.y);
             const toScreen = cellToScreen(to.x, to.y);
+            const intermediates = waypointsForEdge(connection.fromId, connection.toId, waypointsByEdge)
+                .map(waypoint => {
+                    const anchor = byId.get(waypoint.locationId);
+                    return anchor ? cellToScreen(anchor.x, anchor.y) : null;
+                })
+                .filter(Boolean);
             ctx.beginPath();
             ctx.moveTo(fromScreen.x, fromScreen.y);
+            for (const point of intermediates) ctx.lineTo(point.x, point.y);
             ctx.lineTo(toScreen.x, toScreen.y);
             ctx.stroke();
         }
+    }
+
+    function drawAnchorDot(anchor, screen, radius, fill, strokeColor) {
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = fill;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = strokeColor;
+        ctx.stroke();
+    }
+
+    function drawAnchorLabel(screen, radius, label, textColor) {
+        ctx.font = '11px ui-monospace, SFMono-Regular, Consolas, monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const labelX = screen.x + radius + 4;
+        const labelY = screen.y - radius - 2;
+        const metrics = ctx.measureText(label);
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(labelX - 2, labelY - 8, metrics.width + 4, 16);
+        ctx.fillStyle = textColor;
+        ctx.fillText(label, labelX, labelY);
     }
 
     function drawAnchors(snapshot, cell) {
@@ -760,37 +872,64 @@ export function mountMapRenderer(root, options) {
         const idleColor = readTokenOnce(root, '--color-ice', '#E8EAED');
         const strokeColor = readTokenOnce(root, '--color-void-darker', '#0e0f12');
         const textColor = readTokenOnce(root, '--color-text-primary', '#E8EAED');
+        const currentPlaceId = snapshot.locationId ?? null;
+        // WO 4.2 §3 — the player's position is the most legible thing on
+        // screen. A distinct marker (ring + larger radius) is drawn LAST so
+        // nothing overlaps it, and its label always renders, even below
+        // LABEL_MIN_CELL_PIXELS where other labels are suppressed.
+        let currentAnchorEntry = null;
+        // First pass: every anchor except the current one. The dragged
+        // anchor is drawn at its preview position, not its committed one.
         for (const anchor of snapshot.anchors || []) {
-            const screen = cellToScreen(anchor.x, anchor.y);
-            const radius = Math.max(5, cell / 2.4);
-            const isCurrent = anchor.locationId === snapshot.locationId;
-            ctx.beginPath();
-            ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
-            ctx.fillStyle = anchor.pinned ? accentColor : isCurrent ? currentColor : idleColor;
-            ctx.fill();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = strokeColor;
-            ctx.stroke();
-            if (cell >= LABEL_MIN_CELL_PIXELS) {
-                ctx.font = '11px ui-monospace, SFMono-Regular, Consolas, monospace';
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'middle';
-                const label = anchor.name || anchor.locationId;
-                const labelX = screen.x + radius + 4;
-                const labelY = screen.y - radius - 2;
-                const metrics = ctx.measureText(label);
-                ctx.fillStyle = 'rgba(0,0,0,0.55)';
-                ctx.fillRect(labelX - 2, labelY - 8, metrics.width + 4, 16);
-                ctx.fillStyle = textColor;
-                ctx.fillText(label, labelX, labelY);
+            if (anchor.locationId === currentPlaceId) {
+                currentAnchorEntry = anchor;
+                continue;
             }
+            const ax = dragPreview && dragPreview.locationId === anchor.locationId ? dragPreview.x : anchor.x;
+            const ay = dragPreview && dragPreview.locationId === anchor.locationId ? dragPreview.y : anchor.y;
+            const screen = cellToScreen(ax, ay);
+            const radius = Math.max(5, cell / 2.4);
+            const fill = anchor.pinned ? accentColor : idleColor;
+            drawAnchorDot(anchor, screen, radius, fill, strokeColor);
+            if (cell >= LABEL_MIN_CELL_PIXELS) {
+                drawAnchorLabel(screen, radius, anchor.name || anchor.locationId, textColor);
+            }
+        }
+        // Second pass: the current place, drawn last so nothing overlaps
+        // it. A ring around the dot plus a larger radius makes it the most
+        // legible marker on the map. Its label always renders.
+        if (currentAnchorEntry) {
+            const ax = dragPreview && dragPreview.locationId === currentAnchorEntry.locationId ? dragPreview.x : currentAnchorEntry.x;
+            const ay = dragPreview && dragPreview.locationId === currentAnchorEntry.locationId ? dragPreview.y : currentAnchorEntry.y;
+            const screen = cellToScreen(ax, ay);
+            const baseRadius = Math.max(5, cell / 2.4);
+            const radius = baseRadius * 1.45;
+            // Outer ring.
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, radius + 4, 0, Math.PI * 2);
+            ctx.strokeStyle = currentColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            // Inner dot — keep the fill logic so a pinned current place
+            // still reads as pinned (accent), otherwise the current colour.
+            const fill = currentAnchorEntry.pinned ? accentColor : currentColor;
+            drawAnchorDot(currentAnchorEntry, screen, radius, fill, strokeColor);
+            drawAnchorLabel(screen, radius, currentAnchorEntry.name || currentAnchorEntry.locationId, textColor);
         }
     }
 
     function drawHud(snapshot, cell) {
+        const anchorCount = (snapshot.anchors || []).length;
+        const currentPlaceId = snapshot.locationId ?? null;
+        const hasCurrent = currentPlaceId
+            ? (snapshot.anchors || []).some(anchor => anchor.locationId === currentPlaceId)
+            : false;
+        const currentLine = currentPlaceId && !hasCurrent
+            ? ' · current place has no anchor'
+            : '';
         hud.textContent = 'cell ' + view.cx.toFixed(0) + ',' + view.cy.toFixed(0)
-            + ' · ' + cell.toFixed(0) + 'px · ' + (snapshot.anchors || []).length + ' anchors · '
-            + pyramid.size + ' tiles';
+            + ' · ' + cell.toFixed(0) + 'px · ' + anchorCount + ' anchors · '
+            + pyramid.size + ' tiles' + currentLine;
     }
 
     // ── Interaction (§7 fixes) ──
@@ -815,16 +954,22 @@ export function mountMapRenderer(root, options) {
         const px = event.clientX - rect.left;
         const py = event.clientY - rect.top;
         if (pendingDragId && pendingDragStart) {
-            const cell = cellSizePixels();
-            const dx = (px - pendingDragStart.px) / cell;
-            const dy = (py - pendingDragStart.py) / cell;
-            const x = pendingDragStart.x + dx;
-            const y = pendingDragStart.y + dy;
             if (Math.hypot(px - pendingDragStart.px, py - pendingDragStart.py) > 3) {
                 dragging = pendingDragId;
             }
             if (dragging === pendingDragId) {
-                onDragAnchor(pendingDragId, Math.max(0, Math.min(FIELD_WORLD_SIZE - 1, x)), Math.max(0, Math.min(FIELD_WORLD_SIZE - 1, y)));
+                // WO 4.2 §2 — local preview only. No host call, no solve.
+                const cell = cellSizePixels();
+                const dx = (px - pendingDragStart.px) / cell;
+                const dy = (py - pendingDragStart.py) / cell;
+                const x = pendingDragStart.x + dx;
+                const y = pendingDragStart.y + dy;
+                dragPreview = {
+                    locationId: pendingDragId,
+                    x: clamp(x, 0, FIELD_WORLD_SIZE - 1),
+                    y: clamp(y, 0, FIELD_WORLD_SIZE - 1),
+                };
+                scheduleRender();
             }
             return;
         }
@@ -846,24 +991,54 @@ export function mountMapRenderer(root, options) {
         if (pendingDragId && pendingDragStart) {
             const moved = Math.hypot(px - pendingDragStart.px, py - pendingDragStart.py) > 3;
             if (!moved) {
+                // Click — either a double-click-to-place or a no-op. The
+                // double-click path below still commits once, as before.
                 const now = Date.now();
                 if (now - lastClickAt < DOUBLE_CLICK_MS && lastClickLocationId === pendingDragId) {
                     const world = screenToCell(px, py);
-                    onDragAnchor(pendingDragId, Math.max(0, Math.min(FIELD_WORLD_SIZE - 1, world.x)), Math.max(0, Math.min(FIELD_WORLD_SIZE - 1, world.y)));
+                    // WO 4.2 §2 — validate before committing a double-click
+                    // placement too. A non-finite or OOB coordinate is
+                    // rejected and the previous position survives.
+                    if (Number.isFinite(world.x) && Number.isFinite(world.y)) {
+                        const cx = clamp(Math.round(world.x), 0, FIELD_WORLD_SIZE - 1);
+                        const cy = clamp(Math.round(world.y), 0, FIELD_WORLD_SIZE - 1);
+                        onDragAnchor(pendingDragId, cx, cy);
+                    }
                     lastClickAt = 0;
                     lastClickLocationId = null;
                 } else {
                     lastClickAt = now;
                     lastClickLocationId = pendingDragId;
                 }
+            } else if (dragging === pendingDragId) {
+                // WO 4.2 §2 — commit once on release. Round to a cell,
+                // validate both coordinates are finite and in-bounds, then
+                // call onDragAnchor. Reject rather than store a bad
+                // coordinate — the previous position survives.
+                const candidateX = dragPreview ? Math.round(dragPreview.x) : pendingDragStart.x;
+                const candidateY = dragPreview ? Math.round(dragPreview.y) : pendingDragStart.y;
+                const startCellX = Math.round(pendingDragStart.x);
+                const startCellY = Math.round(pendingDragStart.y);
+                if (Number.isFinite(candidateX) && Number.isFinite(candidateY)
+                    && candidateX >= 0 && candidateX < FIELD_WORLD_SIZE
+                    && candidateY >= 0 && candidateY < FIELD_WORLD_SIZE) {
+                    // A drag ending on its starting cell is a click — write
+                    // nothing. This matches the spec: "a drag that ends on
+                    // its starting cell writes nothing."
+                    if (candidateX !== startCellX || candidateY !== startCellY) {
+                        onDragAnchor(pendingDragId, candidateX, candidateY);
+                    }
+                }
             }
         }
         pendingDragId = null;
         pendingDragStart = null;
         dragging = null;
+        dragPreview = null;
         panLast = null;
         root.style.cursor = 'grab';
         detachWindowListeners();
+        scheduleRender();
     }
 
     function attachWindowListeners() {

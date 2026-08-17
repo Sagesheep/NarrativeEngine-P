@@ -151,12 +151,23 @@ export async function solveAndPersist(ctx) {
     const rawAnchors = await fresh.table.read('anchors');
     const existingAnchors = Array.isArray(rawAnchors) ? rawAnchors : [];
     const hardened = hardenedByCampaign.get(campaignId) ?? await readHardened(fresh);
+    // WO 4.1 §5 — terrain-aware placement reads cells via `ChunkStore`. The
+    // store needs warp controls; on the first solve there are none, so the
+    // field is the raw noise. On a re-solve the previous transects bend it.
+    // Implicit terrain clauses appended this pass land in `result.transects`
+    // and bend the field on the *next* solve — the standard iterative
+    // refinement, and exactly what "the field bends to accommodate the
+    // place" calls for.
+    const previousTransects = reportsByCampaign.get(campaignId)?.transects ?? [];
+    const previousControls = buildWarpField(previousTransects);
+    const terrainChunkStore = ensureChunkStore(campaignId, settings, previousControls, hardened);
     const result = solveWorldMap({
         locations: fresh.data.location?.ledger ?? [],
         loreChunks: fresh.data.loreChunks ?? [],
         existingAnchors,
         worldSeed: settings.worldSeed,
         hardenedCells: hardened,
+        chunkStore: terrainChunkStore,
     });
 
     // A campaign can change while table I/O is in flight. Confirm the lease
@@ -362,6 +373,7 @@ export function mapSnapshot(ctx) {
         anchors,
         transects: result.transects || [],
         connections: result.connections || [],
+        waypoints: result.waypoints || [],
         settings: result.settings,
         hardened,
         locationId: ctx.data?.location?.currentPlaceId ?? null,
@@ -393,16 +405,25 @@ function mountMap(node, ctx) {
         }
         cleanupRenderer = mountMapRenderer(node, {
             getSnapshot: snapshot,
+            // WO 4.2 §2 — the renderer now calls `onDragAnchor` exactly once
+            // per drag, on pointer-up. The read-modify-write + queueSolve is
+            // serialised through `solveQueue` so the commit cannot interleave
+            // with a `solveAndPersist` write. No second queue — the existing
+            // chain owns both.
             onDragAnchor: async (locationId, x, y) => {
-                const fresh = await freshCampaignContext(ctx);
-                if (!fresh || fresh.data.campaignId !== currentCampaignId) return;
-                const rows = await fresh.table.read('anchors');
-                const next = (Array.isArray(rows) ? rows : []).map(anchor =>
-                    anchor.locationId === locationId
-                        ? { ...anchor, x, y, pinned: true, source: 'player' }
-                        : anchor);
-                await fresh.table.write('anchors', next);
-                await queueSolve(fresh);
+                solveQueue = solveQueue
+                    .then(async () => {
+                        const fresh = await freshCampaignContext(ctx);
+                        if (!fresh || fresh.data.campaignId !== currentCampaignId) return;
+                        const rows = await fresh.table.read('anchors');
+                        const next = (Array.isArray(rows) ? rows : []).map(anchor =>
+                            anchor.locationId === locationId
+                                ? { ...anchor, x, y, pinned: true, source: 'player' }
+                                : anchor);
+                        await fresh.table.write('anchors', next);
+                    })
+                    .then(() => queueSolve(ctx))
+                    .catch(error => ctx?.log?.('[worldmap] drag commit failed', error));
             },
             log: (...args) => ctx?.log?.('[worldmap:map]', ...args),
         });
