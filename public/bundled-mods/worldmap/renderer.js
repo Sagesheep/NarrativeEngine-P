@@ -846,8 +846,13 @@ export function mountMapRenderer(root, options) {
     }
 
     function drawGridOverlay(width, height, cell) {
-        if (cell >= GRID_FADE_BELOW_CELL_PIXELS) return;
-        const alpha = clamp(1 - (cell / GRID_FADE_BELOW_CELL_PIXELS), 0, 1) * 0.25;
+        // One drawn box == one world cell. The test is which side of the
+        // threshold we are on: hide the grid when cells are too small to be
+        // distinguishable (a mesh of lines), show it when they are not. This
+        // was inverted, so the per-cell grid only appeared when zoomed out and
+        // was absent at every usable zoom.
+        if (cell < GRID_FADE_BELOW_CELL_PIXELS) return;
+        const alpha = clamp((cell - GRID_FADE_BELOW_CELL_PIXELS) / 4, 0, 1) * 0.28;
         if (alpha <= 0.01) return;
         ctx.save();
         ctx.strokeStyle = readTokenOnce(root, '--color-border', 'rgba(220,220,220,0.55)');
@@ -1063,7 +1068,14 @@ export function mountMapRenderer(root, options) {
             modeSelect.value = currentMode;
         }
         if (preview.blocked) {
-            const reason = preview.blocked.label || preview.blocked.reason || 'no route';
+            // `computeRoutePreview` emits a FLAT shape:
+            //   { blocked: true, reason: 'no-ledger-path', label: 'No road to this place...' }
+            // Reading `preview.blocked.label` off the boolean `true` yielded
+            // undefined, so every refusal rendered as the generic fallback and
+            // all six authored labels were dead. Accept the object form too, so
+            // a future producer that nests them still works.
+            const detail = (preview.blocked && typeof preview.blocked === 'object') ? preview.blocked : preview;
+            const reason = detail.label || detail.reason || 'no route';
             const toName = (preview.toAnchor && preview.toAnchor.name) || 'destination';
             routeReadout.textContent = `Blocked: ${reason}`;
             routeReadout.style.color = 'var(--color-command-accent, #E01B1B)';
