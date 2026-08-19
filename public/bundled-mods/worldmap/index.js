@@ -540,9 +540,19 @@ function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
     });
     button.disabled = !campaignId;
     const onClick = async () => {
+        const idleLabel = button.textContent;
         button.disabled = true;
         button.textContent = 'Solving…';
-        await queueSolve(ctx);
+        try {
+            await queueSolve(ctx);
+        } finally {
+            // Restore the control unconditionally. The repaint below normally
+            // replaces this button wholesale, but it is skipped when the node
+            // has been detached, and without this finally the panel was left
+            // disabled and stuck on the solving label with no way back.
+            button.disabled = !campaignId;
+            button.textContent = idleLabel;
+        }
         if (node.isConnected) paintReport(node, ctx, campaignId);
     };
     button.addEventListener('click', onClick);
