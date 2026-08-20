@@ -569,11 +569,30 @@ export async function solveAndPersist(ctx) {
     return result;
 }
 
-function queueSolve(ctx) {
+/**
+ * Serialise one task onto the solve queue.
+ *
+ * The queue is a single promise chain. A task MUST NOT call `enqueue` (or
+ * `queueSolve`) from inside itself: doing so reassigns `solveQueue` to a
+ * promise derived from the very chain the running task is being awaited by,
+ * and the two adopt each other. The chain then stays pending forever and
+ * every later solve — every unpin, reset, re-solve, drag and route — silently
+ * never runs. That is exactly what `onDragAnchor` used to do (it ended with
+ * `.then(() => queueSolve(ctx))` from inside its own queued task), so one
+ * pin drag deadlocked the map for the rest of the session.
+ *
+ * A queued task therefore calls `solveAndPersist` directly. `enqueue` is the
+ * only writer of `solveQueue`.
+ */
+function enqueue(ctx, task) {
     solveQueue = solveQueue
-        .then(() => solveAndPersist(ctx))
-        .catch(error => ctx?.log?.('[worldmap] solve failed', error));
+        .then(task)
+        .catch(error => ctx?.log?.('[worldmap] queued task failed', error));
     return solveQueue;
+}
+
+function queueSolve(ctx) {
+    return enqueue(ctx, () => solveAndPersist(ctx));
 }
 
 export async function unpinAnchor(ctx, campaignId, locationId) {
@@ -583,8 +602,20 @@ export async function unpinAnchor(ctx, campaignId, locationId) {
     const rows = await fresh.table.read('anchors');
     const anchors = Array.isArray(rows) ? rows : [];
     const target = anchors.find(anchor => anchor.locationId === locationId);
+    if (!target) return false;
     // WO 4.3 §1 — unpinning a row with no pin is a no-op, not an error.
-    if (!target || (target.pinned !== true && target.source !== 'player')) return false;
+    //
+    // But it is only reachable when the panel and the table DISAGREE: the
+    // Unpin control is drawn from the published report, while this reads the
+    // anchors table. A stale report offers Unpin on a row that is already
+    // free, the click writes nothing, and the panel repaints the same stale
+    // report — a control that is visible, enabled, and permanently dead.
+    // Re-solve instead of returning silently, so one click always converges
+    // the panel onto the table's truth.
+    if (target.pinned !== true && target.source !== 'player') {
+        await queueSolve(fresh);
+        return false;
+    }
     const next = anchors.map(anchor => anchor.locationId === locationId
         ? { ...anchor, pinned: false, source: 'solved' }
         : anchor);
@@ -606,7 +637,13 @@ export async function resetAllPins(ctx, campaignId) {
     const rows = await fresh.table.read('anchors');
     const anchors = Array.isArray(rows) ? rows : [];
     const anyPinned = anchors.some(anchor => anchor.pinned === true || anchor.source === 'player');
-    if (!anyPinned) return false;
+    // Same seam as `unpinAnchor`: `Reset pins` is enabled from the published
+    // report, so a stale report leaves it clickable with no pins left to
+    // clear. Re-solve so the panel converges rather than dying quietly.
+    if (!anyPinned) {
+        await queueSolve(fresh);
+        return false;
+    }
     const next = anchors.map(anchor =>
         (anchor.pinned === true || anchor.source === 'player')
             ? { ...anchor, pinned: false, source: anchor.source === 'derived' ? 'derived' : 'solved' }
@@ -1263,25 +1300,24 @@ function mountMap(node, ctx) {
         if (ctxMode && typeof ctxMode === 'string') currentTravelMode = ctxMode;
         cleanupRenderer = mountMapRenderer(node, {
             getSnapshot: snapshot,
-            // WO 4.2 §2 — the renderer now calls `onDragAnchor` exactly once
-            // per drag, on pointer-up. The read-modify-write + queueSolve is
-            // serialised through `solveQueue` so the commit cannot interleave
-            // with a `solveAndPersist` write. No second queue — the existing
-            // chain owns both.
+            // WO 4.2 §2 — the renderer calls `onDragAnchor` exactly once per
+            // drag, on pointer-up. The read-modify-write and the re-solve are
+            // ONE queued task, so the commit cannot interleave with another
+            // `solveAndPersist` write. The re-solve calls `solveAndPersist`
+            // directly rather than `queueSolve`: re-entering the queue from
+            // inside a queued task deadlocks it permanently (see `enqueue`).
             onDragAnchor: async (locationId, x, y) => {
-                solveQueue = solveQueue
-                    .then(async () => {
-                        const fresh = await freshCampaignContext(ctx);
-                        if (!fresh || fresh.data.campaignId !== currentCampaignId) return;
-                        const rows = await fresh.table.read('anchors');
-                        const next = (Array.isArray(rows) ? rows : []).map(anchor =>
-                            anchor.locationId === locationId
-                                ? { ...anchor, x, y, pinned: true, source: 'player' }
-                                : anchor);
-                        await fresh.table.write('anchors', next);
-                    })
-                    .then(() => queueSolve(ctx))
-                    .catch(error => ctx?.log?.('[worldmap] drag commit failed', error));
+                await enqueue(ctx, async () => {
+                    const fresh = await freshCampaignContext(ctx);
+                    if (!fresh || fresh.data.campaignId !== currentCampaignId) return;
+                    const rows = await fresh.table.read('anchors');
+                    const next = (Array.isArray(rows) ? rows : []).map(anchor =>
+                        anchor.locationId === locationId
+                            ? { ...anchor, x, y, pinned: true, source: 'player' }
+                            : anchor);
+                    await fresh.table.write('anchors', next);
+                    await solveAndPersist(fresh);
+                });
             },
             onClickCell: handleClickCell,
             onRouteAction: handleRouteAction,

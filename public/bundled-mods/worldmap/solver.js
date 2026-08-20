@@ -1651,6 +1651,19 @@ export function solveWorldMap(input = {}) {
         fieldClauses = [...fieldClauses, ...implicitClauses];
     }
 
+    // WO 4.2 §1 says EVERY anchor commits to an integer cell — but the
+    // collision pass above runs before terrain placement, and terrain
+    // placement moves places off impassable ground to sub-cell positions. So
+    // the invariant held only until the next line of the solve: two places
+    // could be nudged back onto one cell, and anchors shipped with fractional
+    // coordinates that no occupancy key could ever match.
+    //
+    // Re-round and de-collide against the FINAL positions. The refusals array
+    // is a throwaway: the first pass already reported every hard-pin conflict,
+    // and terrain placement never moves a pinned place, so this pass cannot
+    // discover a new one — it would only duplicate the message.
+    resolveRoundedCollisions(places, pins, graph.positions, []);
+
     // Re-derive waypoints after terrain moves — their endpoints may have
     // moved. The place positions are the source of truth; the transit
     // positions are a pure function of them. Transit pins (player-dragged

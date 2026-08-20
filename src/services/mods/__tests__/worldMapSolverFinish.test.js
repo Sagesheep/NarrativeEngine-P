@@ -5,6 +5,7 @@ import {
 import {
     mountMapRenderer,
 } from '../../../../public/bundled-mods/worldmap/renderer.js';
+import { ChunkStore } from '../../../../public/bundled-mods/worldmap/field.js';
 
 function place(id, name, connections = []) {
     return { id, name, aliases: '', connections, kind: 'place' };
@@ -93,6 +94,53 @@ describe('WO 4.2 §1 — every anchor and every waypoint coordinate is an intege
         expect(anchor.x).toBe(497);
         expect(anchor.y).toBe(500);
         expect(anchor.pinned).toBe(true);
+    });
+
+    // The three cases above all solve with NO chunk store, so terrain-aware
+    // placement is a no-op in them — and terrain-aware placement was where the
+    // invariant broke. It runs AFTER the round-and-de-collide pass and nudges
+    // places off impassable ground to sub-cell positions, so live solves
+    // shipped anchors like `{ x: 505.246293, y: 492.82053 }` and could push two
+    // places back onto one cell with nothing left to separate them. Every case
+    // that exercises the integer-cell invariant must pass a real chunk store.
+    it('holds the integer-cell invariant with terrain-aware placement active', () => {
+        // Same seeds and shape as the collision case below: these are the ones
+        // observed to produce fractional anchors before the fix.
+        for (const seed of ['terrain-cell-1', 'terrain-cell-2', 'terrain-cell-3', 'terrain-cell-4']) {
+            const result = solveWorldMap({
+                locations: [
+                    place('a', 'A', [{ toId: 'b', band: 'local' }]),
+                    place('b', 'B', [{ toId: 'a', band: 'local' }, { toId: 'c', band: 'local' }]),
+                    place('c', 'C', [{ toId: 'b', band: 'local' }, { toId: 'd', band: 'local' }]),
+                    place('d', 'D', [{ toId: 'c', band: 'local' }]),
+                ],
+                loreChunks: [],
+                worldSeed: seed,
+                chunkStore: new ChunkStore(seed, 0.65, [], new Map()),
+            });
+            for (const anchor of result.anchors) {
+                expect(Number.isInteger(anchor.x), `${seed}/${anchor.locationId} x=${anchor.x}`).toBe(true);
+                expect(Number.isInteger(anchor.y), `${seed}/${anchor.locationId} y=${anchor.y}`).toBe(true);
+            }
+        }
+    });
+
+    it('leaves no two anchors sharing a cell after terrain-aware placement', () => {
+        for (const seed of ['terrain-cell-1', 'terrain-cell-2', 'terrain-cell-3', 'terrain-cell-4']) {
+            const result = solveWorldMap({
+                locations: [
+                    place('a', 'A', [{ toId: 'b', band: 'local' }]),
+                    place('b', 'B', [{ toId: 'a', band: 'local' }, { toId: 'c', band: 'local' }]),
+                    place('c', 'C', [{ toId: 'b', band: 'local' }, { toId: 'd', band: 'local' }]),
+                    place('d', 'D', [{ toId: 'c', band: 'local' }]),
+                ],
+                loreChunks: [],
+                worldSeed: seed,
+                chunkStore: new ChunkStore(seed, 0.65, [], new Map()),
+            });
+            const cells = result.anchors.map(anchor => `${anchor.x},${anchor.y}`);
+            expect(new Set(cells).size, `${seed}: ${cells.join(' | ')}`).toBe(cells.length);
+        }
     });
 });
 
