@@ -59,7 +59,19 @@ const ZOOM_LEVELS = Object.freeze([
 const GRID_FADE_BELOW_CELL_PIXELS = 8;
 const LABEL_MIN_CELL_PIXELS = 9;
 const DRAG_HIT_RADIUS_PX = 14;
-const DOUBLE_CLICK_MS = 320;
+// One dead zone for every gesture. Below this many pixels, a pointer
+// down/up pair is a CLICK; at or beyond it, it is a drag or a pan.
+//
+// The pan path previously had NO dead zone: `panStarted` flipped true on the
+// first `pointermove`, and pointer-up only fires a click when `!panStarted`.
+// So a one-pixel twitch between press and release silently cancelled the
+// click, and travel felt like it ignored you at random. The anchor drag had
+// a 3px threshold, which is below the noise floor of a normal click.
+//
+// 6px is the conventional desktop threshold (browsers and OS toolkits use
+// 4-8). One constant, both gestures — a click must mean the same thing over
+// a place as it does over open ground.
+const DRAG_DEAD_ZONE_PX = 6;
 const TILE_LRU_CAP = 200;
 const LIGHT_ELEVATION = 1.2;
 const FIELD_MIN_ELEVATION = -1;
@@ -694,6 +706,7 @@ export function mountMapRenderer(root, options) {
             if (action === 'zoom-in') zoomBy(1.25);
             else if (action === 'zoom-out') zoomBy(0.8);
             else if (action === 'fit') centreOnAnchors();
+            else if (action === 'centre') centreOnParty();
         });
         return button;
     };
@@ -701,6 +714,7 @@ export function mountMapRenderer(root, options) {
         controlButton('−', 'Zoom out', 'zoom-out'),
         controlButton('+', 'Zoom in', 'zoom-in'),
         controlButton('Fit', 'Fit map to content', 'fit'),
+        controlButton('Centre', 'Centre on your party (C)', 'centre'),
     );
     overlay.appendChild(toolbar);
 
@@ -898,15 +912,37 @@ export function mountMapRenderer(root, options) {
     offerRow.append(offerLabel, offerBandRow, offerAcceptButton);
     routePanel.appendChild(offerRow);
 
+    // The commit is a BUTTON, not a second click on the same cell.
+    //
+    // Click-to-travel used to be a two-phase gesture: click a cell to preview,
+    // click the same cell again to depart. That overloads one gesture with two
+    // meanings, makes departure depend on hitting the same cell twice, and
+    // turns any pointer twitch in between into a cancelled journey. A click
+    // now always means "show me the route"; travelling is its own control,
+    // beside the connect-on-demand offer that already worked this way.
+    const routeActionRow = makeElement('div', undefined, {
+        display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap',
+        alignSelf: 'flex-start',
+    });
+    const routeTravelButton = makeElement('button', 'Travel', {
+        padding: '3px 10px', border: '1px solid var(--color-terminal, #A78BFA)',
+        borderRadius: '3px', background: 'transparent',
+        color: 'var(--color-terminal, #A78BFA)',
+        font: 'inherit', fontSize: '10px', fontWeight: '600', cursor: 'pointer',
+    });
+    routeTravelButton.addEventListener('click', () => {
+        if (onRouteAction) onRouteAction('commit');
+    });
     const routeCancelButton = makeElement('button', 'Cancel route', {
         padding: '3px 8px', border: '1px solid var(--color-border, rgba(255,255,255,0.22))',
         borderRadius: '3px', background: 'transparent', color: 'inherit',
-        font: 'inherit', fontSize: '10px', cursor: 'pointer', alignSelf: 'flex-start',
+        font: 'inherit', fontSize: '10px', cursor: 'pointer',
     });
     routeCancelButton.addEventListener('click', () => {
         if (onRouteAction) onRouteAction('cancel');
     });
-    routePanel.appendChild(routeCancelButton);
+    routeActionRow.append(routeTravelButton, routeCancelButton);
+    routePanel.appendChild(routeActionRow);
 
     const view = { cx: FIELD_WORLD_SIZE / 2, cy: FIELD_WORLD_SIZE / 2, cellPixels: ZOOM_LEVELS[1].cellPixels };
 
@@ -922,8 +958,6 @@ export function mountMapRenderer(root, options) {
     let panLast = null;
     let pendingDragId = null;
     let pendingDragStart = null;
-    let lastClickAt = 0;
-    let lastClickLocationId = null;
     let resizeObserver = null;
     let rafHandle = 0;
     let disposed = false;
@@ -936,7 +970,6 @@ export function mountMapRenderer(root, options) {
     // computes the route (the pathfinder lives in the mod) and surfaces it
     // back through `getRoutePreview`. Commit/cancel/mode-change go through
     // `onRouteAction`.
-    let travelClickCell = null; // { x, y } — the cell the current preview is for
     let panStarted = false;     // true if the current gesture moved enough to be a pan
 
     // WO 4.2 §2 — during a drag the renderer keeps the moving anchor's
@@ -1471,11 +1504,8 @@ export function mountMapRenderer(root, options) {
         const preview = getRoutePreview();
         if (!preview) {
             routePanel.style.display = 'none';
-            // If the host cleared the preview (commit, cancel, or campaign
-            // switch), clear the renderer's click target too so the next
-            // click is a fresh preview, not a commit.
-            travelClickCell = null;
             offerRow.style.display = 'none';
+            routeTravelButton.style.display = 'none';
             return;
         }
         routePanel.style.display = 'flex';
@@ -1498,6 +1528,7 @@ export function mountMapRenderer(root, options) {
             routeReadout.textContent = `Blocked: ${reason}`;
             routeReadout.style.color = 'var(--color-command-accent, #E01B1B)';
             routeCancelButton.textContent = 'Dismiss';
+            routeTravelButton.style.display = 'none';
             // WO 6.3 §1 — the no-road refusal is an offer, not a dead end.
             // Show the band selector (defaulted to the straight-line band
             // the mod pre-computed) and the "Create and travel" button. The
@@ -1518,9 +1549,10 @@ export function mountMapRenderer(root, options) {
         } else {
             const cellCount = preview.cellCount != null ? preview.cellCount : Math.max(0, (preview.cells || []).length - 1);
             const toName = (preview.toAnchor && preview.toAnchor.name) || 'destination';
-            routeReadout.textContent = `→ ${toName}\n${cellCount} cells · ${preview.days} day${preview.days === 1 ? '' : 's'}\nClick again to travel`;
+            routeReadout.textContent = `→ ${toName}\n${cellCount} cells · ${preview.days} day${preview.days === 1 ? '' : 's'}`;
             routeReadout.style.color = 'var(--color-text-primary, inherit)';
             routeCancelButton.textContent = 'Cancel route';
+            routeTravelButton.style.display = 'inline-block';
             offerRow.style.display = 'none';
         }
     }
@@ -1575,7 +1607,7 @@ export function mountMapRenderer(root, options) {
         const px = event.clientX - rect.left;
         const py = event.clientY - rect.top;
         if (pendingDragId && pendingDragStart) {
-            if (Math.hypot(px - pendingDragStart.px, py - pendingDragStart.py) > 3) {
+            if (Math.hypot(px - pendingDragStart.px, py - pendingDragStart.py) >= DRAG_DEAD_ZONE_PX) {
                 dragging = pendingDragId;
             }
             if (dragging === pendingDragId) {
@@ -1595,11 +1627,22 @@ export function mountMapRenderer(root, options) {
             return;
         }
         if (panLast) {
+            if (!panStarted) {
+                // `panLast` is still the press point until the pan actually
+                // starts, so it doubles as the dead-zone origin. Inside the
+                // dead zone this is still a click: move nothing, and leave
+                // `panStarted` false so pointer-up fires the click.
+                if (Math.hypot(px - panLast.px, py - panLast.py) < DRAG_DEAD_ZONE_PX) return;
+                // Re-base on the current point as the pan begins, so the map
+                // does not jump by the width of the dead zone on frame one.
+                panStarted = true;
+                panLast = { px, py };
+                return;
+            }
             const cell = cellSizePixels();
             view.cx -= (px - panLast.px) / cell;
             view.cy -= (py - panLast.py) / cell;
             panLast = { px, py };
-            panStarted = true;
             clampView();
             scheduleRender();
             return;
@@ -1611,26 +1654,20 @@ export function mountMapRenderer(root, options) {
         const px = rect ? event.clientX - rect.left : 0;
         const py = rect ? event.clientY - rect.top : 0;
         if (pendingDragId && pendingDragStart) {
-            const moved = Math.hypot(px - pendingDragStart.px, py - pendingDragStart.py) > 3;
+            const moved = Math.hypot(px - pendingDragStart.px, py - pendingDragStart.py) >= DRAG_DEAD_ZONE_PX;
             if (!moved) {
-                // Click — either a double-click-to-place or a no-op. The
-                // double-click path below still commits once, as before.
-                const now = Date.now();
-                if (now - lastClickAt < DOUBLE_CLICK_MS && lastClickLocationId === pendingDragId) {
-                    const world = screenToCell(px, py);
-                    // WO 4.2 §2 — validate before committing a double-click
-                    // placement too. A non-finite or OOB coordinate is
-                    // rejected and the previous position survives.
-                    if (Number.isFinite(world.x) && Number.isFinite(world.y)) {
-                        const cx = clamp(Math.round(world.x), 0, FIELD_WORLD_SIZE - 1);
-                        const cy = clamp(Math.round(world.y), 0, FIELD_WORLD_SIZE - 1);
-                        onDragAnchor(pendingDragId, cx, cy);
-                    }
-                    lastClickAt = 0;
-                    lastClickLocationId = null;
-                } else {
-                    lastClickAt = now;
-                    lastClickLocationId = pendingDragId;
+                // A click on a place is a TRAVEL click — the same gesture, and
+                // the same meaning, as a click on open ground. It routes there.
+                //
+                // It used to be a double-click-to-place: two clicks on a place
+                // moved it to the cursor and pinned it. That was a second pin
+                // gesture on top of the drag, undocumented, and armed during
+                // play on the same button the player travels with.
+                if (onClickCell) {
+                    onClickCell(
+                        clamp(Math.round(pendingDragStart.x), 0, FIELD_WORLD_SIZE - 1),
+                        clamp(Math.round(pendingDragStart.y), 0, FIELD_WORLD_SIZE - 1),
+                    );
                 }
             } else if (dragging === pendingDragId) {
                 // WO 4.2 §2 — commit once on release. Round to a cell,
@@ -1653,25 +1690,17 @@ export function mountMapRenderer(root, options) {
                 }
             }
         } else if (panLast && onClickCell && !panStarted) {
-            // WO 6.1 §1 — a terrain click (no anchor hit, no movement). This
-            // is the click-to-travel entry point. The first click on a cell
-            // previews the route; a second click on the SAME cell commits; a
-            // click on a different cell re-routes. The renderer only reports
-            // the cell — the mod computes the route (pathfinder + anchor
-            // snap) and surfaces it back through `getRoutePreview`.
+            // WO 6.1 §1 — a terrain click (no anchor hit, no pan). One click,
+            // one meaning: show the route to this cell. Departing is the
+            // Travel button in the route panel. The renderer only reports the
+            // cell — the mod computes the route (pathfinder + anchor snap)
+            // and surfaces it back through `getRoutePreview`.
             const world = screenToCell(px, py);
             if (Number.isFinite(world.x) && Number.isFinite(world.y)) {
-                const cx = clamp(Math.round(world.x), 0, FIELD_WORLD_SIZE - 1);
-                const cy = clamp(Math.round(world.y), 0, FIELD_WORLD_SIZE - 1);
-                if (travelClickCell && travelClickCell.x === cx && travelClickCell.y === cy) {
-                    // Second click on the same cell → commit.
-                    if (onRouteAction) onRouteAction('commit');
-                    travelClickCell = null;
-                } else {
-                    // First click (or click on a different cell) → preview.
-                    travelClickCell = { x: cx, y: cy };
-                    onClickCell(cx, cy);
-                }
+                onClickCell(
+                    clamp(Math.round(world.x), 0, FIELD_WORLD_SIZE - 1),
+                    clamp(Math.round(world.y), 0, FIELD_WORLD_SIZE - 1),
+                );
             }
         }
         pendingDragId = null;
@@ -1754,6 +1783,7 @@ export function mountMapRenderer(root, options) {
         else if (event.key === '+' || event.key === '=') zoomBy(1.25);
         else if (event.key === '-' || event.key === '_') zoomBy(0.8);
         else if (event.key === '0') centreOnAnchors();
+        else if (event.key === 'c' || event.key === 'C') centreOnParty();
         else handled = false;
         if (!handled) return;
         event.preventDefault();
@@ -1782,6 +1812,31 @@ export function mountMapRenderer(root, options) {
         scheduleRender();
     }
 
+    // The map opens on the party, not on the world.
+    //
+    // `centreOnAnchors` frames the bounding box of every place — a wall chart
+    // answering "where is everything", when the question the player is asking
+    // is "where am I". Falls back to fit-all when no current place is set.
+    //
+    // The marker itself — its shape, its screen-pixel sizing, the off-screen
+    // indicator — is WORKORDER 5.5. This is only the camera half.
+    function centreOnParty() {
+        const snapshot = getSnapshot();
+        const currentId = snapshot && snapshot.locationId;
+        const anchor = currentId && Array.isArray(snapshot.anchors)
+            ? snapshot.anchors.find(candidate => candidate.locationId === currentId)
+            : null;
+        if (!anchor || !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y)) {
+            centreOnAnchors();
+            return;
+        }
+        view.cx = anchor.x;
+        view.cy = anchor.y;
+        view.cellPixels = ZOOM_LEVELS[2].cellPixels;
+        clampView();
+        scheduleRender();
+    }
+
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onCanvasPointerMove);
     canvas.addEventListener('pointerleave', onCanvasPointerLeave);
@@ -1798,7 +1853,7 @@ export function mountMapRenderer(root, options) {
 
     refreshRect();
     resize();
-    centreOnAnchors();
+    centreOnParty();
     scheduleRender();
 
     return () => {

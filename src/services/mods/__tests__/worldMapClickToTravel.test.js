@@ -163,7 +163,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         cleanupRenderer();
     });
 
-    it('a second click on the same cell calls onRouteAction("commit") — second click commits', () => {
+    it('a second click on the same cell previews again and never commits', () => {
         const snapshot = makeSnapshot();
         const onClickCell = vi.fn();
         const onRouteAction = vi.fn();
@@ -180,11 +180,12 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         dispatchPointer(canvasEl, 'pointerdown', 50, 50);
         dispatchPointer(window, 'pointerup', 50, 50);
         expect(onClickCell).toHaveBeenCalledTimes(1);
-        // Second click on the same screen position — commit.
+        // Second click on the same screen position — previews again. One
+        // gesture, one meaning. Departing is the Travel button.
         dispatchPointer(canvasEl, 'pointerdown', 50, 50);
         dispatchPointer(window, 'pointerup', 50, 50);
-        expect(onClickCell).toHaveBeenCalledTimes(1);
-        expect(onRouteAction).toHaveBeenCalledWith('commit');
+        expect(onClickCell).toHaveBeenCalledTimes(2);
+        expect(onRouteAction).not.toHaveBeenCalledWith('commit');
         cleanupRenderer();
     });
 
@@ -266,7 +267,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         cleanupRenderer();
     });
 
-    it('a drag ending on its start cell writes nothing (WO 4.2 §2) and is not a travel command', () => {
+    it('a click on a place routes to it, and a twitch inside the dead zone is still a click', () => {
         const snapshot = makeSnapshot();
         const onClickCell = vi.fn();
         const onDragAnchor = vi.fn();
@@ -280,16 +281,107 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
             getTravelMode: () => 'foot',
         });
         const canvasEl = root.querySelector('canvas');
+        // The camera centres on the party, and the stubbed rect is 900x640,
+        // so the current place ('a') sits at the exact centre of the canvas.
         const cx = 450, cy = 320;
-        // pointerdown on an anchor, tiny move (< 3px, below the drag
-        // threshold), pointerup on the same cell. This is a click on the pin,
-        // not a travel command and not a drag commit.
+        // Press on the place, twitch 4.5px — inside the 6px dead zone — and
+        // release. A hand is never perfectly still between press and release;
+        // that must not turn a click into a drag or swallow it as a pan.
         dispatchPointer(canvasEl, 'pointerdown', cx, cy);
-        dispatchPointer(window, 'pointermove', cx + 1, cy + 1);
-        dispatchPointer(window, 'pointerup', cx + 1, cy + 1);
+        dispatchPointer(window, 'pointermove', cx + 4, cy + 2);
+        dispatchPointer(window, 'pointerup', cx + 4, cy + 2);
         expect(onDragAnchor).not.toHaveBeenCalled();
-        expect(onClickCell).not.toHaveBeenCalled();
+        expect(onClickCell).toHaveBeenCalledTimes(1);
         expect(onRouteAction).not.toHaveBeenCalledWith('commit');
+        cleanupRenderer();
+    });
+
+    it('a twitch inside the dead zone over open ground is still a click', () => {
+        // The regression this exists for: the pan path had NO dead zone, so
+        // `panStarted` flipped true on the first pointermove and pointer-up
+        // then refused to fire the click. A one-pixel tremble silently ate
+        // the travel click.
+        const snapshot = makeSnapshot();
+        const onClickCell = vi.fn();
+        const cleanupRenderer = mountMapRenderer(root, {
+            getSnapshot: () => snapshot,
+            onDragAnchor: () => undefined,
+            onClickCell,
+            onRouteAction: () => undefined,
+            getRoutePreview: () => null,
+            getTravelMode: () => 'foot',
+        });
+        const canvasEl = root.querySelector('canvas');
+        dispatchPointer(canvasEl, 'pointerdown', 60, 60);
+        dispatchPointer(window, 'pointermove', 62, 61);
+        dispatchPointer(window, 'pointerup', 62, 61);
+        expect(onClickCell).toHaveBeenCalledTimes(1);
+        cleanupRenderer();
+    });
+
+    it('a pan past the dead zone is not a click', () => {
+        const snapshot = makeSnapshot();
+        const onClickCell = vi.fn();
+        const cleanupRenderer = mountMapRenderer(root, {
+            getSnapshot: () => snapshot,
+            onDragAnchor: () => undefined,
+            onClickCell,
+            onRouteAction: () => undefined,
+            getRoutePreview: () => null,
+            getTravelMode: () => 'foot',
+        });
+        const canvasEl = root.querySelector('canvas');
+        dispatchPointer(canvasEl, 'pointerdown', 60, 60);
+        dispatchPointer(window, 'pointermove', 90, 60);
+        dispatchPointer(window, 'pointerup', 90, 60);
+        expect(onClickCell).not.toHaveBeenCalled();
+        cleanupRenderer();
+    });
+
+    it('double-clicking a place never moves it — the pin gesture is gone', () => {
+        const snapshot = makeSnapshot();
+        const onDragAnchor = vi.fn();
+        const cleanupRenderer = mountMapRenderer(root, {
+            getSnapshot: () => snapshot,
+            onDragAnchor,
+            onClickCell: () => undefined,
+            onRouteAction: () => undefined,
+            getRoutePreview: () => null,
+            getTravelMode: () => 'foot',
+        });
+        const canvasEl = root.querySelector('canvas');
+        const cx = 450, cy = 320;
+        for (let i = 0; i < 2; i += 1) {
+            dispatchPointer(canvasEl, 'pointerdown', cx, cy);
+            dispatchPointer(window, 'pointerup', cx, cy);
+        }
+        expect(onDragAnchor).not.toHaveBeenCalled();
+        cleanupRenderer();
+    });
+
+    it('the Travel button in the route panel commits the route', () => {
+        const snapshot = makeSnapshot();
+        const onRouteAction = vi.fn();
+        const preview = {
+            cells: [[10, 10], [11, 11]], cost: 2, days: 2, mode: 'foot',
+            fromAnchor: { locationId: 'a', name: 'A' },
+            toAnchor: { locationId: 'b', name: 'B' },
+            cellCount: 1,
+        };
+        const cleanupRenderer = mountMapRenderer(root, {
+            getSnapshot: () => snapshot,
+            onDragAnchor: () => undefined,
+            onClickCell: () => undefined,
+            onRouteAction,
+            getRoutePreview: () => preview,
+            getTravelMode: () => 'foot',
+        });
+        const travelButton = Array.from(root.querySelectorAll('button'))
+            .find(button => button.textContent === 'Travel');
+        expect(travelButton).toBeTruthy();
+        expect(travelButton.style.display).not.toBe('none');
+        travelButton.click();
+        expect(onRouteAction).toHaveBeenCalledWith('commit');
         cleanupRenderer();
     });
 
@@ -345,7 +437,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         cleanupRenderer();
     });
 
-    it('a blocked route preview shows the readout and does not call onRouteAction on a second click', () => {
+    it('a blocked route preview shows the readout and offers no Travel button', () => {
         const snapshot = makeSnapshot();
         const onClickCell = vi.fn();
         const onRouteAction = vi.fn();
@@ -371,17 +463,19 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         dispatchPointer(canvasEl, 'pointerdown', 50, 50);
         dispatchPointer(window, 'pointerup', 50, 50);
         expect(onClickCell).toHaveBeenCalledTimes(1);
-        // Second click on the same cell — the renderer calls commit, but the
-        // host's `handleRouteAction` checks `preview.blocked` and does not
-        // emit. The renderer itself calls `onRouteAction('commit')`
-        // regardless — the blocked guard is the host's responsibility.
+        // Clicking again cannot depart: there is no second-click commit, and
+        // a blocked route hides the Travel button outright. A refusal must
+        // never leave a control that pretends the journey is available.
         dispatchPointer(canvasEl, 'pointerdown', 50, 50);
         dispatchPointer(window, 'pointerup', 50, 50);
-        expect(onRouteAction).toHaveBeenCalledWith('commit');
+        expect(onRouteAction).not.toHaveBeenCalledWith('commit');
         // The readout panel should show the blocked label.
         const readout = root.querySelector('div[style*="white-space: pre-wrap"]');
         expect(readout).not.toBeNull();
         expect(readout.textContent).toContain('Blocked');
+        const travelButton = Array.from(root.querySelectorAll('button'))
+            .find(button => button.textContent === 'Travel');
+        expect(travelButton.style.display).toBe('none');
         cleanupRenderer();
     });
 });
