@@ -357,12 +357,17 @@ export function findRoute(chunkStore, from, to, mode, options = {}) {
         return { blocked: true, reason: 'no-route' };
     }
 
+    // Each path cell carries its CUMULATIVE terrain cost from the start.
+    // `gScore` already holds it, so this is free — and without it a consumer
+    // can only space day marks evenly by cell index, which would draw a day
+    // through swamp as the same distance as a day on open road. The whole
+    // point of costing terrain is that it isn't.
     const path = [];
     let walk = bestKey;
     while (walk !== undefined) {
         const wx = walk >> 16;
         const wy = (walk << 16) >> 16;
-        path.push({ x: wx, y: wy });
+        path.push({ x: wx, y: wy, cost: gScore.get(walk) ?? 0 });
         walk = cameFrom.get(walk);
     }
     path.reverse();

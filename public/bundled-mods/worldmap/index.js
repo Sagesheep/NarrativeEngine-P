@@ -390,6 +390,11 @@ function computeRoutePreview(ctx, campaignId, toX, toY, mode) {
         fromAnchor: { locationId: fromAnchor.locationId, name: fromName },
         toAnchor: { locationId: toAnchor.locationId, name: toName },
         cellCount: Math.max(0, allCells.length - 1),
+        checkpoints: buildCheckpoints(
+            hopResults,
+            gridsPerDayForMode(mode),
+            pfMode !== null ? pathfinderMultiplier(pfMode) : 1,
+        ),
         hops,
     };
 }
@@ -451,6 +456,43 @@ function pathfinderMultiplier(pfMode) {
     if (pfMode === 'cart') return 0.6;
     if (pfMode === 'boat') return 1.0;
     return 1.0;
+}
+
+/**
+ * Where each day of the journey ends.
+ *
+ * "6-10 days" is a number; a line of camps along the road is a journey. The
+ * marks fall on real terrain cost, not on evenly-spaced cells, so a day
+ * through mountains visibly covers less ground than a day on the flat.
+ *
+ * Day boundaries are computed PER HOP because the day count is: each hop's
+ * legs are rounded up independently, so a global division would disagree with
+ * the number shown in the readout. Arriving at an intermediate place is
+ * itself a checkpoint — that is a night under a roof, not a night in a tent.
+ * The final arrival is not a checkpoint; it is the destination.
+ */
+export function buildCheckpoints(hopResults, gridsPerDay, multiplier) {
+    const costPerDay = Math.max(1e-6, gridsPerDay * multiplier);
+    const checkpoints = [];
+    let dayOffset = 0;
+    for (let index = 0; index < hopResults.length; index += 1) {
+        const hop = hopResults[index];
+        const cells = Array.isArray(hop.cells) ? hop.cells : [];
+        let nextDay = 1;
+        for (const cell of cells) {
+            if (!Number.isFinite(cell.cost)) break;
+            while (nextDay < hop.legs && cell.cost >= nextDay * costPerDay) {
+                checkpoints.push({ x: cell.x, y: cell.y, day: dayOffset + nextDay, kind: 'camp' });
+                nextDay += 1;
+            }
+        }
+        dayOffset += hop.legs;
+        if (index < hopResults.length - 1 && cells.length > 0) {
+            const last = cells[cells.length - 1];
+            checkpoints.push({ x: last.x, y: last.y, day: dayOffset, kind: 'place' });
+        }
+    }
+    return checkpoints;
 }
 
 /** Build a human-readable blocked label for a pathfinder `blocked` result. */
@@ -683,7 +725,13 @@ export async function createConnectionAndRoute(ctx, campaignId, fromId, toId, ba
     // queue through `solveQueue` so the solve lands before the re-route
     // reads the report.
     await queueSolve(fresh);
-    const reRouted = computeRoutePreview(fresh, campaignId, clickCell.x, clickCell.y, mode);
+    // Re-read the context before re-routing. `fresh.data` is a SNAPSHOT taken
+    // at entry, before the `setLocationLedger` above — so re-routing through
+    // it walks a ledger with no connection in it and reports "No road to X"
+    // for the road just authored. The Places panel showed the connection and
+    // the map denied it existed.
+    const afterWrite = await freshCampaignContext(fresh) ?? fresh;
+    const reRouted = computeRoutePreview(afterWrite, campaignId, clickCell.x, clickCell.y, mode);
     reRouted._clickCell = clickCell;
     routePreviewByCampaign.set(campaignId, reRouted);
     for (const listener of mapPaintListeners) listener(campaignId);
@@ -1147,6 +1195,9 @@ export function mapSnapshot(ctx) {
 
 function mountMap(node, ctx) {
     let cleanupRenderer = null;
+    // Survives the renderer remounts that every repaint performs. Null until
+    // the first mount, which is the only time the camera frames itself.
+    let lastView = null;
     // See the note in `mountReport`: `ctx.data` is a snapshot from activate-time
     // cold start. `liveCtx` is swapped for a freshly-read context on mount, which
     // is what makes place names and the current place resolve at all.
@@ -1300,6 +1351,13 @@ function mountMap(node, ctx) {
         if (ctxMode && typeof ctxMode === 'string') currentTravelMode = ctxMode;
         cleanupRenderer = mountMapRenderer(node, {
             getSnapshot: snapshot,
+            // Every repaint tears the renderer down and mounts a new one, and
+            // a fresh mount frames the camera. So a solve, a table write or a
+            // ledger change used to yank the view out from under the player
+            // mid-pan. The camera is panel state, not renderer state: the
+            // renderer restores it on mount and reports it as it changes.
+            getInitialView: () => lastView,
+            onViewChange: view => { lastView = view; },
             // WO 4.2 §2 — the renderer calls `onDragAnchor` exactly once per
             // drag, on pointer-up. The read-modify-write and the re-solve are
             // ONE queued task, so the commit cannot interleave with another
@@ -1329,6 +1387,7 @@ function mountMap(node, ctx) {
             log: (...args) => ctx?.log?.('[worldmap:map]', ...args),
         });
     };
+    let disposed = false;
     const repaint = campaignId => {
         if (campaignId !== currentCampaignId) return;
         render();
@@ -1336,6 +1395,17 @@ function mountMap(node, ctx) {
     mapPaintListeners.add(repaint);
     const unsubscribeCampaign = ctx.subscribe('campaignId', campaignId => {
         currentCampaignId = campaignId;
+        render();
+    });
+    // The map is a VIEW of the ledger, so it has to follow the ledger.
+    // `liveCtx` was resolved once at mount and never again, so every ledger
+    // change made after the map opened — a new place, a new connection, a
+    // change of current place — left the map reading a snapshot from mount
+    // time while the Places panel showed the truth. Same fact, two answers.
+    const unsubscribeLocation = ctx.subscribe('location', async () => {
+        const fresh = await freshCampaignContext(ctx);
+        if (disposed || !fresh || fresh.data.campaignId !== currentCampaignId) return;
+        liveCtx = fresh;
         render();
     });
     const unsubscribeAnchors = ctx.table.subscribe('anchors', () => repaint(currentCampaignId));
@@ -1360,7 +1430,6 @@ function mountMap(node, ctx) {
         snapshotCacheByCampaign.delete(currentCampaignId);
         repaint(currentCampaignId);
     });
-    let disposed = false;
     freshCampaignContext(ctx).then(async fresh => {
         if (disposed || !fresh) return;
         liveCtx = fresh;
@@ -1373,6 +1442,7 @@ function mountMap(node, ctx) {
         if (cleanupRenderer) { cleanupRenderer(); cleanupRenderer = null; }
         mapPaintListeners.delete(repaint);
         unsubscribeCampaign();
+        unsubscribeLocation();
         unsubscribeAnchors();
         unsubscribeVisited();
         unsubscribeSettings();

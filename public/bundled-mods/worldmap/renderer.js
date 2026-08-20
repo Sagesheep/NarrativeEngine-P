@@ -617,6 +617,7 @@ function refreshTokenCache(root) {
 export function mountMapRenderer(root, options) {
     const {
         getSnapshot, onDragAnchor, log = () => undefined,
+        getInitialView, onViewChange,
         onClickCell, onRouteAction, getRoutePreview, getTravelMode,
         travelModes, onLayerChange, onContextAction,
     } = options;
@@ -1031,6 +1032,17 @@ export function mountMapRenderer(root, options) {
     }
 
     // ── screen ↔ cell conversion (reusable for WO 6 click-to-travel) ──
+    // A cell is a BOX. Cell (x, y) spans the grid lines at x..x+1 and
+    // y..y+1, which is exactly how the terrain tiles are blitted — so a place
+    // "at" (496, 500) belongs in the middle of that box, not on the corner
+    // where four cells meet. Everything that sits ON the map (places, roads,
+    // the route line, the hit test) goes through this; the grid lines and the
+    // terrain keep using `cellToScreen` directly, because a grid line really
+    // does belong on the boundary.
+    function cellCentreToScreen(x, y) {
+        return cellToScreen(x + 0.5, y + 0.5);
+    }
+
     function cellToScreen(x, y) {
         const rect = cachedRect;
         const w = rect ? rect.width : 0;
@@ -1053,7 +1065,7 @@ export function mountMapRenderer(root, options) {
         let best = null;
         let bestDistance = DRAG_HIT_RADIUS_PX;
         for (const anchor of snapshot.anchors) {
-            const screen = cellToScreen(anchor.x, anchor.y);
+            const screen = cellCentreToScreen(anchor.x, anchor.y);
             const d = Math.hypot(screen.x - px, screen.y - py);
             if (d <= bestDistance) { bestDistance = d; best = anchor; }
         }
@@ -1133,6 +1145,11 @@ export function mountMapRenderer(root, options) {
         const margin = 10;
         view.cx = Math.max(-margin, Math.min(FIELD_WORLD_SIZE + margin, view.cx));
         view.cy = Math.max(-margin, Math.min(FIELD_WORLD_SIZE + margin, view.cy));
+        // Every pan, zoom, key and centring lands here, so this is the one
+        // place the camera has to be reported from.
+        if (typeof onViewChange === 'function') {
+            onViewChange({ cx: view.cx, cy: view.cy, cellPixels: view.cellPixels });
+        }
     }
 
     function ensureAtlas(snapshot) {
@@ -1365,12 +1382,12 @@ export function mountMapRenderer(root, options) {
             const isEmphasised = emphasisedEdges.has(key);
             ctx.lineWidth = isEmphasised ? Math.max(baseWidth * 2.2, baseWidth + 2) : baseWidth;
             ctx.strokeStyle = isEmphasised ? emphasisStroke : baseStroke;
-            const fromScreen = cellToScreen(from.x, from.y);
-            const toScreen = cellToScreen(to.x, to.y);
+            const fromScreen = cellCentreToScreen(from.x, from.y);
+            const toScreen = cellCentreToScreen(to.x, to.y);
             const intermediates = waypointsForEdge(connection.fromId, connection.toId, waypointsByEdge)
                 .map(waypoint => {
                     const anchor = byId.get(waypoint.locationId);
-                    return anchor ? cellToScreen(anchor.x, anchor.y) : null;
+                    return anchor ? cellCentreToScreen(anchor.x, anchor.y) : null;
                 })
                 .filter(Boolean);
             ctx.beginPath();
@@ -1425,7 +1442,7 @@ export function mountMapRenderer(root, options) {
             }
             const ax = dragPreview && dragPreview.locationId === anchor.locationId ? dragPreview.x : anchor.x;
             const ay = dragPreview && dragPreview.locationId === anchor.locationId ? dragPreview.y : anchor.y;
-            const screen = cellToScreen(ax, ay);
+            const screen = cellCentreToScreen(ax, ay);
             const radius = Math.max(5, cell / 2.4);
             const fill = anchor.pinned ? accentColor : idleColor;
             drawAnchorDot(anchor, screen, radius, fill, strokeColor);
@@ -1439,7 +1456,7 @@ export function mountMapRenderer(root, options) {
         if (currentAnchorEntry) {
             const ax = dragPreview && dragPreview.locationId === currentAnchorEntry.locationId ? dragPreview.x : currentAnchorEntry.x;
             const ay = dragPreview && dragPreview.locationId === currentAnchorEntry.locationId ? dragPreview.y : currentAnchorEntry.y;
-            const screen = cellToScreen(ax, ay);
+            const screen = cellCentreToScreen(ax, ay);
             const baseRadius = Math.max(5, cell / 2.4);
             const radius = baseRadius * 1.45;
             // Outer ring.
@@ -1478,17 +1495,49 @@ export function mountMapRenderer(root, options) {
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
         ctx.beginPath();
-        const first = cellToScreen(cells[0].x, cells[0].y);
+        const first = cellCentreToScreen(cells[0].x, cells[0].y);
         ctx.moveTo(first.x, first.y);
         for (let i = 1; i < cells.length; i += 1) {
-            const s = cellToScreen(cells[i].x, cells[i].y);
+            const s = cellCentreToScreen(cells[i].x, cells[i].y);
             ctx.lineTo(s.x, s.y);
         }
         ctx.stroke();
+        // The nights. A hollow dot where each day of walking ends, numbered
+        // once the zoom can carry a label. This is what turns "6 days" into a
+        // journey the player can look at and point to.
+        const checkpoints = Array.isArray(preview.checkpoints) ? preview.checkpoints : [];
+        if (!isBlocked && checkpoints.length > 0) {
+            const groundColor = readTokenOnce(root, '--color-void-darker', '#0e0f12');
+            const labelColor = readTokenOnce(root, '--color-text-primary', '#E8EAED');
+            const radius = Math.max(3, cell / 4.5);
+            ctx.globalAlpha = 1;
+            for (const checkpoint of checkpoints) {
+                const screen = cellCentreToScreen(checkpoint.x, checkpoint.y);
+                ctx.beginPath();
+                ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = groundColor;
+                ctx.fill();
+                ctx.strokeStyle = previewStroke;
+                // A night at a place reads heavier than a night in a tent.
+                ctx.lineWidth = checkpoint.kind === 'place' ? 2.5 : 1.5;
+                ctx.stroke();
+                if (cell >= LABEL_MIN_CELL_PIXELS) {
+                    ctx.font = `${Math.max(9, Math.round(cell / 2.4))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillStyle = groundColor;
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = groundColor;
+                    ctx.strokeText(String(checkpoint.day), screen.x, screen.y - radius - 2);
+                    ctx.fillStyle = labelColor;
+                    ctx.fillText(String(checkpoint.day), screen.x, screen.y - radius - 2);
+                }
+            }
+        }
         // Endpoints: a ring at the destination cell so the click target reads.
         if (cells.length > 0) {
             const end = cells[cells.length - 1];
-            const endScreen = cellToScreen(end.x, end.y);
+            const endScreen = cellCentreToScreen(end.x, end.y);
             ctx.globalAlpha = 0.9;
             ctx.beginPath();
             ctx.arc(endScreen.x, endScreen.y, Math.max(6, cell / 1.8), 0, Math.PI * 2);
@@ -1697,9 +1746,15 @@ export function mountMapRenderer(root, options) {
             // and surfaces it back through `getRoutePreview`.
             const world = screenToCell(px, py);
             if (Number.isFinite(world.x) && Number.isFinite(world.y)) {
+                // `floor`, not `round` — the cell you clicked is the box the
+                // cursor is inside. Rounding picked the NEAREST corner, so a
+                // click in the right or lower half of a cell selected the
+                // neighbour. Hover and the context menu already floored, so
+                // the readout named one cell and the click travelled to
+                // another.
                 onClickCell(
-                    clamp(Math.round(world.x), 0, FIELD_WORLD_SIZE - 1),
-                    clamp(Math.round(world.y), 0, FIELD_WORLD_SIZE - 1),
+                    clamp(Math.floor(world.x), 0, FIELD_WORLD_SIZE - 1),
+                    clamp(Math.floor(world.y), 0, FIELD_WORLD_SIZE - 1),
                 );
             }
         }
@@ -1801,8 +1856,8 @@ export function mountMapRenderer(root, options) {
             if (a.x > maxX) maxX = a.x;
             if (a.y > maxY) maxY = a.y;
         }
-        view.cx = (minX + maxX) / 2;
-        view.cy = (minY + maxY) / 2;
+        view.cx = ((minX + maxX) / 2) + 0.5;
+        view.cy = ((minY + maxY) / 2) + 0.5;
         const span = Math.max(maxX - minX, maxY - minY, 10) + 8;
         const rect = cachedRect || root.getBoundingClientRect();
         cachedRect = rect;
@@ -1830,8 +1885,8 @@ export function mountMapRenderer(root, options) {
             centreOnAnchors();
             return;
         }
-        view.cx = anchor.x;
-        view.cy = anchor.y;
+        view.cx = anchor.x + 0.5;
+        view.cy = anchor.y + 0.5;
         view.cellPixels = ZOOM_LEVELS[2].cellPixels;
         clampView();
         scheduleRender();
@@ -1853,8 +1908,22 @@ export function mountMapRenderer(root, options) {
 
     refreshRect();
     resize();
-    centreOnParty();
-    scheduleRender();
+    // Restore the camera the panel was holding. Only a genuinely first mount
+    // frames itself on the party; a remount must land exactly where the
+    // player left off, or every background solve becomes a jump cut.
+    const restoredView = typeof getInitialView === 'function' ? getInitialView() : null;
+    if (restoredView
+        && Number.isFinite(restoredView.cx)
+        && Number.isFinite(restoredView.cy)
+        && Number.isFinite(restoredView.cellPixels)) {
+        view.cx = restoredView.cx;
+        view.cy = restoredView.cy;
+        view.cellPixels = restoredView.cellPixels;
+        clampView();
+        scheduleRender();
+    } else {
+        centreOnParty();
+    }
 
     return () => {
         disposed = true;

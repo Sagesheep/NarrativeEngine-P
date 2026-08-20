@@ -53,8 +53,8 @@ describe('World Map pathfinder — straight line across uniform plains', () => {
         const result = findRoute(store, { x: 0, y: 0 }, { x: 5, y: 0 }, 'foot');
         expect(result).not.toHaveProperty('blocked');
         expect(result.cells.length).toBe(6);
-        expect(result.cells[0]).toEqual({ x: 0, y: 0 });
-        expect(result.cells[5]).toEqual({ x: 5, y: 0 });
+        expect(result.cells[0]).toMatchObject({ x: 0, y: 0 });
+        expect(result.cells[5]).toMatchObject({ x: 5, y: 0 });
         // 5 orthogonal moves × plains cost 1.0 × foot multiplier 1.0 = 5.
         expect(result.cost).toBeCloseTo(5, 6);
         expect(result.days).toBe(Math.ceil(5 / (BASE_GRIDS_PER_DAY * 1.0)));
@@ -201,8 +201,8 @@ describe('World Map pathfinder — no corner-cutting', () => {
         const store = new SyntheticChunkStore(layout, 'ocean');
         const result = findRoute(store, { x: 0, y: 0 }, { x: 1, y: 1 }, 'foot');
         expect(result).not.toHaveProperty('blocked');
-        expect(result.cells[0]).toEqual({ x: 0, y: 0 });
-        expect(result.cells[result.cells.length - 1]).toEqual({ x: 1, y: 1 });
+        expect(result.cells[0]).toMatchObject({ x: 0, y: 0 });
+        expect(result.cells[result.cells.length - 1]).toMatchObject({ x: 1, y: 1 });
     });
 });
 
