@@ -99,7 +99,15 @@ export function WorldMapTravelBridge() {
                 });
             }
         });
-        return () => unsubscribe();
+        const unsubscribeCurrent = modEventBus.on('mod.worldmap.setCurrentPlace', (payload) => {
+            const locationId = typeof payload?.locationId === 'string' ? payload.locationId : null;
+            if (!locationId) return;
+            updateContext({ currentPlaceId: locationId, currentFeature: null });
+        });
+        return () => {
+            unsubscribe();
+            unsubscribeCurrent();
+        };
         // Only re-subscribe when the campaign changes or the store actions
         // change (they don't — Zustand actions are stable). Data is read at
         // emit time, not subscription time.

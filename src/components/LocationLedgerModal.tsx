@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Plus, MapPin, Trash2, Search, Navigation, BookOpen, Compass } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
+import { modEventBus } from '../services/mods/events';
 import type { LocationEntry } from '../types';
 import { connectionBand } from '../services/locationParser';
 import type { DistanceBand } from '../services/location/distance';
@@ -77,6 +78,29 @@ export function LocationLedgerModal() {
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [locationLedgerOpen, toggleLocationLedger]);
+
+    // World Map context-menu details uses the same Places panel and selection
+    // state as the ledger button, so the map never grows a second place-detail
+    // surface.
+    useEffect(() => {
+        const unsubscribe = modEventBus.on('mod.worldmap.placeDetails', (payload) => {
+            const id = typeof payload?.locationId === 'string' ? payload.locationId : null;
+            if (!id) return;
+            const latest = useAppStore.getState().locationLedger.find(location => location.id === id);
+            if (!latest) return;
+            setSelectedId(latest.id);
+            setForm({ ...latest });
+            setFeaturesDraft(latest.features.join(', '));
+            setNewConnectionTo('');
+            setNewConnectionBand('local');
+            setNewConnectionNote('');
+            setIsEditing(false);
+            if (!useAppStore.getState().locationLedgerOpen) {
+                useAppStore.getState().toggleLocationLedger();
+            }
+        });
+        return () => unsubscribe();
+    }, []);
 
     if (!locationLedgerOpen) return null;
 

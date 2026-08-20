@@ -67,6 +67,12 @@ const SHALLOW_WATER_EPSILON = 0.08;
 const BEACH_EPSILON = 0.07;
 const ZOOM_INTERPOLATION_MS = 180;
 const COAST_DARKEN = 0.84;
+const CELL_KILOMETRES = 8;
+const DEFAULT_LAYER_SETTINGS = Object.freeze({
+    grid: true,
+    roads: true,
+    labels: true,
+});
 const BIOME_VALUE_SCALES = Object.freeze({
     plains: 0.93,
     farmland: 1.07,
@@ -80,6 +86,44 @@ export const DEFAULT_RENDER_SETTINGS = Object.freeze({
 
 function clamp(value, min, max) {
     return value < min ? min : value > max ? max : value;
+}
+
+/**
+ * Normalise the conventional map-viewer layers. The settings table is user
+ * data, so older campaigns and malformed hand-edited rows must fall back to
+ * the visible defaults without disabling the map.
+ */
+export function normaliseLayerSettings(settings = {}) {
+    const layers = settings?.layers ?? settings ?? {};
+    return {
+        grid: layers.grid === undefined ? DEFAULT_LAYER_SETTINGS.grid : layers.grid !== false,
+        roads: layers.roads === undefined ? DEFAULT_LAYER_SETTINGS.roads : layers.roads !== false,
+        labels: layers.labels === undefined ? DEFAULT_LAYER_SETTINGS.labels : layers.labels !== false,
+    };
+}
+
+/** Pick a conventional distance for a scale bar near the requested width. */
+export function scaleDistanceKilometres(cellPixels) {
+    const targetCells = 100 / Math.max(0.01, Number(cellPixels) || 1);
+    const candidates = [];
+    for (let exponent = -1; exponent <= 6; exponent += 1) {
+        const magnitude = 10 ** exponent;
+        for (const factor of [1, 2, 5]) candidates.push(factor * magnitude);
+    }
+    const targetKilometres = targetCells * CELL_KILOMETRES;
+    return candidates.reduce((best, candidate) => (
+        Math.abs(candidate - targetKilometres) < Math.abs(best - targetKilometres) ? candidate : best
+    ), candidates[0]);
+}
+
+export function formatScaleDistance(kilometres) {
+    const value = Number(kilometres);
+    if (!Number.isFinite(value)) return '—';
+    if (value >= 1000) {
+        const formatted = value % 1000 === 0 ? String(value / 1000) : (value / 1000).toFixed(1).replace(/\.0$/, '');
+        return `${formatted}k km`;
+    }
+    return `${value} km`;
 }
 
 // WO 4.1 §3.1 — one polyline per edge, routed through any waypoints on it in
@@ -428,6 +472,7 @@ function rasteriseTile(pyramid, level, tileX, tileY, snapshot, atlas, rect) {
     const originY = tileY * cellsPerTile;
     const canvas = makeOffscreenCanvas(TILE_PIXELS, TILE_PIXELS);
     const ctx = canvas.getContext('2d');
+    if (!ctx) return canvas;
     const { chunkStore, settings } = snapshot;
     const renderSettings = normaliseRenderSettings(settings);
     const cellPixelSize = TILE_PIXELS / cellsPerTile;
@@ -553,13 +598,15 @@ function refreshTokenCache(root) {
  *   }),
  *   getTravelMode?: () => string,
  *   travelModes?: Array<{ id: string, label: string }>,
+ *   onLayerChange?: (patch: { grid?: boolean, roads?: boolean, labels?: boolean }) => void,
+ *   onContextAction?: (action: string, payload: object) => void,
  * }} options
  */
 export function mountMapRenderer(root, options) {
     const {
         getSnapshot, onDragAnchor, log = () => undefined,
         onClickCell, onRouteAction, getRoutePreview, getTravelMode,
-        travelModes,
+        travelModes, onLayerChange, onContextAction,
     } = options;
 
     applyStyle(root, {
@@ -576,7 +623,15 @@ export function mountMapRenderer(root, options) {
     });
 
     const canvas = document.createElement('canvas');
-    applyStyle(canvas, { position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block' });
+    canvas.tabIndex = 0;
+    canvas.setAttribute('role', 'img');
+    canvas.setAttribute('aria-label', 'World map. Use arrow keys to pan, plus and minus to zoom, and zero to fit the map.');
+    applyStyle(canvas, {
+        position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block',
+        outline: 'none',
+    });
+    canvas.addEventListener('focus', () => { canvas.style.boxShadow = 'inset 0 0 0 2px var(--color-terminal, #A78BFA)'; });
+    canvas.addEventListener('blur', () => { canvas.style.boxShadow = ''; });
     root.appendChild(canvas);
     const ctx = canvas.getContext('2d');
 
@@ -593,6 +648,150 @@ export function mountMapRenderer(root, options) {
     });
     overlay.appendChild(hud);
 
+    const hoverReadout = makeElement('div', 'Hover a cell for terrain details', {
+        position: 'absolute', top: '42px', left: '8px', padding: '4px 9px', borderRadius: '5px',
+        background: 'var(--color-void-lighter, rgba(20,21,25,0.72))',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.14))',
+        color: 'var(--color-text-dim, inherit)',
+        font: '10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace',
+        pointerEvents: 'none', opacity: '0.9',
+    });
+    hoverReadout.dataset.worldmapHover = 'true';
+    overlay.appendChild(hoverReadout);
+
+    const loadingIndicator = makeElement('div', 'Loading terrain...', {
+        position: 'absolute', top: '74px', left: '8px', padding: '4px 9px', borderRadius: '5px',
+        background: 'var(--color-void-lighter, rgba(20,21,25,0.78))',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.14))',
+        color: 'var(--color-text-dim, inherit)',
+        font: '10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace',
+        pointerEvents: 'none', opacity: '0.9', display: 'none',
+    });
+    loadingIndicator.dataset.worldmapLoading = 'true';
+    overlay.appendChild(loadingIndicator);
+    let layerState = normaliseLayerSettings();
+
+    const toolbar = makeElement('div', undefined, {
+        position: 'absolute', top: '8px', right: '8px', padding: '5px',
+        display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap',
+        maxWidth: '260px', justifyContent: 'flex-end',
+        background: 'var(--color-void-lighter, rgba(20,21,25,0.82))',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.18))',
+        borderRadius: '5px', pointerEvents: 'auto',
+    });
+    const controlButton = (label, title, action) => {
+        const button = makeElement('button', label, {
+            minWidth: '28px', padding: '3px 7px',
+            border: '1px solid var(--color-border, rgba(255,255,255,0.22))',
+            borderRadius: '3px', background: 'transparent',
+            color: 'inherit', font: 'inherit', fontSize: '11px', cursor: 'pointer',
+        });
+        button.type = 'button';
+        button.title = title;
+        button.setAttribute('aria-label', title);
+        button.dataset.mapAction = action;
+        button.addEventListener('click', () => {
+            if (action === 'zoom-in') zoomBy(1.25);
+            else if (action === 'zoom-out') zoomBy(0.8);
+            else if (action === 'fit') centreOnAnchors();
+        });
+        return button;
+    };
+    toolbar.append(
+        controlButton('−', 'Zoom out', 'zoom-out'),
+        controlButton('+', 'Zoom in', 'zoom-in'),
+        controlButton('Fit', 'Fit map to content', 'fit'),
+    );
+    overlay.appendChild(toolbar);
+
+    const layerPanel = makeElement('div', undefined, {
+        position: 'absolute', top: '50px', right: '8px', padding: '5px 7px',
+        display: 'flex', gap: '7px', alignItems: 'center',
+        background: 'var(--color-void-lighter, rgba(20,21,25,0.82))',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.18))',
+        borderRadius: '5px', pointerEvents: 'auto',
+        font: '10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace',
+    });
+    const layerInputs = new Map();
+    const layerLabels = [
+        ['grid', 'Grid'],
+        ['roads', 'Roads'],
+        ['labels', 'Labels'],
+    ];
+    for (const [key, label] of layerLabels) {
+        const labelNode = makeElement('label', undefined, {
+            display: 'inline-flex', gap: '3px', alignItems: 'center',
+            cursor: 'pointer', userSelect: 'none',
+        });
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = layerState[key];
+        input.dataset.layerToggle = key;
+        input.setAttribute('aria-label', `${label} layer`);
+        input.addEventListener('change', () => {
+            layerState = { ...layerState, [key]: input.checked };
+            if (onLayerChange) onLayerChange({ [key]: input.checked });
+            scheduleRender();
+        });
+        labelNode.append(input, document.createTextNode(label));
+        layerPanel.appendChild(labelNode);
+        layerInputs.set(key, input);
+    }
+    overlay.appendChild(layerPanel);
+
+    const scaleBar = makeElement('div', undefined, {
+        position: 'absolute', right: '8px', bottom: '42px', padding: '4px 7px',
+        background: 'var(--color-void-lighter, rgba(20,21,25,0.72))',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.14))',
+        borderRadius: '4px', pointerEvents: 'none', minWidth: '108px',
+        font: '10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace',
+    });
+    scaleBar.dataset.worldmapScale = 'true';
+    const scaleLabel = makeElement('div', undefined, { textAlign: 'right', marginBottom: '2px' });
+    const scaleLine = makeElement('div', undefined, {
+        height: '5px', border: '1px solid currentColor', borderTop: '0',
+        background: 'currentColor', opacity: '0.8',
+    });
+    scaleBar.append(scaleLabel, scaleLine);
+    overlay.appendChild(scaleBar);
+
+    const contextMenu = makeElement('div', undefined, {
+        position: 'absolute', display: 'none', minWidth: '150px', padding: '4px',
+        background: 'var(--color-void-lighter, rgba(20,21,25,0.96))',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.24))',
+        borderRadius: '5px', boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
+        pointerEvents: 'auto', zIndex: '5',
+        font: '11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace',
+    });
+    contextMenu.dataset.worldmapContextMenu = 'true';
+    const contextTitle = makeElement('div', 'Cell', {
+        padding: '4px 6px', color: 'var(--color-text-dim, inherit)',
+        borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.12))',
+        marginBottom: '3px',
+    });
+    contextMenu.appendChild(contextTitle);
+    for (const [action, label] of [
+        ['travel', 'Travel here'],
+        ['current', 'Set as current place'],
+        ['details', 'Place details'],
+        ['unpin', 'Unpin'],
+    ]) {
+        const button = makeElement('button', label, {
+            display: 'block', width: '100%', padding: '5px 6px',
+            border: '0', borderRadius: '3px', background: 'transparent',
+            color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer',
+        });
+        button.type = 'button';
+        button.dataset.contextAction = action;
+        button.addEventListener('click', () => {
+            if (!contextMenu._contextPayload) return;
+            const payload = contextMenu._contextPayload;
+            contextMenu.style.display = 'none';
+            if (onContextAction) onContextAction(action, payload);
+        });
+        contextMenu.appendChild(button);
+    }
+    overlay.appendChild(contextMenu);
     const help = makeElement('div', 'Scroll to zoom · Drag to pan · Drag a pin to move it · Click a cell to travel', {
         position: 'absolute', bottom: '8px', left: '8px', padding: '4px 8px', borderRadius: '4px',
         background: 'var(--color-void-lighter, rgba(20,21,25,0.72))',
@@ -703,6 +902,10 @@ export function mountMapRenderer(root, options) {
     let atlasWorldVersion = -1;
     let paintedWorldVersion = -1;
     let rasterCount = 0;
+    let pendingTiles = new Map();
+    let pendingFlushTimer = 0;
+    let hoverCell = null;
+    let contextCell = null;
 
     function currentLevelIndex() {
         let best = 0;
@@ -771,6 +974,75 @@ export function mountMapRenderer(root, options) {
         return best;
     }
 
+    function anchorAtCell(x, y) {
+        const snapshot = getSnapshot();
+        if (!snapshot || !Array.isArray(snapshot.anchors)) return null;
+        let best = null;
+        let bestDistance = 3;
+        for (const anchor of snapshot.anchors) {
+            const distance = Math.max(Math.abs(anchor.x - x), Math.abs(anchor.y - y));
+            if (distance <= 2 && distance < bestDistance) {
+                best = anchor;
+                bestDistance = distance;
+            }
+        }
+        return best;
+    }
+
+    function updateHover(px, py) {
+        const snapshot = getSnapshot();
+        const world = screenToCell(px, py);
+        const x = Math.floor(world.x);
+        const y = Math.floor(world.y);
+        if (!snapshot || !snapshot.chunkStore
+            || x < 0 || y < 0 || x >= FIELD_WORLD_SIZE || y >= FIELD_WORLD_SIZE) {
+            hoverCell = null;
+            hoverReadout.textContent = 'Hover a cell for terrain details';
+            return;
+        }
+        const cell = snapshot.chunkStore.getCell(x, y);
+        hoverCell = { x, y, biome: cell.biome, elevation: cell.elevation };
+        hoverReadout.textContent = `cell ${x},${y} · ${cell.biome} · elevation ${cell.elevation.toFixed(2)}`;
+    }
+
+    function showContextMenu(event) {
+        event.preventDefault();
+        refreshRect();
+        const rect = cachedRect;
+        if (!rect) return;
+        const px = event.clientX - rect.left;
+        const py = event.clientY - rect.top;
+        const world = screenToCell(px, py);
+        const cell = {
+            x: clamp(Math.floor(world.x), 0, FIELD_WORLD_SIZE - 1),
+            y: clamp(Math.floor(world.y), 0, FIELD_WORLD_SIZE - 1),
+        };
+        const anchor = anchorAtCell(cell.x, cell.y);
+        const payload = {
+            x: cell.x, y: cell.y, cell,
+            locationId: anchor?.locationId ?? null,
+            anchor: anchor ? { ...anchor } : null,
+        };
+        contextCell = cell;
+        contextMenu._contextPayload = payload;
+        contextTitle.textContent = anchor
+            ? `cell ${cell.x},${cell.y} · ${anchor.name || anchor.locationId}`
+            : `cell ${cell.x},${cell.y}`;
+        const buttons = contextMenu.querySelectorAll('[data-context-action]');
+        for (const button of buttons) {
+            const action = button.dataset.contextAction;
+            const enabled = Boolean(anchor) && (action !== 'unpin' || anchor.pinned === true || anchor.source === 'player');
+            button.disabled = !enabled;
+            button.style.opacity = enabled ? '1' : '0.45';
+            button.style.cursor = enabled ? 'pointer' : 'not-allowed';
+        }
+        const menuWidth = 170;
+        const menuHeight = 150;
+        contextMenu.style.left = `${clamp(px, 4, Math.max(4, rect.width - menuWidth))}px`;
+        contextMenu.style.top = `${clamp(py, 4, Math.max(4, rect.height - menuHeight))}px`;
+        contextMenu.style.display = 'block';
+    }
+
     function clampView() {
         const margin = 10;
         view.cx = Math.max(-margin, Math.min(FIELD_WORLD_SIZE + margin, view.cx));
@@ -801,6 +1073,11 @@ export function mountMapRenderer(root, options) {
             paintedWorldVersion = snapshot.worldVersion;
         }
         const currentAtlas = ensureAtlas(snapshot);
+        const nextLayers = normaliseLayerSettings(snapshot.settings);
+        layerState = nextLayers;
+        for (const [key, input] of layerInputs) {
+            if (document.activeElement !== input) input.checked = nextLayers[key];
+        }
 
         ctx.fillStyle = readTokenOnce(root, '--color-void-darker', '#0e0f12');
         ctx.fillRect(0, 0, width, height);
@@ -814,6 +1091,59 @@ export function mountMapRenderer(root, options) {
         updateRoutePanel();
 
         refreshTokenCache(root);
+    }
+
+    function updateLoadingIndicator() {
+        loadingIndicator.style.display = pendingTiles.size > 0 ? 'block' : 'none';
+    }
+
+    function fallbackTile(levelIdx, tileX, tileY) {
+        for (let fallbackLevel = levelIdx - 1; fallbackLevel >= 0; fallbackLevel -= 1) {
+            const factor = 2 ** (levelIdx - fallbackLevel);
+            const parentX = Math.floor(tileX / factor);
+            const parentY = Math.floor(tileY / factor);
+            const tile = pyramid.get(fallbackLevel, parentX, parentY);
+            if (!tile) continue;
+            const sourceSize = TILE_PIXELS / factor;
+            return {
+                tile,
+                sx: (tileX - (parentX * factor)) * sourceSize,
+                sy: (tileY - (parentY * factor)) * sourceSize,
+                sw: sourceSize,
+                sh: sourceSize,
+            };
+        }
+        return null;
+    }
+
+    function schedulePendingTiles() {
+        if (pendingFlushTimer || pendingTiles.size === 0) return;
+        pendingFlushTimer = requestAnimationFrame(() => {
+            pendingFlushTimer = 0;
+            if (disposed) return;
+            const [key, request] = pendingTiles.entries().next().value || [];
+            if (!request) return;
+            pendingTiles.delete(key);
+            const snapshot = getSnapshot();
+            if (snapshot && snapshot.worldVersion === request.worldVersion) {
+                rasteriseTile(pyramid, request.level, request.tileX, request.tileY, snapshot, atlas, cachedRect);
+                rasterCount += 1;
+            }
+            updateLoadingIndicator();
+            scheduleRender();
+            schedulePendingTiles();
+        });
+    }
+
+    function queueTile(level, tileX, tileY, snapshot, currentAtlas) {
+        const key = TilePyramid.key(level, tileX, tileY);
+        if (pendingTiles.has(key) || pyramid.get(level, tileX, tileY)) return;
+        pendingTiles.set(key, {
+            level, tileX, tileY, worldVersion: snapshot.worldVersion,
+            atlas: currentAtlas,
+        });
+        updateLoadingIndicator();
+        schedulePendingTiles();
     }
 
     function drawTiles(snapshot, currentAtlas, width, height, cell) {
@@ -831,21 +1161,53 @@ export function mountMapRenderer(root, options) {
         for (let ty = tileY0; ty <= tileY1; ty += 1) {
             for (let tx = tileX0; tx <= tileX1; tx += 1) {
                 let tile = pyramid.get(level.level, tx, ty);
+                let fallback = null;
                 if (!tile) {
-                    tile = rasteriseTile(pyramid, level.level, tx, ty, snapshot, currentAtlas, cachedRect);
-                    rasterCount += 1;
+                    fallback = fallbackTile(levelIdx, tx, ty);
+                    queueTile(level.level, tx, ty, snapshot, currentAtlas);
+                    // Seed the fallback pyramid synchronously when a level is
+                    // first visited. Subsequent tiles can use the cached
+                    // parent while the requested level renders in the queue.
+                    if (!fallback && levelIdx > 0) {
+                        const parentFactor = 2;
+                        const parentLevel = levelIdx - 1;
+                        const parentX = Math.floor(tx / parentFactor);
+                        const parentY = Math.floor(ty / parentFactor);
+                        if (!pyramid.get(parentLevel, parentX, parentY)) {
+                            rasteriseTile(pyramid, parentLevel, parentX, parentY, snapshot, currentAtlas, cachedRect);
+                            rasterCount += 1;
+                        }
+                        fallback = fallbackTile(levelIdx, tx, ty);
+                    }
+                    // At the coarsest level there is no fallback. Rasterise one
+                    // tile synchronously so the map never presents blank ground.
+                    if (!fallback && levelIdx === 0) {
+                        tile = rasteriseTile(pyramid, level.level, tx, ty, snapshot, currentAtlas, cachedRect);
+                        pendingTiles.delete(TilePyramid.key(level.level, tx, ty));
+                        rasterCount += 1;
+                    }
                 }
                 const screenX = ((tx * cellsPerTile - view.cx) * cellPixelSize) + (width / 2);
                 const screenY = ((ty * cellsPerTile - view.cy) * cellPixelSize) + (height / 2);
                 const drawW = cellsPerTile * cellPixelSize;
                 const drawH = cellsPerTile * cellPixelSize;
                 ctx.imageSmoothingEnabled = false;
-                ctx.drawImage(tile, screenX, screenY, drawW, drawH);
+                if (tile) {
+                    ctx.drawImage(tile, screenX, screenY, drawW, drawH);
+                } else if (fallback) {
+                    ctx.drawImage(
+                        fallback.tile,
+                        fallback.sx, fallback.sy, fallback.sw, fallback.sh,
+                        screenX, screenY, drawW, drawH,
+                    );
+                }
             }
         }
+        updateLoadingIndicator();
     }
 
     function drawGridOverlay(width, height, cell) {
+        if (!layerState.grid) return;
         // One drawn box == one world cell. The test is which side of the
         // threshold we are on: hide the grid when cells are too small to be
         // distinguishable (a mesh of lines), show it when they are not. This
@@ -882,7 +1244,7 @@ export function mountMapRenderer(root, options) {
     }
 
     function drawConnections(snapshot, cell) {
-        if (!snapshot.connections || cell < LABEL_MIN_CELL_PIXELS) return;
+        if (!layerState.roads || !snapshot.connections || cell < LABEL_MIN_CELL_PIXELS) return;
         const byId = new Map((snapshot.anchors || []).map(a => [a.locationId, a]));
         // WO 4.1 §3.1 — one polyline per edge, routed through any waypoints
         // on it in `t` order. The A—B connection becomes a single line
@@ -981,7 +1343,7 @@ export function mountMapRenderer(root, options) {
             const radius = Math.max(5, cell / 2.4);
             const fill = anchor.pinned ? accentColor : idleColor;
             drawAnchorDot(anchor, screen, radius, fill, strokeColor);
-            if (cell >= LABEL_MIN_CELL_PIXELS) {
+            if (layerState.labels && cell >= LABEL_MIN_CELL_PIXELS) {
                 drawAnchorLabel(screen, radius, anchor.name || anchor.locationId, textColor);
             }
         }
@@ -1004,7 +1366,9 @@ export function mountMapRenderer(root, options) {
             // still reads as pinned (accent), otherwise the current colour.
             const fill = currentAnchorEntry.pinned ? accentColor : currentColor;
             drawAnchorDot(currentAnchorEntry, screen, radius, fill, strokeColor);
-            drawAnchorLabel(screen, radius, currentAnchorEntry.name || currentAnchorEntry.locationId, textColor);
+            if (layerState.labels) {
+                drawAnchorLabel(screen, radius, currentAnchorEntry.name || currentAnchorEntry.locationId, textColor);
+            }
         }
     }
 
@@ -1089,7 +1453,15 @@ export function mountMapRenderer(root, options) {
         }
     }
 
+    function updateScaleBar(cell) {
+        const kilometres = scaleDistanceKilometres(cell);
+        const width = (kilometres / CELL_KILOMETRES) * cell;
+        scaleLabel.textContent = `1 cell = ${CELL_KILOMETRES} km · ${formatScaleDistance(kilometres)}`;
+        scaleLine.style.width = `${Math.max(24, Math.min(150, width))}px`;
+    }
+
     function drawHud(snapshot, cell) {
+        updateScaleBar(cell);
         const anchorCount = (snapshot.anchors || []).length;
         const currentPlaceId = snapshot.locationId ?? null;
         const hasCurrent = currentPlaceId
@@ -1114,8 +1486,14 @@ export function mountMapRenderer(root, options) {
         cachedRect = rect;
         const px = event.clientX - rect.left;
         const py = event.clientY - rect.top;
+        updateHover(px, py);
         const hover = hitTestAnchor(px, py);
         root.style.cursor = hover ? 'pointer' : 'grab';
+    }
+
+    function onCanvasPointerLeave() {
+        hoverCell = null;
+        hoverReadout.textContent = 'Hover a cell for terrain details';
     }
 
     function onWindowPointerMove(event) {
@@ -1247,6 +1625,8 @@ export function mountMapRenderer(root, options) {
 
     function onPointerDown(event) {
         if (event.button !== undefined && event.button !== 0) return;
+        canvas.focus();
+        contextMenu.style.display = 'none';
         refreshRect();
         const rect = cachedRect;
         const px = event.clientX - rect.left;
@@ -1264,19 +1644,47 @@ export function mountMapRenderer(root, options) {
         attachWindowListeners();
     }
 
+    function zoomBy(factor, anchorX, anchorY) {
+        refreshRect();
+        const rect = cachedRect;
+        const px = anchorX ?? rect.width / 2;
+        const py = anchorY ?? rect.height / 2;
+        const before = screenToCell(px, py);
+        view.cellPixels = clamp(
+            view.cellPixels * factor,
+            ZOOM_LEVELS[0].cellPixels,
+            ZOOM_LEVELS[ZOOM_LEVELS.length - 1].cellPixels,
+        );
+        const cell = cellSizePixels();
+        view.cx = before.x - ((px - rect.width / 2) / cell);
+        view.cy = before.y - ((py - rect.height / 2) / cell);
+        clampView();
+        scheduleRender();
+    }
+
     function onWheel(event) {
         event.preventDefault();
         refreshRect();
         const rect = cachedRect;
         const px = event.clientX - rect.left;
         const py = event.clientY - rect.top;
-        const before = screenToCell(px, py);
         const factor = Math.exp(-event.deltaY * 0.0015);
-        // Snap to the nearest zoom level after a smooth interpolation.
-        view.cellPixels = clamp(view.cellPixels * factor, ZOOM_LEVELS[0].cellPixels, ZOOM_LEVELS[ZOOM_LEVELS.length - 1].cellPixels);
-        const cell = cellSizePixels();
-        view.cx = before.x - ((px - rect.width / 2) / cell);
-        view.cy = before.y - ((py - rect.height / 2) / cell);
+        zoomBy(factor, px, py);
+    }
+
+    function onCanvasKeyDown(event) {
+        const panStep = Math.max(1, Math.round(40 / cellSizePixels()));
+        let handled = true;
+        if (event.key === 'ArrowLeft') view.cx -= panStep;
+        else if (event.key === 'ArrowRight') view.cx += panStep;
+        else if (event.key === 'ArrowUp') view.cy -= panStep;
+        else if (event.key === 'ArrowDown') view.cy += panStep;
+        else if (event.key === '+' || event.key === '=') zoomBy(1.25);
+        else if (event.key === '-' || event.key === '_') zoomBy(0.8);
+        else if (event.key === '0') centreOnAnchors();
+        else handled = false;
+        if (!handled) return;
+        event.preventDefault();
         clampView();
         scheduleRender();
     }
@@ -1304,7 +1712,10 @@ export function mountMapRenderer(root, options) {
 
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onCanvasPointerMove);
+    canvas.addEventListener('pointerleave', onCanvasPointerLeave);
+    canvas.addEventListener('contextmenu', showContextMenu);
     canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('keydown', onCanvasKeyDown);
 
     if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver(() => { refreshRect(); refreshTokenCache(root); resize(); });
@@ -1325,7 +1736,12 @@ export function mountMapRenderer(root, options) {
         detachWindowListeners();
         canvas.removeEventListener('pointerdown', onPointerDown);
         canvas.removeEventListener('pointermove', onCanvasPointerMove);
+        canvas.removeEventListener('pointerleave', onCanvasPointerLeave);
+        canvas.removeEventListener('contextmenu', showContextMenu);
         canvas.removeEventListener('wheel', onWheel);
+        canvas.removeEventListener('keydown', onCanvasKeyDown);
+        if (pendingFlushTimer) cancelAnimationFrame(pendingFlushTimer);
+        pendingFlushTimer = 0;
         if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
         else window.removeEventListener('resize', resize);
         pyramid.clear();

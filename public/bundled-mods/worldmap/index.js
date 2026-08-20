@@ -1,5 +1,5 @@
 import { solveWorldMap } from './solver.js';
-import { mountMapRenderer } from './renderer.js';
+import { mountMapRenderer, normaliseLayerSettings } from './renderer.js';
 import { findRoute, BASE_GRIDS_PER_DAY } from './pathfinder.js';
 import {
     ChunkStore,
@@ -11,6 +11,7 @@ import {
 } from './field.js';
 
 const DEFAULT_CLIMATE_GRADIENT = 0.65;
+const DEFAULT_LAYERS = Object.freeze({ grid: true, roads: true, labels: true });
 const reportsByCampaign = new Map();
 const reportListeners = new Set();
 const mapPaintListeners = new Set();
@@ -19,6 +20,7 @@ const chunkStoreByCampaign = new Map();
 const worldVersionByCampaign = new Map();
 const snapshotCacheByCampaign = new Map();
 let solveQueue = Promise.resolve();
+let settingsWriteQueue = Promise.resolve();
 
 // WO 6.1 — click-to-travel route-preview state, per campaign. The preview is
 // computed by the mod (which owns the pathfinder and the chunk store) and
@@ -77,14 +79,38 @@ async function ensureSettings(ctx) {
         return {
             worldSeed: raw.worldSeed,
             climateGradient: Math.max(0, Math.min(1, raw.climateGradient)),
+            layers: normaliseLayerSettings(raw.layers ?? DEFAULT_LAYERS),
         };
     }
     const settings = {
         worldSeed: createWorldSeed(ctx.data.campaignId ?? ''),
         climateGradient: DEFAULT_CLIMATE_GRADIENT,
+        layers: { ...DEFAULT_LAYERS },
     };
     await ctx.table.write('settings', settings);
     return settings;
+}
+
+function persistLayerSettings(ctx, campaignId, patch) {
+    const current = reportsByCampaign.get(campaignId);
+    if (!current) return;
+    const layers = { ...normaliseLayerSettings(current.settings.layers), ...patch };
+    const settings = { ...current.settings, layers };
+    reportsByCampaign.set(campaignId, { ...current, settings });
+    snapshotCacheByCampaign.delete(campaignId);
+    for (const listener of mapPaintListeners) listener(campaignId);
+    settingsWriteQueue = settingsWriteQueue
+        .then(async () => {
+            const fresh = await freshCampaignContext(ctx);
+            if (!fresh || fresh.data.campaignId !== campaignId) return;
+            const raw = await fresh.table.read('settings');
+            await fresh.table.write('settings', {
+                ...(raw && typeof raw === 'object' ? raw : {}),
+                ...settings,
+                layers,
+            });
+        })
+        .catch(error => ctx?.log?.('[worldmap] layer settings write failed', error));
 }
 
 function worldVersion(campaignId) {
@@ -494,6 +520,46 @@ function queueSolve(ctx) {
     return solveQueue;
 }
 
+export async function unpinAnchor(ctx, campaignId, locationId) {
+    if (!locationId) return false;
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh || fresh.data.campaignId !== campaignId) return false;
+    const rows = await fresh.table.read('anchors');
+    const anchors = Array.isArray(rows) ? rows : [];
+    const target = anchors.find(anchor => anchor.locationId === locationId);
+    // WO 4.3 §1 — unpinning a row with no pin is a no-op, not an error.
+    if (!target || (target.pinned !== true && target.source !== 'player')) return false;
+    const next = anchors.map(anchor => anchor.locationId === locationId
+        ? { ...anchor, pinned: false, source: 'solved' }
+        : anchor);
+    await fresh.table.write('anchors', next);
+    await queueSolve(fresh);
+    return true;
+}
+
+/**
+ * WO 4.3 §2 — clear every player-authored pin in one shot. A pin is a player
+ * pin when `pinned === true` OR `source === 'player'`. After clearing, the
+ * solver re-runs so every freed place returns to `solved`/`derived`.
+ *
+ * Exported so the report's Reset button and tests share one code path.
+ */
+export async function resetAllPins(ctx, campaignId) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh || fresh.data.campaignId !== campaignId) return false;
+    const rows = await fresh.table.read('anchors');
+    const anchors = Array.isArray(rows) ? rows : [];
+    const anyPinned = anchors.some(anchor => anchor.pinned === true || anchor.source === 'player');
+    if (!anyPinned) return false;
+    const next = anchors.map(anchor =>
+        (anchor.pinned === true || anchor.source === 'player')
+            ? { ...anchor, pinned: false, source: anchor.source === 'derived' ? 'derived' : 'solved' }
+            : anchor);
+    await fresh.table.write('anchors', next);
+    await queueSolve(fresh);
+    return true;
+}
+
 function applyStyle(node, styles) {
     Object.assign(node.style, styles);
     return node;
@@ -505,7 +571,83 @@ function makeElement(tag, text, styles = {}) {
     return applyStyle(node, styles);
 }
 
-function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
+// WO 4.3 §3 — the refusal's named places are rendered as the Unpin affordances
+// themselves, so the message and its remedy are the same control. The refusal
+// `locationIds` are in the same order as the names embedded in `message`
+// (verified against every refusal site in `solver.js`), so we build the joined
+// name string the same way the solver does and split the message on it.
+function appendActionableRefusal(line, refusal, result, ledgerById, ctx, campaignId) {
+    // Build id → name from report entries first (the authoritative per-solve
+    // view), then fall back to the live ledger for any id not in the report
+    // (e.g., a constraint id that is also a place id but was relaxed out).
+    const nameById = new Map();
+    for (const entry of (result.report?.entries ?? [])) nameById.set(entry.locationId, entry.name);
+    for (const [id, entry] of ledgerById) {
+        if (!nameById.has(id) && entry?.name) nameById.set(id, entry.name);
+    }
+    const names = [];
+    const ids = [];
+    for (const id of refusal.locationIds) {
+        const name = nameById.get(id);
+        if (typeof name === 'string' && name.length > 0) {
+            names.push(name);
+            ids.push(id);
+        }
+    }
+    const unpinStyle = {
+        padding: '1px 6px',
+        border: '1px solid var(--border-primary, currentColor)',
+        borderRadius: '4px',
+        background: 'transparent',
+        color: 'inherit',
+        font: 'inherit',
+        fontSize: '11px',
+        cursor: 'pointer',
+        textDecoration: 'underline',
+        textUnderlineOffset: '2px',
+    };
+    const makeUnpinButton = (id, label) => {
+        const btn = makeElement('button', label, unpinStyle);
+        btn.dataset.unpinLocationId = id;
+        btn.addEventListener('click', () => {
+            btn.disabled = true;
+            btn.textContent = '…';
+            void unpinAnchor(ctx, campaignId, id)
+                .catch(error => ctx?.log?.('[worldmap] refusal unpin failed', error));
+        });
+        return btn;
+    };
+    const message = refusal.message;
+    if (names.length > 0) {
+        const joined = names.join('/');
+        const at = message.indexOf(joined);
+        if (at >= 0) {
+            const before = message.slice(0, at);
+            const after = message.slice(at + joined.length);
+            if (before) line.append(makeElement('span', before, { whiteSpace: 'pre-wrap' }));
+            for (let index = 0; index < names.length; index += 1) {
+                if (index > 0) line.append(makeElement('span', '/', { opacity: '0.72' }));
+                line.append(makeUnpinButton(ids[index], names[index]));
+            }
+            if (after) line.append(makeElement('span', after, { whiteSpace: 'pre-wrap' }));
+            return;
+        }
+    }
+    // Fallback — the join string did not match (a name drifted, or the
+    // refusal shape changed). Surface the message verbatim and offer each
+    // named place as a separate Unpin control after it, so the action is
+    // still reachable.
+    line.append(makeElement('span', message, { whiteSpace: 'pre-wrap' }));
+    for (let index = 0; index < names.length; index += 1) {
+        line.append(makeUnpinButton(ids[index], `Unpin ${names[index]}`));
+    }
+}
+
+// WO 4.3 — exported for the report's pin-recovery tests so the Unpin/Reset
+// affordances and the actionable refusal rendering can be asserted against
+// the real paint path, not a simulation of it. Mirrors the `mapSnapshot`
+// export contract above.
+export function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
     node.replaceChildren();
     applyStyle(node, {
         boxSizing: 'border-box',
@@ -556,9 +698,55 @@ function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
         if (node.isConnected) paintReport(node, ctx, campaignId);
     };
     button.addEventListener('click', onClick);
-    node.append(button);
 
-    if (!result) return () => button.removeEventListener('click', onClick);
+    // WO 4.3 §2 — one Reset pins control next to Re-solve from lore.
+    // Confirmation is required because this discards deliberate authoring,
+    // unlike unpinning one. The button is disabled when there are no player
+    // pins to clear (no-op, not an error).
+    const hasPlayerPins = result
+        && Array.isArray(result.anchors)
+        && result.anchors.some(anchor => anchor.pinned === true || anchor.source === 'player');
+    const resetButton = makeElement('button', 'Reset pins', {
+        padding: '7px 11px',
+        marginBottom: '14px',
+        marginLeft: '8px',
+        border: '1px solid var(--border-primary, currentColor)',
+        borderRadius: '6px',
+        background: 'var(--background-secondary, transparent)',
+        color: 'inherit',
+        cursor: hasPlayerPins ? 'pointer' : 'not-allowed',
+    });
+    resetButton.disabled = !hasPlayerPins;
+    const onResetClick = async () => {
+        // WO 4.3 §2 — confirm before clearing; this discards deliberate
+        // authoring, unlike unpinning one. `confirm` is the platform dialog
+        // and is the lightest-weight gate that still requires a positive act.
+        const ok = typeof window === 'object' && typeof window.confirm === 'function'
+            ? window.confirm('Clear every player pin and re-solve? This discards all authored pin positions.')
+            : true;
+        if (!ok) return;
+        const idleLabel = resetButton.textContent;
+        resetButton.disabled = true;
+        resetButton.textContent = 'Resetting…';
+        try {
+            await resetAllPins(ctx, campaignId);
+        } finally {
+            resetButton.disabled = !hasPlayerPins;
+            resetButton.textContent = idleLabel;
+        }
+        if (node.isConnected) paintReport(node, ctx, campaignId);
+    };
+    resetButton.addEventListener('click', onResetClick);
+
+    const buttonRow = makeElement('div', undefined, {
+        display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px',
+        marginBottom: '14px',
+    });
+    buttonRow.append(button, resetButton);
+    node.append(buttonRow);
+    const cleanups = [() => button.removeEventListener('click', onClick), () => resetButton.removeEventListener('click', onResetClick)];
+
+    if (!result) return () => { for (const fn of cleanups) fn(); };
 
     const report = makeElement('pre', result.report.text, {
         whiteSpace: 'pre-wrap',
@@ -574,10 +762,48 @@ function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
     });
     node.append(report);
 
+    // WO 4.3 §3 — make the refusal actionable. Every refusal whose message
+    // ends in a question is rendered with each named place as a working
+    // Unpin control. A refusal should never describe an action the player
+    // has no way to take. The refusal `locationIds` are the place ids whose
+    // pins must clear to resolve it; we split the message text on the
+    // place-name join and rebuild it with buttons in place of the names.
+    const refusals = Array.isArray(result.report.refusals) ? result.report.refusals : [];
+    const ledgerById = new Map((ctx.data?.location?.ledger ?? []).map(entry => [entry.id, entry]));
+    if (refusals.length > 0) {
+        const refusalsBlock = makeElement('div', undefined, {
+            margin: '0 0 18px',
+            padding: '12px',
+            border: '1px solid var(--border-primary, currentColor)',
+            borderRadius: '7px',
+            background: 'var(--background-secondary, transparent)',
+            fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+            fontSize: '12px',
+            lineHeight: '1.55',
+        });
+        for (const refusal of refusals) {
+            const line = makeElement('div', undefined, {
+                display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px',
+                marginBottom: '6px',
+            });
+            line.append(makeElement('span', '✗', { color: 'var(--color-danger, #d33)', fontWeight: 'bold' }));
+            // Only refusals that name an action (end in '?') get clickable
+            // affordances. A message that ends in a statement stays as text.
+            if (typeof refusal.message === 'string' && refusal.message.trimEnd().endsWith('?')
+                && Array.isArray(refusal.locationIds) && refusal.locationIds.length > 0) {
+                appendActionableRefusal(line, refusal, result, ledgerById, ctx, campaignId);
+            } else {
+                line.append(makeElement('span', refusal.message ?? '', { whiteSpace: 'pre-wrap' }));
+            }
+            refusalsBlock.append(line);
+        }
+        node.append(refusalsBlock);
+    }
+
     const table = makeElement('table', undefined, { width: '100%', borderCollapse: 'collapse', fontSize: '12px' });
     const head = document.createElement('thead');
     const headRow = document.createElement('tr');
-    for (const label of ['Place', 'X', 'Y', 'Source']) {
+    for (const label of ['Place', 'X', 'Y', 'Source', 'Action']) {
         headRow.append(makeElement('th', label, { textAlign: 'left', padding: '6px', borderBottom: '1px solid var(--border-primary, currentColor)' }));
     }
     head.append(headRow);
@@ -589,12 +815,46 @@ function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
         for (const value of [entry.name, anchor?.x ?? '—', anchor?.y ?? '—', anchor?.source ?? '—']) {
             row.append(makeElement('td', String(value), { padding: '6px', borderBottom: '1px solid color-mix(in srgb, currentColor 18%, transparent)' }));
         }
+        // WO 4.3 §1 — every row whose anchor is a player pin gets an Unpin
+        // control in the table. The control clears that anchor's pinned flag
+        // and player source, then re-solves so the freed place returns to a
+        // solved position. Unpinning a row with no pin is a no-op.
+        const actionCell = document.createElement('td');
+        actionCell.style.padding = '6px';
+        actionCell.style.borderBottom = '1px solid color-mix(in srgb, currentColor 18%, transparent)';
+        const isPlayerPin = anchor && (anchor.pinned === true || anchor.source === 'player');
+        if (isPlayerPin) {
+            const unpinBtn = makeElement('button', 'Unpin', {
+                padding: '3px 8px',
+                border: '1px solid var(--border-primary, currentColor)',
+                borderRadius: '4px',
+                background: 'transparent',
+                color: 'inherit',
+                font: 'inherit',
+                fontSize: '11px',
+                cursor: 'pointer',
+            });
+            unpinBtn.dataset.unpinLocationId = entry.locationId;
+            unpinBtn.addEventListener('click', () => {
+                unpinBtn.disabled = true;
+                unpinBtn.textContent = 'Unpinning…';
+                void unpinAnchor(ctx, campaignId, entry.locationId)
+                    .catch(error => ctx?.log?.('[worldmap] report unpin failed', error))
+                    .finally(() => {
+                        if (node.isConnected) paintReport(node, ctx, campaignId);
+                    });
+            });
+            actionCell.append(unpinBtn);
+        } else {
+            actionCell.textContent = '—';
+        }
+        row.append(actionCell);
         body.append(row);
     }
     table.append(body);
     node.append(table);
 
-    return () => button.removeEventListener('click', onClick);
+    return () => { for (const fn of cleanups) fn(); };
 }
 
 function mountReport(node, ctx) {
@@ -778,6 +1038,52 @@ function mountMap(node, ctx) {
         return rest;
     };
 
+    const handleContextAction = (action, payload = {}) => {
+        const locationId = payload.locationId ?? null;
+        if (action === 'travel') {
+            const preview = computeRoutePreview(
+                liveCtx,
+                currentCampaignId,
+                payload.x,
+                payload.y,
+                currentTravelMode,
+            );
+            preview._clickCell = { x: payload.x, y: payload.y };
+            if (preview.blocked) {
+                routePreviewByCampaign.set(currentCampaignId, preview);
+                refreshPreview();
+                return;
+            }
+            const fromId = preview.fromAnchor?.locationId ?? null;
+            const toId = preview.toAnchor?.locationId ?? locationId;
+            if (!fromId || !toId) return;
+            ctx.events?.emit('travelRequest', {
+                fromId,
+                toId,
+                mode: preview.mode,
+                hops: preview.hops || [],
+            });
+            routePreviewByCampaign.delete(currentCampaignId);
+            refreshPreview();
+            return;
+        }
+        if (action === 'current' && locationId) {
+            if (liveCtx.write?.updateContext) {
+                liveCtx.write.updateContext({ currentPlaceId: locationId, currentFeature: null });
+            } else {
+                ctx.events?.emit('setCurrentPlace', { locationId });
+            }
+            return;
+        }
+        if (action === 'details' && locationId) {
+            ctx.events?.emit('placeDetails', { locationId });
+            return;
+        }
+        if (action === 'unpin' && locationId) {
+            void unpinAnchor(liveCtx, currentCampaignId, locationId)
+                .catch(error => ctx?.log?.('[worldmap] unpin failed', error));
+        }
+    };
     const getTravelMode = () => currentTravelMode;
 
     const render = () => {
@@ -818,6 +1124,8 @@ function mountMap(node, ctx) {
             },
             onClickCell: handleClickCell,
             onRouteAction: handleRouteAction,
+            onLayerChange: patch => persistLayerSettings(liveCtx, currentCampaignId, patch),
+            onContextAction: handleContextAction,
             getRoutePreview,
             getTravelMode,
             travelModes: MAP_TRAVEL_MODES,
@@ -838,6 +1146,23 @@ function mountMap(node, ctx) {
         hardenedByCampaign.set(currentCampaignId, await readHardened(ctx));
         repaint(currentCampaignId);
     });
+    const unsubscribeSettings = ctx.table.subscribe('settings', async () => {
+        const fresh = await freshCampaignContext(ctx);
+        if (!fresh || fresh.data.campaignId !== currentCampaignId) return;
+        const raw = await fresh.table.read('settings');
+        const current = reportsByCampaign.get(currentCampaignId);
+        if (!current || !validSettings(raw)) return;
+        reportsByCampaign.set(currentCampaignId, {
+            ...current,
+            settings: {
+                ...current.settings,
+                ...raw,
+                layers: normaliseLayerSettings(raw.layers ?? DEFAULT_LAYERS),
+            },
+        });
+        snapshotCacheByCampaign.delete(currentCampaignId);
+        repaint(currentCampaignId);
+    });
     let disposed = false;
     freshCampaignContext(ctx).then(async fresh => {
         if (disposed || !fresh) return;
@@ -853,6 +1178,7 @@ function mountMap(node, ctx) {
         unsubscribeCampaign();
         unsubscribeAnchors();
         unsubscribeVisited();
+        unsubscribeSettings();
         node.replaceChildren();
     };
 }

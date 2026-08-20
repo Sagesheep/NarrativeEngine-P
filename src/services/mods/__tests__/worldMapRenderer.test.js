@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
-import { mountMapRenderer } from '../../../../public/bundled-mods/worldmap/renderer.js';
+import { mountMapRenderer, normaliseLayerSettings, scaleDistanceKilometres, formatScaleDistance } from '../../../../public/bundled-mods/worldmap/renderer.js';
 import { mapSnapshot } from '../../../../public/bundled-mods/worldmap/index.js';
 import {
     ChunkStore,
@@ -175,6 +175,76 @@ describe('World Map renderer — pan does not invalidate tiles (§11)', () => {
         expect(chunkStore.chunks.size).toBe(0);
     });
 
+    it('hover readout renders the biome returned by the real ChunkStore.getCell', () => {
+        const snapshot = makeSnapshot({
+            anchors: [{ locationId: 'a', name: 'Aethelgard', x: 500, y: 500, pinned: false, source: 'solved' }],
+        });
+        const cleanupRenderer = mountMapRenderer(root, {
+            getSnapshot: () => snapshot,
+            onDragAnchor: () => undefined,
+        });
+        const canvas = root.querySelector('canvas');
+        const expected = snapshot.chunkStore.getCell(500, 500).biome;
+        canvas.dispatchEvent(new MouseEvent('pointermove', {
+            bubbles: true, clientX: 450, clientY: 320,
+        }));
+        expect(root.querySelector('[data-worldmap-hover]').textContent).toContain(expected);
+        cleanupRenderer();
+    });
+
+    it('layer toggles report their change and survive a remount from persisted settings', () => {
+        const onLayerChange = vi.fn();
+        const snapshot = makeSnapshot({
+            settings: {
+                worldSeed: 'renderer-seed',
+                climateGradient: 0.65,
+                layers: { grid: false, roads: true, labels: false },
+            },
+        });
+        const cleanupRenderer = mountMapRenderer(root, {
+            getSnapshot: () => snapshot,
+            onDragAnchor: () => undefined,
+            onLayerChange,
+        });
+        const grid = root.querySelector('[data-layer-toggle="grid"]');
+        expect(grid.checked).toBe(false);
+        grid.checked = true;
+        grid.dispatchEvent(new Event('change', { bubbles: true }));
+        expect(onLayerChange).toHaveBeenCalledWith({ grid: true });
+        cleanupRenderer();
+
+        const remount = mountMapRenderer(root, {
+            getSnapshot: () => snapshot,
+            onDragAnchor: () => undefined,
+        });
+        expect(root.querySelector('[data-layer-toggle="labels"]').checked).toBe(false);
+        remount();
+    });
+
+    it('context menu exposes the anchor actions for the cell under the pointer', () => {
+        const onContextAction = vi.fn();
+        const snapshot = makeSnapshot({
+            anchors: [{ locationId: 'a', name: 'Aethelgard', x: 500, y: 500, pinned: true, source: 'player' }],
+        });
+        const cleanupRenderer = mountMapRenderer(root, {
+            getSnapshot: () => snapshot,
+            onDragAnchor: () => undefined,
+            onContextAction,
+        });
+        const canvas = root.querySelector('canvas');
+        canvas.dispatchEvent(new MouseEvent('contextmenu', {
+            bubbles: true, cancelable: true, clientX: 450, clientY: 320,
+        }));
+        const travel = root.querySelector('[data-context-action="travel"]');
+        expect(travel.disabled).toBe(false);
+        travel.click();
+        expect(onContextAction).toHaveBeenCalledWith('travel', expect.objectContaining({
+            locationId: 'a',
+            x: 500,
+            y: 500,
+        }));
+        cleanupRenderer();
+    });
     it('getSnapshot returns the same object identity across two calls with no intervening change', async () => {
         // Drive the real mapSnapshot memoisation (§7). Build a lifecycle-style
         // context, solve into the module state via onActivate, then assert two
@@ -223,4 +293,14 @@ describe('World Map renderer — pan does not invalidate tiles (§11)', () => {
         const second = mapSnapshot(ctx);
         expect(second).toBe(first);
     });
+describe('World Map standard surface helpers', () => {
+    it('uses visible defaults for legacy layer settings and sensible scale units', () => {
+        expect(normaliseLayerSettings()).toEqual({ grid: true, roads: true, labels: true });
+        expect(normaliseLayerSettings({ grid: false, roads: true, labels: false })).toEqual({
+            grid: false, roads: true, labels: false,
+        });
+        expect(scaleDistanceKilometres(8)).toBe(100);
+        expect(formatScaleDistance(1200)).toBe('1.2k km');
+    });
+});
 });
