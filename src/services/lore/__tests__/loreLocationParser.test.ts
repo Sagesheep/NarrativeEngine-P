@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseLocationsFromLore, parseLocationHeaderName, trimToSentences } from '../loreLocationParser';
+import {
+    parseLocationsFromLore,
+    parseLocationsFromLoreDetailed,
+    parseLocationHeaderName,
+    trimToSentences,
+} from '../loreLocationParser';
 import { chunkLoreFile } from '../loreChunker';
 import type { LoreChunk } from '../../../types';
 
@@ -155,6 +160,46 @@ describe('parseLocationsFromLore — connections', () => {
             locChunk('LOCATION -- Caldera City', '**ConnectedTo:** [Atlantis, Caldera City]\nProse.'),
         ]);
         expect(a.connections).toEqual([]);
+    });
+
+    it('WO 6.3 §3 — warns on unresolvable ConnectedTo names, exactly as the solver does', () => {
+        // The ledger and the map must agree. When the solver drops a
+        // `ConnectedTo:` clause because the named place is unknown, the
+        // ledger drops the same name for the same reason, and both say so.
+        // Self-references are silently skipped (they are not an error).
+        const { locations, warnings } = parseLocationsFromLoreDetailed([
+            locChunk('LOCATION -- Caldera City', '**ConnectedTo:** [Atlantis, Caldera City]\nProse.'),
+        ]);
+        expect(locations[0].connections).toEqual([]);
+        // Only `Atlantis` is unknown — `Caldera City` is a self-reference,
+        // not an error, so it does NOT warn.
+        expect(warnings).toEqual([
+            'Caldera City names unknown connection "Atlantis" — connection dropped',
+        ]);
+    });
+
+    it('WO 6.3 §3 — warns once per unresolvable name (multiple unknowns)', () => {
+        const { locations, warnings } = parseLocationsFromLoreDetailed([
+            locChunk('LOCATION -- Caldera City', '**ConnectedTo:** [Atlantis, El Dorado]\nProse.'),
+            locChunk('LOCATION -- Veythar City', 'Prose.'),
+        ]);
+        // Veythar is known but not named in Caldera's ConnectedTo, so no
+        // connection to it is created. The two unknowns both warn.
+        expect(locations[0].connections).toEqual([]);
+        expect(warnings).toEqual([
+            'Caldera City names unknown connection "Atlantis" — connection dropped',
+            'Caldera City names unknown connection "El Dorado" — connection dropped',
+        ]);
+    });
+
+    it('WO 6.3 §3 — resolvable ConnectedTo produces a connection AND no warning', () => {
+        const { locations, warnings } = parseLocationsFromLoreDetailed([
+            locChunk('LOCATION -- Caldera City', '**ConnectedTo:** [The Northern Marches]\nProse.'),
+            locChunk('LOCATION -- The Northern Marches', 'Prose.'),
+        ]);
+        expect(locations[0].connections).toHaveLength(1);
+        expect(locations[1].connections).toHaveLength(1);
+        expect(warnings).toEqual([]);
     });
 
     it('caps connections at 8', () => {

@@ -11,7 +11,7 @@ import { composeDeparture } from '../services/turn/departureComposer';
 import { LocationSuggestionsPanel } from './location-ledger/LocationSuggestionsPanel';
 import { LocationEditForm } from './location-ledger/LocationEditForm';
 import { filterLocations } from '../utils/ledgerFilters';
-import { parseLocationsFromLore } from '../services/lore/loreLocationParser';
+import { parseLocationsFromLoreDetailed } from '../services/lore/loreLocationParser';
 import { resolvePlace } from '../services/locationParser';
 import { newLocationId, normalizeLocationIds } from '../utils/locationIds';
 
@@ -181,14 +181,22 @@ export function LocationLedgerModal() {
     // entries' internal connection ids intact.
     const handleSeedFromLore = () => {
         const chunks = useAppStore.getState().loreChunks || [];
-        const parsed = parseLocationsFromLore(chunks);
+        // WO 6.3 §3 — use the detailed parse so unresolvable `ConnectedTo:`
+        // names warn (the ledger and the map must agree). Surface the
+        // warnings to the player alongside the seed summary.
+        const { locations: parsed, warnings } = parseLocationsFromLoreDetailed(chunks);
         if (parsed.length === 0) { alert('No ## LOCATIONS block found in the lore file.'); return; }
 
         const additions = parsed.filter(loc => !resolvePlace(loc.name, locationLedger));
-        if (additions.length === 0) { alert('Every lore location is already in the ledger.'); return; }
+        if (additions.length === 0) {
+            const w = warnings.length > 0 ? `\n\n${warnings.length} unresolvable connection(s):\n${warnings.join('\n')}` : '';
+            alert(`Every lore location is already in the ledger.${w}`);
+            return;
+        }
 
         setLocationLedger([...locationLedger, ...additions]);
-        alert(`Seeded ${additions.length} place(s) from lore.`);
+        const w = warnings.length > 0 ? `\n\n${warnings.length} unresolvable connection(s):\n${warnings.join('\n')}` : '';
+        alert(`Seeded ${additions.length} place(s) from lore.${w}`);
     };
 
     const handleSetAsCurrent = (loc: LocationEntry) => {

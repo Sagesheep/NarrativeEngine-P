@@ -6,16 +6,22 @@ import { X, AlertTriangle, CheckCircle, Info, AlertCircle } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface ToastItem {
   id: string;
   type: ToastType;
   message: string;
   expiresAt: number;
+  action?: ToastAction;
 }
 
 interface ToastStore {
   toasts: ToastItem[];
-  add: (type: ToastType, message: string) => void;
+  add: (type: ToastType, message: string, action?: ToastAction) => void;
   dismiss: (id: string) => void;
   _prune: () => void;
 }
@@ -25,10 +31,10 @@ let _seq = 0;
 export const useToastStore = create<ToastStore>((set, get) => ({
   toasts: [],
 
-  add(type, message) {
+  add(type, message, action) {
     const ttl = type === 'error' ? 8000 : 5000;
     const id = `toast-${++_seq}`;
-    const item: ToastItem = { id, type, message, expiresAt: Date.now() + ttl };
+    const item: ToastItem = { id, type, message, expiresAt: Date.now() + ttl, action };
 
     set((s) => ({
       toasts: [...s.toasts.slice(-4), item], // keep max 5
@@ -49,10 +55,10 @@ export const useToastStore = create<ToastStore>((set, get) => ({
 
 /** Convenience helpers — importable anywhere, no hooks needed */
 export const toast = {
-  success: (msg: string) => useToastStore.getState().add('success', msg),
-  error: (msg: string) => useToastStore.getState().add('error', msg),
-  warning: (msg: string) => useToastStore.getState().add('warning', msg),
-  info: (msg: string) => useToastStore.getState().add('info', msg),
+  success: (msg: string, action?: ToastAction) => useToastStore.getState().add('success', msg, action),
+  error: (msg: string, action?: ToastAction) => useToastStore.getState().add('error', msg, action),
+  warning: (msg: string, action?: ToastAction) => useToastStore.getState().add('warning', msg, action),
+  info: (msg: string, action?: ToastAction) => useToastStore.getState().add('info', msg, action),
 };
 
 /* ── Icon + color config ── */
@@ -93,6 +99,17 @@ export function ToastContainer() {
           >
             <Icon size={14} className={`${c.text} shrink-0 mt-0.5`} />
             <span className="text-text-primary leading-snug break-words">{t.message}</span>
+            {t.action && (
+              <button
+                onClick={() => {
+                  t.action?.onClick();
+                  dismiss(t.id);
+                }}
+                className="shrink-0 ml-1 px-2 py-0.5 border border-terminal/40 text-terminal rounded hover:bg-terminal/10 transition-colors uppercase tracking-wider text-[10px]"
+              >
+                {t.action.label}
+              </button>
+            )}
             <button
               onClick={() => dismiss(t.id)}
               className="shrink-0 text-text-dim hover:text-text-primary transition-colors ml-auto"

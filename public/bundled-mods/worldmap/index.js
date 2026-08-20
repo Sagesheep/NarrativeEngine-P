@@ -280,7 +280,22 @@ function computeRoutePreview(ctx, campaignId, toX, toY, mode) {
         // No ledger path — the destination is not reachable through known
         // connections. This is a blocked result, not an error: the player
         // clicked a place they have no road to.
-        return { blocked: true, reason: 'no-ledger-path', label: 'No road to this place — add a connection in the Places panel' };
+        //
+        // WO 6.3 §1 — the refusal is an offer, not a dead end. Carry the
+        // anchors and a default band (from the straight-line grid distance)
+        // so the renderer can show a band selector + "Create and travel".
+        // The player commits the connection; the map only proposes it.
+        const fromName = ledger.find(l => l.id === fromId)?.name ?? fromId;
+        const toName = ledger.find(l => l.id === toAnchor.locationId)?.name ?? toAnchor.locationId;
+        const defaultBand = bandFromGridDistance(fromAnchor, toAnchor);
+        return {
+            blocked: true,
+            reason: 'no-ledger-path',
+            label: `No road to ${toName}`,
+            fromAnchor: { locationId: fromAnchor.locationId, name: fromName },
+            toAnchor: { locationId: toAnchor.locationId, name: toName },
+            defaultBand,
+        };
     }
 
     // Route each hop through the pathfinder. Each hop's cells are concatenated
@@ -387,6 +402,47 @@ function gridsPerDayForMode(mode) {
     if (mode === 'flying') return 20;
     return 3;
 }
+
+/**
+ * WO 6.3 §1 — the band whose grid range best matches the straight-line
+ * distance between two anchors. The map knows how far apart the places are
+ * (the anchors are on the field), so the player should not have to guess.
+ * Mirrors `bandFromLegs` from `travelState.ts` for the direct-distance case
+ * (one leg ≈ one day ≈ `gridsPerDayFor('foot')` grids, so the grid estimate
+ * is the straight-line cell distance). `adjacent` is never returned — a
+ * connection always covers ground.
+ */
+function bandFromGridDistance(fromAnchor, toAnchor) {
+    if (!fromAnchor || !toAnchor) return 'regional';
+    const dx = (toAnchor.x ?? 0) - (fromAnchor.x ?? 0);
+    const dy = (toAnchor.y ?? 0) - (fromAnchor.y ?? 0);
+    const grids = Math.max(1, Math.round(Math.sqrt(dx * dx + dy * dy)));
+    for (const band of DISTANCE_BANDS_FOR_OFFER) {
+        if (band.id === 'adjacent') continue;
+        if (grids >= band.minGrids && grids <= band.maxGrids) return band.id;
+    }
+    return 'farthest';
+}
+
+// Exported for direct unit testing (WO 6.3 §5 gate test: the default band
+// matches the straight-line anchor distance).
+export function _bandFromGridDistanceForTest(fromAnchor, toAnchor) {
+    return bandFromGridDistance(fromAnchor, toAnchor);
+}
+
+// Mirror of `solver.js`'s `DISTANCE_BANDS` for the offer's default-band
+// computation. Kept local so the mod's index.js does not need to import the
+// solver's frozen array (and stays free of solver-internal dependencies).
+const DISTANCE_BANDS_FOR_OFFER = Object.freeze([
+    Object.freeze({ id: 'adjacent', minGrids: 0, maxGrids: 0 }),
+    Object.freeze({ id: 'nearby', minGrids: 1, maxGrids: 2 }),
+    Object.freeze({ id: 'local', minGrids: 3, maxGrids: 6 }),
+    Object.freeze({ id: 'regional', minGrids: 7, maxGrids: 15 }),
+    Object.freeze({ id: 'far', minGrids: 16, maxGrids: 30 }),
+    Object.freeze({ id: 'distant', minGrids: 31, maxGrids: 60 }),
+    Object.freeze({ id: 'remote', minGrids: 61, maxGrids: 120 }),
+    Object.freeze({ id: 'farthest', minGrids: 121, maxGrids: Infinity }),
+]);
 
 /** The pathfinder's per-mode multiplier, mirrored from `pathfinder.js:56`. */
 function pathfinderMultiplier(pfMode) {
@@ -558,6 +614,95 @@ export async function resetAllPins(ctx, campaignId) {
     await fresh.table.write('anchors', next);
     await queueSolve(fresh);
     return true;
+}
+
+/**
+ * WO 6.3 §1 — write a symmetric direct connection between `fromId` and
+ * `toId` at `band`, re-solve so the field bends to the new edge, then
+ * re-route. If the re-route succeeds, emit `travelRequest` so the host's
+ * `composeDeparture` produces the byte-identical departure sentence the
+ * other two entry points produce. The connection is symmetric and uses the
+ * existing `setLocationLedger` write — there is no second connection
+ * implementation.
+ *
+ * Returns the preview the renderer should show next: a successful route
+ * after the re-route, or the original blocked preview if the re-route still
+ * cannot resolve (e.g. the pathfinder refused on terrain grounds — the
+ * connection was authored, but the party still cannot walk there today).
+ */
+export async function createConnectionAndRoute(ctx, campaignId, fromId, toId, band, mode, clickCell) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh || fresh.data.campaignId !== campaignId) return null;
+    const ledger = Array.isArray(fresh.data.location?.ledger) ? fresh.data.location.ledger : [];
+    const updated = applySymmetricConnection(ledger, fromId, toId, band);
+    if (!updated) return null;
+    if (fresh.write?.setLocationLedger) {
+        fresh.write.setLocationLedger(updated);
+    } else {
+        ctx?.log?.('[worldmap] createConnection: no setLocationLedger write on ctx');
+        return null;
+    }
+    // Re-solve so the field bends to the new edge, then re-route. Both
+    // queue through `solveQueue` so the solve lands before the re-route
+    // reads the report.
+    await queueSolve(fresh);
+    const reRouted = computeRoutePreview(fresh, campaignId, clickCell.x, clickCell.y, mode);
+    reRouted._clickCell = clickCell;
+    routePreviewByCampaign.set(campaignId, reRouted);
+    for (const listener of mapPaintListeners) listener(campaignId);
+    if (reRouted.blocked) return reRouted;
+    const fromIdResolved = reRouted.fromAnchor?.locationId ?? fromId;
+    const toIdResolved = reRouted.toAnchor?.locationId ?? toId;
+    ctx.events?.emit('travelRequest', {
+        fromId: fromIdResolved,
+        toId: toIdResolved,
+        mode,
+        hops: reRouted.hops || [],
+    });
+    // The travelRequest arms the departure; clear the preview so the next
+    // click is a fresh preview, not a commit of the just-authorised route.
+    routePreviewByCampaign.delete(campaignId);
+    for (const listener of mapPaintListeners) listener(campaignId);
+    return reRouted;
+}
+
+/**
+ * Mirror of `ensureDirectConnection` from `travelState.ts` — write a
+ * symmetric connection at `band` on both entries. Pure: returns a new
+ * ledger array (or `null` when either endpoint is missing). The connection
+ * is added when absent; when a connection already exists, its band is left
+ * untouched (the existing band wins, exactly like the host's
+ * `ensureConnection`). `adjacent` is normalised away for a NEW connection —
+ * a connection always covers ground, so a stale `adjacent` is treated as
+ * `local` (the nearest non-zero band).
+ *
+ * Exported for direct unit testing — the contract test (WO 6.3 §5) asserts
+ * the `LocationConnection` produced here is identical to the one the host's
+ * `ensureConnection` (`departureComposer.ts`) produces for the same pair
+ * and band.
+ */
+export function applySymmetricConnection(ledger, fromId, toId, band) {
+    const from = ledger.find(l => l.id === fromId);
+    const to = ledger.find(l => l.id === toId);
+    if (!from || !to) return null;
+    const effectiveBand = band === 'adjacent' ? 'local' : band;
+    let changed = false;
+    const next = ledger.map(entry => {
+        if (entry.id === fromId) {
+            const existing = entry.connections.find(c => c.toId === toId);
+            if (existing) return entry; // existing band wins — write nothing
+            changed = true;
+            return { ...entry, connections: [...entry.connections, { toId, band: effectiveBand }] };
+        }
+        if (entry.id === toId) {
+            const existing = entry.connections.find(c => c.toId === fromId);
+            if (existing) return entry; // existing band wins — write nothing
+            changed = true;
+            return { ...entry, connections: [...entry.connections, { toId: fromId, band: effectiveBand }] };
+        }
+        return entry;
+    });
+    return changed ? next : ledger;
 }
 
 function applyStyle(node, styles) {
@@ -1014,6 +1159,22 @@ function mountMap(node, ctx) {
             });
             routePreviewByCampaign.delete(currentCampaignId);
             refreshPreview();
+            return;
+        }
+        if (action === 'createConnection') {
+            // WO 6.3 §1 — accept the offer. Write a symmetric direct connection
+            // at the chosen band, re-solve so the field bends to the new edge,
+            // then re-route. If the re-route succeeds, emit `travelRequest`
+            // exactly like a normal commit, so the host's departure sentence
+            // and intent are byte-identical to the other two entry points.
+            // Never silent: the player clicked "Create and travel".
+            const preview = routePreviewByCampaign.get(currentCampaignId);
+            if (!preview || !preview.blocked || preview.reason !== 'no-ledger-path') return;
+            const fromId = preview.fromAnchor?.locationId ?? null;
+            const toId = preview.toAnchor?.locationId ?? null;
+            if (!fromId || !toId || fromId === toId) return;
+            const band = String(payload?.band || preview.defaultBand || 'regional');
+            void createConnectionAndRoute(ctx, currentCampaignId, fromId, toId, band, currentTravelMode, preview._clickCell);
             return;
         }
     };

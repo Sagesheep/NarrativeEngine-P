@@ -123,7 +123,28 @@ export function trimToSentences(text: string, cap = DESCRIPTION_CHAR_CAP): strin
  * same header, and a windowed location must not become two places.
  */
 export function parseLocationsFromLore(chunks: LoreChunk[]): LocationEntry[] {
+    return parseLocationsFromLoreDetailed(chunks).locations;
+}
+
+/**
+ * WO 6.3 §3 — the detailed parse returns the ledger entries plus a list of
+ * warnings for `ConnectedTo:` bullets that named a place not declared in the
+ * same file. Unresolvable names are dropped with a warning, exactly as the
+ * WorldMap solver does (`solver.js:parseLoreConstraints`) — the ledger and
+ * the map now agree: when the solver drops a `ConnectedTo:` clause, the
+ * ledger drops the same name for the same reason, and both say so.
+ *
+ * The warnings are plain strings (one per dropped name); the caller decides
+ * whether to log them, surface them to the player, or ignore them.
+ */
+export type LoreLocationParseResult = {
+    locations: LocationEntry[];
+    warnings: string[];
+};
+
+export function parseLocationsFromLoreDetailed(chunks: LoreChunk[]): LoreLocationParseResult {
     const locations: LocationEntry[] = [];
+    const warnings: string[] = [];
     const seenNames = new Set<string>();
     /** name/alias (lowercased) → index into `locations`, for the connection pass. */
     const byName = new Map<string, number>();
@@ -211,12 +232,19 @@ export function parseLocationsFromLore(chunks: LoreChunk[]): LocationEntry[] {
     // ── Connection pass ────────────────────────────────────────────────
     // Runs after every entry exists so a `**ConnectedTo:**` can name a place
     // declared later in the file. Bidirectional by default, matching
-    // applyLocationOps; unresolvable names are dropped.
+    // applyLocationOps; unresolvable names are dropped WITH A WARNING (WO
+    // 6.3 §3) so the ledger and the map agree — when the solver drops a
+    // `ConnectedTo:` clause, the ledger drops the same name for the same
+    // reason, and both say so.
     for (const [fromIndex, names] of pendingConnections) {
         const from = locations[fromIndex];
         for (const rawName of names) {
             const toIndex = byName.get(rawName.toLowerCase());
-            if (toIndex === undefined || toIndex === fromIndex) continue;
+            if (toIndex === undefined) {
+                warnings.push(`${from.name} names unknown connection "${rawName}" — connection dropped`);
+                continue;
+            }
+            if (toIndex === fromIndex) continue;
             const to = locations[toIndex];
             if (from.connections.length >= MAX_CONNECTIONS) break;
             if (!from.connections.some((c: LocationConnection) => c.toId === to.id)) {
@@ -228,5 +256,5 @@ export function parseLocationsFromLore(chunks: LoreChunk[]): LocationEntry[] {
         }
     }
 
-    return locations;
+    return { locations, warnings };
 }

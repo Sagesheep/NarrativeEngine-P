@@ -4,6 +4,8 @@ import { toast } from '../Toast';
 import { addNpcFromSelection } from '../../services/npc/manualAdd';
 import { isLikelyFeatureLabel, parseLocationHeader, resolveLocationHeader } from '../../services/locationHeader';
 import { queueLocationEnrichment } from '../../services/locationEnrich';
+import { ensureConnection } from '../../services/turn/departureComposer';
+import type { DistanceBand } from '../../services/location/distance';
 
 import { buildSceneImageContextInput } from '../../services/scene-images/sceneImageContextGatherer';
 import { composeSceneImageAPI } from '../../services/sceneImagesClient';
@@ -301,6 +303,21 @@ export function useSelectionActions() {
             ? `Added "${newName}" with feature "${initialFeature}" and set it current.`
             : `Added "${newName}" and set as current place.`);
         queueLocationEnrichment(loc.id);
+
+        // WO 6.3 §2 — offer a connection from the previous current place.
+        // The place the party was just in is almost always connected in
+        // fiction; the offer is pre-filled with the ledger's own default
+        // band (`local`) and dismissible. Never auto-create: the player
+        // commits the connection, the app only proposes it. Declining
+        // (toast auto-dismiss or the X button) leaves the new place
+        // unconnected, exactly as before.
+        offerConnectionFromPreviousPlace({
+            newPlaceId: loc.id,
+            newPlaceName: newName,
+            previousPlaceId: anchorId,
+            ledger,
+            updateLocation: state.updateLocation,
+        });
     };
 
     const handleGenerateSceneImage = async (e: React.MouseEvent | React.TouchEvent) => {
@@ -374,5 +391,73 @@ export function useSelectionActions() {
         handleAddPlace,
         handleGenerateSceneImage,
     };
+}
+
+/**
+ * WO 6.3 §2 — the offer shown after a place is added from selected prose.
+ * The place the party was just in is almost always connected in fiction;
+ * the offer is pre-filled with the ledger's own default band (`local`),
+ * dismissible, and never auto-creates. The player commits the connection;
+ * the app only proposes it.
+ *
+ * Pure with respect to data: reads the ledger and `updateLocation`, and
+ * surfaces the offer via `toast.info` with a `Connect` action. The action
+ * calls `ensureConnection` (the same path the Places panel and the
+ * composer TRAVEL button use), so the resulting `LocationConnection` is
+ * byte-identical across all three surfaces — the anti-drift guarantee.
+ *
+ * Returns `true` when the offer was shown, `false` when it was suppressed
+ * (no previous place, the previous place is the new place, the previous
+ * place is a transit node, or a connection already exists).
+ */
+export function offerConnectionFromPreviousPlace(args: {
+    newPlaceId: string;
+    newPlaceName: string;
+    previousPlaceId: string | null | undefined;
+    ledger: readonly import('../../types').LocationEntry[];
+    updateLocation: (id: string, patch: Partial<import('../../types').LocationEntry>) => void;
+    /** Pre-filled band — the ledger's own default. `'local'` matches
+     *  `loreLocationParser` and `LocationSuggestionsPanel`. */
+    band?: DistanceBand;
+    /** Injected so tests can assert on the offer without the global toast. */
+    showToast?: (message: string, action: { label: string; onClick: () => void }) => void;
+}): boolean {
+    const {
+        newPlaceId,
+        newPlaceName,
+        previousPlaceId,
+        ledger,
+        updateLocation,
+        band = 'local',
+        showToast = (message, action) => toast.info(message, action),
+    } = args;
+    if (!previousPlaceId) return false;
+    if (previousPlaceId === newPlaceId) return false;
+    const previous = ledger.find(l => l.id === previousPlaceId);
+    if (!previous) return false;
+    if (previous.kind === 'transit') return false;
+    // The new place is brand new with `connections: []`; the previous place
+    // could in theory already reference it (defensive — should not happen).
+    const alreadyConnected = previous.connections.some(c => c.toId === newPlaceId)
+        || ledger.some(l => l.id === newPlaceId && l.connections.some(c => c.toId === previousPlaceId));
+    if (alreadyConnected) return false;
+
+    const previousName = previous.name;
+    const message = `Connect "${newPlaceName}" to "${previousName}"? (band: ${band})`;
+    const onClick = () => {
+        // Read the latest ledger at click time — the player may have done
+        // other edits between the offer and the click. `ensureConnection`
+        // writes a symmetric connection via `updateLocation`, the same path
+        // the Places panel and composer TRAVEL button use. Prefer the live
+        // store's `updateLocation` (the offer may have been shown a while
+        // ago); fall back to the one passed in at offer time so tests that
+        // don't seed the live store still work.
+        const liveState = useAppStore.getState();
+        const liveLedger = liveState.locationLedger ?? [];
+        const liveUpdateLocation = liveState.updateLocation ?? updateLocation;
+        ensureConnection(newPlaceId, previousPlaceId, band, liveLedger, liveUpdateLocation);
+    };
+    showToast(message, { label: 'Connect', onClick });
+    return true;
 }
 

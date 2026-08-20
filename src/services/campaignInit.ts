@@ -6,7 +6,7 @@ import {
 import { chunkLoreFile } from './lore/loreChunker';
 import { extractEngineSeeds } from './lore/loreEngineSeeder';
 import { parseNPCsFromLore } from './lore/loreNPCParser';
-import { parseLocationsFromLore } from './lore/loreLocationParser';
+import { parseLocationsFromLoreDetailed } from './lore/loreLocationParser';
 import { locationTableDescriptor, loadLocationTable } from './tables/locationTable';
 import { genericSave } from './tables/genericAccessor';
 import { resolvePlace } from './locationParser';
@@ -88,7 +88,12 @@ export async function initializeCampaignState(params: {
         // Same deal for places. Dedupe against the existing ledger by name+alias
         // (resolvePlace is the ledger's own matcher) so re-importing a lore file
         // into a campaign in progress tops up rather than duplicating.
-        const parsedLocations = parseLocationsFromLore(chunks);
+        // WO 6.3 §3 — use the detailed parse so unresolvable `ConnectedTo:`
+        // names warn (the ledger and the map must agree).
+        const { locations: parsedLocations, warnings: locationWarnings } = parseLocationsFromLoreDetailed(chunks);
+        for (const w of locationWarnings) {
+            console.warn(`[loreLocationParser] ${w}`);
+        }
         if (parsedLocations.length > 0) {
             const existingLocations = await loadLocationTable(campaignId);
             const additions = parsedLocations.filter(loc => !resolvePlace(loc.name, existingLocations));

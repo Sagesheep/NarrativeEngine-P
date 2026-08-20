@@ -845,6 +845,59 @@ export function mountMapRenderer(root, options) {
     const routeReadout = makeElement('div', undefined, { fontSize: '11px', whiteSpace: 'pre-wrap' });
     routePanel.appendChild(routeReadout);
 
+    // WO 6.3 §1 — the offer. When the click target has no ledger path, the
+    // refusal becomes an offer: a band selector (defaulted to the band whose
+    // grid range best matches the straight-line distance between the two
+    // anchors) and a "Create and travel" button. The player commits the
+    // connection; the map only proposes it. Hidden unless the preview is a
+    // `no-ledger-path` block.
+    const offerRow = makeElement('div', undefined, {
+        display: 'none', flexDirection: 'column', gap: '4px',
+        paddingTop: '2px', borderTop: '1px solid var(--color-border, rgba(255,255,255,0.18))',
+    });
+    const offerLabel = makeElement('div', 'Create one?', {
+        fontSize: '10px', opacity: '0.85', textTransform: 'uppercase', letterSpacing: '0.04em',
+    });
+    const offerBandRow = makeElement('div', undefined, { display: 'flex', alignItems: 'center', gap: '4px' });
+    const offerBandSelect = document.createElement('select');
+    offerBandSelect.setAttribute('aria-label', 'Distance band for the new connection');
+    applyStyle(offerBandSelect, {
+        background: 'var(--color-void, #0e0f12)', color: 'inherit',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.22))',
+        borderRadius: '3px', padding: '2px 4px', font: 'inherit', fontSize: '10px', flex: '1',
+    });
+    // Mirror the host's `DISTANCE_BANDS` minus `adjacent` — a connection
+    // always covers ground, so `adjacent` is not offered. The labels are
+    // the host's, kept in sync by the contract test (WO 6.3 §5).
+    const OFFER_BANDS = [
+        { id: 'nearby', label: 'nearby — 1–2 grids' },
+        { id: 'local', label: 'local — 3–6 grids' },
+        { id: 'regional', label: 'regional — 7–15 grids' },
+        { id: 'far', label: 'far — 16–30 grids' },
+        { id: 'distant', label: 'distant — 31–60 grids' },
+        { id: 'remote', label: 'remote — 61–120 grids' },
+        { id: 'farthest', label: 'farthest — 121+ grids' },
+    ];
+    for (const band of OFFER_BANDS) {
+        const opt = document.createElement('option');
+        opt.value = band.id;
+        opt.textContent = band.label;
+        offerBandSelect.appendChild(opt);
+    }
+    offerBandRow.appendChild(offerBandSelect);
+    const offerAcceptButton = makeElement('button', 'Create and travel', {
+        padding: '3px 8px',
+        border: '1px solid var(--color-command-accent, #E01B1B)',
+        borderRadius: '3px', background: 'transparent',
+        color: 'var(--color-command-accent, #E01B1B)',
+        font: 'inherit', fontSize: '10px', cursor: 'pointer', alignSelf: 'flex-start',
+    });
+    offerAcceptButton.addEventListener('click', () => {
+        if (onRouteAction) onRouteAction('createConnection', { band: offerBandSelect.value });
+    });
+    offerRow.append(offerLabel, offerBandRow, offerAcceptButton);
+    routePanel.appendChild(offerRow);
+
     const routeCancelButton = makeElement('button', 'Cancel route', {
         padding: '3px 8px', border: '1px solid var(--color-border, rgba(255,255,255,0.22))',
         borderRadius: '3px', background: 'transparent', color: 'inherit',
@@ -1422,6 +1475,7 @@ export function mountMapRenderer(root, options) {
             // switch), clear the renderer's click target too so the next
             // click is a fresh preview, not a commit.
             travelClickCell = null;
+            offerRow.style.display = 'none';
             return;
         }
         routePanel.style.display = 'flex';
@@ -1444,12 +1498,30 @@ export function mountMapRenderer(root, options) {
             routeReadout.textContent = `Blocked: ${reason}`;
             routeReadout.style.color = 'var(--color-command-accent, #E01B1B)';
             routeCancelButton.textContent = 'Dismiss';
+            // WO 6.3 §1 — the no-road refusal is an offer, not a dead end.
+            // Show the band selector (defaulted to the straight-line band
+            // the mod pre-computed) and the "Create and travel" button. The
+            // other blocked reasons (no current place, no anchor, terrain
+            // refused) do not offer a connection — the offer is only for a
+            // missing edge, not a missing anchor or impassable terrain.
+            const isOfferable = detail.reason === 'no-ledger-path'
+                && preview.fromAnchor?.locationId && preview.toAnchor?.locationId;
+            if (isOfferable) {
+                const defaultBand = typeof detail.defaultBand === 'string' && detail.defaultBand !== 'adjacent'
+                    ? detail.defaultBand
+                    : 'regional';
+                if (offerBandSelect.value !== defaultBand) offerBandSelect.value = defaultBand;
+                offerRow.style.display = 'flex';
+            } else {
+                offerRow.style.display = 'none';
+            }
         } else {
             const cellCount = preview.cellCount != null ? preview.cellCount : Math.max(0, (preview.cells || []).length - 1);
             const toName = (preview.toAnchor && preview.toAnchor.name) || 'destination';
             routeReadout.textContent = `→ ${toName}\n${cellCount} cells · ${preview.days} day${preview.days === 1 ? '' : 's'}\nClick again to travel`;
             routeReadout.style.color = 'var(--color-text-primary, inherit)';
             routeCancelButton.textContent = 'Cancel route';
+            offerRow.style.display = 'none';
         }
     }
 
