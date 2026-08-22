@@ -22,6 +22,16 @@ const snapshotCacheByCampaign = new Map();
 let solveQueue = Promise.resolve();
 let settingsWriteQueue = Promise.resolve();
 
+// WO 6.2 — the committed journey, per campaign. The mod owns the journey's
+// geometry (which cells, which checkpoints, on which terrain); the host owns
+// the journey's state (leg, totalLegs, worldDay, and when it ends). This
+// record is written at commit — BEFORE the `travelRequest` emit, so the
+// record and the departure cannot disagree (WO 6.2 §1) — and cleared when
+// `context.travel` goes null (the §4 trigger: arrive, halt, or campaign
+// switch all manifest as `travel` becoming null, so watch the state, not the
+// transition). `null` when no journey is in progress, mirroring `settings`.
+const journeyByCampaign = new Map();
+
 // WO 6.1 — click-to-travel route-preview state, per campaign. The preview is
 // computed by the mod (which owns the pathfinder and the chunk store) and
 // read back by the renderer via `getRoutePreview`. A commit emits
@@ -544,6 +554,194 @@ async function writeHardened(ctx, hardened) {
     for (const listener of mapPaintListeners) listener(campaignId);
 }
 
+// ── WO 6.2 — committed-journey persistence ────────────────────────────────
+//
+// The journey record is the committed route geometry the map draws while the
+// party is walking. The host owns the journey's STATE (leg, totalLegs,
+// worldDay, and when it ends — see `travelState.ts`); the mod owns the
+// journey's GEOMETRY (which cells, which checkpoints, on which terrain). This
+// is the same boundary the plan set draws for coordinates (core keeps
+// `worldDay` and bands; the mod owns every `(x, y)`), and it is the reason
+// this work order needs no change to `travelState.ts`.
+//
+// The record is `null` when no journey is in progress (mirroring `settings`).
+// It is written at commit — BEFORE the `travelRequest` emit, so the record and
+// the departure cannot disagree (§1) — and cleared when `context.travel` goes
+// null (§4: arrive, halt, and campaign switch all manifest as `travel`
+// becoming null, so watch the state, not the transition).
+//
+// Shape (§1):
+//   { fromId, toId, mode, cells: [{x,y,cost}, ...],
+//     checkpoints: [{x,y,day,kind}, ...], totalLegs, startedOnDay }
+// `cells` is the committed route as walked (the pathfinder's per-hop cells,
+// concatenated); `checkpoints` is `buildCheckpoints`'s output; `totalLegs` is
+// the committed leg count, for the sanity check in §2.
+
+async function readJourney(ctx) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh) return null;
+    const raw = await fresh.table.read('journey');
+    return validJourney(raw) ? raw : null;
+}
+
+/**
+ * Exported for direct unit testing — hydrates the in-memory journey cache
+ * from the table, the same way `mountMap`'s initial mount does. A test that
+ * exercises `mapSnapshot` (which reads from the cache, not the table) must
+ * hydrate the cache first so the snapshot sees the journey. Returns the
+ * journey record (or `null` when none is on disk).
+ */
+export async function _hydrateJourneyForTest(ctx) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh) return null;
+    const campaignId = fresh.data.campaignId;
+    const record = await readJourney(fresh);
+    journeyByCampaign.set(campaignId, record);
+    return record;
+}
+
+export async function writeJourney(ctx, journey) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh) return false;
+    const campaignId = fresh.data.campaignId;
+    await fresh.table.write('journey', journey);
+    journeyByCampaign.set(campaignId, journey);
+    bumpWorldVersion(campaignId);
+    for (const listener of mapPaintListeners) listener(campaignId);
+    return true;
+}
+
+/**
+ * Clear the journey record — write `null` to the table and drop the
+ * in-memory cache. Called when `context.travel` goes null (§4: arrive, halt,
+ * campaign switch). Exported for direct unit testing of the §4 clear path.
+ */
+export async function clearJourney(ctx) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh) return false;
+    const campaignId = fresh.data.campaignId;
+    await fresh.table.write('journey', null);
+    journeyByCampaign.delete(campaignId);
+    bumpWorldVersion(campaignId);
+    for (const listener of mapPaintListeners) listener(campaignId);
+    return true;
+}
+
+/**
+ * A journey record is valid when it has the §1 fields and they are the right
+ * shapes. Defensive: the table is single-object, so a stale or corrupt read
+ * must degrade to "no journey" (the transit-anchor fallback in §2), never to
+ * a crash. `null` is a valid value (no journey in progress).
+ *
+ * Exported for direct unit testing (WO 6.2 §5: a journey record whose `toId`
+ * disagrees with `context.travel` is ignored).
+ */
+export function validJourney(value) {
+    if (value === null) return true;
+    if (!value || typeof value !== 'object') return false;
+    if (typeof value.fromId !== 'string' || typeof value.toId !== 'string') return false;
+    if (typeof value.mode !== 'string') return false;
+    if (!Array.isArray(value.cells) || !value.cells.every(c =>
+        Number.isFinite(c?.x) && Number.isFinite(c?.y))) return false;
+    if (!Array.isArray(value.checkpoints) || !value.checkpoints.every(c =>
+        Number.isFinite(c?.x) && Number.isFinite(c?.y) && Number.isFinite(c?.day)
+        && (c.kind === 'camp' || c.kind === 'place'))) return false;
+    if (!Number.isFinite(value.totalLegs)) return false;
+    return true;
+}
+
+/**
+ * WO 6.5 §1 — the cell the party actually occupies during a journey.
+ *
+ * WO 6.5 changes the model: one press = one day = one checkpoint. `depart()`
+ * now advances the day and lands the party on camp 1 immediately (leg 1 =
+ * checkpoint 0, the first camp). There is no "origin" leg — the party leaves
+ * the origin on the first press.
+ *
+ * The mapping, verified against `travelState.ts` (WO 6.5):
+ *   - `depart()` sets `leg: 1` and advances the day. Leg 1 is checkpoint 0
+ *     (the first camp), NOT the origin. `buildCheckpoints` emits
+ *     `totalDays - 1` camps, days 1…N-1.
+ *   - Each `advance()` adds one leg and one day. Leg L is checkpoint `L - 1`
+ *     in the zero-indexed list.
+ *   - `arrive()` clears `travel`, and the party is at the destination anchor
+ *     by the normal rule.
+ *
+ * Clamp, never index blindly. Two leg counts exist and they are not always
+ * the same number: `depart()` derives `totalLegs` from the BAND (`legsFor`),
+ * while the mod's checkpoints come from terrain-real hop legs. `departMultiHop`
+ * uses the mod's hops so they agree for map-initiated travel — but a departure
+ * composed from the Places panel or the composer TRAVEL button has NO route
+ * geometry at all. Required behaviour:
+ *   - no `journey` record, or `fromId`/`toId` do not match `context.travel`
+ *     → fall back to the transit anchor. Degrade, never break.
+ *   - `leg - 1` outside the checkpoint list → clamp to the last checkpoint.
+ * Exported for direct unit testing. Returns `{ x, y } | null`.
+ */
+export function partyCellForJourney(journey, travel) {
+    if (!journey || !travel) return null;
+    // The record must agree with the active journey. A stale record (e.g. the
+    // GM halted the journey and started a new one from a different place)
+    // must not draw the party on the old route.
+    if (journey.fromId !== travel.fromId || journey.toId !== travel.toId) return null;
+    const leg = travel.leg;
+    const checkpoints = journey.checkpoints || [];
+    // Leg L (L ≥ 1) is checkpoint `L - 1` in the zero-indexed list. The first
+    // press lands the party on camp 1 (checkpoint 0), not the origin.
+    const index = leg - 1;
+    if (index < 0) return null;
+    if (index < checkpoints.length) {
+        const cp = checkpoints[index];
+        return { x: cp.x, y: cp.y };
+    }
+    // Out of range — clamp to the last checkpoint. An out-of-range leg is a
+    // mismatch (the host and the mod disagree on totalLegs), not a crash.
+    if (checkpoints.length > 0) {
+        const last = checkpoints[checkpoints.length - 1];
+        return { x: last.x, y: last.y };
+    }
+    // No checkpoints at all (a single-day journey) — fall back to the last
+    // cell of the route, which is the destination. The party is effectively
+    // there.
+    const lastCell = journey.cells[journey.cells.length - 1];
+    return lastCell ? { x: lastCell.x, y: lastCell.y } : null;
+}
+
+/**
+ * WO 6.2 §1 — build the journey record from a committed route preview. The
+ * preview carries `cells` (the pathfinder's per-hop cells, concatenated),
+ * `checkpoints` (`buildCheckpoints`'s output), and `hops` (per-hop leg
+ * counts). `totalLegs` is the sum of the hops' legs — the terrain-real leg
+ * count the host will use when `departMultiHop` runs. `startedOnDay` is the
+ * host's current `worldDay` (or 1 if unset), so a re-loaded campaign can show
+ * how many days the journey has taken so far.
+ *
+ * Returns `null` when the preview is missing the geometry (e.g. a blocked
+ * preview, or a single-hop preview that somehow lost its cells). A `null`
+ * result means the commit must NOT emit `travelRequest` — the record and the
+ * departure cannot disagree (§1), so no record means no departure.
+ */
+function buildJourneyFromPreview(preview, worldDay) {
+    if (!preview || preview.blocked) return null;
+    const cells = Array.isArray(preview.cells) ? preview.cells : [];
+    const checkpoints = Array.isArray(preview.checkpoints) ? preview.checkpoints : [];
+    const hops = Array.isArray(preview.hops) ? preview.hops : [];
+    if (cells.length === 0) return null;
+    const fromId = preview.fromAnchor?.locationId;
+    const toId = preview.toAnchor?.locationId;
+    if (!fromId || !toId) return null;
+    const totalLegs = hops.reduce((sum, h) => sum + (Number.isFinite(h?.legs) ? h.legs : 0), 0);
+    return {
+        fromId,
+        toId,
+        mode: preview.mode,
+        cells: cells.map(c => ({ x: c.x, y: c.y, cost: c.cost })),
+        checkpoints: checkpoints.map(c => ({ x: c.x, y: c.y, day: c.day, kind: c.kind })),
+        totalLegs,
+        startedOnDay: Number.isFinite(worldDay) ? worldDay : 1,
+    };
+}
+
 /**
  * Harden the cell under the current location. A cell the party has occupied
  * is frozen — recorded in a mod table, and no future anchor may alter it.
@@ -580,8 +778,6 @@ export async function solveAndPersist(ctx) {
     if (!fresh) return null;
     const campaignId = fresh.data.campaignId;
     const settings = await ensureSettings(fresh);
-    const rawAnchors = await fresh.table.read('anchors');
-    const existingAnchors = Array.isArray(rawAnchors) ? rawAnchors : [];
     const hardened = hardenedByCampaign.get(campaignId) ?? await readHardened(fresh);
     // WO 4.1 §5 — terrain-aware placement reads cells via `ChunkStore`. The
     // store needs warp controls; on the first solve there are none, so the
@@ -593,10 +789,11 @@ export async function solveAndPersist(ctx) {
     const previousTransects = reportsByCampaign.get(campaignId)?.transects ?? [];
     const previousControls = buildWarpField(previousTransects);
     const terrainChunkStore = ensureChunkStore(campaignId, settings, previousControls, hardened);
+    // WO 4.4 — the anchors table is a pure output cache; the ledger and the
+    // lore are the only inputs. No `existingAnchors` is read or passed.
     const result = solveWorldMap({
         locations: fresh.data.location?.ledger ?? [],
         loreChunks: fresh.data.loreChunks ?? [],
-        existingAnchors,
         worldSeed: settings.worldSeed,
         hardenedCells: hardened,
         chunkStore: terrainChunkStore,
@@ -618,10 +815,7 @@ export async function solveAndPersist(ctx) {
  * `queueSolve`) from inside itself: doing so reassigns `solveQueue` to a
  * promise derived from the very chain the running task is being awaited by,
  * and the two adopt each other. The chain then stays pending forever and
- * every later solve — every unpin, reset, re-solve, drag and route — silently
- * never runs. That is exactly what `onDragAnchor` used to do (it ended with
- * `.then(() => queueSolve(ctx))` from inside its own queued task), so one
- * pin drag deadlocked the map for the rest of the session.
+ * every later solve — every re-solve and route — silently never runs.
  *
  * A queued task therefore calls `solveAndPersist` directly. `enqueue` is the
  * only writer of `solveQueue`.
@@ -637,63 +831,6 @@ function queueSolve(ctx) {
     return enqueue(ctx, () => solveAndPersist(ctx));
 }
 
-export async function unpinAnchor(ctx, campaignId, locationId) {
-    if (!locationId) return false;
-    const fresh = await freshCampaignContext(ctx);
-    if (!fresh || fresh.data.campaignId !== campaignId) return false;
-    const rows = await fresh.table.read('anchors');
-    const anchors = Array.isArray(rows) ? rows : [];
-    const target = anchors.find(anchor => anchor.locationId === locationId);
-    if (!target) return false;
-    // WO 4.3 §1 — unpinning a row with no pin is a no-op, not an error.
-    //
-    // But it is only reachable when the panel and the table DISAGREE: the
-    // Unpin control is drawn from the published report, while this reads the
-    // anchors table. A stale report offers Unpin on a row that is already
-    // free, the click writes nothing, and the panel repaints the same stale
-    // report — a control that is visible, enabled, and permanently dead.
-    // Re-solve instead of returning silently, so one click always converges
-    // the panel onto the table's truth.
-    if (target.pinned !== true && target.source !== 'player') {
-        await queueSolve(fresh);
-        return false;
-    }
-    const next = anchors.map(anchor => anchor.locationId === locationId
-        ? { ...anchor, pinned: false, source: 'solved' }
-        : anchor);
-    await fresh.table.write('anchors', next);
-    await queueSolve(fresh);
-    return true;
-}
-
-/**
- * WO 4.3 §2 — clear every player-authored pin in one shot. A pin is a player
- * pin when `pinned === true` OR `source === 'player'`. After clearing, the
- * solver re-runs so every freed place returns to `solved`/`derived`.
- *
- * Exported so the report's Reset button and tests share one code path.
- */
-export async function resetAllPins(ctx, campaignId) {
-    const fresh = await freshCampaignContext(ctx);
-    if (!fresh || fresh.data.campaignId !== campaignId) return false;
-    const rows = await fresh.table.read('anchors');
-    const anchors = Array.isArray(rows) ? rows : [];
-    const anyPinned = anchors.some(anchor => anchor.pinned === true || anchor.source === 'player');
-    // Same seam as `unpinAnchor`: `Reset pins` is enabled from the published
-    // report, so a stale report leaves it clickable with no pins left to
-    // clear. Re-solve so the panel converges rather than dying quietly.
-    if (!anyPinned) {
-        await queueSolve(fresh);
-        return false;
-    }
-    const next = anchors.map(anchor =>
-        (anchor.pinned === true || anchor.source === 'player')
-            ? { ...anchor, pinned: false, source: anchor.source === 'derived' ? 'derived' : 'solved' }
-            : anchor);
-    await fresh.table.write('anchors', next);
-    await queueSolve(fresh);
-    return true;
-}
 
 /**
  * WO 6.3 §1 — write a symmetric direct connection between `fromId` and
@@ -738,6 +875,15 @@ export async function createConnectionAndRoute(ctx, campaignId, fromId, toId, ba
     if (reRouted.blocked) return reRouted;
     const fromIdResolved = reRouted.fromAnchor?.locationId ?? fromId;
     const toIdResolved = reRouted.toAnchor?.locationId ?? toId;
+    // WO 6.2 §1 — persist the committed route before emitting, same as the
+    // other two commit paths. Bail out of the emit if the write fails (the
+    // record and the departure cannot disagree).
+    const worldDay = afterWrite.data?.location?.worldDay;
+    const journey = buildJourneyFromPreview(reRouted, worldDay);
+    if (journey) {
+        const wrote = await writeJourney(afterWrite, journey);
+        if (!wrote) return reRouted;
+    }
     ctx.events?.emit('travelRequest', {
         fromId: fromIdResolved,
         toId: toIdResolved,
@@ -801,77 +947,11 @@ function makeElement(tag, text, styles = {}) {
     return applyStyle(node, styles);
 }
 
-// WO 4.3 §3 — the refusal's named places are rendered as the Unpin affordances
-// themselves, so the message and its remedy are the same control. The refusal
-// `locationIds` are in the same order as the names embedded in `message`
-// (verified against every refusal site in `solver.js`), so we build the joined
-// name string the same way the solver does and split the message on it.
-function appendActionableRefusal(line, refusal, result, ledgerById, ctx, campaignId) {
-    // Build id → name from report entries first (the authoritative per-solve
-    // view), then fall back to the live ledger for any id not in the report
-    // (e.g., a constraint id that is also a place id but was relaxed out).
-    const nameById = new Map();
-    for (const entry of (result.report?.entries ?? [])) nameById.set(entry.locationId, entry.name);
-    for (const [id, entry] of ledgerById) {
-        if (!nameById.has(id) && entry?.name) nameById.set(id, entry.name);
-    }
-    const names = [];
-    const ids = [];
-    for (const id of refusal.locationIds) {
-        const name = nameById.get(id);
-        if (typeof name === 'string' && name.length > 0) {
-            names.push(name);
-            ids.push(id);
-        }
-    }
-    const unpinStyle = {
-        padding: '1px 6px',
-        border: '1px solid var(--border-primary, currentColor)',
-        borderRadius: '4px',
-        background: 'transparent',
-        color: 'inherit',
-        font: 'inherit',
-        fontSize: '11px',
-        cursor: 'pointer',
-        textDecoration: 'underline',
-        textUnderlineOffset: '2px',
-    };
-    const makeUnpinButton = (id, label) => {
-        const btn = makeElement('button', label, unpinStyle);
-        btn.dataset.unpinLocationId = id;
-        btn.addEventListener('click', () => {
-            btn.disabled = true;
-            btn.textContent = '…';
-            void unpinAnchor(ctx, campaignId, id)
-                .catch(error => ctx?.log?.('[worldmap] refusal unpin failed', error));
-        });
-        return btn;
-    };
-    const message = refusal.message;
-    if (names.length > 0) {
-        const joined = names.join('/');
-        const at = message.indexOf(joined);
-        if (at >= 0) {
-            const before = message.slice(0, at);
-            const after = message.slice(at + joined.length);
-            if (before) line.append(makeElement('span', before, { whiteSpace: 'pre-wrap' }));
-            for (let index = 0; index < names.length; index += 1) {
-                if (index > 0) line.append(makeElement('span', '/', { opacity: '0.72' }));
-                line.append(makeUnpinButton(ids[index], names[index]));
-            }
-            if (after) line.append(makeElement('span', after, { whiteSpace: 'pre-wrap' }));
-            return;
-        }
-    }
-    // Fallback — the join string did not match (a name drifted, or the
-    // refusal shape changed). Surface the message verbatim and offer each
-    // named place as a separate Unpin control after it, so the action is
-    // still reachable.
-    line.append(makeElement('span', message, { whiteSpace: 'pre-wrap' }));
-    for (let index = 0; index < names.length; index += 1) {
-        line.append(makeUnpinButton(ids[index], `Unpin ${names[index]}`));
-    }
-}
+// WO 4.4 — refusals are text only. The actionable Unpin affordances and the
+// `appendActionableRefusal` helper were removed with the player pin; a
+// refusal naming a `Coords:` conflict is rendered verbatim. A refusal must
+// never describe an action the player cannot take, and the only action a
+// `Coords:` conflict admits is editing the lore — which the report says.
 
 // WO 4.3 — exported for the report's pin-recovery tests so the Unpin/Reset
 // affordances and the actionable refusal rendering can be asserted against
@@ -929,52 +1009,13 @@ export function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
     };
     button.addEventListener('click', onClick);
 
-    // WO 4.3 §2 — one Reset pins control next to Re-solve from lore.
-    // Confirmation is required because this discards deliberate authoring,
-    // unlike unpinning one. The button is disabled when there are no player
-    // pins to clear (no-op, not an error).
-    const hasPlayerPins = result
-        && Array.isArray(result.anchors)
-        && result.anchors.some(anchor => anchor.pinned === true || anchor.source === 'player');
-    const resetButton = makeElement('button', 'Reset pins', {
-        padding: '7px 11px',
-        marginBottom: '14px',
-        marginLeft: '8px',
-        border: '1px solid var(--border-primary, currentColor)',
-        borderRadius: '6px',
-        background: 'var(--background-secondary, transparent)',
-        color: 'inherit',
-        cursor: hasPlayerPins ? 'pointer' : 'not-allowed',
-    });
-    resetButton.disabled = !hasPlayerPins;
-    const onResetClick = async () => {
-        // WO 4.3 §2 — confirm before clearing; this discards deliberate
-        // authoring, unlike unpinning one. `confirm` is the platform dialog
-        // and is the lightest-weight gate that still requires a positive act.
-        const ok = typeof window === 'object' && typeof window.confirm === 'function'
-            ? window.confirm('Clear every player pin and re-solve? This discards all authored pin positions.')
-            : true;
-        if (!ok) return;
-        const idleLabel = resetButton.textContent;
-        resetButton.disabled = true;
-        resetButton.textContent = 'Resetting…';
-        try {
-            await resetAllPins(ctx, campaignId);
-        } finally {
-            resetButton.disabled = !hasPlayerPins;
-            resetButton.textContent = idleLabel;
-        }
-        if (node.isConnected) paintReport(node, ctx, campaignId);
-    };
-    resetButton.addEventListener('click', onResetClick);
-
     const buttonRow = makeElement('div', undefined, {
         display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px',
         marginBottom: '14px',
     });
-    buttonRow.append(button, resetButton);
+    buttonRow.append(button);
     node.append(buttonRow);
-    const cleanups = [() => button.removeEventListener('click', onClick), () => resetButton.removeEventListener('click', onResetClick)];
+    const cleanups = [() => button.removeEventListener('click', onClick)];
 
     if (!result) return () => { for (const fn of cleanups) fn(); };
 
@@ -992,14 +1033,9 @@ export function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
     });
     node.append(report);
 
-    // WO 4.3 §3 — make the refusal actionable. Every refusal whose message
-    // ends in a question is rendered with each named place as a working
-    // Unpin control. A refusal should never describe an action the player
-    // has no way to take. The refusal `locationIds` are the place ids whose
-    // pins must clear to resolve it; we split the message text on the
-    // place-name join and rebuild it with buttons in place of the names.
+    // WO 4.4 — refusals are text only. A `Coords:` conflict names the action
+    // the player can take (remove one Coords value) in its message.
     const refusals = Array.isArray(result.report.refusals) ? result.report.refusals : [];
-    const ledgerById = new Map((ctx.data?.location?.ledger ?? []).map(entry => [entry.id, entry]));
     if (refusals.length > 0) {
         const refusalsBlock = makeElement('div', undefined, {
             margin: '0 0 18px',
@@ -1017,14 +1053,7 @@ export function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
                 marginBottom: '6px',
             });
             line.append(makeElement('span', '✗', { color: 'var(--color-danger, #d33)', fontWeight: 'bold' }));
-            // Only refusals that name an action (end in '?') get clickable
-            // affordances. A message that ends in a statement stays as text.
-            if (typeof refusal.message === 'string' && refusal.message.trimEnd().endsWith('?')
-                && Array.isArray(refusal.locationIds) && refusal.locationIds.length > 0) {
-                appendActionableRefusal(line, refusal, result, ledgerById, ctx, campaignId);
-            } else {
-                line.append(makeElement('span', refusal.message ?? '', { whiteSpace: 'pre-wrap' }));
-            }
+            line.append(makeElement('span', refusal.message ?? '', { whiteSpace: 'pre-wrap' }));
             refusalsBlock.append(line);
         }
         node.append(refusalsBlock);
@@ -1033,7 +1062,7 @@ export function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
     const table = makeElement('table', undefined, { width: '100%', borderCollapse: 'collapse', fontSize: '12px' });
     const head = document.createElement('thead');
     const headRow = document.createElement('tr');
-    for (const label of ['Place', 'X', 'Y', 'Source', 'Action']) {
+    for (const label of ['Place', 'X', 'Y', 'Source']) {
         headRow.append(makeElement('th', label, { textAlign: 'left', padding: '6px', borderBottom: '1px solid var(--border-primary, currentColor)' }));
     }
     head.append(headRow);
@@ -1045,40 +1074,6 @@ export function paintReport(node, ctx, campaignId = ctx.data.campaignId) {
         for (const value of [entry.name, anchor?.x ?? '—', anchor?.y ?? '—', anchor?.source ?? '—']) {
             row.append(makeElement('td', String(value), { padding: '6px', borderBottom: '1px solid color-mix(in srgb, currentColor 18%, transparent)' }));
         }
-        // WO 4.3 §1 — every row whose anchor is a player pin gets an Unpin
-        // control in the table. The control clears that anchor's pinned flag
-        // and player source, then re-solves so the freed place returns to a
-        // solved position. Unpinning a row with no pin is a no-op.
-        const actionCell = document.createElement('td');
-        actionCell.style.padding = '6px';
-        actionCell.style.borderBottom = '1px solid color-mix(in srgb, currentColor 18%, transparent)';
-        const isPlayerPin = anchor && (anchor.pinned === true || anchor.source === 'player');
-        if (isPlayerPin) {
-            const unpinBtn = makeElement('button', 'Unpin', {
-                padding: '3px 8px',
-                border: '1px solid var(--border-primary, currentColor)',
-                borderRadius: '4px',
-                background: 'transparent',
-                color: 'inherit',
-                font: 'inherit',
-                fontSize: '11px',
-                cursor: 'pointer',
-            });
-            unpinBtn.dataset.unpinLocationId = entry.locationId;
-            unpinBtn.addEventListener('click', () => {
-                unpinBtn.disabled = true;
-                unpinBtn.textContent = 'Unpinning…';
-                void unpinAnchor(ctx, campaignId, entry.locationId)
-                    .catch(error => ctx?.log?.('[worldmap] report unpin failed', error))
-                    .finally(() => {
-                        if (node.isConnected) paintReport(node, ctx, campaignId);
-                    });
-            });
-            actionCell.append(unpinBtn);
-        } else {
-            actionCell.textContent = '—';
-        }
-        row.append(actionCell);
         body.append(row);
     }
     table.append(body);
@@ -1160,13 +1155,38 @@ function registerReportWindow(ctx) {
  * `getSnapshot()` identity contract (§11) can be asserted against the real
  * memoisation, not a simulation of it.
  */
+/**
+ * The part of the travel state a map snapshot depends on. `null` travel and a
+ * changed leg must both produce a different key, because both change what the
+ * snapshot contains (`party`, `journeyLeg`, and whether the route draws).
+ */
+function travelSnapshotKey(travel) {
+    if (!travel) return 'none';
+    return `${travel.fromId}>${travel.toId}@${travel.leg}/${travel.totalLegs}`;
+}
+
 export function mapSnapshot(ctx) {
     const campaignId = ctx.data?.campaignId;
     const result = campaignId ? reportsByCampaign.get(campaignId) : null;
     if (!result) return null;
     const version = worldVersion(campaignId);
+    // The cache key has to cover EVERYTHING the snapshot is built from.
+    //
+    // It used to be `worldVersion` alone — a counter bumped by solves and
+    // hardened-cell writes. A travel press bumps neither, so once a snapshot
+    // had been cached the map kept handing the renderer a pre-journey copy
+    // (`party: null`, `journey: null`) for the rest of the session: the
+    // party never moved, the route never drew, and every layer below this
+    // was correct the whole time.
+    //
+    // The leg is part of what the snapshot depends on, so it is part of the
+    // key. Deleting the cache from the one subscription that noticed would
+    // have fixed this call site and left the trap armed for the next field.
+    const travelKey = travelSnapshotKey(ctx.data?.location?.travel ?? null);
     const cached = snapshotCacheByCampaign.get(campaignId);
-    if (cached && cached.worldVersion === version) return cached.snapshot;
+    if (cached && cached.worldVersion === version && cached.travelKey === travelKey) {
+        return cached.snapshot;
+    }
 
     const hardened = hardenedByCampaign.get(campaignId) ?? new Map();
     const ledger = ctx.data?.location?.ledger ?? [];
@@ -1177,6 +1197,22 @@ export function mapSnapshot(ctx) {
     });
     const controls = buildWarpField(result.transects || []);
     const chunkStore = ensureChunkStore(campaignId, result.settings, controls, hardened);
+
+    // WO 6.2 — the party cell and the committed journey. The host owns
+    // `travel.leg` (the seam: `data.location.travel`); the mod owns the
+    // route geometry (`journeyByCampaign`). `party` is the cell the party
+    // actually occupies during a journey — NOT the current place's anchor
+    // (which during a journey is the transit node, one fixed dot per road).
+    // `null` `party` means "fall back to the current place's anchor" (§2's
+    // degrade path: no journey record, or a mismatch, or no travel state).
+    const travel = ctx.data?.location?.travel ?? null;
+    const journey = journeyByCampaign.get(campaignId) ?? null;
+    const party = partyCellForJourney(journey, travel);
+    // `journeyLeg` is the host's current leg, passed to the renderer so it
+    // can split the route into walked vs remaining and fill the passed
+    // checkpoints. `null` when no journey is active.
+    const journeyLeg = (journey && travel) ? travel.leg : null;
+
     const snapshot = {
         anchors,
         transects: result.transects || [],
@@ -1188,8 +1224,16 @@ export function mapSnapshot(ctx) {
         worldVersion: version,
         chunkStore,
         controls,
+        // WO 6.2 — the journey on screen. The renderer draws the walked leg
+        // dimmer than the remaining leg, fills passed checkpoints, and sits
+        // the party marker on `party`. `journey` survives a repaint (it is
+        // backed by the `journey` table, not the ephemeral preview) — a
+        // solve, a ledger change or a tab switch leaves it on screen (§3).
+        party,
+        journey: journey && travel ? journey : null,
+        journeyLeg,
     };
-    snapshotCacheByCampaign.set(campaignId, { snapshot, worldVersion: version });
+    snapshotCacheByCampaign.set(campaignId, { snapshot, worldVersion: version, travelKey });
     return snapshot;
 }
 
@@ -1203,6 +1247,22 @@ function mountMap(node, ctx) {
     // is what makes place names and the current place resolve at all.
     let liveCtx = ctx;
     let currentCampaignId = ctx.data.campaignId;
+    // WO 6.2 §3 — the camera rule: "a repaint must not move the camera, but the
+    // party actually advancing a leg should recentre." A repaint restores
+    // `lastView` (the camera is panel state, not renderer state); a leg advance
+    // sets `recentreOnNextMount` so the next mount calls `centreOnParty()` on
+    // the new party cell instead of restoring `lastView`. `prevLeg` tracks the
+    // last-seen leg so a mere repaint (same leg) does not recentre.
+    //
+    // WO 5.5 §3 — the travel-follow rule: "when the current place *changes* —
+    // the party actually travelled — recentre on the new place. That is the
+    // auto-move the player wants, and the only one." `prevPlaceId` tracks the
+    // last-seen current place so a mere repaint (same place) does not recentre,
+    // but a change (the party arrived) does. A null→null transition (a ledger
+    // edit with no travel) does not recentre.
+    let prevLeg = null;
+    let prevPlaceId = null;
+    let recentreOnNextMount = false;
 
     // WO 6.1 — the route preview is re-rendered on every paint via
     // `getRoutePreview`. The renderer reads it from the per-campaign map. A
@@ -1236,17 +1296,32 @@ function mountMap(node, ctx) {
             // host listener. The host owns the departure sentence and the
             // pending intent (via `composeDeparture`), so the sentence stays
             // byte-identical across all three entry points.
+            //
+            // WO 6.2 §1 — the committed route is persisted to the `journey`
+            // table BEFORE the emit. The record and the departure must not
+            // be able to disagree, so write first and bail out of the emit
+            // if the write fails. A journey with no geometry (no cells) is
+            // a Places-panel-style departure: no record, and the map falls
+            // back to the transit-anchor behaviour (§2's degrade path).
             const fromId = preview.fromAnchor?.locationId ?? null;
             const toId = preview.toAnchor?.locationId ?? null;
             if (!fromId || !toId) return;
-            ctx.events?.emit('travelRequest', {
-                fromId,
-                toId,
-                mode: preview.mode,
-                hops: preview.hops || [],
-            });
-            routePreviewByCampaign.delete(currentCampaignId);
-            refreshPreview();
+            const worldDay = liveCtx.data?.location?.worldDay;
+            const journey = buildJourneyFromPreview(preview, worldDay);
+            void (async () => {
+                if (journey) {
+                    const wrote = await writeJourney(liveCtx, journey);
+                    if (!wrote) return; // bail — no emit without the record
+                }
+                ctx.events?.emit('travelRequest', {
+                    fromId,
+                    toId,
+                    mode: preview.mode,
+                    hops: preview.hops || [],
+                });
+                routePreviewByCampaign.delete(currentCampaignId);
+                refreshPreview();
+            })();
             return;
         }
         if (action === 'createConnection') {
@@ -1306,14 +1381,25 @@ function mountMap(node, ctx) {
             const fromId = preview.fromAnchor?.locationId ?? null;
             const toId = preview.toAnchor?.locationId ?? locationId;
             if (!fromId || !toId) return;
-            ctx.events?.emit('travelRequest', {
-                fromId,
-                toId,
-                mode: preview.mode,
-                hops: preview.hops || [],
-            });
-            routePreviewByCampaign.delete(currentCampaignId);
-            refreshPreview();
+            // WO 6.2 §1 — persist the committed route before emitting, same
+            // as the main commit path. Bail out of the emit if the write
+            // fails (the record and the departure cannot disagree).
+            const worldDay = liveCtx.data?.location?.worldDay;
+            const journey = buildJourneyFromPreview(preview, worldDay);
+            void (async () => {
+                if (journey) {
+                    const wrote = await writeJourney(liveCtx, journey);
+                    if (!wrote) return;
+                }
+                ctx.events?.emit('travelRequest', {
+                    fromId,
+                    toId,
+                    mode: preview.mode,
+                    hops: preview.hops || [],
+                });
+                routePreviewByCampaign.delete(currentCampaignId);
+                refreshPreview();
+            })();
             return;
         }
         if (action === 'current' && locationId) {
@@ -1327,10 +1413,6 @@ function mountMap(node, ctx) {
         if (action === 'details' && locationId) {
             ctx.events?.emit('placeDetails', { locationId });
             return;
-        }
-        if (action === 'unpin' && locationId) {
-            void unpinAnchor(liveCtx, currentCampaignId, locationId)
-                .catch(error => ctx?.log?.('[worldmap] unpin failed', error));
         }
     };
     const getTravelMode = () => currentTravelMode;
@@ -1346,6 +1428,29 @@ function mountMap(node, ctx) {
             node.append(placeholder);
             return;
         }
+        // WO 6.2 §3 — detect a leg advance to recentre the camera. The camera
+        // rule: "a repaint must not move the camera, but the party actually
+        // advancing a leg should recentre." A leg advance is the ONE auto-move
+        // the player wants — it is the map following them down the road. A mere
+        // repaint (same leg) restores `lastView` and does not recentre.
+        //
+        // WO 5.5 §3 — the travel-follow rule: the other auto-move the player
+        // wants is "the party actually travelled" — the current place changed.
+        // Recentre on the new place. A null→null transition (a ledger edit with
+        // no travel) does not recentre. This is the ONE exception to "never
+        // auto-recentre on repaint" (§3): the party travelled, so the map
+        // follows. A mere repaint (same place) restores `lastView`.
+        const currentLeg = liveCtx.data?.location?.travel?.leg ?? null;
+        const currentPlaceId = liveCtx.data?.location?.currentPlaceId ?? null;
+        const legAdvanced = prevLeg !== null && currentLeg !== null && currentLeg !== prevLeg;
+        const placeChanged = prevPlaceId !== null && currentPlaceId !== null && currentPlaceId !== prevPlaceId;
+        const shouldRecentre = recentreOnNextMount || legAdvanced || placeChanged;
+        prevLeg = currentLeg;
+        prevPlaceId = currentPlaceId;
+        // Consume the flag — it is a one-shot, set by the leg-advance
+        // detection above or by an explicit `centreOnParty` key press that
+        // wants the next mount to recentre.
+        recentreOnNextMount = false;
         // Sync the selector's mode from the host context on (re)mount.
         const ctxMode = liveCtx.data?.context?.travelMode;
         if (ctxMode && typeof ctxMode === 'string') currentTravelMode = ctxMode;
@@ -1356,27 +1461,13 @@ function mountMap(node, ctx) {
             // ledger change used to yank the view out from under the player
             // mid-pan. The camera is panel state, not renderer state: the
             // renderer restores it on mount and reports it as it changes.
-            getInitialView: () => lastView,
+            //
+            // WO 6.2 §3 — when the leg advanced, return `null` for this one
+            // mount so the renderer calls `centreOnParty()` (on the new party
+            // cell) instead of restoring `lastView`. The flag is consumed
+            // above so the NEXT repaint restores `lastView` as usual.
+            getInitialView: () => shouldRecentre ? null : lastView,
             onViewChange: view => { lastView = view; },
-            // WO 4.2 §2 — the renderer calls `onDragAnchor` exactly once per
-            // drag, on pointer-up. The read-modify-write and the re-solve are
-            // ONE queued task, so the commit cannot interleave with another
-            // `solveAndPersist` write. The re-solve calls `solveAndPersist`
-            // directly rather than `queueSolve`: re-entering the queue from
-            // inside a queued task deadlocks it permanently (see `enqueue`).
-            onDragAnchor: async (locationId, x, y) => {
-                await enqueue(ctx, async () => {
-                    const fresh = await freshCampaignContext(ctx);
-                    if (!fresh || fresh.data.campaignId !== currentCampaignId) return;
-                    const rows = await fresh.table.read('anchors');
-                    const next = (Array.isArray(rows) ? rows : []).map(anchor =>
-                        anchor.locationId === locationId
-                            ? { ...anchor, x, y, pinned: true, source: 'player' }
-                            : anchor);
-                    await fresh.table.write('anchors', next);
-                    await solveAndPersist(fresh);
-                });
-            },
             onClickCell: handleClickCell,
             onRouteAction: handleRouteAction,
             onLayerChange: patch => persistLayerSettings(liveCtx, currentCampaignId, patch),
@@ -1388,13 +1479,36 @@ function mountMap(node, ctx) {
         });
     };
     let disposed = false;
+    // WO 6.2 §4 — tracks the previous `travel` state so a null→null
+    // transition (a normal ledger edit with no journey) does not write
+    // `null` to the table on every edit. Declared here (before the
+    // campaign/location subscribers) so the campaign-switch handler can
+    // reset it when the campaign changes.
+    let prevTravelWasActive = false;
     const repaint = campaignId => {
         if (campaignId !== currentCampaignId) return;
         render();
     };
     mapPaintListeners.add(repaint);
-    const unsubscribeCampaign = ctx.subscribe('campaignId', campaignId => {
+    const unsubscribeCampaign = ctx.subscribe('campaignId', async campaignId => {
         currentCampaignId = campaignId;
+        // WO 6.2 §4 — campaign switch: clear from memory (the record is
+        // per-campaign on disk), reset the travel-watch flag, and hydrate
+        // the new campaign's journey record. The old campaign's record
+        // stays on disk for when the player switches back.
+        // WO 5.5 §3 — reset the place tracker so the new campaign's first
+        // mount does not recentre on a place change that was actually a
+        // campaign switch.
+        prevTravelWasActive = false;
+        prevPlaceId = null;
+        prevLeg = null;
+        const fresh = await freshCampaignContext(ctx);
+        if (!disposed && fresh && fresh.data.campaignId === campaignId) {
+            journeyByCampaign.set(campaignId, await readJourney(fresh));
+            prevTravelWasActive = Boolean(fresh.data?.location?.travel ?? null);
+            prevPlaceId = fresh.data?.location?.currentPlaceId ?? null;
+            prevLeg = fresh.data?.location?.travel?.leg ?? null;
+        }
         render();
     });
     // The map is a VIEW of the ledger, so it has to follow the ledger.
@@ -1402,10 +1516,28 @@ function mountMap(node, ctx) {
     // change made after the map opened — a new place, a new connection, a
     // change of current place — left the map reading a snapshot from mount
     // time while the Places panel showed the truth. Same fact, two answers.
+    //
+    // WO 6.2 §4 — this is also the journey-exit watcher. The three exits
+    // (arrive, halt, campaign switch) all manifest as `context.travel`
+    // becoming null, so watch the STATE, not the transition. A stale record
+    // would leave a ghost route drawn across the map with a marker parked on
+    // a camp the party abandoned. Clear the `journey` record when `travel`
+    // goes null while a record is in memory.
     const unsubscribeLocation = ctx.subscribe('location', async () => {
         const fresh = await freshCampaignContext(ctx);
         if (disposed || !fresh || fresh.data.campaignId !== currentCampaignId) return;
         liveCtx = fresh;
+        // WO 6.2 §4 — clear the journey record when `travel` goes null. The
+        // trigger is the state, not the transition: `arrive()` (last leg
+        // done), `halt()` (fiction named an off-route place), and a campaign
+        // switch (the record is per-campaign on disk) all show up here as
+        // `travel` becoming null. Watch that, not a specific event.
+        const travelNow = fresh.data?.location?.travel ?? null;
+        const travelActive = Boolean(travelNow);
+        if (prevTravelWasActive && !travelActive) {
+            await clearJourney(fresh);
+        }
+        prevTravelWasActive = travelActive;
         render();
     });
     const unsubscribeAnchors = ctx.table.subscribe('anchors', () => repaint(currentCampaignId));
@@ -1430,11 +1562,32 @@ function mountMap(node, ctx) {
         snapshotCacheByCampaign.delete(currentCampaignId);
         repaint(currentCampaignId);
     });
+    // WO 6.2 — keep the in-memory journey cache in sync with the table. The
+    // table is written by this mod's commit path, but a table subscription
+    // is the canonical way to stay in sync (the host's table adapter
+    // notifies on every write, including this mod's own).
+    const unsubscribeJourney = ctx.table.subscribe('journey', async () => {
+        const fresh = await freshCampaignContext(ctx);
+        if (!fresh || fresh.data.campaignId !== currentCampaignId) return;
+        journeyByCampaign.set(currentCampaignId, await readJourney(fresh));
+        snapshotCacheByCampaign.delete(currentCampaignId);
+        repaint(currentCampaignId);
+    });
     freshCampaignContext(ctx).then(async fresh => {
         if (disposed || !fresh) return;
         liveCtx = fresh;
         currentCampaignId = fresh.data.campaignId;
         hardenedByCampaign.set(currentCampaignId, await readHardened(fresh));
+        // WO 6.2 — hydrate the journey record from disk so a reloaded
+        // campaign shows the in-progress journey. Also seed the
+        // `prevTravelWasActive` flag so a journey active at mount time is
+        // not immediately cleared by the first `subscribe('location')`
+        // notification. The guard clears only on active→inactive
+        // (prev true, now false); an active journey at mount sets prev
+        // true, so the first notification sees prev=true and (if travel
+        // is still active) now=true → no clear.
+        journeyByCampaign.set(currentCampaignId, await readJourney(fresh));
+        prevTravelWasActive = Boolean(fresh.data?.location?.travel ?? null);
         if (!disposed) render();
     });
     return () => {
@@ -1446,6 +1599,7 @@ function mountMap(node, ctx) {
         unsubscribeAnchors();
         unsubscribeVisited();
         unsubscribeSettings();
+        unsubscribeJourney();
         node.replaceChildren();
     };
 }
