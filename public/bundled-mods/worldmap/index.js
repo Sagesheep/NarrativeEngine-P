@@ -261,6 +261,39 @@ function computeRoutePreview(ctx, campaignId, toX, toY, mode) {
     if (!result) return { blocked: true, reason: 'no-solve', label: 'No map solve yet' };
     const anchors = result.anchors || [];
     const ledger = ctx.data?.location?.ledger ?? [];
+
+    // AT MOST ONE ROUTE IS ACTIVE AT A TIME.
+    //
+    // The renderer's draw order carried a comment claiming the committed
+    // journey and the route preview were "mutually exclusive in practice".
+    // Nothing enforced it. Clicking the map mid-journey opened a second
+    // preview, so two polylines and two independent sets of numbered camps
+    // drew over each other and the player could not tell which road they
+    // were on.
+    //
+    // The second line was also nonsense on its own terms: mid-journey the
+    // current place is the TRANSIT NODE, whose anchor is a single derived
+    // dot at the midpoint of the road. So the preview measured from a place
+    // the party is not, and reported a shorter journey than the one they
+    // were already walking.
+    //
+    // This is the one funnel every entry point goes through (the map click,
+    // the map's TRAVEL HERE, the mode re-route, and the WO 6.3 connect-and-
+    // travel path), so the cap lives here rather than at four call sites.
+    // The refusal is a normal blocked preview: it carries no cells, so it
+    // draws nothing, and the panel says why and offers Dismiss.
+    const activeTravel = ctx.data?.location?.travel ?? null;
+    if (activeTravel) {
+        const destination = ledger.find(l => l.id === activeTravel.toId)?.name
+            ?? 'your destination';
+        return {
+            blocked: true,
+            reason: 'journey-active',
+            label: 'Already on the road to ' + destination
+                + ' — abandon the journey to plan a new route',
+        };
+    }
+
     const fromId = ctx.data?.location?.currentPlaceId ?? null;
     if (!fromId) return { blocked: true, reason: 'no-current-place', label: 'No current place — set one in the Places panel' };
 
@@ -1536,6 +1569,17 @@ function mountMap(node, ctx) {
         const travelActive = Boolean(travelNow);
         if (prevTravelWasActive && !travelActive) {
             await clearJourney(fresh);
+        }
+        // The other half of the one-route cap. `computeRoutePreview` refuses
+        // to open a preview while travelling, but a preview opened just
+        // BEFORE departure would otherwise sit on screen next to the journey
+        // it became — the Places panel and the composer TRAVEL button depart
+        // without going anywhere near the map’s own commit path, which is
+        // the one that clears the preview. Clear on the transition INTO
+        // travel, not on the state, or the journey-active refusal itself
+        // would be wiped before the player could read it.
+        if (!prevTravelWasActive && travelActive) {
+            routePreviewByCampaign.delete(currentCampaignId);
         }
         prevTravelWasActive = travelActive;
         render();

@@ -50,7 +50,9 @@ import {
 } from './field.js';
 
 const TILE_PIXELS = 256;
-const ZOOM_LEVELS = Object.freeze([
+// Exported for the WO 5.5 §7 test (screen-pixel sizing assertion across all
+// four zoom levels). Frozen — exporting does not change behaviour.
+export const ZOOM_LEVELS = Object.freeze([
     Object.freeze({ level: 0, cellPixels: 4 }),
     Object.freeze({ level: 1, cellPixels: 8 }),
     Object.freeze({ level: 2, cellPixels: 16 }),
@@ -80,6 +82,25 @@ const BEACH_EPSILON = 0.07;
 const ZOOM_INTERPOLATION_MS = 180;
 const COAST_DARKEN = 0.84;
 const CELL_KILOMETRES = 8;
+// WO 5.5 §1 — the party marker is a different kind of object, not an anchor
+// with emphasis. A teardrop map pin sized in SCREEN pixels so it cannot be
+// mistaken for a place at any zoom (every other anchor scales with `cell`,
+// the party does not). Drawn last, over everything, never occluded. The tip
+// sits on the anchor cell; the body rises above it. The tip is the truth.
+const PARTY_PIN_HEIGHT_PX = 28;
+const PARTY_PIN_WIDTH_PX = 18;
+const PARTY_PIN_TAIL_PX = 6;
+// Two concentric rings outside the pin — the outer one pulses on a slow cycle
+// (~2s). Cheap: two `arc` calls per frame. Under `prefers-reduced-motion` the
+// phase does not advance (§1 / §7).
+const PARTY_HALLO_INNER_PX = 22;
+const PARTY_HALLO_OUTER_PX = 30;
+const PARTY_PULSE_PERIOD_MS = 2000;
+// §2 — the off-screen indicator. An arrow clamped to the viewport edge,
+// pointing at the party, in the party colour, with the distance in grids
+// beside it. Clicking the arrow centres the camera on the party.
+const PARTY_INDICATOR_RADIUS_PX = 16;
+const PARTY_INDICATOR_HIT_PX = 22;
 const DEFAULT_LAYER_SETTINGS = Object.freeze({
     grid: true,
     roads: true,
@@ -98,6 +119,14 @@ export const DEFAULT_RENDER_SETTINGS = Object.freeze({
 
 function clamp(value, min, max) {
     return value < min ? min : value > max ? max : value;
+}
+
+// WO 5.5 §1 / §7 — under `prefers-reduced-motion` the halo pulse phase does
+// not advance (the rings draw static). Read once per paint and cached for the
+// frame so every draw call in the same paint agrees.
+function prefersReducedMotion() {
+    return typeof matchMedia === 'function'
+        && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 /**
@@ -584,7 +613,7 @@ function refreshTokenCache(root) {
  * @param {HTMLElement} root
  * @param {{
  *   getSnapshot: () => {
- *     anchors: Array<{ locationId: string, name: string, x: number, y: number, pinned: boolean, source: string }>,
+ *     anchors: Array<{ locationId: string, name: string, x: number, y: number, source: string }>,
  *     transects: Array<object>,
  *     connections: Array<{ fromId: string, toId: string }>,
  *     settings: { worldSeed: string, climateGradient: number },
@@ -594,7 +623,6 @@ function refreshTokenCache(root) {
  *     chunkStore: object,
  *     controls: Array<object>,
  *   },
- *   onDragAnchor: (locationId: string, x: number, y: number) => void,
  *   log?: (...args: unknown[]) => void,
  *   onClickCell?: (x: number, y: number) => void,
  *   onRouteAction?: (action: 'commit' | 'cancel' | 'setMode', payload?: unknown) => void,
@@ -616,7 +644,7 @@ function refreshTokenCache(root) {
  */
 export function mountMapRenderer(root, options) {
     const {
-        getSnapshot, onDragAnchor, log = () => undefined,
+        getSnapshot, log = () => undefined,
         getInitialView, onViewChange,
         onClickCell, onRouteAction, getRoutePreview, getTravelMode,
         travelModes, onLayerChange, onContextAction,
@@ -789,7 +817,6 @@ export function mountMapRenderer(root, options) {
         ['travel', 'Travel here'],
         ['current', 'Set as current place'],
         ['details', 'Place details'],
-        ['unpin', 'Unpin'],
     ]) {
         const button = makeElement('button', label, {
             display: 'block', width: '100%', padding: '5px 6px',
@@ -807,7 +834,7 @@ export function mountMapRenderer(root, options) {
         contextMenu.appendChild(button);
     }
     overlay.appendChild(contextMenu);
-    const help = makeElement('div', 'Scroll to zoom · Drag to pan · Drag a pin to move it · Click a cell to travel', {
+    const help = makeElement('div', 'Scroll to zoom · Drag to pan · Click a cell to travel', {
         position: 'absolute', bottom: '8px', left: '8px', padding: '4px 8px', borderRadius: '4px',
         background: 'var(--color-void-lighter, rgba(20,21,25,0.72))',
         color: 'var(--color-text-dim, inherit)',
@@ -926,9 +953,9 @@ export function mountMapRenderer(root, options) {
         alignSelf: 'flex-start',
     });
     const routeTravelButton = makeElement('button', 'Travel', {
-        padding: '3px 10px', border: '1px solid var(--color-terminal, #A78BFA)',
+        padding: '3px 10px', border: '1px solid var(--color-terminal-dim, #5B21B6)',
         borderRadius: '3px', background: 'transparent',
-        color: 'var(--color-terminal, #A78BFA)',
+        color: 'var(--color-terminal-dim, #5B21B6)',
         font: 'inherit', fontSize: '10px', fontWeight: '600', cursor: 'pointer',
     });
     routeTravelButton.addEventListener('click', () => {
@@ -955,32 +982,19 @@ export function mountMapRenderer(root, options) {
         cachedRect = root.getBoundingClientRect();
     }
 
-    let dragging = null;
     let panLast = null;
-    let pendingDragId = null;
-    let pendingDragStart = null;
     let resizeObserver = null;
     let rafHandle = 0;
     let disposed = false;
 
-    // WO 6.1 §1 — click-to-travel state. A terrain click (no anchor hit, no
-    // drag) is a two-phase gesture: first click previews the route, second
-    // click on the same cell commits. A click elsewhere re-routes. The
-    // previewed cell is tracked so the second click can be matched. The
-    // renderer reports the click to the host via `onClickCell`; the host
-    // computes the route (the pathfinder lives in the mod) and surfaces it
-    // back through `getRoutePreview`. Commit/cancel/mode-change go through
-    // `onRouteAction`.
+    // WO 6.1 §1 — click-to-travel state. A click (no pan) is a two-phase
+    // gesture: first click previews the route, second click on the same cell
+    // commits. A click elsewhere re-routes. The previewed cell is tracked so
+    // the second click can be matched. The renderer reports the click to the
+    // host via `onClickCell`; the host computes the route (the pathfinder
+    // lives in the mod) and surfaces it back through `getRoutePreview`.
+    // Commit/cancel/mode-change go through `onRouteAction`.
     let panStarted = false;     // true if the current gesture moved enough to be a pan
-
-    // WO 4.2 §2 — during a drag the renderer keeps the moving anchor's
-    // position in `dragPreview` and paints it at the cursor. No host call,
-    // no solve, no table write. The commit happens once, on pointer-up,
-    // when the gesture rounds to a cell, validates, and calls
-    // `onDragAnchor`. This removes the ~60 Hz read-modify-write storm that
-    // raced `solveAndPersist` and produced the transient
-    // `malformed player anchor` warnings.
-    let dragPreview = null;
 
     // Tile pyramid + atlas. The pyramid is dropped wholesale on a world
     // version change; the atlas is rebuilt only when the theme changes.
@@ -993,6 +1007,19 @@ export function mountMapRenderer(root, options) {
     let pendingFlushTimer = 0;
     let hoverCell = null;
     let contextCell = null;
+    // WO 5.5 §1 / §2 — the party marker's pulse phase (advanced once per
+    // paint, frozen under `prefers-reduced-motion`) and the last-computed
+    // party screen position + on-screen flag, read by the off-screen edge
+    // indicator's hit test.
+    let partyPulsePhase = 0;
+    let partyScreen = null;
+    let partyOnScreen = true;
+    let partyIndicatorPos = null;
+    // The pulse is a slow cycle (~2s). A `setInterval` advances the phase and
+    // schedules a repaint, so the halo breathes even when the map is idle.
+    // `requestAnimationFrame` would loop synchronously under the test stub
+    // (which fires RAF inline) and never yield; the interval is async.
+    let pulseInterval = 0;
 
     function currentLevelIndex() {
         let best = 0;
@@ -1129,7 +1156,7 @@ export function mountMapRenderer(root, options) {
         const buttons = contextMenu.querySelectorAll('[data-context-action]');
         for (const button of buttons) {
             const action = button.dataset.contextAction;
-            const enabled = Boolean(anchor) && (action !== 'unpin' || anchor.pinned === true || anchor.source === 'player');
+            const enabled = Boolean(anchor);
             button.disabled = !enabled;
             button.style.opacity = enabled ? '1' : '0.45';
             button.style.cursor = enabled ? 'pointer' : 'not-allowed';
@@ -1188,10 +1215,40 @@ export function mountMapRenderer(root, options) {
         drawTiles(snapshot, currentAtlas, width, height, cell);
         drawGridOverlay(width, height, cell);
         drawConnections(snapshot, cell);
+        // WO 6.2 — the committed journey draws behind the preview. The two
+        // are mutually exclusive, and are now enforced to be:
+        // `computeRoutePreview` refuses while `context.travel` is set, and the
+        // mod clears any standing preview on departure. This comment used to
+        // say "in practice", which was another way of saying nobody checked.
+        // The journey survives a repaint (it is backed by the `journey`
+        // table, not the ephemeral preview) — a solve, a ledger change or
+        // a tab switch leaves it on screen (§3).
+        drawJourney(snapshot, cell);
         drawRoutePreview(cell);
         drawAnchors(snapshot, cell);
+        // WO 5.5 §2 — the off-screen indicator draws AFTER the party marker so
+        // it sits on top of the terrain and roads, and only when the party is
+        // off-screen. `drawAnchors` sets `partyOnScreen` / `partyScreen`.
+        drawPartyIndicator(width, height, cell);
         drawHud(snapshot, cell);
         updateRoutePanel();
+
+        // WO 5.5 §1 — keep the pulse alive. The halo's slow cycle is a
+        // continuous animation, so the phase must advance even when the map
+        // is idle. A `setInterval` (~50ms, ~20fps) advances the phase and
+        // schedules a repaint. Under `prefers-reduced-motion` the phase does
+        // not advance and no interval is scheduled (§7). The interval is
+        // started/stopped here so it tracks the party's presence: no pulse
+        // when there is no party marker to draw.
+        if (prefersReducedMotion() || !partyScreen) {
+            if (pulseInterval) { clearInterval(pulseInterval); pulseInterval = 0; }
+        } else if (!pulseInterval) {
+            pulseInterval = setInterval(() => {
+                if (disposed) { clearInterval(pulseInterval); pulseInterval = 0; return; }
+                partyPulsePhase = (partyPulsePhase + 50) % PARTY_PULSE_PERIOD_MS;
+                scheduleRender();
+            }, 50);
+        }
 
         refreshTokenCache(root);
     }
@@ -1371,7 +1428,10 @@ export function mountMapRenderer(root, options) {
         }
         const baseWidth = Math.max(1, cell / 6);
         const baseStroke = readTokenOnce(root, '--color-border', 'rgba(220,220,220,0.55)');
-        const emphasisStroke = readTokenOnce(root, '--color-terminal', '#A78BFA');
+        // WO 5.5 §4 — the road emphasis uses `--color-terminal-dim`, not the
+        // reserved party colour. "You" and "the road you are on" are no longer
+        // the same colour.
+        const emphasisStroke = readTokenOnce(root, '--color-terminal-dim', '#5B21B6');
         // Draw the base pass for every connection, then a second emphasised
         // pass for the current waypoint's road so it sits on top.
         for (const connection of snapshot.connections) {
@@ -1421,58 +1481,357 @@ export function mountMapRenderer(root, options) {
         ctx.fillText(label, labelX, labelY);
     }
 
+    /**
+     * WO 5.5 §1 — draw the party marker as a teardrop map pin, sized in
+     * SCREEN pixels (not cell pixels) so it cannot be mistaken for a place
+     * at any zoom. The tip sits on the anchor cell; the body rises above it.
+     * The tip is the truth. Drawn last, over everything, never occluded.
+     * A reserved colour (`--color-terminal` — nothing else on the map may
+     * use it) and a two-ring halo, the outer one pulsing on a ~2s cycle.
+     * Under `prefers-reduced-motion` the rings draw static (§1 / §7).
+     */
+    function drawPartyPin(screen, color, groundColor) {
+        const reduced = prefersReducedMotion();
+        // The pulse phase is advanced by the interval in `paint()`, not here
+        // (so it advances at a steady rate independent of paint frequency).
+        // Under `prefers-reduced-motion` the phase does not advance (§7).
+        const phase = partyPulsePhase / PARTY_PULSE_PERIOD_MS;
+        // Pulse: a sinusoidal alpha between ~0.35 and ~0.9.
+        const pulseAlpha = reduced ? 0.55 : (0.35 + 0.55 * (0.5 + 0.5 * Math.sin(phase * Math.PI * 2)));
+
+        ctx.save();
+        // Halo — two concentric rings outside the pin. The outer ring pulses;
+        // the inner ring is static. Cheap: two `arc` calls.
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = reduced ? 0.5 : 0.75;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y - PARTY_PIN_HEIGHT_PX / 2, PARTY_HALLO_INNER_PX, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = pulseAlpha;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y - PARTY_PIN_HEIGHT_PX / 2, PARTY_HALLO_OUTER_PX, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        // Teardrop body. The tip is at `screen` (the anchor cell); the body
+        // rises above it. Built from an arc (the round top) and two lines
+        // converging to the tip — the universal "this location" silhouette.
+        const bodyCx = screen.x;
+        const bodyCy = screen.y - PARTY_PIN_HEIGHT_PX + PARTY_PIN_WIDTH_PX / 2;
+        const r = PARTY_PIN_WIDTH_PX / 2;
+        ctx.fillStyle = color;
+        ctx.strokeStyle = groundColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        // Start at the tip, go up the left side, arc the top, down the right.
+        ctx.moveTo(screen.x, screen.y);
+        ctx.lineTo(bodyCx - r, bodyCy);
+        ctx.arc(bodyCx, bodyCy, r, Math.PI, 0, false);
+        ctx.lineTo(screen.x, screen.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        // Inner highlight — a small white-ish dot near the top of the body.
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.beginPath();
+        ctx.arc(bodyCx, bodyCy - r * 0.25, r * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
     function drawAnchors(snapshot, cell) {
-        const accentColor = readTokenOnce(root, '--color-command-accent', '#E01B1B');
         const currentColor = readTokenOnce(root, '--color-terminal', '#A78BFA');
         const idleColor = readTokenOnce(root, '--color-ice', '#E8EAED');
         const strokeColor = readTokenOnce(root, '--color-void-darker', '#0e0f12');
         const textColor = readTokenOnce(root, '--color-text-primary', '#E8EAED');
         const currentPlaceId = snapshot.locationId ?? null;
-        // WO 4.2 §3 — the player's position is the most legible thing on
-        // screen. A distinct marker (ring + larger radius) is drawn LAST so
-        // nothing overlaps it, and its label always renders, even below
-        // LABEL_MIN_CELL_PIXELS where other labels are suppressed.
         let currentAnchorEntry = null;
-        // First pass: every anchor except the current one. The dragged
-        // anchor is drawn at its preview position, not its committed one.
+        // First pass: every anchor except the current one.
         for (const anchor of snapshot.anchors || []) {
             if (anchor.locationId === currentPlaceId) {
                 currentAnchorEntry = anchor;
                 continue;
             }
-            const ax = dragPreview && dragPreview.locationId === anchor.locationId ? dragPreview.x : anchor.x;
-            const ay = dragPreview && dragPreview.locationId === anchor.locationId ? dragPreview.y : anchor.y;
-            const screen = cellCentreToScreen(ax, ay);
+            const screen = cellCentreToScreen(anchor.x, anchor.y);
             const radius = Math.max(5, cell / 2.4);
-            const fill = anchor.pinned ? accentColor : idleColor;
+            const fill = idleColor;
             drawAnchorDot(anchor, screen, radius, fill, strokeColor);
             if (layerState.labels && cell >= LABEL_MIN_CELL_PIXELS) {
                 drawAnchorLabel(screen, radius, anchor.name || anchor.locationId, textColor);
             }
         }
-        // Second pass: the current place, drawn last so nothing overlaps
-        // it. A ring around the dot plus a larger radius makes it the most
-        // legible marker on the map. Its label always renders.
+        // WO 5.5 §1 — the party marker is a different kind of object, not an
+        // anchor with emphasis. A teardrop map pin sized in screen pixels,
+        // drawn LAST so nothing overlaps it. Its label always renders, even
+        // below LABEL_MIN_CELL_PIXELS where other labels are suppressed — the
+        // shape already says "you", so the label is the place name (no "You
+        // are here" text).
+        //
+        // WO 6.2 §3 — during a journey, the party marker sits on
+        // `snapshot.party` (today's checkpoint cell), NOT the current place's
+        // anchor (which during a journey is the transit node — one fixed dot
+        // per road). The label still names the current place (the transit
+        // node, e.g. "Road between A and B") so the HUD and the marker agree
+        // on what the header says.
         if (currentAnchorEntry) {
-            const ax = dragPreview && dragPreview.locationId === currentAnchorEntry.locationId ? dragPreview.x : currentAnchorEntry.x;
-            const ay = dragPreview && dragPreview.locationId === currentAnchorEntry.locationId ? dragPreview.y : currentAnchorEntry.y;
+            const partyCell = snapshot.party;
+            const usePartyCell = Boolean(partyCell)
+                && Number.isFinite(partyCell.x) && Number.isFinite(partyCell.y);
+            const ax = usePartyCell ? partyCell.x : currentAnchorEntry.x;
+            const ay = usePartyCell ? partyCell.y : currentAnchorEntry.y;
             const screen = cellCentreToScreen(ax, ay);
-            const baseRadius = Math.max(5, cell / 2.4);
-            const radius = baseRadius * 1.45;
-            // Outer ring.
-            ctx.beginPath();
-            ctx.arc(screen.x, screen.y, radius + 4, 0, Math.PI * 2);
-            ctx.strokeStyle = currentColor;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            // Inner dot — keep the fill logic so a pinned current place
-            // still reads as pinned (accent), otherwise the current colour.
-            const fill = currentAnchorEntry.pinned ? accentColor : currentColor;
-            drawAnchorDot(currentAnchorEntry, screen, radius, fill, strokeColor);
+            // Record the party's screen position + on-screen flag for the
+            // off-screen edge indicator (§2) and its hit test.
+            partyScreen = { x: screen.x, y: screen.y };
+            const rect = cachedRect;
+            partyOnScreen = Boolean(rect)
+                && screen.x >= -PARTY_PIN_WIDTH_PX
+                && screen.x <= rect.width + PARTY_PIN_WIDTH_PX
+                && screen.y >= -PARTY_PIN_HEIGHT_PX
+                && screen.y <= rect.height + PARTY_PIN_TAIL_PX;
+            drawPartyPin(screen, currentColor, strokeColor);
+            // Label offset: clear the pin body (which rises above the tip).
+            const labelRadius = PARTY_PIN_WIDTH_PX / 2 + 4;
             if (layerState.labels) {
-                drawAnchorLabel(screen, radius, currentAnchorEntry.name || currentAnchorEntry.locationId, textColor);
+                drawAnchorLabel(screen, labelRadius, currentAnchorEntry.name || currentAnchorEntry.locationId, textColor);
+            }
+        } else {
+            partyScreen = null;
+            partyOnScreen = true;
+        }
+    }
+
+    /**
+     * WO 5.5 §2 — the off-screen indicator. When the party's cell is outside
+     * the viewport, draw an arrow clamped to the viewport edge, pointing at
+     * it, in the party colour, with the distance in grids beside it. Clicking
+     * the arrow centres the camera on the party. A marker you cannot see is
+     * not a marker — this is what actually delivers "scream your character is
+     * here".
+     *
+     * Records the indicator's screen position in `partyIndicatorPos` so the
+     * pointer-up hit test (§2) can detect a click on the arrow.
+     */
+    function drawPartyIndicator(width, height, cell) {
+        partyIndicatorPos = null;
+        if (!partyScreen || partyOnScreen) return;
+        const color = readTokenOnce(root, '--color-terminal', '#A78BFA');
+        const textColor = readTokenOnce(root, '--color-text-primary', '#E8EAED');
+        const groundColor = readTokenOnce(root, '--color-void-darker', '#0e0f12');
+        // Direction from viewport centre to the party, normalised.
+        const cx = width / 2;
+        const cy = height / 2;
+        const dx = partyScreen.x - cx;
+        const dy = partyScreen.y - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len;
+        const uy = dy / len;
+        // Clamp the arrow to the viewport edge with a margin so it is not
+        // cut off by the viewport border.
+        const margin = PARTY_INDICATOR_RADIUS_PX + 6;
+        // Intersect the ray from the centre with the viewport rectangle.
+        // Scale so the arrow sits on the nearer edge.
+        const halfW = (width / 2) - margin;
+        const halfH = (height / 2) - margin;
+        const sx = ux !== 0 ? halfW / Math.abs(ux) : Infinity;
+        const sy = uy !== 0 ? halfH / Math.abs(uy) : Infinity;
+        const scale = Math.min(sx, sy);
+        const ax = cx + (ux * scale);
+        const ay = cy + (uy * scale);
+        partyIndicatorPos = { x: ax, y: ay };
+        // Distance in grids (Manhattan, the travel currency).
+        const grids = Math.max(1, Math.round((Math.abs(dx) + Math.abs(dy)) / cell));
+
+        ctx.save();
+        // A small disc so the arrow reads against any terrain.
+        ctx.fillStyle = groundColor;
+        ctx.globalAlpha = 0.78;
+        ctx.beginPath();
+        ctx.arc(ax, ay, PARTY_INDICATOR_RADIUS_PX + 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        // The arrow — a triangle pointing along (ux, uy).
+        const r = PARTY_INDICATOR_RADIUS_PX;
+        const angle = Math.atan2(uy, ux);
+        const tipX = ax + (Math.cos(angle) * r);
+        const tipY = ay + (Math.sin(angle) * r);
+        const baseAngle = angle + Math.PI;
+        const leftX = ax + (Math.cos(baseAngle - 0.5) * r * 0.7);
+        const leftY = ay + (Math.sin(baseAngle - 0.5) * r * 0.7);
+        const rightX = ax + (Math.cos(baseAngle + 0.5) * r * 0.7);
+        const rightY = ay + (Math.sin(baseAngle + 0.5) * r * 0.7);
+        ctx.fillStyle = color;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(leftX, leftY);
+        ctx.lineTo(rightX, rightY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        // Distance label beside the arrow.
+        ctx.font = '10px ui-monospace, SFMono-Regular, Consolas, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const labelOffset = PARTY_INDICATOR_RADIUS_PX + 10;
+        const lx = ax + (Math.cos(angle) * labelOffset);
+        const ly = ay + (Math.sin(angle) * labelOffset);
+        const label = `${grids} grid${grids === 1 ? '' : 's'}`;
+        const metrics = ctx.measureText(label);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(lx - (metrics.width / 2) - 3, ly - 8, metrics.width + 6, 16);
+        ctx.fillStyle = textColor;
+        ctx.fillText(label, lx, ly);
+        ctx.restore();
+    }
+
+    // WO 6.2 §3 — draw the committed journey. The walked leg of the polyline
+    // renders behind the remaining leg — dimmer, and reading as *done*. The
+    // remaining leg keeps the route-preview treatment. Passed checkpoints are
+    // filled; future ones stay hollow. The day numbers stay on both. The
+    // party marker itself is drawn by `drawAnchors` (it sits on
+    // `snapshot.party`, the cell for today's leg).
+    //
+    // The journey survives a repaint (it is backed by the `journey` table),
+    // unlike a preview which is cleared on commit. A solve, a ledger change
+    // or a tab switch must leave the journey on screen (§3).
+    function drawJourney(snapshot, cell) {
+        const journey = snapshot.journey;
+        if (!journey || !Array.isArray(journey.cells) || journey.cells.length === 0) return;
+        const leg = snapshot.journeyLeg;
+        if (!Number.isFinite(leg)) return;
+
+        const cells = journey.cells;
+        const checkpoints = Array.isArray(journey.checkpoints) ? journey.checkpoints : [];
+
+        // The walked leg covers cells from the origin up to and including the
+        // party's current cell. Leg 1 is the origin (cells[0]); leg L (L ≥ 2)
+        // is checkpoint L-2. The split index is the cell index of the current
+        // checkpoint (or 0 for leg 1). The walked polyline is cells[0..split],
+        // the remaining is cells[split..end].
+        //
+        // The split is by CHECKPOINT cell, which may not be an exact cell in
+        // the `cells` array (checkpoints are placed on terrain-cost
+        // boundaries). Find the cell in `cells` closest to the current
+        // checkpoint's coordinates. This is a visual approximation — the
+        // exact leg boundary is the host's `leg`, not the cell index.
+        let splitIndex = 0;
+        if (leg <= 1) {
+            splitIndex = 0;
+        } else {
+            const cpIndex = leg - 2;
+            const cp = cpIndex < checkpoints.length ? checkpoints[cpIndex] : checkpoints[checkpoints.length - 1];
+            if (cp) {
+                // Find the cell in `cells` closest to the checkpoint.
+                let bestDist = Infinity;
+                let bestIdx = cells.length - 1;
+                for (let i = 0; i < cells.length; i += 1) {
+                    const d = Math.abs(cells[i].x - cp.x) + Math.abs(cells[i].y - cp.y);
+                    if (d < bestDist) { bestDist = d; bestIdx = i; }
+                }
+                splitIndex = bestIdx;
+            } else {
+                splitIndex = cells.length - 1;
             }
         }
+
+        // WO 5.5 §4 — the journey stroke uses `--color-terminal-dim`, not
+        // the reserved party colour. The party is the loudest thing on the
+        // map; the journey is a route, not "you".
+        const journeyStroke = readTokenOnce(root, '--color-terminal-dim', '#5B21B6');
+        const walkedStroke = readTokenOnce(root, '--color-ice', '#E8EAED');
+        const groundColor = readTokenOnce(root, '--color-void-darker', '#0e0f12');
+        const labelColor = readTokenOnce(root, '--color-text-primary', '#E8EAED');
+
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+
+        // Walked leg — dimmer, reading as *done*. Lower alpha and thinner
+        // stroke than the remaining leg.
+        if (splitIndex > 0) {
+            ctx.lineWidth = Math.max(1, cell / 5);
+            ctx.strokeStyle = walkedStroke;
+            ctx.globalAlpha = 0.4;
+            ctx.beginPath();
+            const first = cellCentreToScreen(cells[0].x, cells[0].y);
+            ctx.moveTo(first.x, first.y);
+            for (let i = 1; i <= splitIndex && i < cells.length; i += 1) {
+                const s = cellCentreToScreen(cells[i].x, cells[i].y);
+                ctx.lineTo(s.x, s.y);
+            }
+            ctx.stroke();
+        }
+
+        // Remaining leg — the route-preview treatment (bright, full alpha).
+        if (splitIndex < cells.length - 1) {
+            ctx.lineWidth = Math.max(1.5, cell / 4);
+            ctx.strokeStyle = journeyStroke;
+            ctx.globalAlpha = 0.85;
+            ctx.beginPath();
+            const start = cellCentreToScreen(cells[splitIndex].x, cells[splitIndex].y);
+            ctx.moveTo(start.x, start.y);
+            for (let i = splitIndex + 1; i < cells.length; i += 1) {
+                const s = cellCentreToScreen(cells[i].x, cells[i].y);
+                ctx.lineTo(s.x, s.y);
+            }
+            ctx.stroke();
+        }
+
+        // Checkpoints — passed ones are filled; future ones stay hollow.
+        // The day numbers stay on both (§3).
+        ctx.globalAlpha = 1;
+        const radius = Math.max(3, cell / 4.5);
+        for (const checkpoint of checkpoints) {
+            const screen = cellCentreToScreen(checkpoint.x, checkpoint.y);
+            // A checkpoint is "passed" when its day < the current leg's day.
+            // Leg 1 = day 0 (origin, no day passed). Leg L ≥ 2 = day L-1
+            // (the day that just ended). So a checkpoint on day D is passed
+            // when D < leg. Actually: checkpoint.day is the day the camp ends
+            // (1-based), and leg L means L-1 days have passed. A checkpoint
+            // on day D is passed when D <= leg - 1, i.e. D < leg.
+            const passed = checkpoint.day < leg;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+            if (passed) {
+                ctx.fillStyle = journeyStroke;
+                ctx.fill();
+            } else {
+                ctx.fillStyle = groundColor;
+                ctx.fill();
+            }
+            ctx.strokeStyle = journeyStroke;
+            ctx.lineWidth = checkpoint.kind === 'place' ? 2.5 : 1.5;
+            ctx.stroke();
+            if (cell >= LABEL_MIN_CELL_PIXELS) {
+                ctx.font = `${Math.max(9, Math.round(cell / 2.4))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillStyle = groundColor;
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = groundColor;
+                ctx.strokeText(String(checkpoint.day), screen.x, screen.y - radius - 2);
+                ctx.fillStyle = labelColor;
+                ctx.fillText(String(checkpoint.day), screen.x, screen.y - radius - 2);
+            }
+        }
+
+        // Destination ring — same as the preview, so the click target reads.
+        if (cells.length > 0) {
+            const end = cells[cells.length - 1];
+            const endScreen = cellCentreToScreen(end.x, end.y);
+            ctx.globalAlpha = 0.9;
+            ctx.beginPath();
+            ctx.arc(endScreen.x, endScreen.y, Math.max(6, cell / 1.8), 0, Math.PI * 2);
+            ctx.strokeStyle = journeyStroke;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        ctx.restore();
     }
 
     function drawRoutePreview(cell) {
@@ -1485,7 +1844,10 @@ export function mountMapRenderer(root, options) {
         // the base road colour, so it reads as "planned" not "walked". A
         // blocked route still draws its cells (if any) so the player sees
         // where the attempt was; the readout panel carries the reason.
-        const previewStroke = readTokenOnce(root, '--color-terminal', '#A78BFA');
+        // WO 5.5 §4 — the route preview uses `--color-terminal-dim`, not the
+        // reserved party colour. "You" and "the road you are considering" are
+        // no longer the same colour.
+        const previewStroke = readTokenOnce(root, '--color-terminal-dim', '#5B21B6');
         const blockedStroke = readTokenOnce(root, '--color-command-accent', '#E01B1B');
         const isBlocked = Boolean(preview.blocked);
         ctx.save();
@@ -1634,7 +1996,7 @@ export function mountMapRenderer(root, options) {
     // and detach on pointer-up, so moving the mouse elsewhere in the app costs
     // nothing.
     function onCanvasPointerMove(event) {
-        if (dragging || panLast || pendingDragId) return;
+        if (panLast) return;
         const rect = cachedRect || root.getBoundingClientRect();
         cachedRect = rect;
         const px = event.clientX - rect.left;
@@ -1650,118 +2012,66 @@ export function mountMapRenderer(root, options) {
     }
 
     function onWindowPointerMove(event) {
-        if (!dragging && !panLast && !pendingDragId) return;
+        if (!panLast) return;
         const rect = cachedRect;
         if (!rect) return;
         const px = event.clientX - rect.left;
         const py = event.clientY - rect.top;
-        if (pendingDragId && pendingDragStart) {
-            if (Math.hypot(px - pendingDragStart.px, py - pendingDragStart.py) >= DRAG_DEAD_ZONE_PX) {
-                dragging = pendingDragId;
-            }
-            if (dragging === pendingDragId) {
-                // WO 4.2 §2 — local preview only. No host call, no solve.
-                const cell = cellSizePixels();
-                const dx = (px - pendingDragStart.px) / cell;
-                const dy = (py - pendingDragStart.py) / cell;
-                const x = pendingDragStart.x + dx;
-                const y = pendingDragStart.y + dy;
-                dragPreview = {
-                    locationId: pendingDragId,
-                    x: clamp(x, 0, FIELD_WORLD_SIZE - 1),
-                    y: clamp(y, 0, FIELD_WORLD_SIZE - 1),
-                };
-                scheduleRender();
-            }
-            return;
-        }
-        if (panLast) {
-            if (!panStarted) {
-                // `panLast` is still the press point until the pan actually
-                // starts, so it doubles as the dead-zone origin. Inside the
-                // dead zone this is still a click: move nothing, and leave
-                // `panStarted` false so pointer-up fires the click.
-                if (Math.hypot(px - panLast.px, py - panLast.py) < DRAG_DEAD_ZONE_PX) return;
-                // Re-base on the current point as the pan begins, so the map
-                // does not jump by the width of the dead zone on frame one.
-                panStarted = true;
-                panLast = { px, py };
-                return;
-            }
-            const cell = cellSizePixels();
-            view.cx -= (px - panLast.px) / cell;
-            view.cy -= (py - panLast.py) / cell;
+        if (!panStarted) {
+            // `panLast` is still the press point until the pan actually
+            // starts, so it doubles as the dead-zone origin. Inside the
+            // dead zone this is still a click: move nothing, and leave
+            // `panStarted` false so pointer-up fires the click.
+            if (Math.hypot(px - panLast.px, py - panLast.py) < DRAG_DEAD_ZONE_PX) return;
+            // Re-base on the current point as the pan begins, so the map
+            // does not jump by the width of the dead zone on frame one.
+            panStarted = true;
             panLast = { px, py };
-            clampView();
-            scheduleRender();
             return;
         }
+        const cell = cellSizePixels();
+        view.cx -= (px - panLast.px) / cell;
+        view.cy -= (py - panLast.py) / cell;
+        panLast = { px, py };
+        clampView();
+        scheduleRender();
     }
 
     function onWindowPointerUp(event) {
         const rect = cachedRect;
         const px = rect ? event.clientX - rect.left : 0;
         const py = rect ? event.clientY - rect.top : 0;
-        if (pendingDragId && pendingDragStart) {
-            const moved = Math.hypot(px - pendingDragStart.px, py - pendingDragStart.py) >= DRAG_DEAD_ZONE_PX;
-            if (!moved) {
-                // A click on a place is a TRAVEL click — the same gesture, and
-                // the same meaning, as a click on open ground. It routes there.
-                //
-                // It used to be a double-click-to-place: two clicks on a place
-                // moved it to the cursor and pinned it. That was a second pin
-                // gesture on top of the drag, undocumented, and armed during
-                // play on the same button the player travels with.
-                if (onClickCell) {
+        if (panLast && !panStarted) {
+            // WO 5.5 §2 — a click on the off-screen indicator centres the
+            // camera on the party. This takes precedence over a cell click:
+            // the indicator is the affordance that says "go back to your
+            // character", and a click on it should not also route to whatever
+            // cell happens to be under the arrow.
+            if (partyIndicatorPos
+                && Math.hypot(px - partyIndicatorPos.x, py - partyIndicatorPos.y) <= PARTY_INDICATOR_HIT_PX) {
+                centreOnParty();
+            } else if (onClickCell) {
+                // WO 6.1 §1 — a click (no pan). One click, one meaning: show the
+                // route to this cell. Departing is the Travel button in the route
+                // panel. The renderer only reports the cell — the mod computes the
+                // route (pathfinder + anchor snap) and surfaces it back through
+                // `getRoutePreview`. A click on a place routes to it: the
+                // pathfinder's anchor-snap finds the place at that cell.
+                const world = screenToCell(px, py);
+                if (Number.isFinite(world.x) && Number.isFinite(world.y)) {
+                    // `floor`, not `round` — the cell you clicked is the box the
+                    // cursor is inside. Rounding picked the NEAREST corner, so a
+                    // click in the right or lower half of a cell selected the
+                    // neighbour. Hover and the context menu already floored, so
+                    // the readout named one cell and the click travelled to
+                    // another.
                     onClickCell(
-                        clamp(Math.round(pendingDragStart.x), 0, FIELD_WORLD_SIZE - 1),
-                        clamp(Math.round(pendingDragStart.y), 0, FIELD_WORLD_SIZE - 1),
+                        clamp(Math.floor(world.x), 0, FIELD_WORLD_SIZE - 1),
+                        clamp(Math.floor(world.y), 0, FIELD_WORLD_SIZE - 1),
                     );
                 }
-            } else if (dragging === pendingDragId) {
-                // WO 4.2 §2 — commit once on release. Round to a cell,
-                // validate both coordinates are finite and in-bounds, then
-                // call onDragAnchor. Reject rather than store a bad
-                // coordinate — the previous position survives.
-                const candidateX = dragPreview ? Math.round(dragPreview.x) : pendingDragStart.x;
-                const candidateY = dragPreview ? Math.round(dragPreview.y) : pendingDragStart.y;
-                const startCellX = Math.round(pendingDragStart.x);
-                const startCellY = Math.round(pendingDragStart.y);
-                if (Number.isFinite(candidateX) && Number.isFinite(candidateY)
-                    && candidateX >= 0 && candidateX < FIELD_WORLD_SIZE
-                    && candidateY >= 0 && candidateY < FIELD_WORLD_SIZE) {
-                    // A drag ending on its starting cell is a click — write
-                    // nothing. This matches the spec: "a drag that ends on
-                    // its starting cell writes nothing."
-                    if (candidateX !== startCellX || candidateY !== startCellY) {
-                        onDragAnchor(pendingDragId, candidateX, candidateY);
-                    }
-                }
-            }
-        } else if (panLast && onClickCell && !panStarted) {
-            // WO 6.1 §1 — a terrain click (no anchor hit, no pan). One click,
-            // one meaning: show the route to this cell. Departing is the
-            // Travel button in the route panel. The renderer only reports the
-            // cell — the mod computes the route (pathfinder + anchor snap)
-            // and surfaces it back through `getRoutePreview`.
-            const world = screenToCell(px, py);
-            if (Number.isFinite(world.x) && Number.isFinite(world.y)) {
-                // `floor`, not `round` — the cell you clicked is the box the
-                // cursor is inside. Rounding picked the NEAREST corner, so a
-                // click in the right or lower half of a cell selected the
-                // neighbour. Hover and the context menu already floored, so
-                // the readout named one cell and the click travelled to
-                // another.
-                onClickCell(
-                    clamp(Math.floor(world.x), 0, FIELD_WORLD_SIZE - 1),
-                    clamp(Math.floor(world.y), 0, FIELD_WORLD_SIZE - 1),
-                );
             }
         }
-        pendingDragId = null;
-        pendingDragStart = null;
-        dragging = null;
-        dragPreview = null;
         panLast = null;
         panStarted = false;
         root.style.cursor = 'grab';
@@ -1787,14 +2097,10 @@ export function mountMapRenderer(root, options) {
         const rect = cachedRect;
         const px = event.clientX - rect.left;
         const py = event.clientY - rect.top;
-        const hit = hitTestAnchor(px, py);
-        if (hit) {
-            pendingDragId = hit.locationId;
-            pendingDragStart = { px, py, x: hit.x, y: hit.y };
-            root.style.cursor = 'grabbing';
-            attachWindowListeners();
-            return;
-        }
+        // WO 4.4 — drag always pans. A pointer-down on an anchor is the same
+        // gesture as a pointer-down on terrain: a potential pan, or a click
+        // if it stays inside the dead zone. A click on a place routes to it
+        // (travel), handled on pointer-up via `onClickCell`.
         panLast = { px, py };
         root.style.cursor = 'grabbing';
         attachWindowListeners();
@@ -1873,10 +2179,25 @@ export function mountMapRenderer(root, options) {
     // answering "where is everything", when the question the player is asking
     // is "where am I". Falls back to fit-all when no current place is set.
     //
+    // WO 6.2 §3 — during a journey, the party is at `snapshot.party` (today's
+    // checkpoint cell), not the current place's anchor (the transit node).
+    // `centreOnParty` follows the party down the road: it centres on
+    // `snapshot.party` when set, falling back to the current place's anchor.
+    //
     // The marker itself — its shape, its screen-pixel sizing, the off-screen
     // indicator — is WORKORDER 5.5. This is only the camera half.
     function centreOnParty() {
         const snapshot = getSnapshot();
+        // WO 6.2 — prefer the party cell during a journey.
+        const partyCell = snapshot && snapshot.party;
+        if (partyCell && Number.isFinite(partyCell.x) && Number.isFinite(partyCell.y)) {
+            view.cx = partyCell.x + 0.5;
+            view.cy = partyCell.y + 0.5;
+            view.cellPixels = ZOOM_LEVELS[2].cellPixels;
+            clampView();
+            scheduleRender();
+            return;
+        }
         const currentId = snapshot && snapshot.locationId;
         const anchor = currentId && Array.isArray(snapshot.anchors)
             ? snapshot.anchors.find(candidate => candidate.locationId === currentId)
@@ -1929,6 +2250,7 @@ export function mountMapRenderer(root, options) {
         disposed = true;
         if (rafHandle) cancelAnimationFrame(rafHandle);
         rafHandle = 0;
+        if (pulseInterval) { clearInterval(pulseInterval); pulseInterval = 0; }
         detachWindowListeners();
         canvas.removeEventListener('pointerdown', onPointerDown);
         canvas.removeEventListener('pointermove', onCanvasPointerMove);
