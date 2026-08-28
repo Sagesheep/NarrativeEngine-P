@@ -50,6 +50,24 @@ import {
 } from './field.js';
 
 const TILE_PIXELS = 256;
+// The atlas cell is the SOURCE resolution of a biome's art, and is a separate
+// number from the rasterised tile. It used to be `TILE_PIXELS` — a 256px
+// square blitted into an on-screen cell of at most 32px, so seven eighths of
+// every atlas cell was thrown away by the downscale and any detail drawn into
+// it turned to mush. 64px is 2x the largest cell the map ever draws, which
+// leaves headroom for the filter without paying for invisible pixels.
+const ATLAS_TILE_PIXELS = 64;
+// Every cell of one biome used to blit the identical atlas square, so a region
+// of savanna painted as one flat rectangle of colour. Four variants per biome,
+// chosen by a hash of the cell's own coordinates, is the standard tilemap
+// answer: the cost stays one blit per cell and the wallpaper repeat goes away.
+const BIOME_VARIANTS = 4;
+// Contour lines are drawn where a cell's elevation band differs from its north
+// or west neighbour. Below this on-screen cell size they are thinner than the
+// cells they separate, so they are skipped — that also keeps them off the
+// zoomed-out level, where one tile covers 4096 cells.
+const CONTOUR_MIN_CELL_PIXELS = 3;
+const CONTOUR_INTERVAL = 0.055;
 // Exported for the WO 5.5 §7 test (screen-pixel sizing assertion across all
 // four zoom levels). Frozen — exporting does not change behaviour.
 export const ZOOM_LEVELS = Object.freeze([
@@ -400,30 +418,296 @@ function makeOffscreenCanvas(w, h) {
 // ──────────────────────────────────────────────────────────────────────────
 
 /**
- * Build a flat-colour texture atlas: a single offscreen canvas with one
- * 256×256 sub-rect per biome, plus a 16-tile shore variant row for the
- * coastline autotiling pass. The atlas is rebuilt when the theme changes;
- * the renderer detects the change via `worldVersion` (settings carry the
- * version stamp). Swapping this builder for one that loads a real image
- * changes the map's appearance with no code change to the renderer.
+ * A deterministic 32-bit LCG. The atlas is rebuilt whenever the theme or the
+ * world version changes, so its art has to come out identical every time —
+ * `Math.random()` here would make the terrain shimmer on every rebuild. Same
+ * rule the field already follows: there is no `Math.random()` in this map.
  */
-function buildTileAtlas(root) {
+function makeAtlasRng(seed) {
+    let state = seed >>> 0;
+    return function next() {
+        state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+        return state / 4294967296;
+    };
+}
+
+/** Which of a biome's variants a cell uses. Stable for a given cell forever. */
+export function cellTextureVariant(x, y) {
+    let h = Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul(y | 0, 0x165667b1);
+    h ^= h >>> 15;
+    h = Math.imul(h, 0x2c1b3c6d);
+    h ^= h >>> 12;
+    return (h >>> 0) % BIOME_VARIANTS;
+}
+
+function cssRgb(rgb, alpha = 1) {
+    return `rgba(${rgb[0] | 0},${rgb[1] | 0},${rgb[2] | 0},${alpha})`;
+}
+
+/**
+ * The mark vocabulary, one painter per biome.
+ *
+ * These are map marks, not photographs: a world cell is eight kilometres
+ * across, so what belongs here is the shorthand a drawn map uses — stipple,
+ * hatching, dune arcs, ridge chevrons — in the biome's own colour, a step
+ * lighter or darker. The palette does not change; only the surface does. The
+ * existing constants are deliberately muted so the map reads as a map, and
+ * these keep to that.
+ *
+ * Every painter is restricted to `fillRect`, `arc`, `moveTo`/`lineTo` and the
+ * alpha/colour properties. That is not an aesthetic choice: the canvas stubs
+ * the tests run against implement that subset, and a painter that reaches past
+ * it would throw inside a `requestAnimationFrame` the tests swallow — a map
+ * that silently renders nothing while the suite stays green.
+ */
+const BIOME_TEXTURE = Object.freeze({
+    ocean(ctx, size, base, rng) {
+        mottle(ctx, size, base, rng, 2, 0.12);
+        ctx.strokeStyle = cssRgb(scaleRgb(base, 1.5), 0.3);
+        ctx.lineWidth = Math.max(1, size / 24);
+        for (let i = 0; i < 5; i += 1) {
+            const y = rng() * size;
+            const x = rng() * size * 0.5;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + (size * (0.2 + (rng() * 0.3))), y);
+            ctx.stroke();
+        }
+    },
+    glacier(ctx, size, base, rng) {
+        ctx.strokeStyle = cssRgb(scaleRgb(base, 0.82), 0.5);
+        ctx.lineWidth = Math.max(1, size / 48);
+        for (let i = 0; i < 3; i += 1) {
+            let x = rng() * size;
+            let y = rng() * size;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            for (let seg = 0; seg < 3; seg += 1) {
+                x += (rng() - 0.5) * size * 0.5;
+                y += (rng() - 0.5) * size * 0.5;
+                ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+        speckle(ctx, size, rng, scaleRgb(base, 1.12), 10, 0.5);
+    },
+    tundra(ctx, size, base, rng) {
+        mottle(ctx, size, base, rng, 3, 0.08);
+        speckle(ctx, size, rng, scaleRgb(base, 0.82), 14, 0.55);
+        speckle(ctx, size, rng, scaleRgb(base, 1.14), 10, 0.45);
+    },
+    taiga(ctx, size, base, rng) {
+        mottle(ctx, size, base, rng, 2, 0.09);
+        conifers(ctx, size, base, rng, 9);
+    },
+    forest(ctx, size, base, rng) {
+        mottle(ctx, size, base, rng, 2, 0.1);
+        crowns(ctx, size, base, rng, 12, 0.2);
+    },
+    plains(ctx, size, base, rng) {
+        mottle(ctx, size, base, rng, 3, 0.09);
+        tufts(ctx, size, base, rng, 26, 0.34);
+        speckle(ctx, size, rng, scaleRgb(base, 0.86), 8, 0.3);
+    },
+    farmland(ctx, size, base, rng, variant) {
+        // Furrows, turned a quarter for half the variants, so neighbouring
+        // fields read as separate holdings rather than one continuous crop.
+        const vertical = (variant % 2) === 0;
+        const rows = 5 + (variant % 2);
+        ctx.strokeStyle = cssRgb(scaleRgb(base, 0.86), 0.45);
+        ctx.lineWidth = Math.max(1, size / 40);
+        for (let i = 1; i < rows; i += 1) {
+            const t = (i / rows) * size;
+            ctx.beginPath();
+            if (vertical) { ctx.moveTo(t, 0); ctx.lineTo(t, size); }
+            else { ctx.moveTo(0, t); ctx.lineTo(size, t); }
+            ctx.stroke();
+        }
+    },
+    savanna(ctx, size, base, rng) {
+        mottle(ctx, size, base, rng, 3, 0.08);
+        tufts(ctx, size, base, rng, 14, 0.28);
+        crowns(ctx, size, scaleRgb(base, 0.7), rng, 2, 0.5);
+    },
+    desert(ctx, size, base, rng) {
+        mottle(ctx, size, base, rng, 2, 0.07);
+        // Dune crests: a light arc with its own shadow just under it.
+        for (let i = 0; i < 3; i += 1) {
+            const cx = rng() * size;
+            const cy = (i + 0.5) * (size / 3) + ((rng() - 0.5) * size * 0.12);
+            const r = size * (0.35 + (rng() * 0.3));
+            ctx.lineWidth = Math.max(1, size / 40);
+            ctx.strokeStyle = cssRgb(scaleRgb(base, 1.12), 0.5);
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, Math.PI * 1.15, Math.PI * 1.85);
+            ctx.stroke();
+            ctx.strokeStyle = cssRgb(scaleRgb(base, 0.86), 0.4);
+            ctx.beginPath();
+            ctx.arc(cx, cy + (size / 24), r, Math.PI * 1.2, Math.PI * 1.8);
+            ctx.stroke();
+        }
+    },
+    marsh(ctx, size, base, rng) {
+        ctx.fillStyle = cssRgb(scaleRgb(base, 0.72), 0.55);
+        for (let i = 0; i < 5; i += 1) {
+            ctx.beginPath();
+            ctx.arc(rng() * size, rng() * size, size * (0.05 + (rng() * 0.07)), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        tufts(ctx, size, base, rng, 9, 0.22);
+    },
+    jungle(ctx, size, base, rng) {
+        mottle(ctx, size, base, rng, 2, 0.11);
+        crowns(ctx, size, base, rng, 18, 0.22);
+    },
+    mountain(ctx, size, base, rng) {
+        // Ridge chevrons, lit face and shadow face, the same north-west light
+        // the hillshade uses so the two do not argue.
+        for (let i = 0; i < 3; i += 1) {
+            const cx = rng() * size;
+            const cy = (i + 0.5) * (size / 3) + ((rng() - 0.5) * size * 0.15);
+            const w = size * (0.16 + (rng() * 0.14));
+            const h = w * 0.85;
+            ctx.lineWidth = Math.max(1, size / 32);
+            ctx.strokeStyle = cssRgb(scaleRgb(base, 1.2), 0.55);
+            ctx.beginPath();
+            ctx.moveTo(cx - w, cy + h);
+            ctx.lineTo(cx, cy - h);
+            ctx.stroke();
+            ctx.strokeStyle = cssRgb(scaleRgb(base, 0.7), 0.55);
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - h);
+            ctx.lineTo(cx + w, cy + h);
+            ctx.stroke();
+        }
+    },
+});
+
+/**
+ * Broad, soft patches of slightly-off tone.
+ *
+ * The fine marks below are the texture you see at full zoom, and they are
+ * exactly what a 64px square blitted into an 8px cell averages back into flat
+ * colour. Mottling is the part that survives the downscale, so it is what
+ * stops the zoomed-out map reading as printed card.
+ */
+function mottle(ctx, size, base, rng, count, strength) {
+    for (let i = 0; i < count; i += 1) {
+        const lighter = rng() < 0.5;
+        ctx.fillStyle = cssRgb(scaleRgb(base, lighter ? 1 + strength : 1 - strength), 0.5);
+        ctx.beginPath();
+        ctx.arc(rng() * size, rng() * size, size * (0.18 + (rng() * 0.22)), 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function speckle(ctx, size, rng, rgb, count, alpha) {
+    ctx.fillStyle = cssRgb(rgb, alpha);
+    const dot = Math.max(1, size / 32);
+    for (let i = 0; i < count; i += 1) {
+        ctx.fillRect(rng() * size, rng() * size, dot, dot);
+    }
+}
+
+function tufts(ctx, size, base, rng, count, alpha) {
+    ctx.lineWidth = Math.max(1, size / 48);
+    for (let i = 0; i < count; i += 1) {
+        const x = rng() * size;
+        const y = rng() * size;
+        const h = size * (0.05 + (rng() * 0.06));
+        ctx.strokeStyle = cssRgb(scaleRgb(base, rng() < 0.5 ? 1.16 : 0.84), alpha + (rng() * 0.1));
+        ctx.beginPath();
+        ctx.moveTo(x, y + h);
+        ctx.lineTo(x + ((rng() - 0.5) * h), y);
+        ctx.stroke();
+    }
+}
+
+function crowns(ctx, size, base, rng, count, alpha) {
+    for (let i = 0; i < count; i += 1) {
+        const r = size * (0.05 + (rng() * 0.05));
+        ctx.fillStyle = cssRgb(scaleRgb(base, 0.74), alpha + 0.18);
+        ctx.beginPath();
+        ctx.arc(rng() * size, rng() * size, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.fillStyle = cssRgb(scaleRgb(base, 1.22), alpha);
+    for (let i = 0; i < Math.ceil(count / 2); i += 1) {
+        ctx.beginPath();
+        ctx.arc(rng() * size, rng() * size, size * 0.035, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function conifers(ctx, size, base, rng, count) {
+    ctx.fillStyle = cssRgb(scaleRgb(base, 0.68), 0.5);
+    for (let i = 0; i < count; i += 1) {
+        const x = rng() * size;
+        const y = rng() * size;
+        const w = size * (0.05 + (rng() * 0.04));
+        ctx.beginPath();
+        ctx.moveTo(x, y - (w * 1.6));
+        ctx.lineTo(x + w, y + w);
+        ctx.lineTo(x - w, y + w);
+        ctx.lineTo(x, y - (w * 1.6));
+        ctx.fill();
+    }
+}
+
+/**
+ * Build the texture atlas: one offscreen canvas holding `BIOME_VARIANTS`
+ * textured squares per biome plus a 16-square shore row for the coastline
+ * autotiling pass. Laid out as a GRID rather than a strip — a strip of 64
+ * squares would have been 16384px wide, which is exactly the maximum canvas
+ * dimension on a good deal of hardware and past it on the rest.
+ *
+ * Everything here is paid once per theme or world-version change, and nothing
+ * here is paid per cell, per tile or per frame: the raster path still blits
+ * one square per cell whether that square is a flat colour or a drawn one.
+ *
+ * The atlas is rebuilt when the theme changes; the renderer detects the change
+ * via `worldVersion` (settings carry the version stamp).
+ */
+export function buildTileAtlas(root) {
     const biomeIds = Object.keys(BIOME_COLORS);
-    const tileCount = biomeIds.length + 16; // biomes + 16 shore variants
-    const atlas = makeOffscreenCanvas(TILE_PIXELS * tileCount, TILE_PIXELS);
+    const slotCount = (biomeIds.length * BIOME_VARIANTS) + 16;
+    const cols = Math.ceil(Math.sqrt(slotCount));
+    const rows = Math.ceil(slotCount / cols);
+    const atlas = makeOffscreenCanvas(ATLAS_TILE_PIXELS * cols, ATLAS_TILE_PIXELS * rows);
     const ctx = atlas.getContext('2d');
     const index = {};
     let slot = 0;
+
+    const paintSquare = (rgb, painter, variant) => {
+        const ox = (slot % cols) * ATLAS_TILE_PIXELS;
+        const oy = Math.floor(slot / cols) * ATLAS_TILE_PIXELS;
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, ox, oy);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = cssRgb(rgb, rgb[3] / 255);
+        ctx.fillRect(0, 0, ATLAS_TILE_PIXELS, ATLAS_TILE_PIXELS);
+        if (painter) painter(ctx, ATLAS_TILE_PIXELS, rgb, makeAtlasRng(0x9e3779b9 + (slot * 2654435761)), variant);
+        ctx.restore();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        slot += 1;
+    };
+
     for (const biomeId of biomeIds) {
         const token = readTokenOnce(root, `--worldmap-biome-${biomeId}`, '');
         const color = token || BIOME_COLORS[biomeId] || '#444';
         const valueScale = BIOME_VALUE_SCALES[biomeId] || 1;
         const adjusted = adjustLightness(parseColor(color), valueScale);
-        ctx.fillStyle = `rgba(${adjusted[0] | 0},${adjusted[1] | 0},${adjusted[2] | 0},${adjusted[3] / 255})`;
-        ctx.fillRect(slot * TILE_PIXELS, 0, TILE_PIXELS, TILE_PIXELS);
+        const painter = BIOME_TEXTURE[biomeId] || null;
         index[biomeId] = slot;
-        slot += 1;
+        for (let variant = 0; variant < BIOME_VARIANTS; variant += 1) {
+            // A few percent of tone between variants. On its own this is most
+            // of what stops a region reading as one printed rectangle; the
+            // marks on top are what make it read as ground.
+            const jitter = 1 + (((variant % BIOME_VARIANTS) - ((BIOME_VARIANTS - 1) / 2)) * 0.045);
+            paintSquare(scaleRgb(adjusted, jitter), painter, variant);
+        }
     }
+
     // Shore variants: darken the base land colour by a small amount per
     // bitmask value so a coastline reads as a shore rather than a hard edge.
     const shoreBase = readTokenOnce(root, '--worldmap-biome-plains', '') || BIOME_COLORS.plains || '#7d9b5d';
@@ -431,13 +715,27 @@ function buildTileAtlas(root) {
     for (let mask = 0; mask < 16; mask += 1) {
         const oceanSides = popcount(mask);
         const darken = 1 - (oceanSides * 0.07);
-        const variant = scaleRgb(shoreBaseRgb, darken);
-        ctx.fillStyle = `rgba(${variant[0] | 0},${variant[1] | 0},${variant[2] | 0},${variant[3] / 255})`;
-        ctx.fillRect(slot * TILE_PIXELS, 0, TILE_PIXELS, TILE_PIXELS);
         index[`shore:${mask}`] = slot;
-        slot += 1;
+        paintSquare(scaleRgb(shoreBaseRgb, darken), BIOME_TEXTURE.plains, mask % BIOME_VARIANTS);
     }
-    return { atlas, index };
+
+    return { atlas, index, cols, tile: ATLAS_TILE_PIXELS, variants: BIOME_VARIANTS };
+}
+
+/**
+ * The source rectangle for one atlas slot. `variant` is ignored for keys that
+ * have only one square (the shore masks), so callers can pass a cell's variant
+ * unconditionally.
+ */
+function atlasRect(atlas, key, variant, variants) {
+    const base = atlas.index[key];
+    if (base === undefined) return null;
+    const slot = base + (variants > 1 ? (variant % variants) : 0);
+    return {
+        sx: (slot % atlas.cols) * atlas.tile,
+        sy: Math.floor(slot / atlas.cols) * atlas.tile,
+        size: atlas.tile,
+    };
 }
 
 function popcount(n) {
@@ -546,15 +844,21 @@ function rasteriseTile(pyramid, level, tileX, tileY, snapshot, atlas, rect) {
             const cell = chunkStore.getCell(worldX, worldY);
             if (!cell) continue;
             const mask = shoreBitmask(chunkStore, worldX, worldY);
-            const slotKey = mask >= 0 ? `shore:${mask}` : cell.biome;
-            const slot = atlas.index[slotKey] ?? atlas.index[cell.biome] ?? 0;
+            const isShore = mask >= 0;
+            const slotKey = isShore ? `shore:${mask}` : cell.biome;
+            const variant = cellTextureVariant(worldX, worldY);
+            const rect = atlasRect(atlas, slotKey, variant, isShore ? 1 : atlas.variants)
+                ?? atlasRect(atlas, cell.biome, variant, atlas.variants);
             const px = lx * cellPixelSize;
             const py = ly * cellPixelSize;
-            ctx.drawImage(
-                atlas.atlas,
-                slot * TILE_PIXELS, 0, TILE_PIXELS, TILE_PIXELS,
-                px, py, Math.ceil(cellPixelSize) + 0.5, Math.ceil(cellPixelSize) + 0.5,
-            );
+            const drawSize = Math.ceil(cellPixelSize) + 0.5;
+            if (rect) {
+                ctx.drawImage(
+                    atlas.atlas,
+                    rect.sx, rect.sy, rect.size, rect.size,
+                    px, py, drawSize, drawSize,
+                );
+            }
 
             // Hillshade from the stored elevation of the four neighbours,
             // computed once per cell at tile-raster time (§4.2).
@@ -567,23 +871,54 @@ function rasteriseTile(pyramid, level, tileX, tileY, snapshot, atlas, rect) {
                 const ey = (south?.elevation ?? cell.elevation) - (north?.elevation ?? cell.elevation);
                 const shade = hillshadeMultiplier(ex, ey, 1, renderSettings.lightAzimuth, renderSettings.shadeStrength);
                 if (shade !== 1) {
-                    ctx.fillStyle = `rgba(0,0,0,${1 - shade})`;
-                    ctx.fillRect(px, py, Math.ceil(cellPixelSize) + 0.5, Math.ceil(cellPixelSize) + 0.5);
+                    // `hillshadeMultiplier` returns up to 1.28, so a lit slope
+                    // used to paint `rgba(0,0,0,-0.28)` — an invalid colour
+                    // string the canvas ignores. Half the relief was being
+                    // thrown away: slopes could darken but never catch light.
+                    ctx.fillStyle = shade < 1
+                        ? `rgba(0,0,0,${clamp(1 - shade, 0, 1)})`
+                        : `rgba(255,255,255,${clamp((shade - 1) * 0.7, 0, 1)})`;
+                    ctx.fillRect(px, py, drawSize, drawSize);
                 }
+                // Contour lines. The band a cell sits in is compared with its
+                // north and west neighbours, and the shared edge is inked when
+                // they differ — which is what makes flat-looking country read
+                // as country with a shape. The four neighbours are already
+                // fetched for the hillshade, so this costs a comparison and at
+                // most two thin rects.
+                //
+                // Skipped below `CONTOUR_MIN_CELL_PIXELS`: at the zoomed-out
+                // level one tile covers 4096 cells and the lines would be
+                // wider than the cells they separate.
+                if (cellPixelSize >= CONTOUR_MIN_CELL_PIXELS) {
+                    const band = Math.floor(cell.elevation / CONTOUR_INTERVAL);
+                    const inkWidth = Math.max(1, cellPixelSize / 16);
+                    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+                    if (north && Math.floor(north.elevation / CONTOUR_INTERVAL) !== band) {
+                        ctx.fillRect(px, py, drawSize, inkWidth);
+                    }
+                    if (west && Math.floor(west.elevation / CONTOUR_INTERVAL) !== band) {
+                        ctx.fillRect(px, py, inkWidth, drawSize);
+                    }
+                }
+
                 // Beach blend near sea level.
                 if (cell.elevation >= FIELD_SEA_LEVEL && cell.elevation < FIELD_SEA_LEVEL + BEACH_EPSILON) {
-                    const sandSlot = atlas.index.desert ?? atlas.index.plains ?? 0;
+                    const sand = atlasRect(atlas, 'desert', variant, atlas.variants)
+                        ?? atlasRect(atlas, 'plains', variant, atlas.variants);
                     const beachAmount = clamp(
                         1 - ((cell.elevation - FIELD_SEA_LEVEL) / BEACH_EPSILON),
                         0, 1,
                     ) * 0.5;
-                    ctx.globalAlpha = beachAmount;
-                    ctx.drawImage(
-                        atlas.atlas,
-                        sandSlot * TILE_PIXELS, 0, TILE_PIXELS, TILE_PIXELS,
-                        px, py, Math.ceil(cellPixelSize) + 0.5, Math.ceil(cellPixelSize) + 0.5,
-                    );
-                    ctx.globalAlpha = 1;
+                    if (sand) {
+                        ctx.globalAlpha = beachAmount;
+                        ctx.drawImage(
+                            atlas.atlas,
+                            sand.sx, sand.sy, sand.size, sand.size,
+                            px, py, drawSize, drawSize,
+                        );
+                        ctx.globalAlpha = 1;
+                    }
                 }
             } else {
                 // Ocean depth ramp.
@@ -593,13 +928,13 @@ function rasteriseTile(pyramid, level, tileX, tileY, snapshot, atlas, rect) {
                 );
                 if (depth > 0.01) {
                     ctx.fillStyle = `rgba(0,0,0,${clamp(depth * 0.35, 0, 0.45)})`;
-                    ctx.fillRect(px, py, Math.ceil(cellPixelSize) + 0.5, Math.ceil(cellPixelSize) + 0.5);
+                    ctx.fillRect(px, py, drawSize, drawSize);
                 }
                 // Shallow band lighten.
                 const shallowDepth = SHALLOW_WATER_EPSILON / (FIELD_SEA_LEVEL - FIELD_MIN_ELEVATION);
                 if (depth < shallowDepth && depth > 0) {
                     ctx.fillStyle = `rgba(255,255,255,${clamp(0.12 * (1 - depth / shallowDepth), 0, 0.12)})`;
-                    ctx.fillRect(px, py, Math.ceil(cellPixelSize) + 0.5, Math.ceil(cellPixelSize) + 0.5);
+                    ctx.fillRect(px, py, drawSize, drawSize);
                 }
             }
         }
