@@ -1245,6 +1245,18 @@ export function mapSnapshot(ctx) {
     // can split the route into walked vs remaining and fill the passed
     // checkpoints. `null` when no journey is active.
     const journeyLeg = (journey && travel) ? travel.leg : null;
+    // The panel's journey state renders from the HOST's numbers, resolved to
+    // a name here because the renderer has no ledger. `journey.totalLegs`
+    // counts days and `travel.totalLegs` counts camps; the host owns the
+    // journey's state, so the host's number is the one the player sees.
+    const travelSummary = travel
+        ? {
+            toId: travel.toId,
+            toName: ledgerById.get(travel.toId)?.name ?? travel.toId,
+            leg: travel.leg,
+            totalLegs: travel.totalLegs,
+        }
+        : null;
 
     const snapshot = {
         anchors,
@@ -1255,6 +1267,8 @@ export function mapSnapshot(ctx) {
         hardened,
         locationId: ctx.data?.location?.currentPlaceId ?? null,
         worldVersion: version,
+        travel: travelSummary,
+        worldDay: ctx.data?.location?.worldDay ?? null,
         chunkStore,
         controls,
         // WO 6.2 — the journey on screen. The renderer draws the walked leg
@@ -1355,6 +1369,19 @@ function mountMap(node, ctx) {
                 routePreviewByCampaign.delete(currentCampaignId);
                 refreshPreview();
             })();
+            return;
+        }
+        if (action === 'continue') {
+            // WO 6.5 — one press, one day, one camp. The mod owns the route
+            // geometry and nothing else, so advancing is a request to the
+            // host, exactly like `travelRequest`. The host runs the same
+            // `pressTravelAdvance` the composer button runs, so the two
+            // controls cannot drift into meaning different things.
+            ctx.events?.emit('travelAdvance', {});
+            return;
+        }
+        if (action === 'abandon') {
+            ctx.events?.emit('travelAbandon', {});
             return;
         }
         if (action === 'createConnection') {

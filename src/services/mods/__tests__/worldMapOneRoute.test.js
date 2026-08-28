@@ -195,6 +195,21 @@ describe('world map — at most one route is active at a time', () => {
         expect(rendererOptions.getRoutePreview()).toBeNull();
     });
 
+    it('the panel’s Continue and Abandon ask the host, which owns travel', () => {
+        // The mod owns route geometry and nothing else. Advancing a day and
+        // abandoning are travel-state changes, so they are requests — the
+        // same shape as `travelRequest`, landing on the same bridge, which
+        // runs the same functions the composer strip’s buttons run.
+        departToB(fixture.ctx);
+        fixture.ctx.events.emit.mockClear();
+
+        rendererOptions.onRouteAction('continue');
+        rendererOptions.onRouteAction('abandon');
+
+        expect(fixture.ctx.events.emit.mock.calls.map(call => call[0]))
+            .toEqual(['travelAdvance', 'travelAbandon']);
+    });
+
     it('arriving lets the player plan the next journey again', async () => {
         departToB(fixture.ctx);
         await fixture.subscribers.location();

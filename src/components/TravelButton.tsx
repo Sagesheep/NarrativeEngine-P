@@ -7,23 +7,44 @@ import { TRAVEL_MODES, type TravelMode, gridsPerDayFor } from '../services/locat
 import {
     composeDeparture,
     travellableFrom,
+    mergeUpserts,
     type TravelCandidate,
 } from '../services/turn/departureComposer';
+import {
+    buildCheckpointMessage,
+    pressTravelAdvance,
+    travelButtonLabel,
+    travelButtonTitle,
+} from '../services/turn/travelPress';
 
 /**
- * WO 3.1 §2 — TRAVEL is a first-class entry point in the composer action strip,
- * alongside `INJECT EVENT`, `ABSOLUTE: COMMAND`, `ASK GM`, and `INJECT ARC`.
+ * WO 6.5 — TRAVEL is a first-class entry point in the composer action strip.
  *
- * Clicking it opens the destination picker directly — the list of travellable
- * places, the mode selector, and `Compose departure`. The Places modal is
- * skipped entirely. The picker reuses `composeDeparture`, the same path the
- * `TRAVEL HERE` button in `LocationLedgerModal` walks, so the two surfaces
- * produce byte-identical departure sentences and `PendingTravelIntent`s.
+ * When no journey is active, clicking it opens the destination picker. On
+ * confirm, the engine departs directly: `composeDeparture` applies the
+ * `depart()` transition, the checkpoint system message is posted, and the
+ * composer is not touched. No LLM call.
  *
- * Styling mirrors `OneShotInjectorButton` (terminal accent, size/tracking
- * classes, pipelinePhase streaming guard) — this is the established pattern
- * for "start a structured action" in the strip.
+ * When a journey IS active, the button reads `Continue →` (or `Arrive` on
+ * the last leg) and clicking it advances one leg — again, no LLM.
  */
+/**
+ * Advance one leg and post the engine's line. Called by this button and by
+ * the World Map panel's Continue button (through the travel bridge), so the
+ * two cannot drift.
+ *
+ * No-op when no journey is active — the caller has nothing to advance.
+ */
+export function applyTravelAdvance(): void {
+    const state = useAppStore.getState();
+    const travel = state.context.travel;
+    if (!travel) return;
+    const pressed = pressTravelAdvance(travel, state.context.worldDay, state.locationLedger ?? []);
+    if (!pressed) return;
+    state.updateContext(pressed.result.contextPatch);
+    state.addMessage(pressed.message);
+}
+
 export function TravelButton() {
     const pipelinePhase = useAppStore(s => s.pipelinePhase);
     const [modalOpen, setModalOpen] = useState(false);
@@ -32,21 +53,43 @@ export function TravelButton() {
 
     return (
         <>
-            <button
-                onClick={() => setModalOpen(true)}
-                disabled={isStreaming}
-                title="Open the destination picker and compose a departure"
-                className="shrink-0 flex items-center gap-1.5 bg-void border border-terminal/50 text-terminal text-[10px] sm:text-[11px] uppercase tracking-wider px-3 h-[32px] rounded-sm transition-all hover:bg-terminal/5 disabled:cursor-not-allowed whitespace-nowrap"
-            >
-                <Compass size={13} />
-                <span className="hidden xs:inline">Travel</span>
-                <span className="inline xs:hidden">Travel</span>
-            </button>
-
+            <TravelPressButton onOpenPicker={() => setModalOpen(true)} disabled={isStreaming} />
             {modalOpen && !isStreaming && (
                 <TravelPickerModal onClose={() => setModalOpen(false)} />
             )}
         </>
+    );
+}
+
+/**
+ * The button itself. Renders `Travel` when no journey is active, `Continue →`
+ * mid-journey, or `Arrive` on the last leg. Clicking opens the picker when
+ * idle, or advances one leg when travelling.
+ *
+ * The advance is `applyTravelAdvance`, shared with the map panel's Continue
+ * button. This component used to inline its own copy of the same six lines,
+ * which is how two controls for one act start meaning two different things.
+ */
+function TravelPressButton({ onOpenPicker, disabled }: { onOpenPicker: () => void; disabled: boolean }) {
+    const travel = useAppStore(s => s.context.travel);
+
+    const handleAdvance = () => {
+        if (!travel) { onOpenPicker(); return; }
+        applyTravelAdvance();
+    };
+
+    const label = travelButtonLabel(travel);
+
+    return (
+        <button
+            onClick={handleAdvance}
+            disabled={disabled}
+            title={travelButtonTitle(travel)}
+            className="shrink-0 flex items-center gap-1.5 bg-void border border-terminal/50 text-terminal text-[10px] sm:text-[11px] uppercase tracking-wider px-3 h-[32px] rounded-sm transition-all hover:bg-terminal/5 disabled:cursor-not-allowed whitespace-nowrap"
+        >
+            <Compass size={13} />
+            <span>{label}</span>
+        </button>
     );
 }
 
@@ -55,8 +98,7 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
     const context = useAppStore(s => s.context);
     const updateLocation = useAppStore(s => s.updateLocation);
     const updateContext = useAppStore(s => s.updateContext);
-    const injectToComposer = useAppStore(s => s.injectToComposer);
-    const setPendingTravelIntent = useAppStore(s => s.setPendingTravelIntent);
+    const addMessage = useAppStore(s => s.addMessage);
 
     const fromId = context.currentPlaceId ?? null;
     const candidates = useMemo<TravelCandidate[]>(
@@ -67,9 +109,6 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
     const [selectedToId, setSelectedToId] = useState<string | null>(
         candidates[0]?.location.id ?? null,
     );
-    // If the player opened the picker before a current place was set, we still
-    // need a band default for the (theoretical) case where they pick one. The
-    // empty-state branch below short-circuits before this is read.
     const [travelBand, setTravelBand] = useState<DistanceBand>('regional');
     const [travelMode, setTravelMode] = useState<TravelMode>(context.travelMode ?? 'foot');
 
@@ -90,21 +129,41 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
     const dayEstimate = formatDayRangeForMode(effectiveBand, gridsPerDayFor(travelMode));
     const baselineDayRange = selectedCandidate?.band ? formatDayRange(selectedCandidate.band) : null;
 
-    const handleCompose = () => {
+    const handleDepart = () => {
         if (!fromId || !selectedToId) return;
-        composeDeparture({
+        const state = useAppStore.getState();
+        const currentWorldDay = state.context.worldDay;
+        const result = composeDeparture({
             fromId,
             toId: selectedToId,
             mode: travelMode,
             band: effectiveBand,
             ledger: locationLedger,
-            deps: {
-                updateLocation,
-                updateContext,
-                injectToComposer,
-                setPendingTravelIntent,
-            },
+            deps: { updateLocation, updateContext },
+            currentWorldDay,
         });
+        if (!result) return;
+
+        state.updateContext(result.contextPatch);
+        if (result.ledgerUpsert && result.ledgerUpsert.length > 0) {
+            state.setLocationLedger(mergeUpserts(locationLedger, result.ledgerUpsert));
+        }
+
+        if (result.travel) {
+            const newDay = result.contextPatch.worldDay ?? (currentWorldDay ?? 0) + 1;
+            addMessage(buildCheckpointMessage(result.travel, newDay, locationLedger));
+        } else {
+            // Single-day journey: arrived immediately.
+            const newDay = result.contextPatch.worldDay ?? (currentWorldDay ?? 0) + 1;
+            const to = locationLedger.find(l => l.id === selectedToId);
+            addMessage({
+                id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+                role: 'system',
+                name: 'travel-arrive',
+                content: `Day ${newDay} · arrived at ${to?.name ?? selectedToId}`,
+                timestamp: Date.now(),
+            });
+        }
         onClose();
     };
 
@@ -142,8 +201,6 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
                     </div>
 
                     {noCurrentPlace || noDestinations ? (
-                        // WO 3.1 §3 — an empty list reads as a broken feature.
-                        // Say in words why there is nothing to pick.
                         <div className="flex flex-col items-center justify-center py-8 px-4 text-center space-y-2">
                             <Compass size={28} strokeWidth={1} className="opacity-40" />
                             <p className="text-text-dim text-xs uppercase tracking-widest font-bold">
@@ -208,9 +265,6 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
                                 </select>
                             </label>
 
-                            {/* WO 3.1 §3 — live day estimate for the selected
-                                 (band, mode). Updates as the mode changes so a
-                                 cart and a walker visibly differ before commit. */}
                             <div className="text-[11px] text-text-dim flex justify-between border-t border-border pt-2">
                                 <span>
                                     {selectedCandidate?.band
@@ -237,11 +291,11 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
                         Cancel
                     </button>
                     <button
-                        onClick={handleCompose}
+                        onClick={handleDepart}
                         disabled={!fromId || !selectedToId}
                         className="px-3 py-1.5 text-xs font-semibold bg-terminal/20 text-terminal rounded hover:bg-terminal/30 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                        Compose departure
+                        Depart
                     </button>
                 </div>
             </div>

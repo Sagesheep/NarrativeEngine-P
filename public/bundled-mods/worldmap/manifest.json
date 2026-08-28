@@ -18,6 +18,11 @@
             "name": "visited",
             "recordShape": "array",
             "label": "Hardened cells"
+        },
+        {
+            "name": "journey",
+            "recordShape": "single-object",
+            "label": "Active journey"
         }
     ],
     "native": {

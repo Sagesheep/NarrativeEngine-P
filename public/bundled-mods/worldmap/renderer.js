@@ -60,6 +60,27 @@ export const ZOOM_LEVELS = Object.freeze([
 ]);
 const GRID_FADE_BELOW_CELL_PIXELS = 8;
 const LABEL_MIN_CELL_PIXELS = 9;
+
+/**
+ * Is there a committed journey polyline to draw?
+ *
+ * `drawJourney` and `drawConnections` both need this answer and must not
+ * disagree about it: the road emphasis stands down exactly when the journey
+ * line stands up, or the map draws the same journey twice in the same colour.
+ * One function, two callers — the alternative is two conditions that drift.
+ *
+ * Exported so the decision can be tested for what it is (a decision) rather
+ * than inferred from canvas stroke widths, which jsdom cannot see honestly.
+ */
+export function journeyIsDrawable(snapshot) {
+    const journey = snapshot?.journey;
+    return Boolean(
+        journey
+        && Array.isArray(journey.cells)
+        && journey.cells.length > 0
+        && Number.isFinite(snapshot?.journeyLeg),
+    );
+}
 const DRAG_HIT_RADIUS_PX = 14;
 // One dead zone for every gesture. Below this many pixels, a pointer
 // down/up pair is a CLICK; at or beyond it, it is a drag or a pan.
@@ -958,8 +979,15 @@ export function mountMapRenderer(root, options) {
         color: 'var(--color-terminal-dim, #5B21B6)',
         font: 'inherit', fontSize: '10px', fontWeight: '600', cursor: 'pointer',
     });
+    // The panel has two states and reuses one pair of buttons, so the action
+    // each button dispatches depends on which state is showing. Planning:
+    // Travel / Cancel route. Travelling: Continue / Abandon. Tracked here
+    // rather than read off the button's own label, because a label is a
+    // rendering of the state and not the state itself.
+    let panelMode = 'plan';
     routeTravelButton.addEventListener('click', () => {
-        if (onRouteAction) onRouteAction('commit');
+        if (!onRouteAction) return;
+        onRouteAction(panelMode === 'journey' ? 'continue' : 'commit');
     });
     const routeCancelButton = makeElement('button', 'Cancel route', {
         padding: '3px 8px', border: '1px solid var(--color-border, rgba(255,255,255,0.22))',
@@ -967,7 +995,8 @@ export function mountMapRenderer(root, options) {
         font: 'inherit', fontSize: '10px', cursor: 'pointer',
     });
     routeCancelButton.addEventListener('click', () => {
-        if (onRouteAction) onRouteAction('cancel');
+        if (!onRouteAction) return;
+        onRouteAction(panelMode === 'journey' ? 'abandon' : 'cancel');
     });
     routeActionRow.append(routeTravelButton, routeCancelButton);
     routePanel.appendChild(routeActionRow);
@@ -1231,7 +1260,7 @@ export function mountMapRenderer(root, options) {
         // off-screen. `drawAnchors` sets `partyOnScreen` / `partyScreen`.
         drawPartyIndicator(width, height, cell);
         drawHud(snapshot, cell);
-        updateRoutePanel();
+        updateRoutePanel(snapshot);
 
         // WO 5.5 §1 — keep the pulse alive. The halo's slow cycle is a
         // continuous animation, so the phase must advance even when the map
@@ -1419,7 +1448,18 @@ export function mountMapRenderer(root, options) {
         // either endpoint matching `snapshot.locationId`.
         const currentPlaceId = snapshot.locationId ?? null;
         const emphasisedEdges = new Set();
-        if (currentPlaceId) {
+        // The road emphasis was WO 4.2 §3, written before the journey line
+        // existed — back when highlighting the road was the only way to show
+        // "you are on this road". `drawJourney` now draws the pathfound route
+        // in the SAME token, so both ran at once: the road as a straight chord
+        // through the transit waypoint, the journey as a terrain staircase.
+        // Two purple lines a few pixels apart, which reads as two journeys.
+        //
+        // The journey line says it better and says it truthfully, so when one
+        // is drawable the emphasis stands down. It stays for the degrade path
+        // (a Places-panel or composer departure carries no route geometry),
+        // where the road really is the only thing that can show the journey.
+        if (currentPlaceId && !journeyIsDrawable(snapshot)) {
             for (const [key, list] of waypointsByEdge) {
                 if (list.some(waypoint => waypoint.locationId === currentPlaceId)) {
                     emphasisedEdges.add(key);
@@ -1699,10 +1739,9 @@ export function mountMapRenderer(root, options) {
     // unlike a preview which is cleared on commit. A solve, a ledger change
     // or a tab switch must leave the journey on screen (§3).
     function drawJourney(snapshot, cell) {
+        if (!journeyIsDrawable(snapshot)) return;
         const journey = snapshot.journey;
-        if (!journey || !Array.isArray(journey.cells) || journey.cells.length === 0) return;
         const leg = snapshot.journeyLeg;
-        if (!Number.isFinite(leg)) return;
 
         const cells = journey.cells;
         const checkpoints = Array.isArray(journey.checkpoints) ? journey.checkpoints : [];
@@ -1910,7 +1949,55 @@ export function mountMapRenderer(root, options) {
         ctx.restore();
     }
 
-    function updateRoutePanel() {
+    function updateRoutePanel(snapshot) {
+        // While the party is on the road the panel stops being a route planner
+        // and becomes the journey's own control. Clicking a 32px cell to
+        // advance a day is a fiddly way to spend a press, and the composer's
+        // button is across the screen from the map you are watching — so the
+        // control lives where the journey is drawn.
+        //
+        // It reads the HOST's travel state, not the journey record's
+        // `totalLegs`. The two disagree (the record counts days, the host
+        // counts camps) and the host owns the journey's state, so the host is
+        // the one that gets to say "camp 1 of 8".
+        const travel = snapshot?.travel ?? null;
+        if (travel) {
+            panelMode = 'journey';
+            routePanel.style.display = 'flex';
+            modeRow.style.display = 'none';
+            offerRow.style.display = 'none';
+            const toName = travel.toName || 'your destination';
+            const arriving = travel.leg >= travel.totalLegs;
+            const lines = [
+                '\u2192 ' + toName,
+                'camp ' + travel.leg + ' of ' + travel.totalLegs
+                    + (Number.isFinite(snapshot.worldDay) ? ' \u00b7 day ' + snapshot.worldDay : ''),
+            ];
+            // A click on the map mid-journey is refused (one route at a time).
+            // Show the refusal here so the click is answered rather than
+            // silently swallowed — a dead click is how three of this map's
+            // bugs presented.
+            const refusal = getRoutePreview ? getRoutePreview() : null;
+            if (refusal && refusal.blocked && refusal.reason === 'journey-active') {
+                lines.push('Abandon to plan a new route.');
+            }
+            routeReadout.textContent = lines.join('\n');
+            routeReadout.style.color = 'var(--color-text-primary, inherit)';
+            routeTravelButton.style.display = 'inline-block';
+            routeTravelButton.textContent = arriving
+                ? 'Arrive at ' + toName
+                : 'Continue \u2192';
+            routeTravelButton.title = arriving
+                ? 'Finish the journey and arrive at ' + toName
+                : 'Travel on to camp ' + (travel.leg + 1) + ' of ' + travel.totalLegs;
+            routeCancelButton.textContent = 'Abandon';
+            routeCancelButton.title = 'Stop travelling without arriving';
+            return;
+        }
+
+        panelMode = 'plan';
+        modeRow.style.display = 'flex';
+        routeCancelButton.title = '';
         if (!getRoutePreview) { routePanel.style.display = 'none'; return; }
         const preview = getRoutePreview();
         if (!preview) {
@@ -1920,6 +2007,8 @@ export function mountMapRenderer(root, options) {
             return;
         }
         routePanel.style.display = 'flex';
+        routeTravelButton.textContent = 'Travel';
+        routeTravelButton.title = '';
         // Keep the mode selector in sync with the host's current mode without
         // firing a change event (the host is the source of truth).
         const currentMode = getTravelMode ? getTravelMode() : preview.mode;

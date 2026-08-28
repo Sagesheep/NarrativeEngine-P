@@ -694,56 +694,17 @@ function buildDistanceConstraints(locations, lore, warnings, transitLocations) {
 }
 
 /**
- * WO 4.2 §4 — `collectPins` is called twice with subsets: `places` at the
- * first call site and `transit` at the second. Each call used to build
- * `byId` from its own subset and warn for any anchor whose `locationId` was
- * absent — so the `places` call warned about every transit pin and the
- * `transit` call warned about every place pin. Three false warnings on the
- * live campaign, whose stored anchors are entirely valid.
+ * Collect the lore `Coords:` pins for a partition. WO 4.4 removed the player
+ * anchor branch — the only source of pins now is the lore. The `pins` map
+ * stays threaded through the solver's core relaxation loop (it is the
+ * constraint type, not the authoring source, that matters to the layout).
  *
- * The fix: thread the **full** known-ids set in as an extra parameter. An
- * anchor belonging to the other partition is **not** malformed and produces
- * no warning. The genuine cases still warn — an anchor naming a location
- * that exists in *neither* partition, or with a non-finite coordinate.
- *
- * WO 4.2 §1 — pin coordinates are rounded to integer cells here, so a
- * fractional player pin (a drag that landed mid-cell before this fix) is
- * rounded rather than preserved and rather than rejected. The occupancy
- * key in `resolveRoundedCollisions` is integer-precise, so the pin must
- * agree.
+ * WO 4.2 §1 — pin coordinates are rounded to integer cells here. The
+ * occupancy key in `resolveRoundedCollisions` is integer-precise, so the pin
+ * must agree.
  */
-function collectPins(locations, existingAnchors, lorePins, warnings, refusals, knownIds) {
-    const byId = new Map(locations.map(location => [location.id, location]));
-    const known = knownIds instanceof Set ? knownIds : byId;
+function collectPins(locations, lorePins, refusals) {
     const candidates = [];
-    for (const anchor of Array.isArray(existingAnchors) ? existingAnchors : []) {
-        if (!anchor || anchor.source !== 'player' || anchor.pinned !== true) continue;
-        if (!known.has(anchor.locationId) || !finiteNumber(anchor.x) || !finiteNumber(anchor.y)) {
-            // Only warn when the anchor names a location in neither partition
-            // or has a non-finite coordinate. An anchor that belongs to the
-            // *other* partition (the place call seeing a transit pin, or
-            // vice versa) is valid and silent.
-            const inOtherPartition = byId.has(anchor.locationId) === false && known.has(anchor.locationId);
-            if (!inOtherPartition) {
-                warnings.push(makeWarning('malformed player anchor — pin dropped', {
-                    kind: 'invalid-pin', locationId: anchor?.locationId ?? null,
-                }));
-            }
-            continue;
-        }
-        if (!byId.has(anchor.locationId)) continue;
-        const location = byId.get(anchor.locationId);
-        candidates.push({
-            id: `player:${location.id}`,
-            locationId: location.id,
-            locationName: location.name,
-            x: clampToCell(anchor.x),
-            y: clampToCell(anchor.y),
-            source: 'player',
-            description: `${location.name} player pin at ${anchor.x},${anchor.y}`,
-            order: 0,
-        });
-    }
     for (const pin of lorePins) candidates.push({ ...pin, order: 1 });
     candidates.sort((left, right) =>
         stableNodeCompare({ id: left.locationId, name: left.locationName }, { id: right.locationId, name: right.locationName })
@@ -1108,7 +1069,7 @@ function resolveRoundedCollisions(locations, pins, positions, refusals) {
                 kind: 'hard-conflict',
                 locationIds: [collision.id, location.id],
                 constraintIds: [pins.get(collision.id).id, pins.get(location.id).id],
-                message: `${collision.name}/${location.name} have hard pins at the same coordinate (${key}). Move one pin?`,
+                message: `${collision.name}/${location.name} have hard pins at the same coordinate (${key}). Remove one Coords value.`,
             });
             continue;
         }
@@ -1283,9 +1244,9 @@ function bandMid(bandId) {
  *   • Both endpoints resolve to the same position → place at that position.
  *     Warn.
  *
- * A player-dragged pin on a transit node (tier 2) is the one exception to
- * "transit is never pinned by the solver": respect it and record in the
- * report that the waypoint is manually placed.
+ * WO 4.4 — a transit waypoint is now always derived from its endpoints; the
+ * `pins` parameter is kept because lore `Coords:` could still pin a transit
+ * node, but no player-drag path can.
  */
 function deriveTransitWaypoints(transit, placePositions, placeById, pins, warnings) {
     const waypoints = [];
@@ -1300,11 +1261,7 @@ function deriveTransitWaypoints(transit, placePositions, placeById, pins, warnin
                 fromId: null,
                 toId: null,
                 t: null,
-                manuallyPlaced: true,
             });
-            warnings.push(makeWarning(`${node.name} is a manually-pinned waypoint — staying where the player dragged it`, {
-                kind: 'transit-pinned', locationId: node.id, locationName: node.name,
-            }));
             continue;
         }
 
@@ -1593,19 +1550,12 @@ export function solveWorldMap(input = {}) {
     const chunkStore = input.chunkStore ?? null;
     const { places, transit } = partitionByKind(locations);
 
-    // Solve places only. Transit nodes never take part in relaxation and are
-    // never pinned by the solver (a player-dragged pin on a transit node is
-    // the one exception — see `deriveTransitWaypoints`).
+    // Solve places only. Transit nodes never take part in relaxation.
     const lore = parseLoreConstraints(places, input.loreChunks);
     warnings.push(...lore.warnings);
-    // WO 4.2 §4 — both `collectPins` calls share the full known-ids set so an
-    // anchor belonging to the other partition is not reported as malformed.
-    const knownIds = new Set(locations.map(location => location.id));
-    const pins = collectPins(places, input.existingAnchors, lore.pins, warnings, refusals, knownIds);
-    // Transit pins are collected separately — they do not affect the place
-    // layout, but `deriveTransitWaypoints` reads them to respect a
-    // player-dragged waypoint (WO 4.1 §3.4).
-    const transitPins = collectPins(transit, input.existingAnchors, [], warnings, refusals, knownIds);
+    // WO 4.4 — pins come from lore `Coords:` only; the anchors table is a
+    // pure output cache, never an input.
+    const pins = collectPins(places, lore.pins, refusals);
     const distanceConstraints = buildDistanceConstraints(places, lore, warnings, transit);
     let fieldClauses = lore.clauses.filter(clause => clause.kind === 'transect');
 
@@ -1666,13 +1616,12 @@ export function solveWorldMap(input = {}) {
 
     // Re-derive waypoints after terrain moves — their endpoints may have
     // moved. The place positions are the source of truth; the transit
-    // positions are a pure function of them. Transit pins (player-dragged
-    // waypoints) are merged in here only — they never affected the place
-    // layout and must not start now.
-    const waypointPins = new Map(pins);
-    for (const [id, pin] of transitPins) waypointPins.set(id, pin);
-    const waypoints = deriveTransitWaypoints(transit, graph.positions, placeById, waypointPins, warnings);
+    // positions are a pure function of them.
+    const waypoints = deriveTransitWaypoints(transit, graph.positions, placeById, pins, warnings);
 
+    // WO 4.4 — `pinned` is gone; `source` reports *why* a place sits where it
+    // sits. A `Coords:` bullet reports `lore`; a free-solved place reports
+    // `solved`; a derived transit waypoint reports `derived`.
     const anchors = [
         ...places.map(location => {
             const position = graph.positions.get(location.id);
@@ -1681,16 +1630,14 @@ export function solveWorldMap(input = {}) {
                 locationId: location.id,
                 x: position.x,
                 y: position.y,
-                pinned: Boolean(pin),
-                source: pin ? 'player' : 'solved',
+                source: pin ? 'lore' : 'solved',
             };
         }),
         ...waypoints.map(waypoint => ({
             locationId: waypoint.locationId,
             x: waypoint.x,
             y: waypoint.y,
-            pinned: waypoint.manuallyPlaced === true,
-            source: waypoint.manuallyPlaced ? 'player' : 'derived',
+            source: 'derived',
         })),
     ];
     const transects = buildTransects(fieldClauses, graph.positions);
