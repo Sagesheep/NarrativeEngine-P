@@ -132,7 +132,7 @@ describe('World Map texture atlas', () => {
     it('lays the squares out as a grid that no canvas will refuse', () => {
         const atlas = buildTileAtlas(root);
         const biomes = Object.keys(BIOME_COLORS).length;
-        const slots = (biomes * atlas.variants) + 16;
+        const slots = biomes * atlas.variants;
 
         expect(atlas.cols).toBeGreaterThan(1);
         expect(atlas.atlas.width).toBe(atlas.cols * atlas.tile);
@@ -143,7 +143,7 @@ describe('World Map texture atlas', () => {
         expect(atlas.atlas.height).toBeLessThanOrEqual(4096);
     });
 
-    it('gives every biome its own block of variants, and every shore mask a square', () => {
+    it('gives every biome its own block of variants, and nobody a shore square', () => {
         const atlas = buildTileAtlas(root);
         const biomes = Object.keys(BIOME_COLORS);
         expect(atlas.variants).toBeGreaterThan(1);
@@ -157,11 +157,14 @@ describe('World Map texture atlas', () => {
                 claimed.add(base + v);
             }
         }
+        // The 16 plains-coloured shore squares are gone. They stood in for
+        // every coastline regardless of the biome behind it — so a desert
+        // coast was green — and, because `shoreBitmask` returned 0 for inland
+        // cells while the raster tested `mask >= 0`, EVERY land cell of every
+        // biome was drawn with `shore:0`. A shore is now the cell's own biome
+        // shaded down once per ocean side.
         for (let mask = 0; mask < 16; mask += 1) {
-            const slot = atlas.index[`shore:${mask}`];
-            expect(slot, 'shore mask ' + mask).toBeTypeOf('number');
-            expect(claimed.has(slot)).toBe(false);
-            claimed.add(slot);
+            expect(atlas.index[`shore:${mask}`], 'shore mask ' + mask + ' is gone').toBeUndefined();
         }
 
         // Nothing may land outside the grid — an off-grid slot reads as a
@@ -173,6 +176,7 @@ describe('World Map texture atlas', () => {
     });
 
     it('picks a cell variant deterministically, and does not hand out one variant', () => {
+        const variants = buildTileAtlas(root).variants;
         // Deterministic: the same cell must texture the same way on every
         // repaint, or the ground crawls.
         expect(cellTextureVariant(496, 500)).toBe(cellTextureVariant(496, 500));
@@ -186,20 +190,22 @@ describe('World Map texture atlas', () => {
                 const v = cellTextureVariant(x, y);
                 expect(Number.isInteger(v)).toBe(true);
                 expect(v).toBeGreaterThanOrEqual(0);
-                expect(v).toBeLessThan(4);
+                expect(v).toBeLessThan(variants);
                 seen.set(v, (seen.get(v) ?? 0) + 1);
                 pairs += 1;
                 if (cellTextureVariant(x + 1, y) !== v) neighbourDiffers += 1;
             }
         }
-        // All four variants get used, and roughly evenly — a hash that
-        // collapsed onto one value would put the flat wallpaper straight back.
-        expect(seen.size).toBe(4);
+        // Every variant gets used, and roughly evenly — a hash that collapsed
+        // onto one value would put the flat wallpaper straight back.
+        expect(seen.size).toBe(variants);
         for (const count of seen.values()) {
-            expect(count).toBeGreaterThan(pairs / 10);
+            expect(count).toBeGreaterThan(pairs / (variants * 3));
         }
-        // And the point of the whole exercise: horizontal neighbours mostly
-        // differ, so a run of one biome does not print as one rectangle.
-        expect(neighbourDiffers / pairs).toBeGreaterThan(0.5);
+        // And the point of the whole exercise: horizontal neighbours differ
+        // about (variants - 1) / variants of the time, so a run of one biome
+        // does not print as one rectangle. Measured for real in
+        // `e2e/worldMapTerrain.spec.ts`, which can see actual pixels.
+        expect(neighbourDiffers / pairs).toBeGreaterThan(1 - (1 / variants) - 0.08);
     });
 });

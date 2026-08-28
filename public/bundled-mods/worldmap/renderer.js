@@ -58,10 +58,17 @@ const TILE_PIXELS = 256;
 // leaves headroom for the filter without paying for invisible pixels.
 const ATLAS_TILE_PIXELS = 64;
 // Every cell of one biome used to blit the identical atlas square, so a region
-// of savanna painted as one flat rectangle of colour. Four variants per biome,
+// of savanna painted as one flat rectangle of colour. Variants per biome,
 // chosen by a hash of the cell's own coordinates, is the standard tilemap
 // answer: the cost stays one blit per cell and the wallpaper repeat goes away.
-const BIOME_VARIANTS = 4;
+//
+// EIGHT, not four. With N variants two adjacent cells land on the same square
+// about 1/N of the time, and at four that measured 26.7% of horizontal
+// neighbours coming out byte-identical in a real browser — visible banding in
+// flat country, where the hillshade is too even to tell them apart either.
+// Eight halves it. The atlas is 112 squares at 64px, which is one 704px
+// texture built once per world-version change.
+const BIOME_VARIANTS = 8;
 // Contour lines are drawn where a cell's elevation band differs from its north
 // or west neighbour. Below this on-screen cell size they are thinner than the
 // cells they separate, so they are skipped — that also keeps them off the
@@ -656,9 +663,8 @@ function conifers(ctx, size, base, rng, count) {
 
 /**
  * Build the texture atlas: one offscreen canvas holding `BIOME_VARIANTS`
- * textured squares per biome plus a 16-square shore row for the coastline
- * autotiling pass. Laid out as a GRID rather than a strip — a strip of 64
- * squares would have been 16384px wide, which is exactly the maximum canvas
+ * textured squares per biome. Laid out as a GRID rather than a strip — a
+ * strip would have run to 16384px wide, which is exactly the maximum canvas
  * dimension on a good deal of hardware and past it on the rest.
  *
  * Everything here is paid once per theme or world-version change, and nothing
@@ -670,7 +676,7 @@ function conifers(ctx, size, base, rng, count) {
  */
 export function buildTileAtlas(root) {
     const biomeIds = Object.keys(BIOME_COLORS);
-    const slotCount = (biomeIds.length * BIOME_VARIANTS) + 16;
+    const slotCount = biomeIds.length * BIOME_VARIANTS;
     const cols = Math.ceil(Math.sqrt(slotCount));
     const rows = Math.ceil(slotCount / cols);
     const atlas = makeOffscreenCanvas(ATLAS_TILE_PIXELS * cols, ATLAS_TILE_PIXELS * rows);
@@ -700,25 +706,23 @@ export function buildTileAtlas(root) {
         const painter = BIOME_TEXTURE[biomeId] || null;
         index[biomeId] = slot;
         for (let variant = 0; variant < BIOME_VARIANTS; variant += 1) {
-            // A few percent of tone between variants. On its own this is most
-            // of what stops a region reading as one printed rectangle; the
-            // marks on top are what make it read as ground.
-            const jitter = 1 + (((variant % BIOME_VARIANTS) - ((BIOME_VARIANTS - 1) / 2)) * 0.045);
+            // A whisper of tone between variants, and no more than a whisper.
+            // This started at 4.5% per step, which in a real browser made the
+            // cell grid read as a CHECKERBOARD of light and dark squares at
+            // full zoom — every metric said "more variance, good" while the
+            // map had visibly acquired a chequered tablecloth. Large-scale
+            // variety is the biome map's job, not this knob's.
+            const jitter = 1 + (((variant % BIOME_VARIANTS) - ((BIOME_VARIANTS - 1) / 2)) * 0.012);
             paintSquare(scaleRgb(adjusted, jitter), painter, variant);
         }
     }
 
-    // Shore variants: darken the base land colour by a small amount per
-    // bitmask value so a coastline reads as a shore rather than a hard edge.
-    const shoreBase = readTokenOnce(root, '--worldmap-biome-plains', '') || BIOME_COLORS.plains || '#7d9b5d';
-    const shoreBaseRgb = adjustLightness(parseColor(shoreBase), BIOME_VALUE_SCALES.plains || 1);
-    for (let mask = 0; mask < 16; mask += 1) {
-        const oceanSides = popcount(mask);
-        const darken = 1 - (oceanSides * 0.07);
-        index[`shore:${mask}`] = slot;
-        paintSquare(scaleRgb(shoreBaseRgb, darken), BIOME_TEXTURE.plains, mask % BIOME_VARIANTS);
-    }
-
+    // There is no shore ROW any more. Sixteen squares of plains-coloured
+    // land used to stand in for every coastline regardless of the biome
+    // behind it, so a desert coast was green — and the raster's mask test
+    // handed them every inland cell as well. A shore is now the cell's own
+    // biome, shaded down once per ocean side, which is one fillRect at raster
+    // time and costs the atlas nothing.
     return { atlas, index, cols, tile: ATLAS_TILE_PIXELS, variants: BIOME_VARIANTS };
 }
 
@@ -745,13 +749,26 @@ function popcount(n) {
 }
 
 /**
- * Build the 4-bit cardinal bitmask for a land cell: bit 0 = north, 1 = east,
- * 2 = south, 3 = west. A bit is set when that cardinal neighbour is ocean.
- * Returns -1 when the centre is itself ocean (no shore variant needed).
+ * Build the 4-bit cardinal bitmask for a COASTAL land cell: bit 0 = north,
+ * 1 = east, 2 = south, 3 = west. A bit is set when that cardinal neighbour is
+ * ocean. Returns 0 when the cell is ocean, or is land with no ocean beside it.
+ *
+ * It used to return the raw mask for every land cell, and an inland cell has
+ * no ocean neighbours, so it returned 0 — which the raster then tested with
+ * `mask >= 0` and accepted as a shore. **Every land cell on the map was
+ * therefore painted with the single `shore:0` square**, which was a flat
+ * plains green. That is why a map of savanna, forest, desert and marsh came
+ * out as one uniform green rectangle: the biome palette was never reaching
+ * the ground. Twelve biomes were being generated, classified, hardened,
+ * costed by the pathfinder and described in the hover readout, and none of
+ * them was ever drawn.
+ *
+ * Zero now means "not a shore", which is the only reading under which the
+ * name is true: a shore with no ocean beside it is a contradiction.
  */
 function shoreBitmask(chunkStore, x, y) {
     const center = chunkStore.getCellBiomeByte(x, y);
-    if (BIOME_IDS_INDEX.ocean === center) return -1;
+    if (BIOME_IDS_INDEX.ocean === center) return 0;
     const n = chunkStore.getCellBiomeByte(x, y - 1) === BIOME_IDS_INDEX.ocean ? 1 : 0;
     const e = chunkStore.getCellBiomeByte(x + 1, y) === BIOME_IDS_INDEX.ocean ? 1 : 0;
     const s = chunkStore.getCellBiomeByte(x, y + 1) === BIOME_IDS_INDEX.ocean ? 1 : 0;
@@ -843,12 +860,13 @@ function rasteriseTile(pyramid, level, tileX, tileY, snapshot, atlas, rect) {
             const worldY = originY + ly;
             const cell = chunkStore.getCell(worldX, worldY);
             if (!cell) continue;
-            const mask = shoreBitmask(chunkStore, worldX, worldY);
-            const isShore = mask >= 0;
-            const slotKey = isShore ? `shore:${mask}` : cell.biome;
+            // The cell is always drawn in its OWN biome. The shore used to be
+            // a substitute square painted in the plains colour, so a desert
+            // coast came out green — and because the mask was wrong, so did
+            // every inland cell of every biome.
             const variant = cellTextureVariant(worldX, worldY);
-            const rect = atlasRect(atlas, slotKey, variant, isShore ? 1 : atlas.variants)
-                ?? atlasRect(atlas, cell.biome, variant, atlas.variants);
+            const rect = atlasRect(atlas, cell.biome, variant, atlas.variants)
+                ?? atlasRect(atlas, 'plains', variant, atlas.variants);
             const px = lx * cellPixelSize;
             const py = ly * cellPixelSize;
             const drawSize = Math.ceil(cellPixelSize) + 0.5;
@@ -858,6 +876,14 @@ function rasteriseTile(pyramid, level, tileX, tileY, snapshot, atlas, rect) {
                     rect.sx, rect.sy, rect.size, rect.size,
                     px, py, drawSize, drawSize,
                 );
+            }
+            // A coast reads as a shore by being shaded down towards the water
+            // it meets, in its own colour, one step per ocean side. One
+            // fillRect, and only on cells that actually touch the sea.
+            const mask = shoreBitmask(chunkStore, worldX, worldY);
+            if (mask > 0) {
+                ctx.fillStyle = `rgba(0,0,0,${popcount(mask) * 0.07})`;
+                ctx.fillRect(px, py, drawSize, drawSize);
             }
 
             // Hillshade from the stored elevation of the four neighbours,
@@ -1204,8 +1230,13 @@ export function mountMapRenderer(root, options) {
     // explanation). `pointerEvents: auto` so the mode selector is clickable;
     // the readout stays non-interactive. Both sit top-right so they don't
     // fight the HUD (top-left) or the help line (bottom-left).
+    // Below the zoom row (top 8) and the layer toggles (top 50), not on top of
+    // them. All three were pinned to `top: 8px; right: 8px`, so opening a
+    // route buried the zoom buttons and the layer checkboxes under an opaque
+    // panel — and the journey panel, which is up for the whole length of a
+    // journey rather than a moment, made that permanent.
     const routePanel = makeElement('div', undefined, {
-        position: 'absolute', top: '8px', right: '8px', padding: '6px 8px', borderRadius: '5px',
+        position: 'absolute', top: '86px', right: '8px', padding: '6px 8px', borderRadius: '5px',
         background: 'var(--color-void-lighter, rgba(20,21,25,0.82))',
         border: '1px solid var(--color-border, rgba(255,255,255,0.18))',
         color: 'var(--color-text-primary, inherit)',
