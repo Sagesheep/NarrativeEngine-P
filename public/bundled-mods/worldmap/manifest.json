@@ -1,8 +1,8 @@
 {
     "id": "worldmap",
     "name": "World Map",
-    "version": "0.2.0",
-    "description": "Places your world on a map from the relations in your lore. Switch it off and the ledger goes back to plain topology — every place stays exactly where it was.",
+    "version": "0.3.0-wip",
+    "description": "WORK IN PROGRESS. Places your world on a map from the relations in your lore, and lets you walk a journey one day at a time. Roads are not yet cheaper to travel than open country, and there is nothing to find at a camp yet — see STATUS.md. Switch it off and the ledger goes back to plain topology — every place stays exactly where it was.",
     "tables": [
         {
             "name": "anchors",
