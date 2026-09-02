@@ -6,16 +6,14 @@ import {
     arrive,
     halt,
     jump,
+    abandonJourney,
     isUnrelatedPlace,
     findTransitNode,
     ensureTransitNode,
     ensureDirectConnection,
     mergeUpserts,
-    buildDepartureSentence,
-    commitTravelIntent,
-    sentTextCommitsIntent,
+    bandFromLegs,
 } from '../travelState';
-import type { DistanceBand } from '../location/distance';
 
 function makePlace(overrides: Partial<LocationEntry> = {}): LocationEntry {
     return {
@@ -150,11 +148,12 @@ describe('findTransitNode', () => {
 });
 
 describe('depart', () => {
-    it('creates a travel state with the correct leg count and a transit node', () => {
+    it('creates a travel state with leg 1, worldDay advanced, and a transit node', () => {
         const a = makePlace({ id: 'loc_a', name: 'Aldoria' });
         const b = makePlace({ id: 'loc_b', name: 'Beacon' });
         const result = depart({
             fromId: 'loc_a', toId: 'loc_b', band: 'regional', mode: 'cart', ledger: [a, b],
+            currentWorldDay: 12,
         });
         expect(result.travel).not.toBeNull();
         expect(result.travel!.fromId).toBe('loc_a');
@@ -166,12 +165,23 @@ describe('depart', () => {
         expect(result.contextPatch.currentPlaceId).toBe(result.travel!.transitId);
         expect(result.contextPatch.currentFeature).toBeNull();
         expect(result.contextPatch.travelMode).toBe('cart');
+        // WO 6.5: depart advances the day (first press = camp 1 = day + 1).
+        expect(result.contextPatch.worldDay).toBe(13);
         // Transit node + two endpoint connection upserts.
         expect(result.ledgerUpsert).toBeDefined();
         expect(result.ledgerUpsert!.length).toBeGreaterThanOrEqual(1);
         const transit = result.ledgerUpsert!.find(l => l.kind === 'transit');
         expect(transit).toBeDefined();
         expect(transit!.name).toBe('Road between Aldoria and Beacon');
+    });
+
+    it('treats undefined worldDay as 0 (first press = day 1)', () => {
+        const a = makePlace({ id: 'loc_a', name: 'A' });
+        const b = makePlace({ id: 'loc_b', name: 'B' });
+        const result = depart({
+            fromId: 'loc_a', toId: 'loc_b', band: 'regional', mode: 'foot', ledger: [a, b],
+        });
+        expect(result.contextPatch.worldDay).toBe(1);
     });
 
     it('reuses the transit node on a second A→B departure (no duplicate)', () => {
@@ -205,6 +215,19 @@ describe('depart', () => {
             fromId: 'loc_a', toId: 'loc_b', band: 'regional', mode: 'foot', agency: 'constrained', ledger: [a, b],
         });
         expect(result.travel!.agency).toBe('constrained');
+    });
+
+    it('arrives immediately for a single-day journey (totalLegs <= 1)', () => {
+        const a = makePlace({ id: 'loc_a', name: 'A' });
+        const b = makePlace({ id: 'loc_b', name: 'B' });
+        // nearby × foot = 1 leg → single-day, arrive immediately.
+        const result = depart({
+            fromId: 'loc_a', toId: 'loc_b', band: 'nearby', mode: 'foot', ledger: [a, b],
+            currentWorldDay: 5,
+        });
+        expect(result.travel).toBeNull();
+        expect(result.contextPatch.currentPlaceId).toBe('loc_b');
+        expect(result.contextPatch.worldDay).toBe(6);
     });
 });
 
@@ -251,6 +274,16 @@ describe('halt', () => {
         const result = halt();
         expect(result.travel).toBeNull();
         expect(result.contextPatch.travel).toBeNull();
+        expect(result.contextPatch.currentPlaceId).toBeUndefined();
+    });
+});
+
+describe('abandonJourney', () => {
+    it('clears travel without arriving (currentPlaceId stays on the road)', () => {
+        const result = abandonJourney();
+        expect(result.travel).toBeNull();
+        expect(result.contextPatch.travel).toBeNull();
+        // Does NOT set currentPlaceId — the party stays where they stopped.
         expect(result.contextPatch.currentPlaceId).toBeUndefined();
     });
 });
@@ -304,66 +337,18 @@ describe('mergeUpserts', () => {
     });
 });
 
-// ── Departure flow helpers ──────────────────────────────────────────────
-
-describe('buildDepartureSentence', () => {
-    it('builds the composer sentence using the lowercase mode id', () => {
-        expect(buildDepartureSentence('Beacon', 'cart')).toBe('We set out for Beacon by cart.');
-        expect(buildDepartureSentence('Beacon', 'foot')).toBe('We set out for Beacon by foot.');
-        expect(buildDepartureSentence('Beacon', 'horseback')).toBe('We set out for Beacon by horseback.');
-        expect(buildDepartureSentence('Beacon', 'flying')).toBe('We set out for Beacon by flying.');
-    });
-});
-
-describe('commitTravelIntent', () => {
-    it('resolves a pending intent into a depart transition', () => {
-        const a = makePlace({ id: 'loc_a', name: 'A', connections: [{ toId: 'loc_b', band: 'regional' }] });
-        const b = makePlace({ id: 'loc_b', name: 'B', connections: [{ toId: 'loc_a', band: 'regional' }] });
-        const intent = { toId: 'loc_b', mode: 'cart' as const, agency: 'free' as const, injectedText: 'We set out for B by cart.' };
-        const result = commitTravelIntent(intent, 'loc_a', [a, b]);
-        expect(result).not.toBeNull();
-        expect(result!.travel!.toId).toBe('loc_b');
-        expect(result!.travel!.mode).toBe('cart');
+describe('bandFromLegs', () => {
+    it('maps a leg count to a distance band via the mode grids-per-day', () => {
+        // foot: 3 grids/day. 3 legs → 9 grids → regional (4-12).
+        expect(bandFromLegs(3, 'foot')).toBe('regional');
     });
 
-    it('returns null when fromId === toId', () => {
-        const a = makePlace({ id: 'loc_a' });
-        const intent = { toId: 'loc_a', mode: 'foot' as const, agency: 'free' as const, injectedText: '' };
-        expect(commitTravelIntent(intent, 'loc_a', [a])).toBeNull();
+    it('never returns adjacent', () => {
+        // 1 leg → 3 grids → still regional (the minimum non-adjacent band).
+        expect(bandFromLegs(1, 'foot')).not.toBe('adjacent');
     });
 
-    it('returns null when the connection is adjacent (adjacent never enters travel state)', () => {
-        const a = makePlace({ id: 'loc_a', connections: [{ toId: 'loc_b', band: 'adjacent' }] });
-        const b = makePlace({ id: 'loc_b' });
-        const intent = { toId: 'loc_b', mode: 'foot' as const, agency: 'free' as const, injectedText: '' };
-        expect(commitTravelIntent(intent, 'loc_a', [a, b])).toBeNull();
-    });
-
-    it('returns null when no connection exists', () => {
-        const a = makePlace({ id: 'loc_a' });
-        const b = makePlace({ id: 'loc_b' });
-        const intent = { toId: 'loc_b', mode: 'foot' as const, agency: 'free' as const, injectedText: '' };
-        expect(commitTravelIntent(intent, 'loc_a', [a, b])).toBeNull();
-    });
-});
-
-describe('sentTextCommitsIntent', () => {
-    const intent = { toId: 'loc_b', mode: 'cart' as const, agency: 'free' as const, injectedText: 'We set out for Beacon by cart.' };
-
-    it('commits when the sent text matches the injected sentence', () => {
-        expect(sentTextCommitsIntent('We set out for Beacon by cart.', intent)).toBe(true);
-    });
-
-    it('commits when the sent text is a lightly-edited version (prefix match)', () => {
-        expect(sentTextCommitsIntent('We set out for Beacon by horse, taking the long way.', intent)).toBe(true);
-    });
-
-    it('does not commit when the sent text is a completely different action', () => {
-        expect(sentTextCommitsIntent('I attack the goblin.', intent)).toBe(false);
-    });
-
-    it('does not commit when the sent text is empty', () => {
-        expect(sentTextCommitsIntent('', intent)).toBe(false);
-        expect(sentTextCommitsIntent('   ', intent)).toBe(false);
+    it('clamps to farthest for very long legs', () => {
+        expect(bandFromLegs(100, 'foot')).toBe('farthest');
     });
 });

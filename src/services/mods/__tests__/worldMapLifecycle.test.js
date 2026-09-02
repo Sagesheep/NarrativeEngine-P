@@ -77,7 +77,6 @@ describe('World Map bundled mod — lifecycle', () => {
         expect(fixture.anchors()).toEqual([
             expect.objectContaining({
                 locationId: 'frosthold',
-                pinned: false,
                 source: 'solved',
             }),
         ]);

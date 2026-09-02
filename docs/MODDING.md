@@ -831,7 +831,7 @@ unfreezing this.
 | `playerCharacter` | `PlayerCharacter \| null` | The PC. |
 | `characterSheet` | `CharacterProfile` | The character sheet. Whole-replacement writable. |
 | `inventory` | `readonly InventoryItem[]` | The inventory. Whole-replacement writable. |
-| `location` | `ModLocation` | `{ currentPlaceId, currentFeature, ledger }`. The ledger is whole-replacement writable. |
+| `location` | `ModLocation` | `{ currentPlaceId, currentFeature, ledger, travel, worldDay }`. The ledger is whole-replacement writable. `travel`/`worldDay` are read-only journey state (WO 6.2). |
 
 ### NPC entries — Phase 9.1 §5.1
 

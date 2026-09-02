@@ -183,12 +183,10 @@ export function ChatArea() {
         setInput(e.target.value);
         if (deepArmed) setDeepArmed(false);
         resizeToContent();
-        // WO3 §5 — clearing the draft clears a pending travel intent. The
-        // composer is the confirmation: an empty draft means no departure.
-        if (e.target.value === '') {
-            const st = useAppStore.getState();
-            if (st.pendingTravelIntent) st.setPendingTravelIntent(null);
-        }
+        // WO 6.4 §2 — clearing the composer no longer disarms a pending travel
+        // intent. The armed chip is the intent (set by an explicit click), and
+        // only the chip's `×` disarms. The player can clear the draft to type
+        // their own departure line and the journey still commits on send.
     };
 
     return (

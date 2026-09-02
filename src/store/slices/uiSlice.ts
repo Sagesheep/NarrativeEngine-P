@@ -1,7 +1,6 @@
 ﻿import type { StateCreator } from 'zustand';
 import type { PayloadTrace, PipelinePhase, StreamingStats, LoreCheckResult, LoreCheckSelection, ArmedLoot } from '../../types';
 import type { OneShotEventId } from '../../services/oneshot/oneShotEvents';
-import type { PendingTravelIntent } from '../../services/turn/travelState';
 
 // WO-screen-modernization §A-2 — `rules-mgr` is gone. Rules Manager merged
 // into System Context as the [Write | Retrieval] segmented control; the nav
@@ -86,9 +85,6 @@ export type UISlice = {
     composerInjection: string | null;
     injectToComposer: (text: string) => void;
     consumeComposerInjection: () => void;
-    /** WO3 §5 — pending travel intent set by `TRAVEL HERE`, consumed at send. */
-    pendingTravelIntent: PendingTravelIntent | null;
-    setPendingTravelIntent: (intent: PendingTravelIntent | null) => void;
     pinnedMemoriesOpen: boolean;
     togglePinnedMemories: () => void;
     closePinnedMemories: () => void;
@@ -167,8 +163,6 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     composerInjection: null,
     injectToComposer: (text) => set({ composerInjection: text }),
     consumeComposerInjection: () => set({ composerInjection: null }),
-    pendingTravelIntent: null,
-    setPendingTravelIntent: (intent) => set({ pendingTravelIntent: intent }),
     pinnedMemoriesOpen: false,
     togglePinnedMemories: () => set((s) => ({ pinnedMemoriesOpen: !s.pinnedMemoriesOpen })),
     closePinnedMemories: () => set({ pinnedMemoriesOpen: false }),

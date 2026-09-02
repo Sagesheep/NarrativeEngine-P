@@ -172,34 +172,32 @@ describe('LocationLedgerModal', () => {
         expect(screen.queryByRole('button', { name: /travel to point a/i })).not.toBeInTheDocument();
     });
 
-    it('composes the same departure sentence the composer TRAVEL button produces', () => {
+    it('WO 6.5 — departs directly: sets context.travel, no composer injection, no pending intent', () => {
         const a = makeLocation('a', 'Point A');
         const b = makeLocation('b', 'Point B');
         useAppStore.setState({
             locationLedger: [a, b],
             context: { currentPlaceId: 'a', travelMode: 'foot' },
+            messages: [],
         });
-
-        const injectSpy = vi.spyOn(useAppStore.getState(), 'injectToComposer');
-        const intentSpy = vi.spyOn(useAppStore.getState(), 'setPendingTravelIntent');
 
         render(<LocationLedgerModal />);
         fireEvent.click(screen.getByRole('button', { name: /travel to point b/i }));
-        // Default mode is foot (from context.travelMode). Confirm departure.
-        fireEvent.click(screen.getByRole('button', { name: /compose departure/i }));
+        // Default mode is foot (from context.travelMode). Depart.
+        fireEvent.click(screen.getByRole('button', { name: /depart/i }));
 
-        // The byte-identical guarantee — the composer TRAVEL button (tested in
-        // TravelButton.test.tsx) calls composeDeparture with the same args and
-        // produces the same string. The two surfaces cannot drift.
-        expect(injectSpy).toHaveBeenCalledWith('We set out for Point B by foot.');
-        expect(intentSpy).toHaveBeenCalledWith(expect.objectContaining({
-            toId: 'b',
-            mode: 'foot',
-            agency: 'free',
-            injectedText: 'We set out for Point B by foot.',
-        }));
-
-        injectSpy.mockRestore();
-        intentSpy.mockRestore();
+        // WO 6.5 — direct departure: context.travel is set immediately.
+        const ctx = useAppStore.getState().context;
+        expect(ctx.travel).not.toBeNull();
+        expect(ctx.travel!.toId).toBe('b');
+        expect(ctx.travel!.mode).toBe('foot');
+        expect(ctx.travel!.leg).toBe(1);
+        // No composer injection — travel is an engine action.
+        expect(useAppStore.getState().composerInjection).toBeNull();
+        // A checkpoint system message was posted.
+        const messages = useAppStore.getState().messages;
+        const checkpointMsg = messages.find(m => m.name === 'travel-checkpoint');
+        expect(checkpointMsg).toBeDefined();
+        expect(checkpointMsg!.content).toContain('Point B');
     });
 });

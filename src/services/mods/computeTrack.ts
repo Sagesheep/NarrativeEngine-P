@@ -61,6 +61,10 @@ export function modToComputeTrack(
                     currentPlaceId: freshLocation.context.currentPlaceId ?? null,
                     currentFeature: freshLocation.context.currentFeature ?? null,
                     ledger: freshLocation.locationLedger ?? [],
+                    // WO 6.2 — carry the journey state through so native and
+                    // sandbox mods see the same `data.location` shape.
+                    travel: freshLocation.context.travel ?? null,
+                    worldDay: freshLocation.context.worldDay,
                 }
                 : undefined;
             try {

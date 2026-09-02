@@ -15,8 +15,7 @@ import {
     SandboxFaultError,
     type SandboxWorkerMessage,
 } from './sandboxTypes';
-import { buildModContext, type ModContextMod } from '../modContext';
-import type { LocationEntry } from '../../../types';
+import { buildModContext, type ModContextMod, type ModLocationStateInput } from '../modContext';
 
 /**
  * Phase 4.0 — the per-mod identity the sandbox needs to resolve bare table
@@ -357,11 +356,7 @@ function isDoneMessage(message: SandboxWorkerMessage): message is SandboxDoneMes
 function buildSandboxSnapshot(
     mod: SandboxModIdentity,
     facade: HostFacade,
-    locationState?: {
-        readonly currentPlaceId: string | null;
-        readonly currentFeature: string | null;
-        readonly ledger: readonly LocationEntry[];
-    },
+    locationState?: ModLocationStateInput,
 ): SandboxSnapshot {
     const context = buildModContext({
         mod,
@@ -402,11 +397,7 @@ export async function runSandbox(
     capabilities: readonly string[],
     options: SandboxHostOptions & {
         mod?: SandboxModIdentity;
-        locationState?: {
-            readonly currentPlaceId: string | null;
-            readonly currentFeature: string | null;
-            readonly ledger: readonly LocationEntry[];
-        };
+        locationState?: ModLocationStateInput;
     } = {},
 ): Promise<unknown> {
     const deadlineMs = options.deadlineMs ?? SANDBOX_DEADLINE_MS;

@@ -88,6 +88,8 @@ describe('Phase 9.2 — the frozen surface: the shipped .d.ts', () => {
             'InventoryItem', 'LocationEntry', 'LocationSuggestion', 'LoreChunk',
             'ModChapter', 'ModNpcEntry', 'ModNpcPatch', 'NPCEntry',
             'PlayerCharacter', 'SceneStakes', 'TimelineEvent',
+            // WO 6.2 — travel state, read-only by the map mod to draw the party
+            'TravelHop', 'TravelMode', 'TravelState',
             // The model broker
             'ModelRequest', 'ModelResponse', 'ModelRole',
             // The context and its sub-APIs

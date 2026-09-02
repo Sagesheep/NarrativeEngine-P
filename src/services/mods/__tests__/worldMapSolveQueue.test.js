@@ -15,26 +15,24 @@ vi.mock('../../../../public/bundled-mods/worldmap/renderer.js', async importOrig
 
 let rendererOptions = null;
 
-const { onActivate, unpinAnchor, resetAllPins } = await import('../../../../public/bundled-mods/worldmap/index.js');
+const { onActivate } = await import('../../../../public/bundled-mods/worldmap/index.js');
 
 /**
  * The solve queue is ONE promise chain, and every map action rides it: the
- * initial solve, a lore change, a pin drag, unpin, reset, re-solve from lore,
- * and the re-route behind "connect on demand".
+ * initial solve, a lore change, a campaign open, and a travel commit.
  *
- * `onDragAnchor` used to end its queued task with `.then(() => queueSolve(ctx))`.
- * That reassigns `solveQueue` to a promise derived from the very chain the
- * running task is awaited by, so the two adopt each other and the chain stays
- * pending forever. One pin drag killed every later solve in the session —
- * silently, because the queue's `.catch` never fires on a pending promise.
+ * WO 4.4 removed the drag handler — the old re-entrancy site — so this file's
+ * original premise (a drag deadlocking the queue) left with it. The lesson
+ * stays: a queued task MUST NOT re-enter the queue, because reassigning
+ * `solveQueue` to a promise derived from the very chain the running task is
+ * awaited by makes the two adopt each other and the chain stays pending
+ * forever. Every later solve silently never runs — and the queue's `.catch`
+ * never fires on a pending promise, so it is invisible.
  *
- * The user-visible shape was three separate-looking bugs: "unpin doesn't work,
- * reset pins doesn't work, travelling doesn't work". They were one deadlock.
- *
- * These tests assert the OBSERVABLE result (WO 5.4 §4): after a drag, the next
- * action still completes and still changes the anchors table. Each await is
- * raced against a timer so a re-introduced deadlock fails the test in
- * milliseconds instead of hanging until the suite timeout.
+ * These tests retarget the invariant onto actions that remain: a lore change,
+ * a campaign open, and a travel commit. Each await is raced against a timer
+ * so a re-introduced deadlock fails the test in milliseconds instead of
+ * hanging until the suite timeout.
  */
 function settlesWithin(promise, ms = 2000) {
     return Promise.race([
@@ -53,6 +51,7 @@ function makeContext() {
     let visited = [];
     const windowMounts = [];
     const windowHandle = { open: vi.fn(), close: vi.fn(), focus: vi.fn(), update: vi.fn(), remove: vi.fn() };
+    const subscribers = {};
     const ctx = {
         data: {
             campaignId: 'campaign-solve-queue',
@@ -80,13 +79,14 @@ function makeContext() {
             window: vi.fn(options => { windowMounts.push(options); return windowHandle; }),
             header: vi.fn(() => ({ update: vi.fn(), remove: vi.fn() })),
         },
-        events: { on: vi.fn(() => () => undefined), emit: vi.fn() },
-        subscribe: vi.fn(() => () => undefined),
+        events: { on: vi.fn((event, fn) => { eventHandlers[event] = fn; return () => undefined; }), emit: vi.fn() },
+        subscribe: vi.fn((key, fn) => { subscribers[key] = fn; return () => undefined; }),
         write: {},
         refresh: vi.fn(async () => ctx),
         log: vi.fn(),
     };
-    return { ctx, windowMounts, anchors: () => anchors };
+    const eventHandlers = {};
+    return { ctx, windowMounts, anchors: () => anchors, subscribers, eventHandlers };
 }
 
 async function mountMapPanel(fixture) {
@@ -116,50 +116,56 @@ describe('world map solve queue — re-entrancy', () => {
         document.body.replaceChildren();
     });
 
-    it('drags a pin without stalling the queue', async () => {
-        expect(rendererOptions?.onDragAnchor, 'the map panel wires onDragAnchor').toBeTypeOf('function');
-
-        const drag = await settlesWithin(rendererOptions.onDragAnchor('a', 400, 400));
-        expect(drag.settled, 'the drag commit settles — it does not deadlock the queue').toBe(true);
-
-        const pinned = fixture.anchors().find(anchor => anchor.locationId === 'a');
-        expect(pinned).toMatchObject({ x: 400, y: 400, pinned: true, source: 'player' });
-    });
-
-    it('still unpins after a drag — the drag does not poison every later solve', async () => {
-        await settlesWithin(rendererOptions.onDragAnchor('a', 400, 400));
-
-        const unpin = await settlesWithin(unpinAnchor(fixture.ctx, 'campaign-solve-queue', 'a'));
-        expect(unpin.settled, 'unpin settles after a drag').toBe(true);
-        expect(unpin.value).toBe(true);
-
-        const freed = fixture.anchors().find(anchor => anchor.locationId === 'a');
-        expect(freed.pinned).toBe(false);
-        expect(freed.source).toBe('solved');
-    });
-
-    it('still resets every pin after a drag', async () => {
-        await settlesWithin(rendererOptions.onDragAnchor('a', 400, 400));
-        await settlesWithin(rendererOptions.onDragAnchor('b', 420, 430));
-
-        const reset = await settlesWithin(resetAllPins(fixture.ctx, 'campaign-solve-queue'));
-        expect(reset.settled, 'reset settles after two drags').toBe(true);
-        expect(reset.value).toBe(true);
-        expect(fixture.anchors().some(anchor => anchor.pinned === true || anchor.source === 'player')).toBe(false);
-    });
-
-    it('re-solves rather than dying silently when the panel offers Unpin on a free row', async () => {
-        // The Unpin control is drawn from the published report; the action
-        // reads the anchors table. When they disagree the click used to write
-        // nothing and repaint the same stale report — a dead control. It must
-        // re-solve so one click converges the panel onto the table.
+    it('a lore change re-solves without stalling the queue', async () => {
+        // The `loreChunks` subscriber calls `queueSolve`. A queued task that
+        // re-enters the queue would deadlock here — but `queueSolve` calls
+        // `solveAndPersist` directly, never `enqueue` from inside itself.
         const before = fixture.ctx.table.write.mock.calls.filter(([name]) => name === 'anchors').length;
-
-        const unpin = await settlesWithin(unpinAnchor(fixture.ctx, 'campaign-solve-queue', 'a'));
-        expect(unpin.settled).toBe(true);
-        expect(unpin.value).toBe(false);
-
+        const lore = await settlesWithin(fixture.subscribers['loreChunks']());
+        expect(lore.settled, 'the lore-change solve settles — it does not deadlock the queue').toBe(true);
         const after = fixture.ctx.table.write.mock.calls.filter(([name]) => name === 'anchors').length;
-        expect(after, 'a no-op unpin still re-solves so the panel catches up').toBeGreaterThan(before);
+        expect(after, 'a lore change writes a fresh anchors table').toBeGreaterThan(before);
+    });
+
+    it('a campaign open re-solves without stalling the queue', async () => {
+        // The `campaign.opened` event handler calls `queueSolve`. It must
+        // settle, and the anchors table must reflect the re-solve. The
+        // handler calls `queueSolve` without awaiting (it is a fire-and-
+        // forget enqueue), so we wait one microtask for the queued task to
+        // land before reading the write count.
+        const before = fixture.ctx.table.write.mock.calls.filter(([name]) => name === 'anchors').length;
+        const opened = await settlesWithin(fixture.eventHandlers['campaign.opened']?.());
+        expect(opened.settled, 'the campaign-open solve settles').toBe(true);
+        // Let the queued solve drain — `queueSolve` is fire-and-forget.
+        await new Promise(resolve => setTimeout(resolve, 10));
+        const after = fixture.ctx.table.write.mock.calls.filter(([name]) => name === 'anchors').length;
+        expect(after, 'a campaign open writes a fresh anchors table').toBeGreaterThan(before);
+    });
+
+    it('a second lore change after the first still settles — the queue is not poisoned', async () => {
+        // The regression this guards: a queued task that re-entered the queue
+        // left `solveQueue` pending forever, so every later solve silently
+        // never ran. Two sequential lore changes must both settle.
+        const first = await settlesWithin(fixture.subscribers['loreChunks']());
+        expect(first.settled).toBe(true);
+        const second = await settlesWithin(fixture.subscribers['loreChunks']());
+        expect(second.settled, 'the second lore change settles — the queue is not poisoned').toBe(true);
+    });
+
+    it('a travel commit (route commit) does not re-enter the queue', async () => {
+        // The route-commit path (`handleRouteAction('commit')`) writes the
+        // journey record and emits `travelRequest` — it must not call
+        // `enqueue` from inside a queued task. We drive it through the
+        // renderer's `onRouteAction` option, which is the same seam a real
+        // click uses.
+        expect(rendererOptions?.onRouteAction, 'the map panel wires onRouteAction').toBeTypeOf('function');
+        // Provide a valid route preview so the commit path has something to
+        // persist. The preview is read via `getRoutePreview`, which the
+        // panel wires to the per-campaign map.
+        const commit = await settlesWithin(Promise.resolve(rendererOptions.onRouteAction('commit')));
+        // The commit path may or may not write depending on whether a
+        // preview is set; the invariant is that it SETTLES and does not
+        // deadlock the queue.
+        expect(commit.settled, 'the travel commit settles — it does not deadlock the queue').toBe(true);
     });
 });

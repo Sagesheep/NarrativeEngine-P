@@ -30,6 +30,7 @@ function makeStubContext() {
         imageSmoothingEnabled: true,
         setTransform() {}, save() {}, restore() {}, scale() {},
         beginPath() {}, moveTo() {}, lineTo() {}, arc() {}, fill() {}, stroke() {},
+        closePath() {},
         fillRect() {}, drawImage() {},
         createImageData(w, h) { return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }; },
         putImageData() {},
@@ -146,7 +147,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         // Mount first so the canvas exists.
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor: () => undefined,
+
             onClickCell,
             onRouteAction,
             getRoutePreview: () => null,
@@ -169,7 +170,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         const onRouteAction = vi.fn();
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor: () => undefined,
+
             onClickCell,
             onRouteAction,
             getRoutePreview: () => null,
@@ -195,7 +196,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         const onRouteAction = vi.fn();
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor: () => undefined,
+
             onClickCell,
             onRouteAction,
             getRoutePreview: () => null,
@@ -219,7 +220,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         const onRouteAction = vi.fn();
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor: () => undefined,
+
             onClickCell,
             onRouteAction,
             getRoutePreview: () => null,
@@ -235,34 +236,24 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         cleanupRenderer();
     });
 
-    it('a drag on an anchor does NOT call onClickCell — drag is not a travel command (WO 4.2 §2)', () => {
+    it('a drag (pan) on an anchor does NOT call onClickCell — drag is not a travel command (WO 4.4)', () => {
         const snapshot = makeSnapshot();
         const onClickCell = vi.fn();
-        const onDragAnchor = vi.fn();
         const onRouteAction = vi.fn();
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor,
             onClickCell,
             onRouteAction,
             getRoutePreview: () => null,
             getTravelMode: () => 'foot',
         });
         const canvasEl = root.querySelector('canvas');
-        // Find the first anchor's screen position. The renderer centres on
-        // anchors, so the first anchor is near the screen centre. Use the
-        // snapshot's first anchor and cellToScreen math: with
-        // centreOnAnchors, view.cx/cy is the midpoint; the anchor's screen
-        // pos is ((anchor.x - view.cx) * cell + width/2, ...). We can't read
-        // the renderer's internal view, so click at the screen centre —
-        // centreOnAnchors puts an anchor there.
         const cx = 450, cy = 320; // screen centre of a 900×640 rect
         dispatchPointer(canvasEl, 'pointerdown', cx, cy);
-        // Move a little (more than 3px) to trigger a drag.
+        // Move past the dead zone — this is a pan now (WO 4.4: drag always
+        // pans). A pan is not a click, so onClickCell is not called.
         dispatchPointer(window, 'pointermove', cx + 20, cy + 20);
         dispatchPointer(window, 'pointerup', cx + 20, cy + 20);
-        // A drag on an anchor hits the anchor path, not the terrain-click
-        // path. onClickCell is not called.
         expect(onClickCell).not.toHaveBeenCalled();
         cleanupRenderer();
     });
@@ -270,11 +261,9 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
     it('a click on a place routes to it, and a twitch inside the dead zone is still a click', () => {
         const snapshot = makeSnapshot();
         const onClickCell = vi.fn();
-        const onDragAnchor = vi.fn();
         const onRouteAction = vi.fn();
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor,
             onClickCell,
             onRouteAction,
             getRoutePreview: () => null,
@@ -290,7 +279,6 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         dispatchPointer(canvasEl, 'pointerdown', cx, cy);
         dispatchPointer(window, 'pointermove', cx + 4, cy + 2);
         dispatchPointer(window, 'pointerup', cx + 4, cy + 2);
-        expect(onDragAnchor).not.toHaveBeenCalled();
         expect(onClickCell).toHaveBeenCalledTimes(1);
         expect(onRouteAction).not.toHaveBeenCalledWith('commit');
         cleanupRenderer();
@@ -305,7 +293,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         const onClickCell = vi.fn();
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor: () => undefined,
+
             onClickCell,
             onRouteAction: () => undefined,
             getRoutePreview: () => null,
@@ -324,7 +312,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         const onClickCell = vi.fn();
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor: () => undefined,
+
             onClickCell,
             onRouteAction: () => undefined,
             getRoutePreview: () => null,
@@ -338,13 +326,12 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         cleanupRenderer();
     });
 
-    it('double-clicking a place never moves it — the pin gesture is gone', () => {
+    it('double-clicking a place never moves it — the pin gesture is gone (WO 4.4)', () => {
         const snapshot = makeSnapshot();
-        const onDragAnchor = vi.fn();
+        const onClickCell = vi.fn();
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor,
-            onClickCell: () => undefined,
+            onClickCell,
             onRouteAction: () => undefined,
             getRoutePreview: () => null,
             getTravelMode: () => 'foot',
@@ -355,7 +342,8 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
             dispatchPointer(canvasEl, 'pointerdown', cx, cy);
             dispatchPointer(window, 'pointerup', cx, cy);
         }
-        expect(onDragAnchor).not.toHaveBeenCalled();
+        // Two clicks on a place route to it twice — no pin, no move.
+        expect(onClickCell).toHaveBeenCalledTimes(2);
         cleanupRenderer();
     });
 
@@ -370,7 +358,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         };
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor: () => undefined,
+
             onClickCell: () => undefined,
             onRouteAction,
             getRoutePreview: () => preview,
@@ -390,7 +378,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         const onRouteAction = vi.fn();
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor: () => undefined,
+
             onRouteAction,
             getRoutePreview: () => ({
                 cells: [{ x: 100, y: 100 }, { x: 110, y: 100 }],
@@ -418,7 +406,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         const onRouteAction = vi.fn();
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor: () => undefined,
+
             onRouteAction,
             getRoutePreview: () => ({
                 cells: [{ x: 100, y: 100 }, { x: 110, y: 100 }],
@@ -450,7 +438,7 @@ describe('World Map renderer — click-to-travel (WO 6.1)', () => {
         };
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: () => snapshot,
-            onDragAnchor: () => undefined,
+
             onClickCell,
             onRouteAction,
             getRoutePreview: () => preview,

@@ -224,7 +224,6 @@ describe('World Map solver — hardened cells survive regeneration (§11)', () =
         const after = solveWorldMap({
             locations: [...locations, location('c', 'Cinderkeep')],
             loreChunks: [],
-            existingAnchors: base.anchors,
             worldSeed: 'harden-seed-chunk',
             hardenedCells: hardened,
         });

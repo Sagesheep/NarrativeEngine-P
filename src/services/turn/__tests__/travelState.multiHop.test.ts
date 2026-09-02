@@ -3,12 +3,8 @@ import type { LocationEntry, TravelHop } from '../../types';
 import {
     departMultiHop,
     advance,
-    arrive,
     isUnrelatedPlace,
-    commitTravelIntent,
-    buildDepartureSentence,
 } from '../travelState';
-import type { DistanceBand } from '../location/distance';
 
 function makePlace(overrides: Partial<LocationEntry> = {}): LocationEntry {
     return {
@@ -52,6 +48,7 @@ describe('departMultiHop', () => {
             mode: 'foot',
             hops,
             ledger,
+            currentWorldDay: 10,
         });
         expect(result.travel).not.toBeNull();
         expect(result.travel!.fromId).toBe('loc_a');
@@ -63,6 +60,8 @@ describe('departMultiHop', () => {
         expect(result.travel!.transitId).toBe(result.travel!.hops![0].transitId);
         // The party starts on the first hop's transit node.
         expect(result.contextPatch.currentPlaceId).toBe(result.travel!.hops![0].transitId);
+        // WO 6.5: depart advances the day (first press = camp 1 = day + 1).
+        expect(result.contextPatch.worldDay).toBe(11);
         // Connections are ensured for both hops.
         expect(result.ledgerUpsert).toBeDefined();
         const upsertIds = result.ledgerUpsert!.map(l => l.id);
@@ -101,11 +100,24 @@ describe('departMultiHop', () => {
         expect(result.travel).toBeNull();
     });
 
-    it('the departure sentence names only the final destination', () => {
-        // WO 6.1 §2 — "Do not enumerate every intermediate place in the prose."
-        const sentence = buildDepartureSentence('C', 'foot');
-        expect(sentence).toBe('We set out for C by foot.');
-        expect(sentence).not.toContain('B');
+    it('delegates a single-hop route to depart (no hops array on travel state)', () => {
+        const a = makePlace({ id: 'loc_a', name: 'A' });
+        const b = makePlace({ id: 'loc_b', name: 'B' });
+        const hops = makeHops(['loc_a', 'loc_b'], [1]);
+        // A single-hop route delegates to depart. The hop's 1 leg maps to
+        // `local` band (3 grids → local), and local × foot = 2 legs.
+        const result = departMultiHop({
+            fromId: 'loc_a', toId: 'loc_b', mode: 'foot', hops, ledger: [a, b],
+            currentWorldDay: 5,
+        });
+        // Single-hop departMultiHop delegates to depart — no hops array.
+        expect(result.travel).not.toBeNull();
+        expect(result.travel!.hops).toBeUndefined();
+        expect(result.travel!.hopIndex).toBeUndefined();
+        expect(result.travel!.totalLegs).toBe(2);
+        expect(result.travel!.leg).toBe(1);
+        // WO 6.5: depart advances the day (first press = camp 1).
+        expect(result.contextPatch.worldDay).toBe(6);
     });
 });
 
@@ -187,55 +199,5 @@ describe('isUnrelatedPlace — multi-hop', () => {
         expect(isUnrelatedPlace(hops[1].transitId, travel)).toBe(false);
         // A place not in the route is unrelated.
         expect(isUnrelatedPlace('loc_x', travel)).toBe(true);
-    });
-});
-
-describe('commitTravelIntent — multi-hop', () => {
-    it('resolves a multi-hop intent via departMultiHop', () => {
-        const a = makePlace({ id: 'loc_a', name: 'A' });
-        const b = makePlace({ id: 'loc_b', name: 'B' });
-        const c = makePlace({ id: 'loc_c', name: 'C' });
-        const ledger = [a, b, c];
-        const hops = makeHops(['loc_a', 'loc_b', 'loc_c'], [2, 3]);
-        const intent = {
-            toId: 'loc_c',
-            mode: 'foot' as const,
-            agency: 'free' as const,
-            injectedText: 'We set out for C by foot.',
-            hops,
-        };
-        const result = commitTravelIntent(intent, 'loc_a', ledger);
-        expect(result).not.toBeNull();
-        expect(result!.travel!.fromId).toBe('loc_a');
-        expect(result!.travel!.toId).toBe('loc_c');
-        expect(result!.travel!.hops).toHaveLength(2);
-        expect(result!.travel!.totalLegs).toBe(5);
-    });
-
-    it('resolves a single-hop intent via depart (no hops array)', () => {
-        const a = makePlace({ id: 'loc_a', name: 'A', connections: [{ toId: 'loc_b', band: 'regional' as DistanceBand }] });
-        const b = makePlace({ id: 'loc_b', name: 'B' });
-        const intent = {
-            toId: 'loc_b',
-            mode: 'foot' as const,
-            agency: 'free' as const,
-            injectedText: 'We set out for B by foot.',
-        };
-        const result = commitTravelIntent(intent, 'loc_a', [a, b]);
-        expect(result).not.toBeNull();
-        expect(result!.travel!.hops).toBeUndefined();
-        expect(result!.travel!.toId).toBe('loc_b');
-    });
-
-    it('returns null for same-place intent', () => {
-        const a = makePlace({ id: 'loc_a', name: 'A' });
-        const intent = {
-            toId: 'loc_a',
-            mode: 'foot' as const,
-            agency: 'free' as const,
-            injectedText: 'We set out for A by foot.',
-            hops: makeHops(['loc_a', 'loc_a'], [1]),
-        };
-        expect(commitTravelIntent(intent, 'loc_a', [a])).toBeNull();
     });
 });

@@ -14,30 +14,6 @@ export type TransitionResult = {
     ledgerUpsert?: LocationEntry[];
 };
 
-/**
- * Pending travel intent set by the `TRAVEL HERE` departure flow (WO3 §5) and
- * consumed at send time. Pairs with the composer injection: the injection is
- * the text the player edits/sends/clears; the intent is the data. Sending the
- * injected sentence commits the intent; sending anything else drops it.
- */
-export type PendingTravelIntent = {
-    toId: string;
-    mode: TravelMode;
-    agency: 'free' | 'constrained';
-    /** The exact sentence injected into the composer. Used to detect whether
-     *  the player sent the travel departure (commit) or typed something else
-     *  (drop). The player may edit the sentence; we match on a prefix so a
-     *  lightly-edited send still commits. */
-    injectedText: string;
-    /** WO 6.1 §2 — the multi-hop route, terrain-priced, when the journey is
-     *  more than one hop. Each hop carries `fromId`/`toId` (ledger place ids)
-     *  and `legs` (terrain-real leg count from the pathfinder). The host's
-     *  `commitTravelIntent` resolves these into transit nodes per hop. Absent
-     *  for a single-hop journey (the WO 3 case) — `commitTravelIntent` then
-     *  looks up the direct connection's band, as before. */
-    hops?: TravelHop[];
-};
-
 const EMPTY: TransitionResult = { travel: null, contextPatch: {} };
 
 /**
@@ -128,7 +104,10 @@ export function ensureDirectConnection(
 }
 
 /**
- * `depart(to, mode, agency)` — start a journey.
+ * `depart(to, mode, agency)` — start a journey. WO 6.5: the first press is
+ * camp 1, so `depart` advances the day and lands the party on the first
+ * checkpoint. A single-day journey (`totalLegs <= 1`) arrives immediately —
+ * there are no camps, just the destination.
  *
  * The caller supplies the band for the A→B edge. If a direct connection does
  * not exist at that band, it is created (and the back-link too). A transit
@@ -145,14 +124,16 @@ export function depart(params: {
     mode: TravelMode;
     agency?: 'free' | 'constrained';
     ledger: LocationEntry[];
+    currentWorldDay?: number;
 }): TransitionResult {
-    const { fromId, toId, band, mode, agency = 'free', ledger } = params;
+    const { fromId, toId, band, mode, agency = 'free', ledger, currentWorldDay } = params;
     if (fromId === toId) return EMPTY;
 
     const connectionUpserts = ensureDirectConnection(fromId, toId, band, ledger);
     const ledgerWithConnections = mergeUpserts(ledger, connectionUpserts);
     const { transitId, upsert: transitUpserts } = ensureTransitNode(fromId, toId, band, ledgerWithConnections);
     const totalLegs = legsFor(band, mode);
+    const nextDay = (currentWorldDay ?? 0) + 1;
 
     const travel: TravelState = {
         fromId,
@@ -164,13 +145,22 @@ export function depart(params: {
         agency,
     };
     const ledgerUpserts = [...connectionUpserts, ...transitUpserts];
+    const ledgerPatch = ledgerUpserts.length > 0 ? ledgerUpserts : undefined;
+
+    // Single-day journey: depart and arrive in one press.
+    if (totalLegs <= 1) {
+        const arriveResult = arrive(travel, nextDay);
+        return { ...arriveResult, ledgerUpsert: ledgerPatch };
+    }
+
     const contextPatch: Partial<GameContext> = {
         travel,
         travelMode: mode,
         currentPlaceId: transitId,
         currentFeature: null,
+        worldDay: nextDay,
     };
-    return { travel, contextPatch, ledgerUpsert: ledgerUpserts.length > 0 ? ledgerUpserts : undefined };
+    return { travel, contextPatch, ledgerUpsert: ledgerPatch };
 }
 
 /**
@@ -187,8 +177,7 @@ export function depart(params: {
  *
  * Direct connections are ensured for every adjacent pair in the route, so the
  * ledger's topology reflects the journey the party actually walked. The
- * departure sentence (built by the caller via `buildDepartureSentence`) names
- * only the final destination.
+ * engine's checkpoint system message names only the final destination.
  */
 export function departMultiHop(params: {
     fromId: string;
@@ -197,8 +186,9 @@ export function departMultiHop(params: {
     hops: TravelHop[];
     agency?: 'free' | 'constrained';
     ledger: LocationEntry[];
+    currentWorldDay?: number;
 }): TransitionResult {
-    const { fromId, toId, mode, hops, agency = 'free', ledger } = params;
+    const { fromId, toId, mode, hops, agency = 'free', ledger, currentWorldDay } = params;
     if (fromId === toId) return EMPTY;
     if (hops.length === 0) return EMPTY;
     if (hops.length === 1) {
@@ -206,7 +196,7 @@ export function departMultiHop(params: {
         // hop's leg count so the transit node and connection are created at a
         // band consistent with the terrain-real distance.
         const band = bandFromLegs(hops[0].legs, mode);
-        return depart({ fromId, toId, band, mode, agency, ledger });
+        return depart({ fromId, toId, band, mode, agency, ledger, currentWorldDay });
     }
 
     // Ensure direct connections + transit nodes for every hop. Each hop's
@@ -232,6 +222,7 @@ export function departMultiHop(params: {
 
     const totalLegs = resolvedHops.reduce((sum, h) => sum + h.legs, 0);
     const firstHop = resolvedHops[0];
+    const nextDay = (currentWorldDay ?? 0) + 1;
     const travel: TravelState = {
         fromId,
         toId,
@@ -243,19 +234,26 @@ export function departMultiHop(params: {
         hops: resolvedHops,
         hopIndex: 0,
     };
+    // Single-day multi-hop: depart and arrive in one press.
+    if (totalLegs <= 1) {
+        const arriveResult = arrive(travel, nextDay);
+        return { ...arriveResult, ledgerUpsert: allUpserts.length > 0 ? allUpserts : undefined };
+    }
     const contextPatch: Partial<GameContext> = {
         travel,
         travelMode: mode,
         currentPlaceId: firstHop.transitId,
         currentFeature: null,
+        worldDay: nextDay,
     };
     return { travel, contextPatch, ledgerUpsert: allUpserts.length > 0 ? allUpserts : undefined };
 }
 
 /**
- * `advance()` — move to the next leg. Called at commit while travelling.
- * Increments `leg` and `worldDay` by 1. When `leg` exceeds `totalLegs`, the
- * journey is over — see `arrive`.
+ * `advance()` — move to the next leg. WO 6.5: called by the engine travel
+ * press (not the post-commit advance track — that is now the safety-valve
+ * only). Increments `leg` and `worldDay` by 1. When `leg` exceeds
+ * `totalLegs`, the journey is over — see `arrive`.
  *
  * For a multi-hop journey (WO 6.1 §2), advancing past a hop's leg range
  * arrives at that hop's destination and starts the next hop from there: the
@@ -264,7 +262,7 @@ export function departMultiHop(params: {
  * `toId` stay the journey's endpoints; only `hopIndex` and `transitId` move.
  *
  * Returns the new travel state (with leg+1) and a context patch that writes
- * `worldDay + 1`. The caller decides whether to also apply `arrive`.
+ * `worldDay + 1`.
  */
 export function advance(state: TravelState, currentWorldDay: number | undefined): TransitionResult {
     const nextLeg = state.leg + 1;
@@ -318,6 +316,16 @@ export function arrive(state: TravelState, nextDay: number): TransitionResult {
 }
 
 /**
+ * WO 6.5 §4 — abandon the active journey. Clears `travel` without arriving.
+ * `currentPlaceId` stays wherever it is (the transit node — the party is on
+ * the road and stops where they stopped). The host also clears the mod's
+ * journey record via the location-watch (§4 of WO 6.2).
+ */
+export function abandonJourney(): TransitionResult {
+    return { travel: null, contextPatch: { travel: null } };
+}
+
+/**
  * `halt()` — the fiction named a place that is neither the transit node nor
  * the destination. The journey was interrupted by the story. Clear `travel`
  * and let the header's position stand (the caller has already written the
@@ -364,63 +372,6 @@ export function mergeUpserts(ledger: LocationEntry[], upserts: LocationEntry[]):
     return [...byId.values()];
 }
 
-// ── Departure flow helpers (WO3 §5) ──────────────────────────────────────
-
-/**
- * Build the composer sentence for a departure: `We set out for {name} by {mode}.`
- * Uses the lowercase mode id (`foot`, `cart`, `horseback`, `flying`) so the
- * sentence reads naturally — "by foot", "by cart" — matching the `[TRAVEL]`
- * block's wording (WO3 §8). The player edits this sentence or clears it.
- * Sending it commits the intent.
- */
-export function buildDepartureSentence(destinationName: string, mode: TravelMode): string {
-    return `We set out for ${destinationName} by ${mode}.`;
-}
-
-/**
- * Resolve a pending travel intent into a `depart` transition. Looks up the
- * band from the direct connection (creating it is the caller's job — the
- * `TRAVEL HERE` flow ensures the connection exists before setting the intent).
- * Returns `null` when the journey cannot start (same place, or `adjacent` —
- * adjacent destinations never enter the travel state, WO3 §6).
- *
- * WO 6.1 §2 — when the intent carries `hops` (a multi-hop route from the
- * pathfinder), resolves via `departMultiHop` instead. The hops' terrain-real
- * leg counts drive the transit nodes and the total leg count; the departure
- * sentence (already injected by the caller) names only the final destination.
- */
-export function commitTravelIntent(
-    intent: PendingTravelIntent,
-    fromId: string,
-    ledger: LocationEntry[],
-): TransitionResult | null {
-    if (intent.toId === fromId) return null;
-    if (intent.hops && intent.hops.length > 0) {
-        return departMultiHop({
-            fromId,
-            toId: intent.toId,
-            mode: intent.mode,
-            hops: intent.hops,
-            agency: intent.agency,
-            ledger,
-        });
-    }
-    const from = ledger.find(l => l.id === fromId);
-    if (!from) return null;
-    const conn = from.connections.find(c => c.toId === intent.toId);
-    if (!conn) return null;
-    const band = connectionBand(conn);
-    if (band === 'adjacent') return null;
-    return depart({
-        fromId,
-        toId: intent.toId,
-        band,
-        mode: intent.mode,
-        agency: intent.agency,
-        ledger,
-    });
-}
-
 /**
  * WO 6.1 §2 — derive a `DistanceBand` from a terrain-real leg count. The
  * pathfinder costs each hop in terrain-weighted grids; `bandFromLegs` maps
@@ -433,28 +384,11 @@ export function commitTravelIntent(
  * against `DISTANCE_BANDS`. `adjacent` is never returned — a hop always
  * covers ground.
  */
-function bandFromLegs(legs: number, mode: TravelMode): DistanceBand {
+export function bandFromLegs(legs: number, mode: TravelMode): DistanceBand {
     const grids = Math.max(1, Math.round(legs * gridsPerDayFor(mode)));
     for (const band of DISTANCE_BANDS) {
         if (band.id === 'adjacent') continue;
         if (grids >= band.minGrids && grids <= band.maxGrids) return band.id;
     }
     return 'farthest';
-}
-
-/**
- * Does the sent text commit the pending intent? Matches on a normalized prefix
- * so a lightly-edited sentence still commits, but a completely different text
- * drops it. The player may edit the destination name or mode wording; they may
- * not substitute an entirely different action and still expect travel to start.
- */
-export function sentTextCommitsIntent(sentText: string, intent: PendingTravelIntent): boolean {
-    const sent = sentText.trim().toLowerCase();
-    const injected = intent.injectedText.trim().toLowerCase();
-    if (!sent || !injected) return false;
-    // The sentence starts with "We set out for" — match on that prefix so the
-    // player can edit the destination/mode and still commit. A completely
-    // different sentence (e.g. "I attack the goblin") does not match.
-    const prefix = 'we set out for';
-    return sent.startsWith(prefix) && injected.startsWith(prefix);
 }

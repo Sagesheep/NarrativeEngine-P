@@ -138,8 +138,8 @@ describe('World Map bundled mod — anchor solve', () => {
         expect(result.report.relaxations).toHaveLength(1);
         expect(result.report.relaxations[0].message).toContain('relaxed');
         expect(result.report.refusals).toHaveLength(0);
-        expect(anchorById(result, 'a')).toMatchObject({ x: 100, y: 100, pinned: true, source: 'player' });
-        expect(anchorById(result, 'b')).toMatchObject({ x: 140, y: 100, pinned: true, source: 'player' });
+        expect(anchorById(result, 'a')).toMatchObject({ x: 100, y: 100, source: 'lore' });
+        expect(anchorById(result, 'b')).toMatchObject({ x: 140, y: 100, source: 'lore' });
     });
 
     it('refuses a hard distance-zero road that conflicts with two hard pins', () => {

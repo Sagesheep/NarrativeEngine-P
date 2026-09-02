@@ -35,6 +35,7 @@ import type {
     NPCEntry,
     PlayerCharacter,
     TimelineEvent,
+    TravelState,
 } from '../../types';
 import type {
     HostFacade,
@@ -175,11 +176,26 @@ export interface ModData {
  * whole-replacement write on the surface has a paired read, and
  * `setLocationLedger` was the exception. `currentPlaceId` / `currentFeature`
  * ride along because they are the ledger's cursor (§4.2).
+ *
+ * WO 6.2 — `travel` and `worldDay` ride along for the same reason
+ * `currentPlaceId` does: they are the cursor's journey state, written by the
+ * same `updateContext` call that writes `currentPlaceId`, and the map mod
+ * needs to read `travel.leg` to draw the party on the right cell. The host owns
+ * these (the travel state machine in `travelState.ts` is the single authority);
+ * the mod only reads them. This is the one seam WO 6.2 cuts onto host travel
+ * state — narrow, read-only, and on the key that already fires on every
+ * `updateContext` (the `'location'` reactive key).
  */
 export interface ModLocation {
     readonly currentPlaceId: string | null;
     readonly currentFeature: string | null;
     readonly ledger: readonly LocationEntry[];
+    /** WO 6.2 — the active journey, or null/undefined when settled. The host
+     *  owns `leg`/`totalLegs`/`worldDay` and when the journey ends; the mod
+     *  reads `travel.leg` to draw the party on the right cell. Read-only. */
+    readonly travel?: TravelState | null;
+    /** WO 6.2 — the in-game day counter. Read-only to the mod. */
+    readonly worldDay?: number;
 }
 
 /**
@@ -444,11 +460,19 @@ const OWN_TABLE_PREFIX = 'mod.';
  * The projection of `TurnCallbacks.getFreshLocationState()` that `data.location`
  * (§4.2) is derived from. Named so the value form and the getter form below
  * cannot drift apart.
+ *
+ * WO 6.2 — `travel` and `worldDay` are carried alongside the cursor fields so
+ * the map mod can read the active journey's `leg` to draw the party on the
+ * right cell. They come from the same `GameContext` the cursor fields do.
  */
 export interface ModLocationStateInput {
     readonly currentPlaceId: string | null;
     readonly currentFeature: string | null;
     readonly ledger: readonly LocationEntry[];
+    /** WO 6.2 — the active journey, or null/undefined when settled. */
+    readonly travel?: TravelState | null;
+    /** WO 6.2 — the in-game day counter. */
+    readonly worldDay?: number;
 }
 
 export interface ModContextBuildOptions {
@@ -833,6 +857,13 @@ function buildModData(
         currentPlaceId: locationState?.currentPlaceId ?? context.currentPlaceId ?? null,
         currentFeature: locationState?.currentFeature ?? context.currentFeature ?? null,
         ledger: Object.freeze([...(locationState?.ledger ?? [])]),
+        // WO 6.2 — carry the journey state through to the mod. The injected
+        // `locationState` wins (same precedence as the cursor fields above);
+        // the `context` is the fallback. `travel` may be `null` (journey
+        // ended) or `undefined` (never set) — both read as "no journey" to
+        // the mod, so pass them through unchanged rather than normalising.
+        travel: locationState?.travel ?? context.travel ?? null,
+        worldDay: locationState?.worldDay ?? context.worldDay,
     });
     const chapters: readonly ModChapter[] = Object.freeze(
         (facadeData.chapters ?? []).map(projectChapter),

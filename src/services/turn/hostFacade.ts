@@ -18,6 +18,7 @@ import type {
     SemanticFact,
     TimelineEvent,
     ThinkingEffort,
+    TravelState,
 } from '../../types';
 import { llmCall, type LLMCallPriority } from '../../utils/llmCall';
 import { extractJson } from '../infrastructure/jsonExtract';
@@ -188,6 +189,10 @@ export interface HostFacadeBuildOptions {
         readonly currentPlaceId: string | null;
         readonly currentFeature: string | null;
         readonly ledger: readonly LocationEntry[];
+        /** WO 6.2 — the active journey state, read from the live `GameContext`. */
+        readonly travel?: TravelState | null;
+        /** WO 6.2 — the in-game day counter, read from the live `GameContext`. */
+        readonly worldDay?: number;
     };
 }
 
@@ -407,11 +412,20 @@ export function buildHostFacade(
                 // and a fresh read disagreed. Aligned to the snapshot order
                 // (injected state wins) so a subscriber sees the same value
                 // a fresh `ctx.data.location` read returns.
+                //
+                // WO 6.2 — `travel` and `worldDay` ride the same precedence:
+                // injected state wins, `context` is the fallback. They are
+                // written by the same `updateContext` call that writes
+                // `currentPlaceId`, so the `'location'` invalidation the
+                // `writeAfter(callbacks.updateContext, ['location', ...])`
+                // fires already covers them — no new reactive key.
                 const fresh = options.getLocationState?.();
                 return {
                     currentPlaceId: fresh?.currentPlaceId ?? context.currentPlaceId ?? null,
                     currentFeature: fresh?.currentFeature ?? context.currentFeature ?? null,
                     ledger: live?.locationLedger ?? fresh?.ledger ?? [],
+                    travel: fresh?.travel ?? context.travel ?? null,
+                    worldDay: fresh?.worldDay ?? context.worldDay,
                 };
             }
             default: return undefined;

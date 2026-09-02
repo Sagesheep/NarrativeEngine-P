@@ -40,6 +40,7 @@ function makeStubContext() {
         imageSmoothingEnabled: true,
         setTransform() {}, save() {}, restore() {}, scale() {},
         beginPath() {}, moveTo() {}, lineTo() {}, arc() {}, fill() {}, stroke() {},
+        closePath() {},
         fillRect() {}, drawImage() {},
         createImageData(w, h) { return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }; },
         putImageData() {},
@@ -168,7 +169,7 @@ describe('World Map mod — multi-hop routing and anchor snap (WO 6.1)', () => {
         if (!snapshot()) { expect(true).toBe(true); return; }
         const cleanupRenderer = mountMapRenderer(root, {
             getSnapshot: snapshot,
-            onDragAnchor: () => undefined,
+
             onClickCell: (x, y) => {
                 // Directly invoke the mod's handler logic by reading what
                 // mountMap would have wired. Since we can't access the mod's

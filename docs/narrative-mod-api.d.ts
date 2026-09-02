@@ -303,6 +303,36 @@ export interface LocationSuggestion {
     firstSeen: number;
 }
 
+/** WO 3 / WO 6.2 — a travel mode. The pathfinder accepts foot/cart/mount/boat;
+ *  `horseback` maps to `mount` and `flying` routes as a straight line. */
+export type TravelMode = 'foot' | 'cart' | 'horseback' | 'flying';
+
+/** WO 6.1 §2 — one hop of a multi-hop route. `legs` is terrain-real when the
+ *  route came from the pathfinder. */
+export interface TravelHop {
+    fromId: string;
+    toId: string;
+    transitId: string;
+    legs: number;
+}
+
+/** WO 3 / WO 6.2 — the active journey. The host owns `leg`, `totalLegs`, and
+ *  when the journey ends; a mod reads `travel.leg` to draw the party on the
+ *  right cell. `null` when no journey is in progress. */
+export interface TravelState {
+    fromId: string;
+    toId: string;
+    transitId: string;
+    mode: TravelMode;
+    /** 1-based: the leg being played this turn. Counts across the whole journey. */
+    leg: number;
+    totalLegs: number;
+    agency: 'free' | 'constrained';
+    /** WO 6.1 §2 — per-hop breakdown for a multi-hop journey. Absent for single-hop. */
+    hops?: TravelHop[];
+    hopIndex?: number;
+}
+
 /** A patch over the host's GameContext. Only `arcDigest` is currently supported. */
 export interface GameContextPatch {
     arcDigest?: string;
@@ -498,6 +528,11 @@ export interface ModLocation {
     readonly currentPlaceId: string | null;
     readonly currentFeature: string | null;
     readonly ledger: readonly LocationEntry[];
+    /** WO 6.2 — the active journey, or null/undefined when settled. Read-only;
+     *  the host owns `leg`/`totalLegs` and when the journey ends. */
+    readonly travel?: TravelState | null;
+    /** WO 6.2 — the in-game day counter. Read-only to the mod. */
+    readonly worldDay?: number;
 }
 
 /** `API.md` §4.3 — only `aiTier` is exposed. */

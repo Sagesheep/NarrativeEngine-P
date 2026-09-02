@@ -212,28 +212,6 @@ describe('World Map solver — WO 4.1 §3.3: degenerate cases warn and do not dr
         const anchor = anchorById(result, 'road');
         expect(anchor).toBeDefined();
     });
-
-    it('a player-dragged pin on a transit node is respected and reported as manually placed', () => {
-        const a = place('a', 'A', [{ toId: 'b', band: 'local' }]);
-        const b = place('b', 'B', [{ toId: 'a', band: 'local' }]);
-        const road = transit('road', 'Road', [
-            { toId: 'a', band: 'local' },
-            { toId: 'b', band: 'local' },
-        ]);
-        const result = solveWorldMap({
-            locations: [a, b, road],
-            loreChunks: [],
-            existingAnchors: [
-                { locationId: 'road', x: 123, y: 456, pinned: true, source: 'player' },
-            ],
-            worldSeed: 'wo41-manual-pin',
-        });
-        const anchor = anchorById(result, 'road');
-        expect(anchor).toMatchObject({ x: 123, y: 456, pinned: true, source: 'player' });
-        const manualWarnings = result.report.warnings.filter(w =>
-            w.locationId === 'road' && w.message.includes('manually-pinned'));
-        expect(manualWarnings).toHaveLength(1);
-    });
 });
 
 describe('World Map solver — WO 4.1 §4: kind → terrain requirement table', () => {

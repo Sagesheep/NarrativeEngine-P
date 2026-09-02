@@ -4,6 +4,8 @@ import {
     composeDeparture,
     ensureConnection,
     travellableFrom,
+    mergeUpserts,
+    bandFromLegs,
     type DepartureDeps,
 } from '../departureComposer';
 
@@ -26,14 +28,10 @@ function makePlace(id: string, name: string, overrides: Partial<LocationEntry> =
 function makeDeps(): DepartureDeps & {
     updateLocation: ReturnType<typeof vi.fn>;
     updateContext: ReturnType<typeof vi.fn>;
-    injectToComposer: ReturnType<typeof vi.fn>;
-    setPendingTravelIntent: ReturnType<typeof vi.fn>;
 } {
     return {
         updateLocation: vi.fn(),
         updateContext: vi.fn(),
-        injectToComposer: vi.fn(),
-        setPendingTravelIntent: vi.fn(),
     };
 }
 
@@ -114,29 +112,29 @@ describe('ensureConnection', () => {
 });
 
 describe('composeDeparture', () => {
-    it('injects the byte-identical departure sentence and arms the intent', () => {
+    it('returns a TransitionResult with travel state, context patch, and ledger upserts', () => {
         const ledger: LocationEntry[] = [
             makePlace('a', 'A', { connections: [{ toId: 'b', band: 'far' }] }),
             makePlace('b', 'B', { connections: [{ toId: 'a', band: 'far' }] }),
         ];
         const deps = makeDeps();
-        const { sentence, intent } = composeDeparture({
+        const result = composeDeparture({
             fromId: 'a',
             toId: 'b',
             mode: 'cart',
             band: 'far',
             ledger,
             deps,
+            currentWorldDay: 10,
         });
-        expect(sentence).toBe('We set out for B by cart.');
-        expect(intent).toEqual({
-            toId: 'b',
-            mode: 'cart',
-            agency: 'free',
-            injectedText: 'We set out for B by cart.',
-        });
-        expect(deps.injectToComposer).toHaveBeenCalledWith('We set out for B by cart.');
-        expect(deps.setPendingTravelIntent).toHaveBeenCalledWith(intent);
+        expect(result).not.toBeNull();
+        expect(result!.travel).not.toBeNull();
+        expect(result!.travel!.toId).toBe('b');
+        expect(result!.travel!.mode).toBe('cart');
+        expect(result!.travel!.leg).toBe(1);
+        // WO 6.5: depart advances the day.
+        expect(result!.contextPatch.worldDay).toBe(11);
+        expect(result!.contextPatch.currentPlaceId).toBe(result!.travel!.transitId);
     });
 
     it('persists the chosen travel mode on the context', () => {
@@ -156,7 +154,7 @@ describe('composeDeparture', () => {
         expect(deps.updateContext).toHaveBeenCalledWith({ travelMode: 'horseback' });
     });
 
-    it('does not mutate the ledger when a direct connection exists', () => {
+    it('does not call updateLocation when a direct connection exists', () => {
         const ledger: LocationEntry[] = [
             makePlace('a', 'A', { connections: [{ toId: 'b', band: 'far' }] }),
             makePlace('b', 'B', { connections: [{ toId: 'a', band: 'far' }] }),
@@ -170,6 +168,8 @@ describe('composeDeparture', () => {
             ledger,
             deps,
         });
+        // ensureConnection does not call updateLocation when the connection
+        // already exists. But updateContext IS called for travelMode.
         expect(deps.updateLocation).not.toHaveBeenCalled();
     });
 
@@ -203,55 +203,77 @@ describe('composeDeparture', () => {
         })).toThrow();
     });
 
-    it('produces the same sentence regardless of which surface calls it', () => {
-        // The byte-identical guarantee — both the modal's TRAVEL HERE button
-        // and the composer TRAVEL button call this, so the outputs cannot drift.
-        const ledger: LocationEntry[] = [
-            makePlace('a', 'A', { connections: [{ toId: 'b', band: 'far' }] }),
-            makePlace('b', 'B', { connections: [{ toId: 'a', band: 'far' }] }),
-        ];
-        const first = composeDeparture({
-            fromId: 'a', toId: 'b', mode: 'cart', band: 'far', ledger, deps: makeDeps(),
-        });
-        const second = composeDeparture({
-            fromId: 'a', toId: 'b', mode: 'cart', band: 'far', ledger, deps: makeDeps(),
-        });
-        expect(first.sentence).toBe(second.sentence);
-        expect(first.intent).toEqual(second.intent);
-    });
-
-    it('WO 6.1 — the map surface produces the same sentence as Places and composer (anti-drift)', () => {
-        // WO 6.1 §5 test 3: "The committed departure sentence is byte-identical
-        // to the one the Places panel produces for the same destination and
-        // mode. This is the anti-drift test and it matters most."
-        //
+    it('WO 6.1 — all three surfaces produce the same observable travel state (anti-drift)', () => {
         // All three surfaces (map, Places panel, composer button) call
-        // `composeDeparture` with the same (fromId, toId, mode, band). The
-        // map surface's `WorldMapTravelBridge` calls it on receiving
-        // `mod.worldmap.travelRequest`; the other two call it directly. The
-        // sentence is built by `buildDepartureSentence(target.name, mode)`,
-        // so the three surfaces cannot drift.
+        // composeDeparture with the same parameters. The observable fields
+        // (toId, mode, leg, totalLegs, worldDay) cannot drift. The transitId
+        // is a random id per call (new transit node), so it is excluded.
         const ledger: LocationEntry[] = [
             makePlace('a', 'Beacon', { connections: [{ toId: 'b', band: 'regional' }] }),
             makePlace('b', 'Haven', { connections: [{ toId: 'a', band: 'regional' }] }),
         ];
-        // Places panel call:
         const placesResult = composeDeparture({
             fromId: 'a', toId: 'b', mode: 'foot', band: 'regional', ledger, deps: makeDeps(),
+            currentWorldDay: 5,
         });
-        // Composer button call:
         const composerResult = composeDeparture({
             fromId: 'a', toId: 'b', mode: 'foot', band: 'regional', ledger, deps: makeDeps(),
+            currentWorldDay: 5,
         });
-        // Map surface call (same parameters the bridge would use):
         const mapResult = composeDeparture({
             fromId: 'a', toId: 'b', mode: 'foot', band: 'regional', ledger, deps: makeDeps(),
+            currentWorldDay: 5,
         });
-        expect(placesResult.sentence).toBe(composerResult.sentence);
-        expect(placesResult.sentence).toBe(mapResult.sentence);
-        expect(mapResult.sentence).toBe('We set out for Haven by foot.');
-        // The intents are identical too.
-        expect(placesResult.intent).toEqual(composerResult.intent);
-        expect(placesResult.intent).toEqual(mapResult.intent);
+        // Compare observable fields (exclude transitId which is a random id).
+        const { transitId: _pt, ...placesObservable } = placesResult!.travel!;
+        const { transitId: _ct, ...composerObservable } = composerResult!.travel!;
+        const { transitId: _mt, ...mapObservable } = mapResult!.travel!;
+        expect(placesObservable).toEqual(composerObservable);
+        expect(placesObservable).toEqual(mapObservable);
+        expect(placesResult!.contextPatch.worldDay).toBe(6);
+        expect(composerResult!.contextPatch.worldDay).toBe(6);
+        expect(mapResult!.contextPatch.worldDay).toBe(6);
+    });
+
+    it('supports multi-hop routes via the hops parameter', () => {
+        const a = makePlace('a', 'A');
+        const b = makePlace('b', 'B');
+        const c = makePlace('c', 'C');
+        const ledger = [a, b, c];
+        const hops = [
+            { fromId: 'a', toId: 'b', transitId: 't1', legs: 2 },
+            { fromId: 'b', toId: 'c', transitId: 't2', legs: 3 },
+        ];
+        const result = composeDeparture({
+            fromId: 'a',
+            toId: 'c',
+            mode: 'foot',
+            band: 'regional',
+            ledger,
+            hops,
+            deps: makeDeps(),
+            currentWorldDay: 1,
+        });
+        expect(result).not.toBeNull();
+        expect(result!.travel!.toId).toBe('c');
+        expect(result!.travel!.totalLegs).toBe(5);
+        expect(result!.travel!.hops).toHaveLength(2);
+    });
+});
+
+describe('mergeUpserts', () => {
+    it('replaces entries by id', () => {
+        const a = makePlace('a', 'Old');
+        const b = makePlace('b', 'B');
+        const updated = makePlace('a', 'New');
+        const merged = mergeUpserts([a, b], [updated]);
+        expect(merged.find(l => l.id === 'a')!.name).toBe('New');
+    });
+});
+
+describe('bandFromLegs', () => {
+    it('maps a leg count to a distance band', () => {
+        expect(bandFromLegs(3, 'foot')).toBe('regional');
+        expect(bandFromLegs(1, 'foot')).not.toBe('adjacent');
     });
 });

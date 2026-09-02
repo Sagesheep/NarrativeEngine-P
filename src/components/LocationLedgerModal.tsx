@@ -7,7 +7,8 @@ import { connectionBand } from '../services/locationParser';
 import type { DistanceBand } from '../services/location/distance';
 import { DISTANCE_BANDS, formatDayRangeForMode } from '../services/location/distance';
 import { TRAVEL_MODES, type TravelMode, gridsPerDayFor } from '../services/location/travelModes';
-import { composeDeparture } from '../services/turn/departureComposer';
+import { composeDeparture, mergeUpserts } from '../services/turn/departureComposer';
+import { buildCheckpointMessage } from '../services/turn/travelPress';
 import { LocationSuggestionsPanel } from './location-ledger/LocationSuggestionsPanel';
 import { LocationEditForm } from './location-ledger/LocationEditForm';
 import { filterLocations } from '../utils/ledgerFilters';
@@ -43,8 +44,6 @@ export function LocationLedgerModal() {
         context,
         updateContext,
     } = useAppStore();
-    const injectToComposer = useAppStore(s => s.injectToComposer);
-    const setPendingTravelIntent = useAppStore(s => s.setPendingTravelIntent);
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
@@ -203,12 +202,12 @@ export function LocationLedgerModal() {
         updateContext({ currentPlaceId: loc.id, currentFeature: null });
     };
 
-    // ── WO3 §5 — TRAVEL HERE departure flow ───────────────────────────────
+    // ── WO 6.5 — TRAVEL HERE departure flow ────────────────────────────────
     // `TRAVEL HERE` is available on any place that is not the current place and
     // is not a transit node. Clicking it opens an inline panel with a band
     // picker (only when no direct connection exists) + a mode dropdown. The
-    // confirm composes a sentence into the composer and sets a pending travel
-    // intent; the composer is the confirmation — no modal confirm step.
+    // confirm departs directly — the engine applies the depart() transition
+    // and posts a checkpoint system message. No LLM call.
     const handleTravelHere = (loc: LocationEntry) => {
         if (loc.id === context.currentPlaceId) return;
         if (loc.kind === 'transit') return;
@@ -229,22 +228,41 @@ export function LocationLedgerModal() {
         const from = locationLedger.find(l => l.id === fromId);
         if (!from) return;
 
-        // WO 3.1 — shared path. Both the `TRAVEL HERE` row button and the
-        // composer `TRAVEL` button go through `composeDeparture`, so the
-        // injected sentence and the armed intent are byte-identical.
-        composeDeparture({
+        // WO 6.5 — direct departure. composeDeparture applies the depart()
+        // transition and returns the context patch + ledger upserts. No LLM
+        // call, no composer injection, no pending intent.
+        const state = useAppStore.getState();
+        const currentWorldDay = state.context.worldDay;
+        const result = composeDeparture({
             fromId,
             toId: travelTargetId,
             mode: travelMode,
             band: travelBand,
             ledger: locationLedger,
-            deps: {
-                updateLocation,
-                updateContext,
-                injectToComposer,
-                setPendingTravelIntent,
-            },
+            deps: { updateLocation, updateContext },
+            currentWorldDay,
         });
+        if (!result) return;
+
+        state.updateContext(result.contextPatch);
+        if (result.ledgerUpsert && result.ledgerUpsert.length > 0) {
+            state.setLocationLedger(mergeUpserts(locationLedger, result.ledgerUpsert));
+        }
+
+        if (result.travel) {
+            const newDay = result.contextPatch.worldDay ?? (currentWorldDay ?? 0) + 1;
+            state.addMessage(buildCheckpointMessage(result.travel, newDay, locationLedger));
+        } else {
+            // Single-day journey: arrived immediately.
+            const newDay = result.contextPatch.worldDay ?? (currentWorldDay ?? 0) + 1;
+            state.addMessage({
+                id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+                role: 'system',
+                name: 'travel-arrive',
+                content: `Day ${newDay} · arrived at ${target.name}`,
+                timestamp: Date.now(),
+            });
+        }
 
         // Close the modal + reset the travel panel.
         setTravelTargetId(null);
@@ -477,10 +495,10 @@ export function LocationLedgerModal() {
                         })}
                     </div>
 
-                    {/* WO3 §5 — TRAVEL HERE inline departure panel. Shown when the
-                        player clicked TRAVEL HERE on a place. Band picker only
-                        appears when no direct connection exists; mode dropdown
-                        always appears. Confirm composes the sentence and closes. */}
+                    {/* WO 6.5 — TRAVEL HERE inline departure panel. Shown when
+                        the player clicked TRAVEL HERE on a place. Band picker
+                        only appears when no direct connection exists; mode
+                        dropdown always appears. Confirm departs directly. */}
                     {travelTargetId && (
                         <div className="border-t border-border bg-void p-3 space-y-2 shrink-0">
                             <div className="flex items-center gap-2 text-terminal text-[10px] uppercase tracking-wider font-bold">
@@ -550,7 +568,7 @@ export function LocationLedgerModal() {
                                     onClick={handleConfirmTravel}
                                     className="flex-1 px-3 py-1.5 border border-terminal bg-terminal/10 rounded text-[10px] uppercase tracking-wider text-terminal hover:bg-terminal/20 transition-colors"
                                 >
-                                    Compose departure
+                                    Depart
                                 </button>
                                 <button
                                     onClick={handleCancelTravel}

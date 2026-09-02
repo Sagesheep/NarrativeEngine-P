@@ -161,7 +161,6 @@ describe('World Map field — hardening', () => {
         const after = solveWorldMap({
             locations: [...locations, location('c', 'Cinderkeep')],
             loreChunks: [],
-            existingAnchors: base.anchors,
             worldSeed: 'harden-seed',
             hardenedCells: hardened,
         });

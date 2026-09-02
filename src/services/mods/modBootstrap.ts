@@ -235,6 +235,12 @@ function buildNativeModContext(mod: {
                 currentPlaceId: fresh.context.currentPlaceId ?? null,
                 currentFeature: fresh.context.currentFeature ?? null,
                 ledger: fresh.locationLedger ?? [],
+                // WO 6.2 — carry the journey state through. `fresh.context`
+                // is the live `GameContext`, so `travel` and `worldDay` are
+                // the host's current values at read time. The mod reads
+                // `travel.leg` to draw the party on the right cell.
+                travel: fresh.context.travel ?? null,
+                worldDay: fresh.context.worldDay,
             };
         };
         return buildModContext({

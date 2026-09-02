@@ -6,6 +6,7 @@ import { toast } from '../Toast';
 import { OneShotInjectorButton } from '../OneShotInjectorButton';
 import { AbsoluteCommandButton } from '../AbsoluteCommandButton';
 import { TravelButton } from '../TravelButton';
+import { AbandonJourneyChip } from './AbandonJourneyChip';
 import { useTranslation } from '../../i18n/useTranslation';
 import { readRegion, subscribeToRegion, type RegisteredChromeEntry } from '../../services/mods/mounts/mountRegistry';
 import { registerComposerBuiltins, COMPOSER_BUILTIN_ID_SET } from '../../services/mods/mounts/composerBuiltins';
@@ -126,6 +127,10 @@ export function ChatActionStrip({
                     />
                 );
             })}
+            {/* WO 6.5 §4 — the Abandon journey chip. Renders only while a
+                journey is active. A movement system you cannot leave is a
+                trap. Placed at the end so it never displaces built-ins. */}
+            <AbandonJourneyChip />
         </div>
     );
 }
