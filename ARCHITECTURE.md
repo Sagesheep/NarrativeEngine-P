@@ -14,394 +14,334 @@ For architectural innovations see [`INNOVATIONS.md`](./INNOVATIONS.md).
 
 ```
 mainApp/
-├── server.js                       # Express entry point (127.0.0.1:3001, localhost-only)
+├── server.js                       # Express entry point (151 lines, 127.0.0.1:3001)
 ├── server/
-│   ├── vault.js                    # KeyVault class (AES-256-GCM, PBKDF2-SHA256 600k iter, NEV1 magic)
+│   ├── vault.js                    # KeyVault (394 lines, AES-256-GCM, PBKDF2-SHA256 600k/10k iter, NEV1 magic)
 │   ├── lib/
-│   │   ├── fileStore.js            # DATA_DIR paths, atomic JSON I/O (tmp+rename), path resolvers, campaign hash
-│   │   ├── embedder.js             # @huggingface/transformers mxbai-embed-large-v1 q8, 1024 dims, LRU 512
-│   │   ├── vectorStore.js          # better-sqlite3 + sqlite-vec, 3 vec0 tables (cosine), MMR (λ=0.7), embedding versioning
-│   │   ├── nlp.js                  # 6-pass NPC name detection, keyword extraction, importance, witness heuristic, timeline regex
-│   │   ├── entityResolution.js     # Levenshtein + 3-tier name normalization (exact → substring → fuzzy)
-│   │   ├── tts.js                  # Kokoro-82M q8 TTS, lazy warmup, SHA-256 WAV cache, ASAR workaround
+│   │   ├── fileStore.js            # DATA_DIR paths, atomic JSON I/O (tmp+rename), 21 campaign file suffixes, MD5 campaign hash
+│   │   ├── modLoader.js            # 1,990 lines — mod folder/manifest.json validation, sandbox trust, table/panel/tier decls (never throws)
+│   │   ├── tableRegistry.js        # 375 lines — descriptor schema, 5 hook kinds, generic + mod-table route mounts
+│   │   ├── modTableRegistry.js     # 240 lines — mod tables[] → descriptors (mod.<modId>.<name>, .mod-<modId>-<table>.json)
+│   │   ├── locationTable.js        # 13 lines — the one built-in descriptor: locations (.locations.json)
+│   │   ├── legacyTables.js         # 88 lines — retired-table registry (5 enemy files retired in Phase 8.2)
+│   │   ├── legacyAdoption.js       # 218 lines — idempotent legacy→mod-table copy, guarded by .migrations.json ledger
+│   │   ├── embedder.js             # 202 lines — mxbai-embed-large-v1 q8, 1024 dims, LRU 512
+│   │   ├── vectorStore.js          # 405 lines — better-sqlite3 + sqlite-vec, 3 vec0 tables (cosine), MMR (λ=0.7), embedding versioning
+│   │   ├── nlp.js                  # 361 lines — 6-pass NPC detection, keywords, importance, witness heuristic, timeline regex
+│   │   ├── entityResolution.js     # 52 lines — 3-tier name normalization (exact → substring → Levenshtein 2/3)
+│   │   ├── tts.js                  # 209 lines — Kokoro-82M q8, lazy warmup, SHA-256 WAV cache, ASAR workaround
 │   │   ├── embedJobs.js            # In-memory bulk embed job tracker (non-blocking signal)
 │   │   ├── writeLock.js            # Per-campaign async write serializer (promise-chain lock)
-│   │   ├── serverError.js         # AppError class + centralized Express error formatter
-│   │   └── asyncHandler.js        # One-liner Express async route wrapper
-│   ├── routes/                     # 16 route modules, all export create<Name>Router() factories
-│   │   ├── vault.js                # /api/vault/* — 11 endpoints, strict allowlist validation on PUT /keys
+│   │   ├── serverError.js          # AppError class + centralized Express error formatter
+│   │   └── asyncHandler.js         # One-liner Express async route wrapper
+│   ├── routes/                     # 18 route modules, all export create<Name>Router() factories (96 endpoints)
+│   │   ├── vault.js                # /api/vault/* — 12 endpoints, strict allowlist validation on PUT /keys
 │   │   ├── settings.js             # /api/settings — GET/PUT, stripApiKeys before persist
-│   │   ├── campaigns.js            # /api/campaigns/:id — 12 endpoints, lastPlayedAt bump, lore bulk-embed
+│   │   ├── campaigns.js            # /api/campaigns/:id — 14 endpoints, migrations list, relationship-memory, lore bulk-embed
 │   │   ├── archive.js              # /api/campaigns/:id/archive — 18 endpoints (append, scenes, semantic-candidates, reindex)
-│   │   ├── chapters.js             # /api/campaigns/:id/archive/chapters — 7 endpoints (seal, merge, split)
+│   │   ├── chapters.js             # /api/campaigns/:id/archive/chapters — 10 endpoints (seal, merge, split, refit)
 │   │   ├── timeline.js             # /api/campaigns/:id/timeline — 3 endpoints, lazy v1→v2 migration from facts.json
 │   │   ├── facts.js                # /api/campaigns/:id/facts + /entities — 4 endpoints, entity merge
-│   │   ├── backups.js              # /api/campaigns/:id/backup(s) — 5 endpoints, pre-restore safety backup
+│   │   ├── backups.js              # /api/campaigns/:id/backup(s) — 6 endpoints, labels, pre-restore safety backup
 │   │   ├── assets.js               # /api/assets/{upload,download} — 2 endpoints, path-traversal guard
 │   │   ├── overworld.js            # /api/campaigns/:id/overworld — 3 endpoints, LLM generation (120s timeout)
-│   │   ├── transfer.js             # /api/campaigns/:id/export + /import — 2 endpoints, bundle v1, background re-embed
+│   │   ├── transfer.js             # /api/campaigns/:id/export + /import — 339 lines, bundle, background re-embed
 │   │   ├── divergence.js           # /api/campaigns/:id/divergence — GET/PUT
-│   │   ├── rules.js                # /api/campaigns/:id/rules/embed|search|reindex — RAG rules chunk endpoints
+│   │   ├── rules.js                # /api/campaigns/:id/rules — 4 endpoints (embed, embed delete, search, reindex)
 │   │   ├── llmProxy.js             # /api/llm/proxy — transparent streaming proxy (CORS dodge for NVIDIA etc.)
-│   │   ├── embedding.js            # /api/embeddings/info — global embedding model info
-│   │   └── tts.js                  # /api/tts/{status,init,voices,synthesize} — Kokoro TTS endpoints
-│   └── services/
-│       ├── archiveService.js      # 826 lines — appendScene, rollback, deleteScene, updateSceneAssistant, reindex
-│       ├── archiveRepository.js    # Pure file I/O layer (no locks, no business logic)
-│       ├── archiveEvents.js       # Shared EventEmitter for archive:written (breaks circular import)
-│       ├── nlpPipeline.js         # Deferred LLM extraction (witness + timeline), setImmediate after res.json()
-│       ├── llmProxy.js            # Server-side LLM calls (witness classification, timeline events), retry+backoff
-│       ├── backup.js              # Campaign backup (directory-based) + auto-prune, MD5 hash dedup
-│       └── vectorService.js       # Thin wrapper over vectorStore + embedder + embedJobs (architectural seam)
+│   │   ├── embedding.js            # /api/embedding/runtime + /api/system/specs — model info + system specs
+│   │   ├── tts.js                  # /api/tts — 6 endpoints (status, init, voices, check-cache, cached, generate)
+│   │   ├── mods.js                 # /api/mods — 2 endpoints (manifest list + asset serving, installed→bundled fallback)
+│   │   └── sceneImages.js          # /api/scene-images — 3 endpoints (compose, generate, attachment delete)
+│   ├── services/
+│   │   ├── archiveService.js      # 978 lines — appendScene, rollback, deleteScene, refit, reindex (20 exports)
+│   │   ├── archiveRepository.js   # 136 lines — pure file I/O layer (no locks, no business logic)
+│   │   ├── archiveEvents.js       # Shared EventEmitter for archive:written (breaks circular import)
+│   │   ├── nlpPipeline.js         # 112 lines — deferred LLM extraction (witness + timeline), setImmediate after res.json()
+│   │   ├── llmProxy.js            # 193 lines — witness classification, timeline events, retry+backoff, 12-predicate allowlist
+│   │   ├── backup.js              # 163 lines — create/restore/label/prune, MD5 hash dedup
+│   │   ├── vectorService.js       # 137 lines — thin wrapper over vectorStore + embedder + embedJobs
+│   │   ├── chapterFitting.js      # 355 lines — chapter repair/hydrate/refit/repoint (CHAPTER_SCENE_TARGET=25)
+│   │   ├── imageProvider.js       # 203 lines — ComfyUI vs OpenAI-compatible vs OpenRouter routing
+│   │   ├── comfyUiProvider.js     # 422 lines — native ComfyUI txt2img (built-in workflow or user JSON with %placeholders%)
+│   │   ├── openRouterImage.js     # 77 lines — OpenRouter images glue (aspect_ratio, b64_json)
+│   │   └── sceneImageComposerService.js # 136 lines — LLM-composed illustration briefs (pure visual terms)
+│   └── __tests__/                  # 40 test files (modLoader 1,546 lines, nlp 479, chapterFitting 351, ...)
 ├── src/
 │   ├── main.tsx                    # Vite entry → createRoot(<App/>)
-│   ├── App.tsx                     # Root layout: vault-gate, ErrorBoundary, CampaignHub | Header+Drawer+ChatArea+modals
+│   ├── App.tsx                     # 221 lines — vault-gate, ErrorBoundary, CampaignHub | Header+Drawer+ChatArea+modals
+│   ├── version.ts                  # Version constant source
 │   ├── index.css                   # Tailwind 4 entry
 │   ├── lib/
 │   │   └── apiBase.ts              # API_BASE / ASSET_BASE (file:// → absolute localhost:3001, else relative /api)
-│   ├── types/                      # 12 files, ~1,062 lines, barrel at index.ts
+│   ├── types/                      # 14 files, barrel at index.ts
 │   │   ├── index.ts                # Barrel re-export
-│   │   ├── llm.ts                  # ApiFormat, AiTier, ThinkingEffort, LLMProvider, AIPreset, AppSettings (44 fields)
-│   │   ├── character.ts           # InventoryItem, CharacterProfile, CharacterTrait, NPCEntry (~46 fields), PersonalityHex, Goal
-│   │   ├── archive.ts             # ArchiveIndexEntry, ArchiveScene, ArchiveChapter, TimelineEvent, TIMELINE_PREDICATES, SUPERSEDE_RULES
-│   │   ├── campaign.ts            # SwipeVariant, ChatMessage (with sceneId, swipeSet, pendingCommit), Campaign, PinnedExcerpt
+│   │   ├── llm.ts                  # ApiFormat, AiTier, LLMProvider, AIPreset, AppSettings (47 fields: 40 current + 7 legacy)
+│   │   ├── character.ts           # InventoryItem, CharacterProfile, CharacterTrait, NPCEntry, PersonalityHex, Goal
+│   │   ├── archive.ts              # ArchiveIndexEntry, ArchiveScene, ArchiveChapter, TimelineEvent, TIMELINE_PREDICATES
+│   │   ├── campaign.ts            # SwipeVariant, ChatMessage (attachments, sceneId, swipeSet), Campaign, PinnedExcerpt
 │   │   ├── divergence.ts          # DivergenceEntry, DivergenceRegister (v2), TopicClusters
-│   │   ├── gamecontext.ts        # GameContext (~70 fields), PipelinePhase, DiceSystemConfig, migrateLegacyContext()
-│   │   ├── arc.ts                # ArcType, ArcStance, ArcRecord, ArcWorldState
+│   │   ├── gamecontext.ts        # GameContext (~65 fields incl. travel trio), migrateLegacyContext()
+│   │   ├── arc.ts                # ArcType, ArcStance, ArcRecord
 │   │   ├── loot.ts               # LootTree, LootProfile, LootDropResult, ArmedLoot
 │   │   ├── lore.ts               # LoreChunk, RuleChunkMeta, WorldLoreDraft
 │   │   ├── location.ts           # LocationEntry, LocationConnection, LocationSuggestion
-│   │   └── map.ts                # WorldMap, BiomeDefinition, WorldAnchor, MapPin, EngineSeed
+│   │   ├── map.ts                # WorldMap, BiomeDefinition, WorldAnchor, MapPin, EngineSeed
+│   │   └── sceneImage.ts         # SceneImageAspect, SceneImageAttachment, SceneImageDraft, prompt package types
 │   ├── data/
-│   │   └── titles.json            # Nobility/military/religious/family/academic titles for NPC name stripping
+│   │   ├── titles.json            # Nobility/military/religious/family/academic titles for NPC name stripping
+│   │   └── portraitStyles.ts     # Persisted portrait art-style options (incl. legacy values)
+│   ├── i18n/                       # Dependency-free i18n core
+│   │   ├── index.ts               # 261 lines — LOCALES registry, registerModTranslations
+│   │   ├── types.ts               # Typed TranslateKey
+│   │   ├── useTranslation.ts      # React binding
+│   │   └── locales/               # en (master, 336 lines), ko, ru, pl, id, pseudo (test)
 │   ├── store/
-│   │   ├── useAppStore.ts         # Zustand composition root (6 slices via create<AppState>()((...a) => ({...})))
-│   │   ├── campaignStore.ts       # Bare async fetch wrappers (NOT a Zustand store)
-│   │   ├── campaignHydrator.ts    # hydrateCampaign() — parallel load + migration
+│   │   ├── useAppStore.ts         # 35 lines — Zustand composition root (6 slices)
+│   │   ├── campaignStore.ts       # CampaignState type + fetch/save helpers (NOT a Zustand store)
+│   │   ├── campaignHydrator.ts    # hydrateCampaign() — parallel load, context.arcs → mod.arc.arcs migration
+│   │   ├── relationshipMemoryState.ts  # Narrow typed read/write seam (avoids whole-store imports in services)
+│   │   ├── relationshipMemoryStore.ts  # Server persistence for relationship-memory collections
 │   │   └── slices/
-│   │       ├── settingsSlice.ts   # Settings + vault lifecycle, 6 endpoint selectors (getActiveXEndpoint)
+│   │       ├── settingsSlice.ts   # 458 lines — settings + vault lifecycle, 7 endpoint selectors
 │   │       ├── settingsHelpers.ts # Pure helpers, defaults, migrateSettings (3 legacy shapes), debouncedSaveSettings
-│   │       ├── campaignSlice.ts   # Largest slice — 19 state keys, 35+ actions, debouncedSaveCampaignState (1s)
-│   │       ├── chatSlice.ts       # Messages, condenser, divergence register (~20 actions), pinned excerpts, rename modal
-│   │       ├── uiSlice.ts         # 27 ephemeral toggles (modals, armed roll/loot/oneshot, composerInjection, pipelinePhase)
-│   │       ├── mapSlice.ts        # Overworld map state, generate/load/save/addPin/deletePin
+│   │       ├── campaignSlice.ts   # 814 lines — largest slice, ~45 actions, debouncedSaveCampaignState (1s)
+│   │       ├── chatSlice.ts       # 616 lines — messages, condenser, divergence register (18 actions), attachments
+│   │       ├── uiSlice.ts         # 182 lines — 16 toggles + contextScreen + armed states + absoluteCommand
+│   │       ├── mapSlice.ts        # Overworld map state
 │   │       └── worldLoreSlice.ts  # World-builder drafts (ONLY slice using localStorage: nn_world_lore_drafts)
 │   ├── services/
 │   │   ├── apiClient.ts           # Frontend HTTP client (api.archive.*, api.chapters.*, api.vault.*, etc.)
 │   │   ├── chatEngine.ts          # Barrel: payloadBuilder + llmService + npcGeneration + tagGeneration
 │   │   ├── archiveMemory.ts       # Barrel re-export from archive-memory/
-│   │   ├── saveFileEngine.ts      # sealChapterCombined (chapter seal LLM call with divergences + witness corrections)
+│   │   ├── saveFileEngine.ts      # Thin re-export; real logic in saveFile/
+│   │   ├── saveFile/              # combinedSeal (seal + divergence + title one call), chapterSummary, headerIndex
 │   │   ├── campaignInit.ts        # New campaign initialization (chunk lore, seed engines, parse NPCs)
-│   │   ├── characterProfileParser.ts # PC profile auto-scan
-│   │   ├── characterTraitParser.ts # PC trait auto-scan
-│   │   ├── inventoryParser.ts     # Inventory auto-scan
+│   │   ├── characterProfileParser.ts / characterTraitParser.ts / inventoryParser.ts # PC auto-scans
 │   │   ├── locationParser.ts      # Location auto-scan + connectionBand
 │   │   ├── locationHeader.ts      # resolveLocationHeader (resolved/feature-only/unknown)
 │   │   ├── locationEnrich.ts      # queueLocationEnrichment (LLM background fill)
-│   │   ├── engineRolls.ts         # (also in services/engine/) — re-export
+│   │   ├── sceneImagesClient.ts   # Scene image HTTP client
 │   │   ├── llm/
-│   │   │   ├── llmService.ts       # sendMessage streaming (Ollama/OpenAI/Claude/Gemini + DSML fallback)
-│   │   │   ├── llmRequestQueue.ts # Per-endpoint adaptive concurrency (cloud=∞, local=1), 429/503/529 recovery
+│   │   │   ├── llmService.ts       # sendMessage streaming (Ollama/OpenAI/Claude/Gemini)
+│   │   │   ├── llmRequestQueue.ts # 204 lines — per-endpoint adaptive concurrency (cloud=∞, local=1), 429/503/529 recovery
 │   │   │   ├── apiClient.ts        # api.* barrel (archive, chapters, facts, timeline, entities, campaigns, settings, backups, vault, rules)
 │   │   │   ├── llmFetch.ts         # Drop-in fetch replacement → /llm/proxy (CORS dodge)
-│   │   │   ├── cacheTelemetry.ts  # DeepSeek prompt-cache hit/miss telemetry (14-day retention)
-│   │   │   ├── timeouts.ts        # AI_CALL_TIMEOUT_MS=120s, ENGINE_CALL_TIMEOUT_MS=30s
+│   │   │   ├── cacheTelemetry.ts  # DeepSeek prompt-cache hit/miss telemetry (14-day retention, localStorage)
+│   │   │   ├── timeouts.ts        # AI_CALL_TIMEOUT_MS=180s, ENGINE_CALL_TIMEOUT_MS=30s
 │   │   │   └── utilityCallTracker.ts # In-flight utility call UI strip + EXTEND button (useSyncExternalStore)
-│   │   ├── turn/                   # 16 production files + 2 tests
-│   │   │   ├── turnOrchestrator.ts # runTurn() — main game loop (509 lines)
-│   │   │   ├── pendingCommit.ts   # Swipe lifecycle + commit (298 lines, PendingTurnSnapshot singleton)
-│   │   │   ├── contextGatherer.ts # Parallel 5-stage gather with Promise.race safety backstop
-│   │   │   ├── contextRecommender.ts # LLM-based context selection (high priority, tracked)
-│   │   │   ├── postTurnPipeline.ts # 3 parallel tracks (archive/NPC/pressure) + on-stage + agency + arc ticks (774 lines)
-│   │   │   ├── aiTier.ts          # TierFeature matrix (22 features), NPC_UPDATE_COOLDOWN
+│   │   ├── turn/                   # 28 production files + tracks/ (24 files)
+│   │   │   ├── turnOrchestrator.ts # 234 lines — runTurn() thin composition root (9 stages)
+│   │   │   ├── turnStages.ts      # 909 lines — the 9 named stages
+│   │   │   ├── turnContext.ts     # 194 lines — TurnContext data bus (WO-P1-01)
+│   │   │   ├── pendingCommit.ts   # 703 lines — swipe lifecycle, single-flight commit, durable commit
+│   │   │   ├── postTurnPipeline.ts # 524 lines — prologue/post-turn/sequential/post-commit track orchestration
+│   │   │   ├── contextGatherer.ts # 405 lines — parallel gather with 180s race backstop
+│   │   │   ├── contextRecommender.ts # LLM-based context selection
+│   │   │   ├── hostFacade.ts      # 566 lines — mod-facing facade (model.call 6 roles, table adapter, reactive reads)
+│   │   │   ├── aiTier.ts          # 189 lines — TierFeature matrix (27 features), NPC_UPDATE_COOLDOWN
+│   │   │   ├── blockEnablement.ts # 63 lines — isBlockEnabled + blockTokenCap
+│   │   │   ├── tierBlockRegistry.ts # 116 lines — mod-declared tier entries
+│   │   │   ├── absoluteCommand.ts # 39 lines — binding OOC block, placed LAST
 │   │   │   ├── toolHandlers.ts    # Lore/notebook/dice/inventory tool handlers
-│   │   │   ├── toolRegistry.ts    # Declarative tool registry (accumulation mode, trace flag)
-│   │   │   ├── contextMinifier.ts # Markdown strip + ~40 field abbreviations + category-prefixed lore
-│   │   │   ├── sceneContinue.ts   # Continue button (USER-role directive, R6 last-segment word count, 120-word floor)
+│   │   │   ├── toolRegistry.ts    # Declarative tool registry
+│   │   │   ├── contextMinifier.ts # Markdown strip + field abbreviations + category-prefixed lore
+│   │   │   ├── sceneContinue.ts   # Continue button (MAX_CONTINUE_TOOL_CALLS=3)
 │   │   │   ├── sceneStakesTag.ts  # [[SCENE_STAKES]] tag strip + LLM fallback classifier
 │   │   │   ├── sceneStakesTelemetry.ts # localStorage counter for fallback frequency
-│   │   │   ├── swipeGeneration.ts # Lazy swipes 2-5 from cached payload, session temp offset
-│   │   │   ├── tagGeneration.ts   # AI tag populate for 8 engine fields
-│   │   │   └── gatherProgress.ts   # useSyncExternalStore stage indicator
-│   │   ├── payload/                # 8 production files + 1 test
-│   │   │   ├── payloadBuilder.ts  # 5-block assembly + Anthropic cache_control annotations
-│   │   │   ├── stable.ts          # Static system prompt (rules, canon, header, starter, reasoning-model guard)
-│   │   │   ├── volatile.ts         # Dynamic system prompt (PC stub, inventory, profile traits, location, notebook)
-│   │   │   ├── world.ts           # World block (archive recall, events, lore, timeline, tiered NPCs, digests, divergence) — 532 lines
-│   │   │   ├── history.ts          # History fit (newest-first), ephemeral tool cleanup, orphan protection, scene-note depth injection
-│   │   │   ├── budgets.ts         # computeBudgets (rules 10%, NPC floor 5%, stable/world/volatile split)
+│   │   │   ├── swipeGeneration.ts # Lazy swipes 2-5 from cached payload
+│   │   │   ├── tagGeneration.ts   # AI tag populate for engine fields
+│   │   │   ├── gatherProgress.ts # useSyncExternalStore stage indicator
+│   │   │   ├── directorBrief.ts   # 448 lines — Director Brief LLM call + per-(campaignId,userMessage) cache
+│   │   │   ├── directorWatchdog.ts # 342 lines — deterministic off-screen NPC dossier
+│   │   │   ├── travelState.ts     # 396 lines — pure travel state machine (depart/advance/arrive/halt/jump)
+│   │   │   ├── travelPress.ts     # One press = one day = one checkpoint message
+│   │   │   ├── travelFacts.ts     # Max 3 hard world facts for the Continuity Director
+│   │   │   ├── departureComposer.ts # Shared departure flow (map/Places/composer TRAVEL)
+│   │   │   ├── mapTravelPreview.ts # Emits mod.worldmap.planTravel for map preview
+│   │   │   └── tracks/            # runner.ts + npc/pressure + prologue/autoProfile/digestClear +
+│   │   │       │                   # sequential/agency/locationHeader/onStage/repression +
+│   │   │       │                   # postCommit (chapterSeal, eventExtraction, inventoryScan, locationScan,
+│   │   │       │                   #   pcDrift, profileScan, relationshipMemory, traitScan, travelAdvance)
+│   │   │       └── __tests__/      # 25 test files + 8 in tracks/
+│   │   ├── payload/                # 11 production files + contributions/ (5 files)
+│   │   │   ├── payloadBuilder.ts  # 394 lines — 5-block assembly + cache_control + contribution registry
+│   │   │   ├── stable.ts          # 117 lines — system prompt (rules, canon, header, starter, reasoning)
+│   │   │   ├── volatile.ts        # 364 lines — location, notebook, profile traits, inventory
+│   │   │   ├── volatileSegments.ts # 231 lines — volatile-block segment seam (id = budget claim id)
+│   │   │   ├── world.ts           # 659 lines — recall, elevated scenes, slotted RAG, lore, timeline, NPCs, relations
+│   │   │   ├── history.ts         # 255 lines — LOD chapter rendering, newest-first fit, tool cleanup
+│   │   │   ├── budgets.ts         # 71 lines — delegates to budgetClaims
+│   │   │   ├── budgetClaims.ts    # 290 lines — budget-claim registry (rules 10%, NPC floor 5%, stable 15/25%, world 60/40%)
+│   │   │   ├── lodRenderer.ts      # 281 lines — LOD tiers (summary|synopsis|dropped), witness-filtered cascade
 │   │   │   ├── pinnedMemories.ts  # [PINNED MEMORIES] block formatter
-│   │   │   └── traceCollector.ts   # Debug-only trace + section collector
-│   │   ├── archive-memory/         # 13 production files + 2 tests
-│   │   │   ├── recall.ts          # RRF fusion entry (IDF + embedding + divergence surfacing + dynamic max)
+│   │   │   ├── traceCollector.ts  # Debug-only trace + section collector
+│   │   │   └── contributions/     # registry, assemble, builtins (10 modules + GM_REMINDER), extensions, types
+│   │   ├── archive-memory/         # 17 production files
+│   │   │   ├── recall.ts          # RRF fusion (activations → IDF → boost → score → embed rank → fuse → dynamic max)
 │   │   │   ├── idf.ts             # Signature-gated IDF cache (BM25 smoothing, campaign-scoped)
-│   │   │   ├── scoring.ts         # scoreEntry (POV multipliers), extractContextActivations, expandActivationsWithFacts (1-hop + 2-hop)
-│   │   │   ├── dynamicMax.ts      # Consensus-based recall ceiling (lean/standard/deep)
-│   │   │   ├── condenser.ts       # VERBATIM_WINDOW=10, budget ratios (tight 0.5 / default 0.75 / deep 0.90)
-│   │   │   ├── deepArchiveSearch.ts # 2-round LLM deep scan (chapter → scene → unscanned → partitioned summarize)
-│   │   │   ├── archiveChapterEngine.ts # Auto-seal (threshold 25 OR new SESSION_ID) + iterative funnel (3D score → LLM validate → scene score)
-│   │   │   ├── archiveManager.ts  # Rollback + clear (pre-rollback backup, condenser-aware)
-│   │   │   ├── archivePlanner.ts  # LLM planner (rank candidate scenes by event relevance, max 5)
+│   │   │   ├── scoring.ts         # scoreEntry, activations, fact expansion (1-hop + 2-hop), event boost
+│   │   │   ├── dynamicMax.ts      # Consensus-based recall ceiling (lean 5/4/3, standard 10/7/5, deep 12/9/7)
+│   │   │   ├── dynamicElevation.ts # WO-11 — scoped vector search, synopsis-tier verbatim scenes
+│   │   │   ├── slottedRag.ts      # WO-12 — on-stage witness-filtered one-line snippets (MAX_SCENES=4)
+│   │   │   ├── condenser.ts       # VERBATIM_WINDOW=10, ratios (tight 0.5 / default 0.75 / deep 0.90)
+│   │   │   ├── deepArchiveSearch.ts # 400 lines — 2-round LLM deep scan
+│   │   │   ├── archiveChapterEngine.ts # 423 lines — auto-seal (25 OR new SESSION_ID) + iterative funnel
+│   │   │   ├── archiveManager.ts  # Rollback + clear (pre-rollback backup)
+│   │   │   ├── archivePlanner.ts  # LLM planner (rank candidate scenes)
 │   │   │   ├── backfillRunner.ts  # Frontend wrapper for server reindex endpoint
-│   │   │   ├── importanceRater.ts # LLM 1-5 rating + heuristic fallback (death/betrayal/MEMORABLE keywords)
-│   │   │   ├── sceneEventExtractor.ts # LLM structured event extraction (max 3, 12 event types)
-│   │   │   └── witnessCapture.ts  # Regex NPC ID extraction + LLM fallback
-│   │   ├── npc/                    # 15 production files + 6 tests
-│   │   │   ├── npcDetector.ts     # 7-pass name extraction + fail-closed LLM validator
+│   │   │   ├── importanceRater.ts # LLM 1-5 rating + heuristic fallback
+│   │   │   ├── sceneEventExtractor.ts # LLM structured event extraction
+│   │   │   ├── witnessCapture.ts  # Regex NPC ID extraction + LLM fallback
+│   │   │   ├── relationshipMemory.ts # WO-1 — per-pair directed memory records (mood 8, impact 4)
+│   │   │   └── synopsisBackfill.ts # WO-07 — user-triggered synopsis generation for sealed chapters
+│   │   ├── npc/                    # 23 production files (some tests co-located)
+│   │   │   ├── npcDetector.ts     # 261 lines — multi-pass extraction + fail-closed LLM validator
 │   │   │   ├── npcBehaviorDirective.ts # PLAY AS directive, drift alert, knowledge boundary, reaction menu line
-│   │   │   ├── npcPressureTracker.ts # Per-NPC ignored/engaged pressure, auto-archive stale
-│   │   │   ├── reactionMenu.ts    # Engine-build reaction menu (sycophant-anti-pattern)
-│   │   │   ├── reactionRepression.ts # Inner repression layer (concealed/leaked, BURST_THRESHOLD=4)
+│   │   │   ├── npcPressureTracker.ts # Per-NPC pressure, auto-archive stale
+│   │   │   ├── reactionMenu.ts    # Engine-build reaction menu (anti-sycophancy)
+│   │   │   ├── reactionRepression.ts # Inner repression (concealed/leaked, BURST_THRESHOLD=4)
 │   │   │   ├── relationMeter.ts   # Hidden sub-band relation meter (asymmetric rise/fall)
-│   │   │   ├── hexRoll.ts         # Weighted-never-walled Gaussian hex roll inside envelope
-│   │   │   ├── manualAdd.ts       # Add NPC from selection (empty/ambiguous/update/create)
-│   │   │   ├── npcManualResolve.ts # Normalize + resolve against ledger
-│   │   │   ├── npcReview.ts       # AI triage (40-NPC batches, 24h sentinel timeout)
-│   │   │   ├── portraitPrompt.ts  # Single-subject portrait prompt builder
-│   │   │   ├── signatureKit.ts    # Signature kit bounds + sanitizer (KIT_MAX_ENTRIES=8)
-│   │   │   ├── troublemaker.ts    # 4 trouble arc seeds (legacy; Arc Engine is successor)
-│   │   │   ├── dispositionGroups.ts # Re-export from @narrative/engine (ENVELOPES, MODIFIERS, GROUP_KEYS)
-│   │   │   ├── hexVoiceGuide.ts   # Re-export from @narrative/engine (buildVoiceDirective)
-│   │   │   └── agency/             # 17 production files + 9 tests
-│   │   │       ├── agencyEngine.ts # runAgencyTick + bumpOnStageActivity + runTimeskipPath (386 lines)
-│   │   │       ├── agencyBands.ts  # Word-band tables (relations -3..+3, 6 hex axes 7 words each)
-│   │   │       ├── agencyPools.ts  # 41 TRAIT_VOCAB, 60 WANT_POOL, 56 ACTION_POOL, 29 REACTION_VOCAB
-│   │   │       ├── agencyConstants.ts # All tunable knobs (DRIVE_MULT, KARMA_CAP=6, GOAL_BASE_DC=10, etc.)
-│   │   │       ├── agencyDice.ts   # karmaBonus, bandFromMargin, rollGoal, nextFailStreak
-│   │   │       ├── agencyDrift.ts  # hexDelta (clamp ±1), applyGoalOutcomeNudge, applyTierCross
-│   │   │       ├── agencyGoals.ts  # buildGoalsFromWants, upgradeWantsToGoals (idempotent)
-│   │   │       ├── agencyHeartbeat.ts # rollHeartbeat (d100 vs DC 20→0), buildProximityRoster
-│   │   │       ├── agencyLifecycle.ts # isAgencyEligible, filterUpdatableNPCs, completeShortWant
-│   │   │       ├── agencyProgress.ts # progressDelta, applyBandToGoal, canCrossTier, consumeTierCross
-│   │   │       ├── agencySelection.ts # driveMult, contextAllow, goalScore, chooseTick
-│   │   │       ├── agencyTimeskip.ts # ticksForDuration (cap 10), allocateTicks
-│   │   │       ├── agencyTimeskipRun.ts # detectTimeskip (13 regex), runTimeskip, buildReturnBeatGrounding
-│   │   │       ├── agencyCollision.ts # goalsCoinide, relationTone, detectCollision, resolveTangle
-│   │   │       ├── agencyDigest.ts # TickDelta, buildDigest (player vs debug view)
-│   │   │       ├── agencyAudition.ts # currentActivity (lazy decay), activityBumpPatch, selectTickTarget
-│   │   │       └── agencyWantDraw.ts # drawShortWants(4), drawMediumWants(3) — Fisher-Yates partial shuffle
-│   │   ├── npc-generation/         # Shared profile + portrait generation
-│   │   │   ├── shared.ts          # generateNPCProfile, updateExistingNPCs, backfillNPCDrives
-│   │   │   ├── charIntroEngine.ts # rollCharacterIntroEngine (tier-gated)
-│   │   │   ├── profileRefit.ts    # Phase 1 NPC generation refit
-│   │   │   └── __tests__/         # signatureKit, profileRefit tests
-│   │   ├── rules/
-│   │   │   ├── defaultRules.ts    # 241-line system rules template literal (with HTML-comment RAG hints)
-│   │   │   ├── rulesIndexer.ts    # indexRules, deriveDefaultMeta, LLM keyword extraction
-│   │   │   └── rulesRetriever.ts  # retrieveRelevantRules (classic + idf-rrf algorithms)
-│   │   ├── lore/
-│   │   │   ├── loreChunker.ts     # chunkLoreFile, classifyCategory (B7 [CHUNK: TYPE] fix)
-│   │   │   ├── loreRetriever.ts   # retrieveRelevantLore (IDF+RRF, linked-entity cross-pull)
-│   │   │   ├── loreNPCParser.ts   # parseNPCsFromLore (deterministic canon NPC seeder)
-│   │   │   ├── loreEngineSeeder.ts # extractEngineSeeds (surprise/encounter/world engine seeds)
-│   │   │   ├── loreCheck.ts       # runLoreCheck (consistency verifier with rewrite)
-│   │   │   ├── loreKeywordEnricher.ts # enrichLoreKeywords (LLM batch, version-gated)
-│   │   │   ├── lootTreeLoader.ts  # loadLootTree (WO-03 validator, never throws)
-│   │   │   ├── worldLoreAI.ts     # formatLoreText, expandLoreText (auxiliary AI)
-│   │   │   ├── worldLoreExport.ts # exportDraftToMarkdown + browser download
-│   │   │   └── worldLoreImport.ts # classifyPastedLore (12 categories via LLM)
-│   │   ├── campaign-state/
-│   │   │   ├── divergenceRegister.ts # renderRegisterForPayload, mergeSealEntries, EMPTY_REGISTER
-│   │   │   ├── knowledgeScope.ts  # isKnownToAnyOnStage, parseKnownByToken
-│   │   │   └── timelineResolver.ts # resolveTimeline (supersession rules), formatResolvedForContext
-│   │   ├── engine/
-│   │   │   ├── engineRolls.ts     # rollEngines, rollDiceFairness, resolveManualRoll (3-gate)
-│   │   │   ├── diceTier.ts        # mapTier (5 outcome bands: Catastrophe/Failure/Success/Triumph/Narrative Boon)
-│   │   │   ├── lootEngine.ts      # resolveLootDrop (WO-05 loot tree walker)
-│   │   │   └── pcCreationScript.ts # PC point-buy script (PC_POINT_BUY config)
-│   │   ├── arc/
-│   │   │   └── arcEngine.ts       # runArcTick, runArcSpawn (7-type systemic conflict engine)
-│   │   ├── oneshot/
-│   │   │   └── oneShotEvents.ts   # buildOneShotDirective (manual event injector)
-│   │   ├── ooc/
-│   │   │   ├── askGmHandoff.ts    # summarizeAskGmConversation (brief for next turn)
-│   │   │   ├── oocService.ts      # answerOocQuestion (streaming)
-│   │   │   ├── context.ts         # OocCampaignSnapshot builder
-│   │   │   └── retrieval.ts       # OOC-specific retrieval
-│   │   ├── mapEngine/
-│   │   │   └── worldOrchestrator.ts # generateWorldMap, loadWorld
-│   │   ├── context-gatherer/       # Sub-stages of gatherContext
-│   │   │   ├── semanticCandidates.ts # gatherSemanticCandidates
-│   │   │   ├── archiveRecall.ts   # gatherArchiveRecall
-│   │   │   ├── recommenderGather.ts # gatherRecommender
-│   │   │   ├── loreRulesGather.ts # gatherLoreAndRules
-│   │   │   ├── pinnedChaptersGather.ts # injectPinnedChapters
-│   │   │   ├── deepSearchGather.ts # gatherDeepSearch
-│   │   │   └── plannerGather.ts   # gatherPlannerSceneIds
-│   │   ├── retrieval/
-│   │   │   ├── lexicalFusion.ts   # Re-export from @narrative/engine (fuseRRF, computeIdf)
-│   │   │   └── retrievalCore.ts   # Shared retrieval helpers
-│   │   ├── semantic-memory/        # PC trait retrieval
-│   │   │   └── semanticMemory.ts  # queryTraits, formatTraitsForContext
-│   │   └── infrastructure/
-│   │       ├── backgroundQueue.ts  # Fire-and-forget queue + makeGuarded + assertStillActive
-│   │       ├── jsonExtract.ts     # extractJson, extractJsonRobust (balanced-brace scan)
-│   │       ├── tokenizer.ts       # countTokens (js-tiktoken)
-│   │       └── settingsCrypto.ts  # AES-256-GCM encryption of providers (idb-keyval at rest)
+│   │   │   ├── affinityAccess.ts  # The ONE affinity accessor (WO-4/WO-5 seam)
+│   │   │   ├── relationResolve.ts # Canonical relation-key resolver
+│   │   │   ├── relationDedupe.ts  # Edge normalization + dedup
+│   │   │   ├── relationshipMemoryCompaction.ts # Record-list compaction
+│   │   │   ├── relationshipMemoryReading.ts # Reading selection (sceneDistance, recency, overlap, themeCharge)
+│   │   │   ├── relationshipStance.ts # Stance block (budgets cheap 320 / deep 600)
+│   │   │   ├── importTransform.ts # Cross-campaign import: full | strip | isekai
+│   │   │   ├── characterExport.ts # Filename sanitization + export shaping
+│   │   │   ├── hexRoll.ts         # Weighted-never-walled Gaussian hex roll
+│   │   │   ├── manualAdd.ts, npcManualResolve.ts, npcReview.ts, portraitPrompt.ts, signatureKit.ts
+│   │   │   ├── troublemaker.ts    # 4 trouble arc seeds (legacy; Arc mod is successor)
+│   │   │   ├── dispositionGroups.ts, hexVoiceGuide.ts # Re-exports from @narrative/engine
+│   │   │   └── agency/            # 17 production files (+10 tests) — see AI_CODEBASE_MAP §9.2
+│   │   ├── npc-generation/         # shared.ts, charIntroEngine.ts, profileRefit.ts (+ tests)
+│   │   ├── character/              # aiGuidedGeneration, commitCharacterDraft, hexQuiz, migratePC, pcUpdater (+ tests)
+│   │   ├── rules/                  # defaultRules (241-line template literal), rulesIndexer, rulesRetriever
+│   │   ├── lore/                   # 11 files — chunker, retriever, NPC/location parsers, seeder, check, enricher,
+│   │   │                           #   lootTreeLoader, worldLoreAI/Export/Import
+│   │   ├── campaign-state/         # divergenceRegister, knowledgeScope, timelineResolver, factClusterer, factDeduper
+│   │   ├── engine/                 # engineRolls, diceTier, lootEngine (re-exports), pcCreationScript
+│   │   ├── arc/                    # arcConstants, arcSpawn, openThreads, index — tick lives in mods/arc compute mod
+│   │   ├── oneshot/                # oneShotEvents (7 event types)
+│   │   ├── ooc/                    # askGmHandoff, oocService, context, retrieval, sections, oocSectionRegistry, types
+│   │   ├── mapEngine/              # worldOrchestrator, worldGenerator (100×100 noise), registryLoader, registries/ (6 biome sets)
+│   │   ├── context-gatherer/       # archiveRecall (incl. planner), semanticCandidates, recommenderGather,
+│   │   │                           #   loreRulesGather, pinnedChaptersGather, deepSearchGather
+│   │   ├── retrieval/              # lexicalFusion (engine re-export), retrievalCore, semanticMemory, semanticReranker
+│   │   ├── mods/                   # 55 production files — bootstrap, sandbox/, events/, facts/, interceptors/,
+│   │   │                           #   lifecycle/, loadOrder/, macros/, mounts/, native/, budgets/, computeTrack,
+│   │   │                           #   modTables, modPanels, nativeTrustStore, tierEntryAdapter, screenApiTypes
+│   │   ├── roles/                  # roleRegistry, roleContext, roleEnablement, roleFaults, roleTypes (service-role leases)
+│   │   ├── tables/                 # genericAccessor, hydrateTables, locationTable (client twin of server registry)
+│   │   ├── panels/                 # tests only — panel registry lives in @narrative/engine (panels/)
+│   │   ├── vision/                 # describeImage, imageSource, visionRequest (multimodal image→prose)
+│   │   ├── scene-images/           # sceneImageContextGatherer (prompt-package composition)
+│   │   ├── tts/                    # kokoroBuffer, proseStripper, ttsClient, useTtsStatus
+│   │   ├── location/               # distance (DISTANCE_BANDS, day ranges), travelModes, travelModeMap
+│   │   ├── saveFile/               # combinedSeal, chapterSummary, headerIndex, shared
+│   │   ├── background/             # backgroundManager (chat background image, idb-keyval)
+│   │   └── infrastructure/         # backgroundQueue, jsonExtract, tokenizer, settingsCrypto, assetService
 │   ├── utils/
-│   │   ├── uid.ts                 # uid() ID generator
-│   │   ├── helpers.ts             # safeSceneNum, misc helpers
-│   │   ├── llmCall.ts             # Non-streaming utility wrapper (retries, priority, tracking, timeout)
-│   │   ├── llmApiHelper.ts        # getChatUrl, buildChatHeaders, buildChatBody, extractContent, getApiFormat
-│   │   ├── llmApiHelperBundles.ts # API format-specific body builders
-│   │   └── entityResolution.ts    # Frontend twin of server/lib/entityResolution.js
+│   │   ├── uid.ts, helpers.ts      # ID generator, misc helpers
+│   │   ├── llmCall.ts             # 142 lines — non-streaming utility wrapper (retries, priority, tracking, timeout)
+│   │   ├── llmApiHelper.ts        # 422 lines — URLs, headers, bodies, stream extraction, thinking reserve
+│   │   ├── samplingProfiles.ts    # Preset sampling profiles
+│   ├── stripThink.ts          # stripThinkTags - <think> block stripper
+│   │   ├── stopWords.ts, noise.ts, ledgerFilters.ts, locationIds.ts
+│   │   ├── entityResolution.ts    # Frontend twin of server/lib/entityResolution.js
+│   │   └── openRouterImage.ts     # Frontend OpenRouter image glue
+│   ├── hooks/                      # useChatOperations, useChatPersistence, useChatKeyboard, useAutoresizeInput,
+│   │                               #   useEmbeddingStatus, useRulesIndexer, useUiScale
 │   ├── test/
 │   │   └── setup.ts               # jest-dom + scrollIntoView/scrollHeight polyfills
-│   └── components/                 # 16 subdirectories, ~50 component files
-│       ├── App.tsx                 # (see src/App.tsx above)
-│       ├── Header.tsx             # Top bar: drawer toggle, title, TokenGauge, BackgroundControl, backup, AI Tier cycle
-│       ├── ChatArea.tsx           # Master chat shell
-│       ├── ContextDrawer.tsx      # 8-tab side panel
-│       ├── CampaignHub.tsx        # Landing page (campaign list + create/import)
-│       ├── CampaignFormModal.tsx  # New campaign form
-│       ├── CoverflowCarousel.tsx  # Campaign cover image carousel
-│       ├── SettingsModal.tsx     # 5-tab settings (Providers/Presets/Global/Advanced/Debug)
-│       ├── NPCLedgerModal.tsx     # NPC ledger master modal
-│       ├── LocationLedgerModal.tsx # Location ledger master modal
-│       ├── BackupModal.tsx        # Backup create/restore/delete
-│       ├── VaultUnlockModal.tsx   # Password prompt
-│       ├── TokenGauge.tsx         # Live token budget readout (SYS/HIS/FREE)
-│       ├── Toast.tsx              # Global toast notification system
-│       ├── ErrorBoundary.tsx      # React error boundary wrapper
-│       ├── PayloadTraceView.tsx   # Debug payload trace view
-│       ├── SceneNoteEditor.tsx    # Inline scene note editor
-│       ├── IndexingSpeedPrompt.tsx # Indexing speed prompt on first launch
-│       ├── PinnedMemoriesPanel.tsx # Pinned memories side panel
-│       ├── CreateTroubleModal.tsx  # 4 trouble arc seeds (legacy)
-│       ├── RenameNpcModal.tsx     # Whole-archive NPC rename
-│       ├── LoreCheckModal.tsx     # Lore consistency verifier modal
-│       ├── DivergenceReviewModal.tsx # Divergence review modal
-│       ├── DedupReviewModal.tsx   # Fact dedup review modal
-│       ├── NPCReviewModal.tsx     # NPC review (AI triage) modal
-│       ├── WorldLoreModal.tsx     # World-builder modal
-│       ├── chat/                   # Chat subcomponents
-│       │   ├── ChatMessageList.tsx # Scrollable message column (visible-count paging)
-│       │   ├── ChatComposer.tsx   # Bottom composer (preset selector, deep-search chip, send/stop)
-│       │   ├── ChatActionStrip.tsx # Action buttons (Save, Trim, Deep, Dice Me, Loot, Arc, OneShot, AskGM, Archive)
-│       │   ├── ChatEmptyState.tsx
-│       │   ├── ChatNavFabs.tsx     # Jump-up / jump-to-bottom FABs
-│       │   ├── DiceRollModal.tsx  # 3-gate dice configurator
-│       │   ├── LootRollModal.tsx  # Pre-roll loot modal
-│       │   ├── RegenerateSheet.tsx # Swipe Generation v1 sheet
-│       │   ├── SelectionActionsMenu.tsx # Floating toolbar over selection
-│       │   ├── ToolCallChips.tsx   # Tool call chips (dice/lore/notebook/generic)
-│       │   ├── UtilityCallStrip.tsx # In-flight utility call strip
-│       │   ├── GenerationProgress.tsx # Pipeline phase + streaming stats
-│       │   └── useSelectionActions.ts # Selection state machine hook
-│       ├── message/
-│       │   ├── MessageMarkdown.tsx # react-markdown + remark-gfm + NPC name chip wrapping
-│       │   ├── MessageActionRail.tsx # Hover rail (edit/rewind/swipe/TTS/delete)
-│       │   ├── InlineMessageEditor.tsx # WO-EDIT inline editor
-│       │   ├── SwipeIndicator.tsx  # "2/5" position + chevrons
-│       │   ├── ContinueButton.tsx
-│       │   └── ReasoningViewer.tsx # <dim> block viewer
-│       ├── context-drawer/
-│       │   ├── RulesTab.tsx        # System rules editor + RAG threshold detection
-│       │   ├── RulesManagerTab.tsx  # Per-rule-chunk RAG activation manager
-│       │   ├── LoreTab.tsx         # Per-lore-chunk RAG mode manager
-│       │   ├── EnginesTab.tsx      # Surprise/Encounter/World engines + Dice Fairness Section
-│       │   ├── BookkeepingTab.tsx   # Smart-injection bookkeeping (inventory + profile + AI scan)
-│       │   ├── ChapterTab.tsx      # Chapter list + seal/split/merge/regenerate
-│       │   ├── ChapterCard.tsx     # Single expandable chapter row
-│       │   ├── MemoryTab.tsx        # Facts + Review sub-tabs
-│       │   ├── CharacterProfileEditor.tsx # Narrative traits editor (max 10 active)
-│       │   ├── ResolvedStatePanel.tsx # Resolved timeline truths panel
-│       │   ├── TimelineDotRow.tsx  # Per-scene importance dot row
-│       │   ├── Toggle.tsx
-│       │   ├── TemplateField.tsx
-│       │   ├── TokenCounter.tsx
-│       │   └── memory-tab/
-│       │       ├── FactsView.tsx   # 3-view (Chapter/Topic/Subject) + dedup + clustering + knownBy editor
-│       │       └── ReviewView.tsx  # Divergence review queue
-│       ├── npc-ledger/
-│       │   ├── NPCEditForm.tsx     # 890-line full NPC editor (hex axes, traits, relations, kit, boundaries)
-│       │   ├── NPCListView.tsx
-│       │   ├── NPCGalleryView.tsx
-│       │   ├── NPCPortraitSection.tsx
-│       │   └── NPCSuggestionsPanel.tsx
-│       ├── location-ledger/
-│       │   ├── LocationEditForm.tsx
-│       │   └── LocationSuggestionsPanel.tsx
-│       ├── settings-modal/
-│       │   ├── ProvidersTab.tsx    # LLM provider management + connection test
-│       │   ├── PresetsTab.tsx      # AI preset management + SamplingPanel
-│       │   ├── GlobalSettingsTab.tsx # 562-line global preferences + VaultSection
-│       │   ├── AdvancedTab.tsx     # Embedding model info + reindex + TTS init/poll
-│       │   ├── DebugTab.tsx        # Debug toggles + cache telemetry + scene-stakes fallback count
-│       │   ├── VaultSection.tsx    # Vault export/import
-│       │   └── SamplingPanel.tsx
-│       ├── pc/
-│       │   ├── PCCreationWizard.tsx # 574-line 3-step wizard (questions → stats → review)
-│       │   └── WorldPrimerPanel.tsx # World lore digest for newcomers
-│       ├── ooc/
-│       │   ├── AskGmPanel.tsx      # OOC side chat + "Pass to Story AI" brief arming
-│       │   └── ArmedAskGmNote.tsx  # Visible editable session-only handoff
-│       ├── tts/
-│       │   └── TtsPlaybackPanel.tsx # Karaoke TTS panel (sentence/word highlight, speed, replay)
-│       ├── inventory/
-│       │   └── InventoryStagingBar.tsx # GM-proposed inventory change staging
-│       ├── map/
-│       │   ├── MapPanel.tsx        # Map panel shell (currently commented out in App.tsx)
-│       │   └── OverworldCanvas.tsx # 672-line PixiJS 8 renderer
-│       ├── primitives/
-│       │   ├── Backdrop.tsx
-│       │   └── Buttons.tsx
-│       ├── world-lore/
-│       │   └── WorldLoreDraftEditor.tsx # World-builder draft editor
-│       ├── pinned-memories/
-│       │   └── PinnedMemoriesList.tsx
-│       └── hooks/
-│           ├── useCampaignForm.ts  # Campaign creation form state
-│           ├── useMessageEditor.ts # Inline edit + rewind + surgical delete
-│           ├── useChapterSealing.ts # Manual + auto chapter sealing pipeline
-│           ├── useCondenser.ts     # Trigger condense
-│           ├── useSwipeVariants.ts # Swipe Generation v1 (lazy 1-at-a-time, session temp offset)
-│           ├── useSceneContinue.ts # Scene Continue v1 (append-not-replace swipe)
-│           ├── useNpcPortraits.ts  # NPC portrait generation/upload (bulk populate)
-│           ├── useNpcReview.ts     # AI NPC ledger review (cancellable batches)
-│           ├── useTtsPlayback.ts   # Per-bubble Kokoro TTS state
-│           ├── useChatOperations.ts # Chat operations
-│           ├── useChatPersistence.ts # Chat persistence
-│           ├── useAutoresizeInput.ts # Textarea auto-resize
-│           ├── useChatKeyboard.ts  # Chat keyboard shortcuts
-│           └── sceneContinueFallback.ts # rebuildStateFromLiveStoreLike (no store mutation)
+│   └── components/                 # 18 subdirectories + root files; 197 files (153 source + 44 tests)
+│       ├── App.tsx / Header.tsx (256 lines: mod action mount) / ChatArea.tsx (398 lines)
+│       ├── ContextDrawer.tsx (91-line shim) → ContextNavigationDrawer.tsx (213 lines, 5 screens + nav)
+│       ├── CampaignHub.tsx / CampaignFormModal.tsx / CoverflowCarousel.tsx
+│       ├── SettingsModal.tsx (98 lines, 6 tabs: providers/presets/global/extensions/advanced/debug)
+│       ├── NPCLedgerModal.tsx (409) / LocationLedgerModal.tsx (637) / CharacterLedgerModal (in character/)
+│       ├── WorldLoreModal.tsx (295) / PinnedMemoriesPanel.tsx (211) / BackupModal / VaultUnlockModal
+│       ├── TokenGauge / Toast / ErrorBoundary / PayloadTraceView / SceneNoteEditor
+│       ├── IndexingSpeedPrompt / CreateTroubleModal / RenameNpcModal / LoreCheckModal
+│       ├── DivergenceReviewModal / DedupReviewModal / NPCReviewModal
+│       ├── block-view/             # BlockCard, blockModel, BlockViewModal, TierPresetBar (blocks ledger)
+│       ├── character/              # AIGuidedCreationWizard (836), PCEditForm (825), RelationshipMemoryEditor,
+│       │                           #   pcBonds, profileFields, tabs/ (Sheet/Stats/Record/Inventory), WorldPrimerPanel
+│       ├── chat/                   # Composer, ActionStrip, MessageList, DiceRollModal, LootRollModal,
+│       │                           #   SceneImageModal, RegenerateSheet, SelectionActionsMenu, ToolCallChips,
+│       │                           #   AbandonJourneyChip, ChatAttachmentChip, useSelectionActions (463 lines)
+│       ├── context-drawer/         # RulesTab, RulesManagerTab, LoreTab, EnginesTab (679), ChapterTab (519),
+│       │                           #   ChapterCard (368), MemoryTab, memory-tab/ (FactsView 893, ReviewView)
+│       ├── header/                 # HeaderModGroup, HeaderScrollRow (mod actions)
+│       ├── hooks/                  # useSwipeVariants (358), useSceneContinue, useRetryStoryAI, useMessageEditor,
+│       │                           #   useChapterSealing, useCondenser, useNpcPortraits, useNpcReview,
+│       │                           #   useTtsPlayback, useVisionDescribe, useChatAttachment, sceneContinueFallback
+│       ├── icons/                  # CommandSealIcon
+│       ├── inventory/              # InventoryStagingBar
+│       ├── location-ledger/        # LocationEditForm, LocationSuggestionsPanel
+│       ├── map/                    # MapPanel (174, commented out in App.tsx), OverworldCanvas (672, PixiJS 8)
+│       ├── message/                # MessageMarkdown, MessageActionRail, InlineMessageEditor, SwipeIndicator,
+│       │                           #   ReasoningViewer, MessageActionsOverlay, MessageBelowSlots,
+│       │                           #   PlayerAttachmentView, SceneImageAttachmentView
+│       ├── npc-ledger/             # NPCEditForm (944, largest), NPCListView, NPCGalleryView, NPCPortraitSection,
+│       │                           #   NPCSuggestionsPanel, ImportChoiceDialog
+│       ├── ooc/                    # AskGmPanel, ArmedAskGmNote
+│       ├── panels/                 # PanelRenderer, ListPanelRenderer (462), ListDetailRenderer (mod panels)
+│       ├── primitives/             # Backdrop, Buttons, ScreenSection
+│       ├── rail/                   # ChatRightRail, RailPanelSwitcher (right-rail mod panels)
+│       ├── settings-modal/         # ProvidersTab (474), PresetsTab, GlobalSettingsTab (560), ExtensionsTab (1,103 —
+│       │                           #   mod management), AdvancedTab (360), DebugTab, LanguageSection,
+│       │                           #   LoadOrderSection, ModDataDialog, ModPanels, ModScreens, NativeTrustDialog,
+│       │                           #   ScreenFrame, VaultSection
+│       ├── tts/                    # TtsPlaybackPanel
+│       └── __tests__/              # 13 component test files
 ├── packages/
 │   └── engine/                     # @narrative/engine — platform-pure shared core
-│       ├── package.json            # name: @narrative/engine, main: dist/index.js
-│       ├── tsconfig.json           # lib: ES2022 only (NO DOM/Node — enforces purity)
-│       ├── scripts/
-│       │   └── boundary-gate.mjs   # pretest hook: rejects react/zustand/express/node:* imports
+│       ├── package.json            # name: @narrative/engine, main: dist/index.js, exports ./roles/roleIds + ./mods/apiVersion
+│       ├── tsconfig.json            # lib: ES2022 only (NO DOM/Node — enforces purity)
+│       ├── scripts/boundary-gate.mjs # pretest hook: rejects react/zustand/@capacitor*/idb-keyval/better-sqlite3/express/node:* imports
 │       └── src/
 │           ├── index.ts            # Barrel
-│           ├── json/
-│           │   ├── jsonExtract.ts  # extractJson, extractJsonRobust
-│           │   └── __tests__/
-│           ├── loot/
-│           │   ├── lootEngine.ts   # Loot tree walker
-│           │   └── __tests__/
-│           ├── retrieval/
-│           │   ├── lexicalFusion.ts # fuseRRF (k=60), computeIdf (BM25 smoothing)
-│           │   └── __tests__/
-│           └── rolls/
-│               ├── engineRolls.ts  # 3-gate dice engine
-│               └── __tests__/
+│           ├── json/jsonExtract.ts # extractJson, extractJsonRobust
+│           ├── loot/lootEngine.ts  # Loot tree walker
+│           ├── retrieval/lexicalFusion.ts # fuseRRF (k=60), computeIdf (BM25 smoothing)
+│           ├── rolls/              # engineRolls (3-gate dice), diceTier (mapTier), types
+│           ├── npc/                # dispositionGroups (envelopes/modifiers), hexVoiceGuide (buildVoiceDirective), types
+│           ├── panels/             # panelDescriptor (createPanelRegistry), panelHooks (runPanelHook)
+│           ├── tables/tableDescriptor.ts # createTableRegistry
+│           ├── mods/apiVersion.ts # Mod API version constant
+│           ├── roles/roleIds.ts   # SERVICE_ROLE_IDS ('memory.recall')
+│           └── __tests__/          # 4 test files (json, loot, retrieval, rolls)
+├── mods/                           # Installed mods dir (arc/, ability-compendium/)
+├── public/
+│   ├── assets/                     # 443 files: tilesets (246), portraits (93), Snow Pack (89), textures, props
+│   └── bundled-mods/                # worldmap/, enemies/, example-bundled-tone/ (29 files, i18n per mod)
 ├── scripts/
-│   └── patch-graph-imports.mjs    # Graphify dependency graph builder (348 lines)
+│   ├── patch-graph-imports.mjs     # Graphify dependency graph builder (348 lines)
+│   ├── i18n-check.mjs              # i18n coverage report (missing/orphan keys, placeholder mismatches)
+│   ├── migrate-buildPayload-options.mjs # One-shot codemod: positional buildPayload args → options object
+│   ├── seed-relationship-memory.mjs # Dev tool: seed 3 NPC↔MC relationship-memory edges
+│   ├── measure-enemy-reactivity.mjs / measure-tables-gate.mjs # Perf benchmarks
+│   └── verify-sandbox.mjs / verify-screen-frame.mjs # Mod isolation proofs (+ screen-frame-fixtures/)
+├── e2e/                            # 8 Playwright specs + helpers (worldMapTravel, checkpoints 1-3, extensions, screens)
+├── docs/                           # MODDING.md, narrative-mod-api.d.ts, TRANSLATING.md, phase inventories
+├── electron/                       # Electron main process (nodeIntegration:false, contextIsolation:true)
 ├── build-server.mjs               # esbuild server → server.bundle.cjs for Electron ASAR
-├── electron/
-│   └── main.cjs                    # Electron main process (nodeIntegration:false, contextIsolation:true)
-├── data/                           # (gitignored) campaign data, embeddings.db, tts_cache, embeddings_cache
-├── public/assets/                  # 361 files: portraits, props, Snow Asset Pack, textures, tilesets
-├── mobile/                         # (parallel mobile variant — outside main app scope)
+├── data/                           # (gitignored) campaigns/, backups/, embeddings.db, settings.json, apikeys.vault, caches
 ├── index.html                      # Vite entry (root div, /src/main.tsx)
-├── package.json                    # narrative-engine v1.0.2, type:module, 17 deps + 24 devDeps
-├── vite.config.ts                  # Vite 8 + React + Tailwind 4 plugins, /api proxy → :3001
-├── vitest.config.ts                # jsdom + setupFiles, includes src/** + server/__tests__
+├── package.json                    # narrative-engine v2.0.0, type:module, 18 deps + 25 devDeps
+├── vite.config.ts                  # Vite 8 + React + Tailwind 4 plugins; /api + /assets proxy → :3001; base './'
+├── vitest.config.ts                # jsdom + setupFiles; includes src/** + server/__tests__/** (engine has own config)
+├── playwright.config.ts            # e2e/: headless Chromium, baseURL :5173, webServer npm run dev
 ├── tsconfig.json                   # Solution-style (references app + node)
-├── tsconfig.app.json               # strict, verbatimModuleSyntax, erasableSyntaxOnly, allowImportingTsExtensions
+├── tsconfig.app.json               # strict, verbatimModuleSyntax, erasableSyntaxOnly, excludes __tests__
 ├── tsconfig.node.json              # For vite.config.ts
 ├── eslint.config.js                # ESLint 9 flat config (tseslint + react-hooks + react-refresh)
-└── .nvmrc                          # Node 22
+├── .nvmrc                          # Node 22
+├── Start_Narrative_Engine.bat / start.sh     # Launchers with Node pre-flight
+├── Update_Narrative_Engine.bat    # Self-copy-guarded git-pull updater
+└── Repair_Narrative_Engine.bat/.sh # Fixes for two common start failures
 ```
 
 ---
@@ -409,21 +349,28 @@ mainApp/
 ## Server Initialization Order (`server.js`)
 
 ```
-1. new KeyVault(DATA_DIR)                     — init crypto vault
-2. ensureDirs()                               — create data/, campaigns/, backups/, public/assets/portraits/
-3. Auto-create vault with machine key         — if missing
-4. Auto-unlock machine-key vaults             — on startup; password vaults require manual frontend unlock
-5. CORS allowlist (Electron 'null' + Vite)     — reject all other origins
-6. express.json({ limit: '500mb' })           — middleware
-7. express.static(assets)                     — portrait serving (dev: public/assets/portraits, prod: data/portraits)
-8. initDb()                                   — SQLite + sqlite-vec (3 vec0 tables, cosine distance)
-9. warmupEmbedder() (fire-and-forget)         — pre-load mxbai-embed-large-v1 q8
-10. warmupTts() (fire-and-forget, no-op if not cached) — pre-load Kokoro-82M q8
-11. Mount 16 routers in order:
+1.  new KeyVault(DATA_DIR)                     — init crypto vault
+2.  ensureDirs()                               — create data/, data/campaigns/, data/backups/,
+                                                data/portraits (prod) or public/assets/portraits (dev),
+                                                mods/, public/bundled-mods/
+3.  Auto-create vault with machine key         — if missing
+4.  Auto-unlock machine-key vaults             — on startup; password vaults require manual frontend unlock
+5.  CORS allowlist                             — 'null' (Electron) + http://localhost:5173 (Vite) + $ALLOWED_ORIGINS
+6.  express.json({ limit: '500mb' })           — middleware
+7.  express.static mounts                      — /assets/portraits, /assets/campaigns
+8.  initDb()                                   — SQLite + sqlite-vec (3 vec0 tables, cosine distance)
+9.  registerLocationTable(serverTableRegistry) — locations descriptor live at boot
+10. warmupEmbedder() (fire-and-forget)         — pre-load mxbai-embed-large-v1 q8
+11. warmupTts() (fire-and-forget, no-op if not cached) — pre-load Kokoro-82M q8
+12. Mount 18 bespoke routers in order:
     vault, settings, campaigns, archive, chapters, timeline, facts, backups,
-    assets, overworld, transfer, divergence, rules, llmProxy, embedding, tts
-12. Central error handler (serverError)        — 5xx → generic message, 4xx → actual message
-13. app.listen(3001, '127.0.0.1', ...)         — localhost-only bind
+    assets, overworld, transfer, divergence, rules, llmProxy, embedding, tts,
+    sceneImages, mods (at /api/mods)
+13. registerModTablesAtBoot()                  — loadMods + registerModTables (never throws)
+14. mountGenericTableRoutes()                  — GET/PUT /api/campaigns/:id/locations + future descriptors
+15. mountModTableRoutes()                      — mod-tables/:table GET/PUT + mod-data/:modId DELETE
+16. Central error handler (serverError)        — 5xx → generic message, 4xx → actual message
+17. app.listen(3001, process.env.HOST || '127.0.0.1') — localhost-only bind by default
 ```
 
 ---
@@ -431,8 +378,9 @@ mainApp/
 ## API Route Table
 
 All routes are mounted under `/api`. All route files export `create<Name>Router()` factories.
+96 bespoke endpoints + 5 registry-driven dynamic endpoints = 101 total.
 
-### Vault (11 endpoints)
+### Vault (12 endpoints)
 | Method | Path | Behavior |
 |---|---|---|
 | GET | `/api/vault/status` | `{exists, unlocked, hasRemember}` |
@@ -444,6 +392,7 @@ All routes are mounted under `/api`. All route files export `create<Name>Router(
 | PUT | `/api/vault/keys` | Save presets (strict allowlist validation) |
 | POST | `/api/vault/export` | Export as `.nevault` (encrypted with password) |
 | POST | `/api/vault/import` | Import `.nevault` (merge by preset name) |
+| POST | `/api/vault/reset` | `archiveForRecovery()` — reversible rename to apikeys.vault.recovery-<ts> |
 | DELETE | `/api/vault/remember` | Clear remembered key |
 | DELETE | `/api/vault` | Delete vault |
 
@@ -451,17 +400,20 @@ All routes are mounted under `/api`. All route files export `create<Name>Router(
 | Method | Path | Behavior |
 |---|---|---|
 | GET | `/api/settings` | Read `data/settings.json` |
-| PUT | `/api/settings` | Write after `stripApiKeys()` (zeroes apiKey in all AI presets) |
+| PUT | `/api/settings` | Write after `stripApiKeys()` (zeroes apiKey in all presets) |
 
-### Campaigns (12 endpoints)
+### Campaigns (14 endpoints)
 | Method | Path | Behavior |
 |---|---|---|
 | GET | `/api/campaigns` | List all (sorted by lastPlayedAt desc) |
 | GET/PUT/DELETE | `/api/campaigns/:id` | Campaign CRUD |
+| GET | `/api/campaigns/:id/migrations` | Legacy-adoption migration ledger |
 | GET/PUT | `/api/campaigns/:id/state` | Game state (pinnedExcerpts preservation guard) |
 | GET/PUT | `/api/campaigns/:id/lore` | Lore chunks (PUT triggers background bulk-embed with job tracking) |
 | GET/PUT | `/api/campaigns/:id/npcs` | NPC ledger |
-| GET/PUT | `/api/campaigns/:id/locations` | Location ledger |
+| GET | `/api/campaigns/:id/relationship-memory/npc-to-mc` | Directed NPC→MC memory records |
+| GET | `/api/campaigns/:id/relationship-memory/npc-to-npc` | Directed NPC→NPC memory records |
+| PUT | `/api/campaigns/:id/relationship-memory` | Save relationship-memory collections |
 
 ### Archive (18 endpoints)
 | Method | Path | Behavior |
@@ -479,21 +431,21 @@ All routes are mounted under `/api`. All route files export `create<Name>Router(
 | DELETE | `/api/campaigns/:id/archive/scenes/:sceneId` | Surgical single-scene delete |
 | PATCH | `/api/campaigns/:id/archive/scenes/:sceneId/assistant` | Edit-sync: rewrite + rebuild index + re-embed (awaited) |
 | GET | `/api/campaigns/:id/archive/open` | Open archive in OS default editor |
-| POST | `/api/campaigns/:id/archive/semantic-candidates` | Vector search (returns `{sceneIds}` or `{pending:true}`) |
+| POST | `/api/campaigns/:id/archive/semantic-candidates` | Vector search (returns `{sceneIds}` or `{pending:true}`; supports `scopeSceneIds`) |
 | POST | `/api/campaigns/:id/lore/semantic-candidates` | Lore semantic search |
 | GET | `/api/campaigns/:id/embeddings/status` | `{scenes, lore, rules, version}` with stale counts |
 | GET | `/api/embeddings/info` | Global `{modelId, dims, embeddingVersion}` |
 | POST | `/api/campaigns/:id/embeddings/reindex` | Reindex stale + unversioned (`{type: 'scene'|'lore'|'all'}`) |
 
-### Chapters (7 endpoints)
+### Chapters (10 endpoints)
 | Method | Path | Behavior |
 |---|---|---|
-| GET | `/api/campaigns/:id/archive/chapters` | List chapters |
-| PUT | `/api/campaigns/:id/archive/chapters` | Replace all chapters |
-| POST | `/api/campaigns/:id/archive/chapters` | Create chapter (auto-ID `CH{NN}`) |
-| PATCH | `/api/campaigns/:id/archive/chapters/:chapterId` | Patch (allowlist: title, summary, keywords, npcs, majorEvents, unresolvedThreads, tone, themes, invalidated, sceneIds) |
+| GET/PUT/POST | `/api/campaigns/:id/archive/chapters` | List / replace all / create (auto-ID `CH{NN}`) |
+| PATCH/DELETE | `/api/campaigns/:id/archive/chapters/:chapterId` | Patch (allowlist fields) / delete |
+| GET | `/api/campaigns/:id/archive/chapters/refit/preview` | Preview chapter refit (chapterFitting) |
+| POST | `/api/campaigns/:id/archive/chapters/refit` | Apply chapter refit |
 | POST | `/api/campaigns/:id/archive/chapters/seal` | Seal open + create new open |
-| POST | `/api/campaigns/:id/archive/chapters/merge` | Merge two adjacent chapters (validates `Math.abs(idxA - idxB) === 1`) |
+| POST | `/api/campaigns/:id/archive/chapters/merge` | Merge two adjacent chapters |
 | POST | `/api/campaigns/:id/archive/chapters/:chapterId/split` | Split at `atSceneId` into A/B halves |
 
 ### Timeline (3 endpoints)
@@ -510,10 +462,11 @@ All routes are mounted under `/api`. All route files export `create<Name>Router(
 | GET | `/api/campaigns/:id/entities` | Entity list |
 | POST | `/api/campaigns/:id/entities/merge` | Merge entities (survivor absorbs consumed.aliases, rewrites facts) |
 
-### Backups (5 endpoints)
+### Backups (6 endpoints)
 | Method | Path | Behavior |
 |---|---|---|
 | POST | `/api/campaigns/:id/backup` | Create (auto-skip if hash unchanged) |
+| PATCH | `/api/campaigns/:id/backups/:ts` | Update backup label |
 | GET | `/api/campaigns/:id/backups` | List sorted by timestamp desc |
 | GET | `/api/campaigns/:id/backups/:ts` | Get meta + file list |
 | POST | `/api/campaigns/:id/backups/:ts/restore` | Pre-restore safety backup + restore (allowlist-filtered) |
@@ -530,12 +483,12 @@ All routes are mounted under `/api`. All route files export `create<Name>Router(
 |---|---|---|
 | GET | `/api/campaigns/:id/overworld` | Get overworld data (404 if missing) |
 | PUT | `/api/campaigns/:id/overworld` | Save overworld data |
-| POST | `/api/campaigns/:id/overworld/generate` | LLM-generate (120s timeout, 4 world_type allowlist, 8-anchor cap) |
+| POST | `/api/campaigns/:id/overworld/generate` | LLM-generate (120s timeout, world_type allowlist, 8-anchor cap) |
 
 ### Transfer (2 endpoints)
 | Method | Path | Behavior |
 |---|---|---|
-| GET | `/api/campaigns/:id/export` | Export portable bundle (version 1, includes scenes parsed from archive.md) |
+| GET | `/api/campaigns/:id/export` | Export portable bundle (includes scenes parsed from archive.md + table files) |
 | POST | `/api/campaigns/import` | Import bundle (ID collision check, background re-embed via setImmediate) |
 
 ### Divergence (2 endpoints)
@@ -544,10 +497,11 @@ All routes are mounted under `/api`. All route files export `create<Name>Router(
 | GET | `/api/campaigns/:id/divergence` | Get divergence register (v2 migration) |
 | PUT | `/api/campaigns/:id/divergence` | Save divergence register |
 
-### Rules RAG (3 endpoints)
+### Rules RAG (4 endpoints)
 | Method | Path | Behavior |
 |---|---|---|
 | POST | `/api/campaigns/:id/rules/embed` | Upsert rule chunk embedding |
+| DELETE | `/api/campaigns/:id/rules/embed/:chunkId` | Delete a rule chunk embedding |
 | POST | `/api/campaigns/:id/rules/search` | Vector search rule chunks (no MMR — rules not diversified) |
 | POST | `/api/campaigns/:id/rules/reindex` | Reindex stale rule embeddings |
 
@@ -556,24 +510,47 @@ All routes are mounted under `/api`. All route files export `create<Name>Router(
 |---|---|---|
 | POST | `/api/llm/proxy` | Transparent streaming proxy (forwards `{target, method, headers, body}`) |
 
-### Embedding Info (1 endpoint)
+### Embedding & System (2 endpoints)
 | Method | Path | Behavior |
 |---|---|---|
-| GET | `/api/embeddings/info` | Global `{modelId, dims, embeddingVersion}` |
+| GET | `/api/embedding/runtime` | `{modelId, dims, provider, ready}` |
+| GET | `/api/system/specs` | System spec readout (host, node, memory) |
 
-### TTS (4 endpoints)
+### TTS (6 endpoints)
 | Method | Path | Behavior |
 |---|---|---|
 | GET | `/api/tts/status` | `{modelReady, initializing, voice, modelId, dtype}` |
 | POST | `/api/tts/init` | Init TTS model (lazy load) |
 | GET | `/api/tts/voices` | List voices |
-| POST | `/api/tts/synthesize` | Synthesize WAV (returns audio blob) |
+| POST | `/api/tts/check-cache` | Check disk cache for a text+voice key |
+| GET | `/api/tts/cached` | Fetch cached WAV |
+| POST | `/api/tts/generate` | Synthesize WAV (returns audio blob) |
+
+### Mods (2 endpoints)
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/api/mods` | Installed mod manifests (supports `?order=` load-order override) |
+| GET | `/api/mods/:folder/*path` | Mod asset serving (installed dir → bundled dir fallback, realpath containment) |
+
+### Scene Images (3 endpoints)
+| Method | Path | Behavior |
+|---|---|---|
+| POST | `/api/scene-images/compose` | LLM-composed illustration brief (pure visual terms) |
+| POST | `/api/scene-images/generate` | Generate via ComfyUI / OpenAI-compatible / OpenRouter |
+| DELETE | `/api/scene-images/attachment` | Delete generated image attachment |
+
+### Generic & Mod Tables (5 dynamic endpoints)
+| Method | Path | Behavior |
+|---|---|---|
+| GET/PUT | `/api/campaigns/:id/locations` | Registry-driven (locationTable descriptor; more can register) |
+| GET/PUT | `/api/campaigns/:id/mod-tables/:table` | Mod tables; GET runs legacy adoption (Phase 8.5) |
+| DELETE | `/api/campaigns/:id/mod-data/:modId` | Purge a mod's campaign data files |
 
 ---
 
 ## Frontend → Backend Contract
 
-`src/services/llm/apiClient.ts` calls → `src/lib/apiBase.ts` (`API_BASE`) → Vite proxy (`/api` → `localhost:3001`) in dev, or absolute `http://localhost:3001/api` in Electron.
+`src/services/llm/apiClient.ts` calls → `src/lib/apiBase.ts` (`API_BASE`) → Vite proxy (`/api` → localhost:3001) in dev, or absolute `http://localhost:3001/api` in Electron.
 
 | apiClient namespace | HTTP calls | Server route file |
 |--------------------|------------|-------------------|
@@ -583,11 +560,16 @@ All routes are mounted under `/api`. All route files export `create<Name>Router(
 | `api.timeline.*` | GET/POST/DELETE `/campaigns/:id/timeline/...` | timeline.js |
 | `api.entities.*` | GET/POST `/campaigns/:id/entities/...` | facts.js |
 | `api.settings.*` | GET/PUT `/settings` | settings.js |
-| `api.backups.*` | POST/GET/DELETE `/campaigns/:id/backup(s)/...` | backups.js |
+| `api.backups.*` | POST/GET/PATCH/DELETE `/campaigns/:id/backup(s)/...` | backups.js |
 | `api.vault.*` | GET/POST/PUT/DELETE `/vault/...` | vault.js |
-| `api.rules.*` | POST `/campaigns/:id/rules/embed|search|reindex` | rules.js |
+| `api.rules.*` | POST/DELETE `/campaigns/:id/rules/...` | rules.js |
+| `api.mods.*` | GET `/mods` | mods.js |
+| `api.sceneImages.*` | POST/DELETE `/scene-images/...` | sceneImages.js |
+| `api.tts.*` | GET/POST `/tts/...` | tts.js |
 
-`src/store/campaignStore.ts` calls → same `API_BASE` for campaign CRUD, lore, NPCs, state save/load, locations, archive index, semantic facts, entities, chapters, backups, timeline, divergence.
+`src/store/campaignStore.ts` + `src/services/tables/genericAccessor.ts` call → same `API_BASE` for campaign CRUD, lore, NPCs, state save/load, locations (generic table), archive index, semantic facts, entities, chapters, backups, timeline, divergence, relationship memory, migrations ledger, mod tables.
+
+`src/services/mods/modClient.ts` calls → `GET /api/mods` at bootstrap (unreachable endpoint = fault, never a crash).
 
 `src/services/llm/llmFetch.ts` calls → `POST /api/llm/proxy` to forward provider calls (CORS dodge for NVIDIA etc.).
 
@@ -601,18 +583,20 @@ useAppStore = settingsSlice + campaignSlice + chatSlice + uiSlice + mapSlice + w
 
 | Slice | Key State | Actions | Persistence |
 |---|---|---|---|
-| **settingsSlice** | `settings` (44 fields), `vaultStatus`, `vaultLoading` | loadSettings, updateSettings, addPreset, updatePreset, removePreset, setActivePreset, 6 endpoint selectors (getActiveXEndpoint), addProvider, updateProvider, removeProvider, checkVaultStatus, setupVault, unlockVault, unlockVaultWithRemembered, lockVault, saveVaultKeys, exportVault, importVault | IndexedDB (`nn_settings`, providers encrypted) + server `PUT /settings` (500ms debounce) |
-| **campaignSlice** | `activeCampaignId`, `loreChunks`, `archiveIndex`, `chapters`, `npcLedger`, `onStageNpcIds`, `npcSuggestions`, `locationLedger`, `locationSuggestions`, `semanticFacts`, `timeline`, `entities`, `pinnedChapterIds`, `context` (~70 fields), `inventoryItems`, `characterProfileData`, `bookkeepingTurnCounter`, `autoBookkeepingInterval` | 35+ actions (setActiveCampaign, lore CRUD, NPC CRUD + archive/restore + mergeOrRename, location CRUD, timeline CRUD, pinChapter, context update, inventory CRUD, character profile, bookkeeping counter) | Server-only (4 debounced saves, 1s debounce) |
-| **chatSlice** | `messages`, `isStreaming`, `condenser`, `divergenceRegister`, `pinnedExcerpts`, `renameModalOpen/Text` | 30+ actions (message CRUD, condenser, divergence register ~20 actions, pinned excerpts with token cap, rename modal + tiered rename) | Via shared `debouncedSaveCampaignState` |
-| **uiSlice** | 27 ephemeral toggles (modals, armed roll/loot/oneshot, composerInjection, pipelinePhase, streamingStats, loreCheck*, troubleModal*) | 25+ toggle/set actions | Ephemeral (no persistence) |
-| **mapSlice** | `overworldMap`, `isMapOpen/Loading`, `playerPosition`, `isPinMode`, `pendingPin` | toggleMap, setOverworldMap, generateMap, loadMap, setPlayerPosition, togglePinMode, setPendingPin, saveMap, addPin, deletePin | Server `/api/campaigns/:id/overworld` (hardcoded `/api` prefix) |
-| **worldLoreSlice** | `worldLoreDrafts`, `worldLoreActiveDraftId`, `worldLoreModalOpen` | createDraft, deleteDraft, updateDraftField, addItem, updateItem, removeItem, setActiveDraft, toggleWorldLoreModal, loadWorldLoreDrafts | localStorage (`nn_world_lore_drafts`, the ONLY slice using localStorage) |
+| **settingsSlice** (458 lines) | `settings` (47 fields: 40 current + 7 legacy migration-only), `vaultStatus`, `vaultLoading` | loadSettings, updateSettings, preset CRUD, 7 endpoint selectors (story/image/summarizer/utility/auxiliary/vision), provider CRUD, vault lifecycle (incl. reset) | IndexedDB (`nn_settings`, providers encrypted) + server `PUT /settings` (500ms debounce) |
+| **campaignSlice** (814 lines) | `activeCampaignId`, ledgers, suggestions, `archiveIndex`, `chapters`, `timeline`, `entities`, `semanticFacts`, `pinnedChapterIds`, mod tables, `context` (~65 fields), `inventoryItems`, `characterProfileData`, relationship memory, bookkeeping counters | ~45 actions (setActiveCampaign w/ commit flush, lore/NPC/location CRUD, mergeOrRename, timeline CRUD, pinChapter, context update, inventory/profile, mod tables, preOpBackup) | Server-only (4 debounced saves, 1s debounce) |
+| **chatSlice** (616 lines) | `messages` (with attachments), `isStreaming`, `condenser`, `divergenceRegister`, `pinnedExcerpts`, `renameModalOpen/Text` | 30+ actions (message CRUD, condenser, divergence register 18 actions, pinned excerpts w/ token cap, attachments, rename) | Via shared `debouncedSaveCampaignState` |
+| **uiSlice** (182 lines) | 16 boolean toggles (settingsOpen, drawerOpen, npcLedgerOpen, pcPanelOpen, locationLedgerOpen, blockViewOpen, backupModalOpen, loreCheckOpen, divergenceEntryOpen, deepArmed, diceRollModalOpen, lootRollModalOpen, troubleModalOpen, troubleLoading, pinnedMemoriesOpen, sceneImageModalOpen) + `pipelinePhase`, `streamingStats`, `contextScreen` (sys/world/eng/chpt/mem), armed roll/loot/oneshot/absoluteCommand, `composerInjection`, scene-image draft | 25+ toggle/set actions | Ephemeral (no persistence) |
+| **mapSlice** | `overworldMap`, `isMapOpen/Loading`, `playerPosition`, `isPinMode`, `pendingPin` | toggleMap, generateMap, loadMap, saveMap, addPin, deletePin, ... | Server `/api/campaigns/:id/overworld` |
+| **worldLoreSlice** | `worldLoreDrafts`, `worldLoreActiveDraftId`, `worldLoreModalOpen` | draft CRUD, toggle | localStorage (`nn_world_lore_drafts`, the ONLY slice using localStorage) |
 
 **Cross-slice dependencies**:
 - `settingsSlice` reads `activeCampaignId` (Campaign) for save context.
 - `campaignSlice` reads `settings` (Settings), `messages`/`condenser`/`pinnedExcerpts` (Chat) via `CampaignDeps`; exports `debouncedSaveCampaignState` consumed by Chat; dynamically imports `commitPendingTurn` from `services/turn/pendingCommit`.
-- `chatSlice` reads `activeCampaignId`/`context`/`archiveIndex` (Campaign) via `ChatDeps`; imports `debouncedSaveCampaignState` from Campaign; `clearArchive` writes Campaign's `archiveIndex`.
+- `chatSlice` reads `activeCampaignId`/`context`/`archiveIndex` (Campaign) via `ChatDeps`.
 - `uiSlice`, `mapSlice`, `worldLoreSlice` → no cross-slice reads (self-contained).
+
+**Non-slice store modules**: `relationshipMemoryState.ts` (typed narrow read/write seam), `relationshipMemoryStore.ts` (server persistence), `campaignHydrator.ts` (parallel load + `context.arcs → mod.arc.arcs` table migration), `campaignStore.ts` (CampaignState + fetch wrappers).
 
 ---
 
@@ -620,48 +604,59 @@ useAppStore = settingsSlice + campaignSlice + chatSlice + uiSlice + mapSlice + w
 
 ```
 1. User types message → ChatArea.tsx
-2. commitPendingTurn() (finalise PREVIOUS turn):
+2. commitPendingTurn() (single-flight; finalise PREVIOUS turn):
    a. Read chosen variant via swipeActiveIndex
    b. classifySceneStakes if GM omitted tag (tier-gated)
    c. Build commitState with frozen snapshot.messages (NEVER live)
-   d. runPostTurnPipeline(commitState, callbacks, text, snapshotMessages):
-      - 3 parallel tracks via Promise.allSettled:
-        i. Archive track: rateImportance (tier-gated) → api.archive.append → stamp sceneId (WO-F) → refresh index/timeline/chapters → Event-Extraction (background) → Chapter-AutoSeal if sceneCount >= 25
-        ii. NPC track: extractNPCNames (7-pass) → validateNPCCandidates (tier-gated, fail-closed) → NPC-Update + NPC-Drives-Backfill (background, tier-gated + cooldown)
-        iii. Pressure track: scanPressure → buildPressurePatch → auto-archive stale / auto-restore mentioned
-      - On-stage NPC tracking (parsePresentHeader)
-      - Location header tracking (resolveLocationHeader)
-      - Agency tick: bumpOnStageActivity (unconditional) + runAgencyTick (tier-gated heartbeatTick)
-      - Inner repression booking (once-per-turn, pure dice)
-      - Arc engine tick (tier-gated arcTick)
+   d. runPostTurnPipeline(commitState, callbacks, text, snapshotMessages, turnContext?):
+      - Prologue tracks: autoProfile, digestClear
+      - Promise.allSettled post-turn tracks:
+        i. Archive track (inline): durable-commit verify/re-link (SNIPPET_MATCH_CHARS=80) →
+           rateImportance (tier-gated) → api.archive.append → stamp sceneId → refresh
+           index/timeline/chapters → bookkeeping gate
+        ii. npcTrack: extractNPCNames (multi-pass) → validateNPCCandidates (tier-gated,
+            fail-closed) → NPC-Update + NPC-Drives-Backfill (background, cooldown)
+        iii. pressureTrack: scanPressure → buildPressurePatch → auto-archive stale /
+             auto-restore mentioned
+        (+ mod-registered compute tracks, e.g. mod.arc.compute)
+      - Sequential tracks: agencyTick (heartbeat tier-gated), locationHeader,
+        onStage (parsePresentHeader), repression (once-per-turn dice)
+      - Post-commit tracks (9, background): chapterSeal, eventExtraction,
+        inventoryScan, locationScan, pcDrift, profileScan, relationshipMemory,
+        traitScan, travelAdvance (halt safety valve only)
    e. Auto-condense check (shouldCondense → computeTrimIndex → setCondensed)
    f. Clear swipeSet/pendingCommit/swipeActiveIndex
    g. clearPendingTurnSnapshot()
 
-3. runTurn(state, callbacks, abortController):
-   a. Phase 'rolling-dice': rollEngines(context) → pre-rolled dice pool
-   b. If armedRoll: resolveManualRoll + inject as hard FACT
-   c. If armedLoot: resolveLootDrop + wrap as fact-assertion
-   d. If armedOneShot: buildOneShotDirective
-   e. Add user message synchronously (bubble appears before heavy async)
-   f. Phase 'gathering-context': gatherContext() — 5 parallel stages with Promise.race safety backstop
-      - plannerPromise (LLM, tier-gated)
-      - semanticPromise (server vector search)
-      - timelinePromise (next-scene pre-assign)
-      - recommenderPromise (LLM, tier-gated)
-      - loreRulesPromise (IDF+RRF)
-   g. NPC Intro Engine (tier-gated introEngine) — LLM call to auxiliary provider
-   h. Phase 'building-prompt': buildPayload() — 5-block assembly with Anthropic cache_control
-   i. Phase 'generating': sendMessage (streaming via per-endpoint queue, /llm/proxy for CORS)
+3. runTurn(state, callbacks, abortController) — 9 stages (turnStages.ts):
+   a. resolveEngineRolls: rollEngines(context) → pre-rolled dice pool;
+      armed roll/loot/oneshot resolved; Absolute Command revealed
+   b. addUserTurnMessage (synchronous bubble)
+   c. gatherTurnContext [phase: gathering-context] — parallel stages with 180s race backstop:
+      - planner (LLM, tier-gated) + semantic-candidates (vector) + relationshipStances start together
+      - archive-recall (RRF fusion; awaits semantic+planner), recommender (LLM),
+        lore-rules (IDF+RRF), dynamic-elevation (scoped vector, tier-gated)
+      - then sequentially: slotted RAG (pure), pinned chapters, deep-search (armed), semantic facts
+   d. runIntroEngineStage (tier-gated NPC intros)
+   e. runDirectorStage: travel facts + watchdog dossier + Director Brief
+      (skipped entirely under Absolute Command)
+   f. runPromptInterception + runFactPublication (mod hooks)
+   g. buildTurnPayload [phase: building-prompt] — 5-block assembly with cache_control;
+      final user message via contribution registry (10 built-ins + mod extensions)
+   h. runGenerationStage [phase: generating] — sendMessage streaming via per-endpoint
+      queue (/llm/proxy for CORS):
       - Tool calls via TOOL_REGISTRY (max 5 per turn)
-      - 3-tier retry on error (retry → retry without tools → give up)
-   j. On done: extractAndStripSceneStakes → build SwipeVariant → stamp swipeSet + pendingCommit
-   k. capturePendingTurnSnapshot() — freeze messages + cached payload for lazy swipes 2-5
-   l. Phase 'idle'
+      - 3-tier retry (retry → retry without tools → give up)
+      - extractAndStripSceneStakes → build SwipeVariant → stamp swipeSet
+      - capturePendingTurnSnapshot (freeze messages + cached payload + TurnContext)
+      - persistTurnState (durable commit)
+   i. Phase 'idle'
 
 4. Player browses swipes (2-5) generated lazily from cached payload (swipeGeneration.ts)
 5. Player clicks send again OR switches campaign → loop back to step 2
 ```
+
+**Travel flow (WO 6.5, engine action — no LLM turn)**: departure from map / Places panel / composer TRAVEL → `departureComposer.composeDeparture` → `travelState.departur(e|MultiHop)` (worldmap mod pathfinder routes) → each `travelPress` = one day = one `role:'system'` checkpoint message → `arrive` / `abandonJourney` / `halt` (post-commit safety valve if location header names an unrelated place). `travelFacts` feeds the Continuity Director hard world facts (max 3).
 
 ---
 
@@ -677,7 +672,7 @@ POST /api/campaigns/:id/archive
        - extractWitnessesHeuristic (bracketed dialogue OR user "talk to/ask/tell X")
        - extractKeywordStrengths (frequency + position + proximity bonus)
        - extractNPCStrengths (death=1.0, 3+ mentions OR dialogue=0.7, 2=0.5, 1=0.3)
-       - estimateImportance (1-10, +3 death, +2 MEMORABLE, +1 royalty/treasure/quest)
+       - estimateImportance (base 3, +3 death verbs, +2 MEMORABLE, +1 royalty/treasure/quest; clamp 1-10)
     3. withCampaignLock #1 — index write
     4. Fire-and-forget embedding (embedText → storeArchiveEmbedding, NOT awaited)
     5. Pre-compute entity name union for deferred timeline extraction
@@ -696,17 +691,41 @@ POST /api/campaigns/:id/archive
 
 ---
 
+## Mods Platform (v2.0)
+
+Narrative Engine 2.0 is a mod platform. Formerly hard-coded features (world map,
+enemies, arc engine) now ship as bundled sandboxed mods; users can disable or
+uninstall them without breaking the base app.
+
+```
+mods/<mod-id>/manifest.json      # folder-based manifests (flat *.mod.json files are rejected as legacy)
+├── manifest keys: id, name, version, description, tables[], panels[], screens[],
+│   windows[], tierEntries[], compute{file,hook,capabilities}, native{js,hooks},
+│   interceptors[], contributions[], i18n/
+└── server: modLoader.js validates (never throws) → client: modBootstrap registers
+    translations + compute tracks + tier entries → sandbox runs compute JS in a
+    worker with capability-scoped host APIs (hostFacade)
+```
+
+- **Bundled mods** (`public/bundled-mods/`): `worldmap` (terrain, pathfinder, travel, discoveries, encounters — powers the PixiJS map + travel), `enemies` (Phase 8 successor of the enemy system), `example-bundled-tone`, plus optional local `arc` mod at `mods/arc/` (arc tick as `mod.arc.compute` post-turn track).
+- **Mod tables**: `mod.<modId>.<table>` names, persisted as `<campaignId>.mod-<modId>-<table>.json`.
+- **Legacy adoption** (Phase 8.5): retired built-in tables (5 enemy files) are one-time copied into adopting mod tables, guarded by `<campaignId>.migrations.json`.
+- **Contribution points**: prompt contributions, prompt interceptors, fact publishers, post-turn compute tracks, tier blocks, OOC sections, panels/screens/windows, header actions, service roles (`memory.recall`).
+- **Discipline**: base app runs with zero mods (`test:base-app-gate`); uninstall path proven by e2e. See `docs/MODDING.md` + `docs/narrative-mod-api.d.ts`.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Frontend | React 19.2 + TypeScript 5.9 (strict) + Vite 8 + Tailwind 4 |
 | State | Zustand 5 (6 slices) |
-| Styling | Tailwind CSS 4 |
+| Styling | Tailwind CSS 4 + @tailwindcss/typography |
 | 2D Rendering | PixiJS 8 + pixi-filters (overworld map) |
 | Markdown | react-markdown 10 + remark-gfm 4 |
 | Icons | lucide-react |
-| Backend | Express 5 (ESM), Node ≥ 20.19 |
+| Backend | Express 5 (ESM), Node ≥ 20.19 (.nvmrc: Node 22) |
 | Database | JSON files per campaign in `data/campaigns/<id>/` |
 | Vector search | better-sqlite3 12 + sqlite-vec 0.1.9 (3 vec0 tables, cosine distance) |
 | Embedding | @huggingface/transformers 4 (mxbai-embed-large-v1 q8, 1024 dims, LRU 512) |
@@ -717,7 +736,8 @@ POST /api/campaigns/:id/archive
 | Encryption | Node `crypto` AES-256-GCM + PBKDF2-SHA256 (600k iter password / 10k machine key) |
 | Settings storage | idb-keyval 6 (IndexedDB, providers encrypted at rest) |
 | Desktop | Electron (nodeIntegration:false, contextIsolation:true) |
-| Testing | Vitest 4 + React Testing Library 16 + Supertest 7 (84 test files, ~1,055 tests) |
+| Testing | Vitest 4 + React Testing Library 16 + Supertest 7 (336 test files, ~4,240 tests) |
+| E2E | Playwright 1.62 (8 specs in `e2e/`, headless Chromium) |
 | Build | esbuild 0.28 (server bundle for Electron) + Vite 8 (frontend) |
 | Linting | ESLint 9 flat config + typescript-eslint 8 + react-hooks + react-refresh |
 | Shared core | @narrative/engine (file-linked `packages/engine`, platform-pure, boundary-gate enforced) |
@@ -741,9 +761,16 @@ The `@narrative/engine` package is a **file-linked local dependency** (`"file:pa
 
 **Modules**:
 - `src/json/jsonExtract.ts` — `extractJson`, `extractJsonRobust` (balanced-brace scan)
-- `src/loot/lootEngine.ts` — Loot tree walker
+- `src/loot/lootEngine.ts` — Loot tree walker (`resolveLootDrop`)
 - `src/retrieval/lexicalFusion.ts` — `fuseRRF` (k=60, Cormack et al. 2009), `computeIdf` (BM25 smoothing)
-- `src/rolls/engineRolls.ts` — 3-gate dice engine
+- `src/rolls/engineRolls.ts` — 3-gate dice engine; `src/rolls/diceTier.ts` — `mapTier`, `validateBands`
+- `src/npc/dispositionGroups.ts` — hex envelopes/modifiers; `src/npc/hexVoiceGuide.ts` — `buildVoiceDirective`
+- `src/panels/panelDescriptor.ts` — `createPanelRegistry` + `panelHooks.ts` — `runPanelHook`, `evaluatePanelComputed`
+- `src/tables/tableDescriptor.ts` — `createTableRegistry`
+- `src/mods/apiVersion.ts` — Mod API version constant
+- `src/roles/roleIds.ts` — frozen `SERVICE_ROLE_IDS` (`memory.recall`)
+
+**Exports** (package.json): `.` (barrel), `./roles/roleIds`, `./mods/apiVersion`.
 
 **Type strategy**: Types are structural twins. The app keeps its own `src/types/` as source of truth; the engine declares only the fields it reads in `packages/engine/src/*/types.ts`. This avoids a circular dep where the engine imports app types.
 
@@ -753,18 +780,19 @@ The `@narrative/engine` package is a **file-linked local dependency** (`"file:pa
 
 | Need to understand... | Read this file |
 |---|---|
-| "How does a turn work?" | `src/services/turn/turnOrchestrator.ts` |
+| "How does a turn work?" | `src/services/turn/turnOrchestrator.ts` + `turnStages.ts` |
 | "How is a swipe committed?" | `src/services/turn/pendingCommit.ts` |
 | "How is context built?" | `src/services/turn/contextGatherer.ts` + `src/services/payload/payloadBuilder.ts` |
-| "How is the payload structured?" | `src/services/payload/{payloadBuilder,stable,volatile,world,history,budgets}.ts` |
+| "How is the payload structured?" | `src/services/payload/{payloadBuilder,stable,volatile,world,history,budgetClaims,lodRenderer}.ts` + `contributions/` |
 | "How are scenes archived?" | `server/routes/archive.js` + `server/services/archiveService.js` |
 | "How does vector search work?" | `server/lib/vectorStore.js` + `server/lib/embedder.js` |
 | "How does RRF fusion work?" | `src/services/archive-memory/recall.ts` + `packages/engine/src/retrieval/lexicalFusion.ts` |
 | "How does NPC agency tick?" | `src/services/npc/agency/agencyEngine.ts` |
 | "How do reaction menus work?" | `src/services/npc/reactionMenu.ts` + `reactionRepression.ts` |
 | "How does the hex roll work?" | `src/services/npc/hexRoll.ts` |
-| "How are scenes summarized?" | `src/services/saveFileEngine.ts` (`sealChapterCombined`) |
-| "How do chapters auto-seal?" | `src/services/archive-memory/archiveChapterEngine.ts` |
+| "How does the travel system work?" | `src/services/turn/travelState.ts` + `travelPress.ts` + `src/services/location/` |
+| "How are scenes summarized?" | `src/services/saveFile/combinedSeal.ts` |
+| "How do chapters auto-seal?" | `src/services/archive-memory/archiveChapterEngine.ts` + `server/services/chapterFitting.js` |
 | "How does deep search work?" | `src/services/archive-memory/deepArchiveSearch.ts` |
 | "How does TTS work?" | `server/lib/tts.js` + `src/components/tts/TtsPlaybackPanel.tsx` |
 | "How does the vault work?" | `server/vault.js` |
@@ -772,8 +800,9 @@ The `@narrative/engine` package is a **file-linked local dependency** (`"file:pa
 | "What data does the store hold?" | `src/store/slices/` (7 slice files) |
 | "How are NPCs detected?" | `src/services/npc/npcDetector.ts` |
 | "How does the priority queue work?" | `src/services/llm/llmRequestQueue.ts` |
-| "How is the world map generated?" | `src/services/mapEngine/worldOrchestrator.ts` + `src/components/map/OverworldCanvas.tsx` |
+| "How do mods work?" | `docs/MODDING.md` + `server/lib/modLoader.js` + `src/services/mods/modBootstrap.ts` |
+| "How is the world map generated?" | `src/services/mapEngine/worldGenerator.ts` + `public/bundled-mods/worldmap/` |
 | "How is the divergence register rendered?" | `src/services/campaign-state/divergenceRegister.ts` |
-| "How is the PC created?" | `src/components/pc/PCCreationWizard.tsx` |
+| "How is the PC created?" | `src/components/character/AIGuidedCreationWizard.tsx` + `src/services/character/` |
 | "How is settings state encrypted?" | `src/services/infrastructure/settingsCrypto.ts` |
-| "What are the engine packages?" | `packages/engine/src/{json,loot,retrieval,rolls}/` |
+| "What are the engine packages?" | `packages/engine/src/{json,loot,retrieval,rolls,npc,panels,tables,mods,roles}/` |
