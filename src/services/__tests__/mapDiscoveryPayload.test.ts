@@ -27,3 +27,18 @@ it('scopes encounter prompts and prevents quiet or consumed outcomes restarting'
     expect(handled).not.toContain('A distant cart.');
     expect(buildMapEncounterBlock({ ...context, mapEncounter: { ...context.mapEncounter!, quiet: true, events: [] } })).toContain('Quiet checkpoint');
 });
+
+
+it('supplies saved scene identities and outcome notes without inventing camp movement', () => {
+    const context = { currentPlaceId: 'camp', worldDay: 3, travel: null,
+        mapEncounter: { key: '3:1:1', placeId: 'camp', worldDay: 3, leg: null, weather: 'clear', biome: 'forest',
+            scene: 'Leaf litter beneath the trees.', note: 'Agreed to meet tomorrow.', quiet: false, status: 'available',
+            events: [{ id: 'merchant', source: 'road', title: 'Merchant', text: 'A pack beside the path.',
+                actor: { id: 'person-1', name: 'Sella Reed', role: 'merchant', motive: 'trade supplies' } }] } } as GameContext;
+    const block = buildMapEncounterBlock(context);
+    expect(block).toContain('Sella Reed'); expect(block).toContain('trade supplies');
+    expect(block).toContain('Agreed to meet tomorrow.'); expect(block).toContain('Leaf litter');
+    expect(block).toContain('does not advance a travel leg');
+    const handled = buildMapEncounterBlock({ ...context, mapEncounter: { ...context.mapEncounter!, status: 'handled' } });
+    expect(handled).toContain('Agreed to meet tomorrow.'); expect(handled).not.toContain('A pack beside the path.');
+});

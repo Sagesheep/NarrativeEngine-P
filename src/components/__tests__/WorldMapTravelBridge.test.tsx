@@ -215,3 +215,37 @@ describe('WorldMapTravelBridge', () => {
     });
 
 });
+
+describe('map roleplay handoff', () => {
+    const scene = { key: '1:1:2', placeId: 'a', worldDay: 1, leg: null, weather: 'clear', biome: 'forest', quiet: false,
+        status: 'available' as const, events: [{ id: 'bear', source: 'biome', title: 'Bear', text: 'A bear forages.' }] };
+    const request = { campaignId: 'camp-rp', key: scene.key, placeId: 'a', worldDay: 1, leg: null, kind: 'reply', text: 'I observe the bear.' };
+    beforeEach(() => {
+        modEventBus.reset(); useAppStore.setState({ activeCampaignId: 'camp-rp', composerInjection: null, isStreaming: false,
+            messages: [], context: { currentPlaceId: 'a', worldDay: 1, travel: null, mapEncounter: scene } });
+    });
+    afterEach(() => { cleanup(); modEventBus.reset(); useAppStore.setState({ activeCampaignId: null, composerInjection: null }); });
+    it('prepares editable text without sending, moving or resolving the encounter', () => {
+        render(<WorldMapTravelBridge />);
+        act(() => modEventBus.emit('mod.worldmap.roleplayRequest', request));
+        const state = useAppStore.getState();
+        expect(state.composerInjection).toBe(request.text); expect(state.messages).toEqual([]);
+        expect(state.context).toMatchObject({ currentPlaceId: 'a', worldDay: 1, travel: null, mapEncounter: scene });
+    });
+    it('rejects a delayed action from another campaign, day, place or leg', () => {
+        render(<WorldMapTravelBridge />);
+        for (const patch of [{ campaignId: 'other' }, { worldDay: 2 }, { placeId: 'b' }, { leg: 1 }, { key: 'stale' }]) {
+            act(() => modEventBus.emit('mod.worldmap.roleplayRequest', { ...request, ...patch }));
+            expect(useAppStore.getState().composerInjection).toBeNull();
+        }
+    });
+    it('allows a camp draft at quiet or handled stops but rejects restarting an encounter', () => {
+        useAppStore.setState({ context: { currentPlaceId: 'a', worldDay: 1, mapEncounter: { ...scene, status: 'handled' } } });
+        render(<WorldMapTravelBridge />);
+        act(() => modEventBus.emit('mod.worldmap.roleplayRequest', request));
+        expect(useAppStore.getState().composerInjection).toBeNull();
+        act(() => modEventBus.emit('mod.worldmap.roleplayRequest', { ...request, kind: 'camp', text: 'I make camp here.' }));
+        expect(useAppStore.getState().composerInjection).toBe('I make camp here.');
+        expect(useAppStore.getState().context.worldDay).toBe(1);
+    });
+});

@@ -68,6 +68,7 @@ export function rollEncounter(input, random = randomFor(`${input.seed}:encounter
     else {
         for (const [source, id, pair] of [['feature', input.feature?.type, FEATURE_EVENTS[input.feature?.type]],
             ['biome', input.biome, BIOME_EVENTS[input.biome]], ['weather', weather, WEATHER_EVENTS[weather]]]) {
+            if (source === 'biome' && input.feature?.type === 'settlement') continue;
             if (pair && random() < 0.3) {
                 const detailed = source === 'feature' ? siteEvent(input) : source === 'biome' ? localEvent(input, random) : null;
                 events.push(detailed ?? { id: `${source}-${id}`, source, title: pair[0], text: pair[1] });
