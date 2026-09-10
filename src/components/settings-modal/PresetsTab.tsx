@@ -21,6 +21,7 @@ export function PresetsTab() {
       utilityAIProviderId: '',
       auxiliaryAIProviderId: '',
       imageAIProviderId: '',
+      visionAIProviderId: '',
     };
     addPreset(newPreset);
     setActiveTab(newPreset.id);
@@ -155,6 +156,24 @@ export function PresetsTab() {
                   <option key={p.id} value={p.id}>{p.label || p.modelName || p.endpoint}</option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] text-text-dim uppercase tracking-wider mb-1">Vision AI (Reads Images)</label>
+              <select
+                value={activePreset.visionAIProviderId || ''}
+                onChange={(e) => updatePreset(activePreset.id, { visionAIProviderId: e.target.value })}
+                className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary focus:border-terminal focus:outline-none appearance-none"
+              >
+                <option value="">None</option>
+                {settings.providers.map(p => (
+                  <option key={p.id} value={p.id}>{p.label || p.modelName || p.endpoint}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] text-text-dim">
+                Must be a multimodal model (e.g. a vision-capable GPT, Claude, Gemini or llava/qwen-vl on Ollama).
+                Used by &quot;Read Image&quot; to turn a portrait into character-sheet text.
+              </p>
             </div>
 
             <div>

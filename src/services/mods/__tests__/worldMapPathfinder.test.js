@@ -379,7 +379,7 @@ describe('World Map pathfinder — module purity (WO 6.0 §7)', () => {
             .split('\n')
             .map(l => l.trim())
             .filter(l => l.startsWith('import ') || l.startsWith('export from'));
-        expect(importLines.length).toBe(0);
+        expect(importLines.every(line => /from ['"]\.\//.test(line))).toBe(true);
     });
 });
 

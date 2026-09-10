@@ -126,6 +126,16 @@ export function buildVolatile(opts: {
             volatileParts.push(travelBlockStr);
         }
     }
+    const encounterBlock = buildMapEncounterBlock(context);
+    if (encounterBlock) {
+        volatileParts.push(encounterBlock);
+        collector.addTrace({ source: 'Checkpoint encounter', classification: 'volatile_state', tokens: countTokens(encounterBlock), reason: 'Saved current-checkpoint situation', included: true, position: 'system_dynamic', preview: encounterBlock });
+    }
+    const discoveriesBlock = buildMapDiscoveriesBlock(context);
+    if (discoveriesBlock) {
+        volatileParts.push(discoveriesBlock);
+        collector.addTrace({ source: 'Map discoveries', classification: 'volatile_state', tokens: countTokens(discoveriesBlock), reason: 'Sites observed at the current checkpoint', included: true, position: 'system_dynamic', preview: discoveriesBlock });
+    }
     if (context.notebookActive && context.notebook && context.notebook.length > 0) {
         // Notebook is the only unbounded volatile source. Reserve whatever budget remains after the
         // higher-priority character/inventory/profile parts and admit newest-first entries until full,
@@ -283,11 +293,9 @@ export function buildTravelBlock(context: GameContext, ledger: LocationEntry[]):
 
     let secondLine: string;
     if (travel.agency === 'constrained') {
-        secondLine = 'The party does not control this journey.';
-    } else if (travel.leg >= travel.totalLegs) {
-        secondLine = `The party reaches ${toName} in this scene.`;
+        secondLine = 'The party does not control this journey. Stay at this checkpoint; the engine advances travel.';
     } else {
-        secondLine = `End this scene at nightfall. Do not reach ${toName}.`;
+        secondLine = `Stay at this checkpoint. Do not advance travel or arrive at ${toName}; the player moves with Travel.`;
     }
 
     const block = `[TRAVEL]\n${headerLine}\n${secondLine}`;
@@ -324,4 +332,26 @@ export function buildPcKitLine(pc: PlayerCharacter | null | undefined, npcLedger
     if (kit.abilities.length > 0) segments.push(`Powers: ${kit.abilities.join(', ')}`);
     if (kit.element) segments.push(`element: ${kit.element}`);
     return segments.length > 0 ? segments.join(' | ') : '';
+}
+
+
+export function buildMapDiscoveriesBlock(context: GameContext): string {
+    const data = context.mapDiscoveries;
+    if (!data || data.placeId !== context.currentPlaceId || data.worldDay !== context.worldDay
+        || data.leg !== (context.travel?.leg ?? null) || !data.sites?.length) return '';
+    const lines = data.sites.slice(0, 4).map(site =>
+        `${site.distance === 0 ? 'At this cell' : 'Nearby, not yet reached'}: ${String(site.name).slice(0, 80)} (${site.type}). ${String(site.description ?? '').slice(0, 160)}`);
+    return `[MAP DISCOVERIES]\n${lines.join('\n')}\nKeep saved identities consistent. Discovery does not move the party; roleplay is optional.`;
+}
+
+
+export function buildMapEncounterBlock(context: GameContext): string {
+    const event = context.mapEncounter;
+    if (!event || event.placeId !== context.currentPlaceId || event.worldDay !== context.worldDay
+        || event.leg !== (context.travel?.leg ?? null)) return '';
+    const situation = event.status !== 'available' ? 'This situation has already been handled or left behind. Do not restart it.'
+        : event.quiet ? 'Quiet checkpoint. No encounter is required.'
+            : event.events.slice(0, 3).map(row => `${String(row.title).slice(0, 80)}: ${String(row.text).slice(0, 300)}`
+                + (row.actor ? `\nSaved participant: ${String(row.actor.name).slice(0, 80)} (${String(row.actor.role).slice(0, 80)}; identity ${String(row.actor.id).slice(0, 80)}). Motive: ${String(row.actor.motive).slice(0, 200)}.` : '')).join('\n');
+    return `[CHECKPOINT SITUATION]\nWeather: ${event.weather}. Terrain: ${event.biome}.\n${event.scene ? String(event.scene).slice(0, 400) + '\n' : ''}${situation}\n${event.note ? 'Saved player outcome note: ' + JSON.stringify(String(event.note).slice(0, 1200)) + '\n' : ''}Continue from established conversation and saved identities; do not replay the introduction each turn. Local details must fit the terrain and reached sites. A camp request plays the camp scene here; it does not advance a travel leg or relocate the party.\nRoleplay is optional. Do not force movement, damage, rewards or resolution; the player chooses whether to engage and when to Travel.`;
 }

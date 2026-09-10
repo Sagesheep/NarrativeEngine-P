@@ -241,6 +241,7 @@ function buildNativeModContext(mod: {
                 // `travel.leg` to draw the party on the right cell.
                 travel: fresh.context.travel ?? null,
                 worldDay: fresh.context.worldDay,
+                travelMode: fresh.context.travelMode,
             };
         };
         return buildModContext({

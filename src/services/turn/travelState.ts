@@ -125,6 +125,8 @@ export function depart(params: {
     agency?: 'free' | 'constrained';
     ledger: LocationEntry[];
     currentWorldDay?: number;
+    /** Exact route duration from the map; bands are fallback only. */
+    days?: number;
 }): TransitionResult {
     const { fromId, toId, band, mode, agency = 'free', ledger, currentWorldDay } = params;
     if (fromId === toId) return EMPTY;
@@ -132,7 +134,8 @@ export function depart(params: {
     const connectionUpserts = ensureDirectConnection(fromId, toId, band, ledger);
     const ledgerWithConnections = mergeUpserts(ledger, connectionUpserts);
     const { transitId, upsert: transitUpserts } = ensureTransitNode(fromId, toId, band, ledgerWithConnections);
-    const totalLegs = legsFor(band, mode);
+    const totalLegs = params.days ?? legsFor(band, mode);
+    if (!Number.isSafeInteger(totalLegs) || totalLegs < 1) throw new Error('Travel duration must be a positive integer');
     const nextDay = (currentWorldDay ?? 0) + 1;
 
     const travel: TravelState = {
@@ -191,22 +194,25 @@ export function departMultiHop(params: {
     const { fromId, toId, mode, hops, agency = 'free', ledger, currentWorldDay } = params;
     if (fromId === toId) return EMPTY;
     if (hops.length === 0) return EMPTY;
+    if (hops.some(hop => !Number.isSafeInteger(hop.legs) || hop.legs < 1)) {
+        throw new Error('Travel duration must be a positive integer');
+    }
     if (hops.length === 1) {
-        // A single-hop route is an ordinary depart. Derive the band from the
-        // hop's leg count so the transit node and connection are created at a
-        // band consistent with the terrain-real distance.
-        const band = bandFromLegs(hops[0].legs, mode);
-        return depart({ fromId, toId, band, mode, agency, ledger, currentWorldDay });
+        // Keep authored geography intact; exact route days never round-trip
+        // through a band. Estimate a band only for a missing connection.
+        const existing = ledger.find(place => place.id === fromId)?.connections.find(c => c.toId === toId);
+        const band = existing ? connectionBand(existing) : bandFromLegs(hops[0].legs, mode);
+        return depart({ fromId, toId, band, mode, agency, ledger, currentWorldDay, days: hops[0].legs });
     }
 
-    // Ensure direct connections + transit nodes for every hop. Each hop's
-    // band is derived from its terrain-real leg count, so the ledger records
-    // the distance the party actually covered, not a guessed midpoint.
+    // Ensure connections and transit nodes for every hop without overwriting
+    // authored distance constraints when speed or terrain changes travel time.
     let workingLedger = ledger;
     const allUpserts: LocationEntry[] = [];
     const resolvedHops: TravelHop[] = [];
     for (const hop of hops) {
-        const band = bandFromLegs(hop.legs, mode);
+        const existing = workingLedger.find(place => place.id === hop.fromId)?.connections.find(c => c.toId === hop.toId);
+        const band = existing ? connectionBand(existing) : bandFromLegs(hop.legs, mode);
         const connectionUpserts = ensureDirectConnection(hop.fromId, hop.toId, band, workingLedger);
         if (connectionUpserts.length > 0) {
             allUpserts.push(...connectionUpserts);
@@ -242,7 +248,7 @@ export function departMultiHop(params: {
     const contextPatch: Partial<GameContext> = {
         travel,
         travelMode: mode,
-        currentPlaceId: firstHop.transitId,
+        currentPlaceId: firstHop.legs === 1 ? firstHop.toId : firstHop.transitId,
         currentFeature: null,
         worldDay: nextDay,
     };
@@ -252,7 +258,7 @@ export function departMultiHop(params: {
 /**
  * `advance()` — move to the next leg. WO 6.5: called by the engine travel
  * press (not the post-commit advance track — that is now the safety-valve
- * only). Increments `leg` and `worldDay` by 1. When `leg` exceeds
+ * only). Increments `leg` and `worldDay` by 1. When `leg` reaches
  * `totalLegs`, the journey is over — see `arrive`.
  *
  * For a multi-hop journey (WO 6.1 §2), advancing past a hop's leg range
@@ -267,7 +273,7 @@ export function departMultiHop(params: {
 export function advance(state: TravelState, currentWorldDay: number | undefined): TransitionResult {
     const nextLeg = state.leg + 1;
     const nextDay = (currentWorldDay ?? 0) + 1;
-    if (nextLeg > state.totalLegs) {
+    if (nextLeg >= state.totalLegs) {
         return arrive(state, nextDay);
     }
     // Multi-hop: check whether we're crossing a hop boundary. Each hop covers
@@ -279,10 +285,6 @@ export function advance(state: TravelState, currentWorldDay: number | undefined)
         for (let i = 0; i < state.hops.length; i += 1) {
             cumulative += state.hops[i].legs;
             if (nextLeg <= cumulative) {
-                if (i === state.hopIndex) break;
-                // Crossing into hop i: the party arrived at hop (i-1)'s
-                // destination (which is hop i's fromId) and now sits on hop
-                // i's transit node.
                 const nextHop = state.hops[i];
                 const travel: TravelState = {
                     ...state,
@@ -290,7 +292,7 @@ export function advance(state: TravelState, currentWorldDay: number | undefined)
                     hopIndex: i,
                     transitId: nextHop.transitId,
                 };
-                return { travel, contextPatch: { travel, worldDay: nextDay, currentPlaceId: nextHop.transitId, currentFeature: null } };
+                return { travel, contextPatch: { travel, worldDay: nextDay, currentPlaceId: nextLeg === cumulative ? nextHop.toId : nextHop.transitId, currentFeature: null } };
             }
         }
     }

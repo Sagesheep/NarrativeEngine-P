@@ -114,20 +114,17 @@ export function composeDeparture(args: {
     const target = ledger.find(l => l.id === toId);
     if (!target) throw new Error(`composeDeparture: destination ${toId} not in ledger`);
 
-    const usedBand = ensureConnection(fromId, toId, band, ledger, deps.updateLocation);
-    void usedBand;
+    // A multi-hop route must not invent a direct shortcut between its endpoints.
+    const usedBand = hops?.length ? band : ensureConnection(fromId, toId, band, ledger, deps.updateLocation);
 
     deps.updateContext({ travelMode: mode });
 
     const workingLedger = [...ledger];
     let result: TransitionResult;
-    if (hops && hops.length > 1) {
+    if (hops && hops.length > 0) {
         result = departMultiHop({ fromId, toId, mode, hops, ledger: workingLedger, currentWorldDay });
-    } else if (hops && hops.length === 1) {
-        const hopBand = bandFromLegs(hops[0].legs, mode);
-        result = depart({ fromId, toId, band: hopBand, mode, ledger: workingLedger, currentWorldDay });
     } else {
-        result = depart({ fromId, toId, band, mode, ledger: workingLedger, currentWorldDay });
+        result = depart({ fromId, toId, band: usedBand, mode, ledger: workingLedger, currentWorldDay });
     }
 
     return result;

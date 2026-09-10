@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
     buildCheckpoints,
+    straightLineRoute,
+    stoppedCell,
     partyCellForJourney,
     validJourney,
     mapSnapshot,
@@ -390,8 +392,8 @@ describe('WO 6.2 §5 — the drawn route survives a repaint', () => {
  * the §4 trigger is the STATE, not the transition. Watch `travel` going
  * null, not a specific event.
  */
-describe('WO 6.2 §4 — clearJourney writes null to the table and drops the cache', () => {
-    it('clearJourney writes null and returns true', async () => {
+describe('WO 6.2 §4 — clearJourney writes an inactive object to the table and drops the cache', () => {
+    it('clearJourney writes an inactive object and returns true', async () => {
         const ctx = await buildCtxForJourney({
             journeyRecord: journey(),
             travel: travel({ leg: 1 }),
@@ -403,11 +405,11 @@ describe('WO 6.2 §4 — clearJourney writes null to the table and drops the cac
 
         const ok = await clearJourney(ctx);
         expect(ok).toBe(true);
-        // The table was written null.
+        // The inactive record is accepted by the HTTP JSON parser.
         const writes = ctx.table.write.mock.calls.filter(c => c[0] === 'journey');
         const last = writes[writes.length - 1];
         expect(last).toBeDefined();
-        expect(last[1]).toBeNull();
+        expect(last[1]).toEqual({});
         // The cache is dropped — the snapshot no longer carries the journey.
         // (The world version was bumped, so the cache is invalidated.)
         expect(mapSnapshot(ctx).journey).toBeNull();
@@ -462,5 +464,32 @@ describe('WO 6.2 §4 — the clear decision: active→inactive clears; null→nu
         // campaign may or may not have its own journey). The guard fires on
         // the old campaign's handler before the campaign id changes.
         expect(shouldClearJourney(true, null)).toBe(true);
+    });
+});
+
+describe('flying route geometry', () => {
+    it.each([[51, 12], [12, 51], [-51, 12], [0, 51], [51, 0], [0, 0]])(
+        'ends at (%i,%i), with cumulative cost and a checkpoint per travel day', (x, y) => {
+            const route = straightLineRoute({ x: 0, y: 0 }, { x, y });
+            expect(route.cells.at(-1)).toEqual({ x, y, cost: route.cost });
+            expect(route.cost).toBeCloseTo(Math.abs(Math.abs(x)-Math.abs(y)) + Math.SQRT2*Math.min(Math.abs(x), Math.abs(y)));
+            for (let i = 1; i < route.cells.length; i++) {
+                expect(route.cells[i].cost).toBeGreaterThan(route.cells[i - 1].cost);
+                expect(Math.abs(route.cells[i].x - route.cells[i - 1].x)).toBeLessThanOrEqual(1);
+                expect(Math.abs(route.cells[i].y - route.cells[i - 1].y)).toBeLessThanOrEqual(1);
+            }
+            const checkpoints = buildCheckpoints([{ ...route, legs: route.days }], 20, 1);
+            expect(checkpoints).toHaveLength(route.days - 1);
+        });
+});
+
+
+describe('persisted checkpoint ownership', () => {
+    it('uses a stopped coordinate only at its owning place', () => {
+        const position = { x: -12, y: 8, placeId: 'camp' };
+        expect(stoppedCell(position, { currentPlaceId: 'camp' })).toEqual({ x: -12, y: 8 });
+        expect(stoppedCell(position, { currentPlaceId: 'destination' })).toBeNull();
+        expect(stoppedCell({ ...position, x: NaN }, { currentPlaceId: 'camp' })).toBeNull();
+        expect(stoppedCell(null, { currentPlaceId: 'camp' })).toBeNull();
     });
 });

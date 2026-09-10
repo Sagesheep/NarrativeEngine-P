@@ -166,7 +166,7 @@ describe('TravelButton', () => {
         // camp count moved to the tooltip, where there is room for it.
         const btn = screen.getByRole('button', { name: /continue/i });
         expect(btn).toBeInTheDocument();
-        expect(btn).toHaveAttribute('title', expect.stringContaining('camp 2 of 3'));
+        expect(btn).toHaveAttribute('title', expect.stringContaining('camp 2 of 2'));
 
         fireEvent.click(btn);
         // The leg advanced.

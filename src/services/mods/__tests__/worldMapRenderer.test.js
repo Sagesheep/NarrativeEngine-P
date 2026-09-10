@@ -188,7 +188,7 @@ describe('World Map renderer — pan does not invalidate tiles (§11)', () => {
         canvas.dispatchEvent(new MouseEvent('pointermove', {
             bubbles: true, clientX: 450, clientY: 320,
         }));
-        expect(root.querySelector('[data-worldmap-hover]').textContent).toContain(expected);
+        expect(root.querySelector('[data-worldmap-hover]').textContent.toLowerCase()).toContain(expected);
         cleanupRenderer();
     });
 
@@ -617,7 +617,7 @@ describe('World Map renderer — pan does not invalidate tiles (§11)', () => {
     });
 describe('World Map standard surface helpers', () => {
     it('uses visible defaults for legacy layer settings and sensible scale units', () => {
-        expect(normaliseLayerSettings()).toEqual({ grid: true, roads: true, labels: true });
+        expect(normaliseLayerSettings()).toEqual({ grid: false, roads: true, labels: true });
         expect(normaliseLayerSettings({ grid: false, roads: true, labels: false })).toEqual({
             grid: false, roads: true, labels: false,
         });

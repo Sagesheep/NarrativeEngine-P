@@ -100,23 +100,17 @@ describe('departMultiHop', () => {
         expect(result.travel).toBeNull();
     });
 
-    it('delegates a single-hop route to depart (no hops array on travel state)', () => {
+    it('arrives in one press for an exact one-day map route', () => {
         const a = makePlace({ id: 'loc_a', name: 'A' });
         const b = makePlace({ id: 'loc_b', name: 'B' });
         const hops = makeHops(['loc_a', 'loc_b'], [1]);
-        // A single-hop route delegates to depart. The hop's 1 leg maps to
-        // `local` band (3 grids → local), and local × foot = 2 legs.
+        // Preserve the exact one-day cost instead of rounding through local.
         const result = departMultiHop({
             fromId: 'loc_a', toId: 'loc_b', mode: 'foot', hops, ledger: [a, b],
             currentWorldDay: 5,
         });
-        // Single-hop departMultiHop delegates to depart — no hops array.
-        expect(result.travel).not.toBeNull();
-        expect(result.travel!.hops).toBeUndefined();
-        expect(result.travel!.hopIndex).toBeUndefined();
-        expect(result.travel!.totalLegs).toBe(2);
-        expect(result.travel!.leg).toBe(1);
-        // WO 6.5: depart advances the day (first press = camp 1).
+        expect(result.travel).toBeNull();
+        expect(result.contextPatch.currentPlaceId).toBe('loc_b');
         expect(result.contextPatch.worldDay).toBe(6);
     });
 });
@@ -158,7 +152,7 @@ describe('advance — multi-hop', () => {
         expect(next2.contextPatch.worldDay).toBe(12);
     });
 
-    it('arrives at the final destination when leg exceeds totalLegs', () => {
+    it('arrives at the final destination on the advertised final day', () => {
         const a = makePlace({ id: 'loc_a', name: 'A' });
         const b = makePlace({ id: 'loc_b', name: 'B' });
         const c = makePlace({ id: 'loc_c', name: 'C' });
@@ -170,12 +164,12 @@ describe('advance — multi-hop', () => {
         // Advance through all 5 legs.
         let state = travel;
         let day = 10;
-        for (let i = 1; i < 5; i += 1) {
+        for (let i = 1; i < 4; i += 1) {
             const r = advance(state, day);
             state = r.travel!;
             day = r.contextPatch.worldDay as number;
         }
-        // Final advance: leg 5 → leg 6 > totalLegs(5) → arrive.
+        // Fifth press arrives, with no sixth travel day.
         const final = advance(state, day);
         expect(final.travel).toBeNull();
         expect(final.contextPatch.currentPlaceId).toBe('loc_c');

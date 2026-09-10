@@ -1,3 +1,4 @@
+import { useAppStore } from '../store/useAppStore';
 /**
  * Phase 4.5 — the floating window manager UI layer.
  *
@@ -106,36 +107,49 @@ function reportWindowFault(declared: DeclaredWindow, error: unknown): void {
  * `ImperativeRailPanel` in `ChatRightRail.tsx` and `ImperativeSlot` in
  * `MessageBelowSlots.tsx`.
  *
- * The `useEffect` keys on `[declared]` so a mod's `mount` runs once per open
+ * The effect keys on declaration and campaign, so a mod mounts once per open
+ * or campaign switch with a freshly resolved context
  * (the host does not re-run the mount on every drag/resize — the mod's own
  * `ctx.subscribe` is its update mechanism, per `MOUNTS.md` §7 rule 1).
  */
 function WindowInterior({ declared }: { readonly declared: DeclaredWindow }) {
     const nodeRef = useRef<HTMLDivElement>(null);
+    const campaignId = useAppStore(state => state.activeCampaignId);
 
     useEffect(() => {
         const node = nodeRef.current;
         if (!node) return;
 
         let cleanup: (() => void) | undefined;
-        try {
-            const result = declared.declaration.mount(node, declared.context);
-            cleanup = typeof result === 'function' ? result : undefined;
-        } catch (error) {
+        let disposed = false;
+        const fail = (error: unknown) => {
+            if (disposed) return;
             reportWindowFault(declared, error);
             closeWindow(declared.qualifiedId);
-            return;
-        }
+        };
+        const mount = (context: unknown) => {
+            if (disposed) return;
+            try {
+                const result = declared.declaration.mount(node, context);
+                cleanup = typeof result === 'function' ? result : undefined;
+            } catch (error) { fail(error); }
+        };
+        // Declarations outlive campaign loads. Subscribe using a fresh facade,
+        // not the registration-time lease which campaign changes revoke.
+        const context = declared.context as { refresh?: () => Promise<unknown> } | undefined;
+        try {
+            if (typeof context?.refresh === 'function') {
+                void Promise.resolve(context.refresh()).then(mount, fail);
+            } else mount(declared.context);
+        } catch (error) { fail(error); }
 
         return () => {
-            try {
-                cleanup?.();
-            } catch (error) {
-                console.warn(`[mods] window.layer cleanup failed for ${declared.qualifiedId}:`, error);
-            }
+            disposed = true;
+            try { cleanup?.(); }
+            catch (error) { console.warn(`[mods] window.layer cleanup failed for ${declared.qualifiedId}:`, error); }
             node.replaceChildren();
         };
-    }, [declared]);
+    }, [declared, campaignId]);
 
     return (
         <div ref={nodeRef} className="min-h-0 flex-1 overflow-auto bg-surface text-text-primary" />

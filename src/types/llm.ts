@@ -83,6 +83,10 @@ export type AIPreset = {
     utilityAIProviderId?: string;
     auxiliaryAIProviderId?: string;
     imageAIProviderId?: string;
+    /** Vision AI — reads an attached image and writes it back as text (visual profile
+     *  + appearance prose). Optional: unset means the "Read Image" action is unavailable.
+     *  Must point at a multimodal model; see services/vision/describeImage.ts. */
+    visionAIProviderId?: string;
     sampling?: SamplingConfig;
     // Legacy inline endpoint configs — kept ONLY for one-time migration; ignored after migration runs.
     storyAI?: EndpointConfig;

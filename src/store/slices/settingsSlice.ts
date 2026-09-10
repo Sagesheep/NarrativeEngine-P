@@ -56,6 +56,7 @@ export type SettingsSlice = {
     getActiveSummarizerEndpoint: () => LLMProvider | undefined;
     getActiveUtilityEndpoint: () => LLMProvider | undefined;
     getActiveAuxiliaryEndpoint: () => LLMProvider | undefined;
+    getActiveVisionEndpoint: () => LLMProvider | undefined;
 
     addProvider: (provider: LLMProvider) => void;
     updateProvider: (id: string, patch: Partial<LLMProvider>) => void;
@@ -247,6 +248,13 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
         return s.settings.providers.find(p => p.id === preset.auxiliaryAIProviderId);
     },
 
+    getActiveVisionEndpoint: () => {
+        const s = get();
+        const preset = s.getActivePreset();
+        if (!preset || !preset.visionAIProviderId) return undefined;
+        return s.settings.providers.find(p => p.id === preset.visionAIProviderId);
+    },
+
     addProvider: (provider) => {
         set((s) => {
             const newSettings = {
@@ -290,6 +298,9 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
                 }
                 if (updated.imageAIProviderId === id) {
                     updated.imageAIProviderId = '';
+                }
+                if (updated.visionAIProviderId === id) {
+                    updated.visionAIProviderId = '';
                 }
                 return updated;
             });

@@ -179,9 +179,10 @@ export type TravelState = {
     toId: string;
     transitId: string;
     mode: TravelMode;
-    /** 1-based: the leg being played this turn. Counts across the whole journey;
-     *  for a multi-hop journey this is the cumulative leg, not the per-hop leg. */
+    /** Days already travelled. First press reaches checkpoint 1; arrival
+     *  clears travel when this reaches totalLegs. Cumulative across hops. */
     leg: number;
+    /** Total travel days, including arrival. There are totalLegs - 1 camps. */
     totalLegs: number;
     /** 'constrained' = bound, escorted, carried. A forced journey is a normal
      *  journey with constrained agency — legs still apply. */
@@ -266,6 +267,22 @@ export type GameContext = {
     //    LLM only proposes, player can always override). Lazy migration:
     //    absent on existing campaigns → undefined → "no current place".
     currentPlaceId?: string | null;
+    mapEncounter?: {
+        key: string; placeId: string | null; worldDay: number; leg: number | null;
+        weather: string; biome: string; quiet: boolean; status: 'available' | 'handled' | 'passed';
+        scene?: string; note?: string; onRoad?: boolean;
+        events: { id: string; source: string; title: string; text: string; action?: string;
+            actor?: { id: string; name: string; role: string; motive: string } }[];
+    };
+
+    /** Map-owned observations, scoped to a specific checkpoint to prevent stale scene facts. */
+    mapDiscoveries?: {
+        placeId: string | null;
+        worldDay?: number;
+        leg: number | null;
+        sites: { id: string; name: string; type: string; description: string; distance: number }[];
+    };
+
     currentFeature?: string | null;   // free-string feature within the current place
     /** In-game day counter, 1-based. Optional: campaigns that never engage with
      * travel or deadlines simply never set it, and every consumer treats

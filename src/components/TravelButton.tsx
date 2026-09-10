@@ -1,3 +1,4 @@
+import { openMapTravelPreview } from '../services/turn/mapTravelPreview';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Compass, X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
@@ -11,7 +12,6 @@ import {
     type TravelCandidate,
 } from '../services/turn/departureComposer';
 import {
-    buildCheckpointMessage,
     pressTravelAdvance,
     travelButtonLabel,
     travelButtonTitle,
@@ -22,19 +22,20 @@ import {
  *
  * When no journey is active, clicking it opens the destination picker. On
  * confirm, the engine departs directly: `composeDeparture` applies the
- * `depart()` transition, the checkpoint system message is posted, and the
+ * `depart()` transition applies silently, and the
  * composer is not touched. No LLM call.
  *
  * When a journey IS active, the button reads `Continue →` (or `Arrive` on
  * the last leg) and clicking it advances one leg — again, no LLM.
  */
 /**
- * Advance one leg and post the engine's line. Called by this button and by
+ * Advance one leg without routine chat output. Called by this button and by
  * the World Map panel's Continue button (through the travel bridge), so the
  * two cannot drift.
  *
  * No-op when no journey is active — the caller has nothing to advance.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- shared imperative action used by the map travel bridge.
 export function applyTravelAdvance(): void {
     const state = useAppStore.getState();
     const travel = state.context.travel;
@@ -42,7 +43,6 @@ export function applyTravelAdvance(): void {
     const pressed = pressTravelAdvance(travel, state.context.worldDay, state.locationLedger ?? []);
     if (!pressed) return;
     state.updateContext(pressed.result.contextPatch);
-    state.addMessage(pressed.message);
 }
 
 export function TravelButton() {
@@ -98,7 +98,6 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
     const context = useAppStore(s => s.context);
     const updateLocation = useAppStore(s => s.updateLocation);
     const updateContext = useAppStore(s => s.updateContext);
-    const addMessage = useAppStore(s => s.addMessage);
 
     const fromId = context.currentPlaceId ?? null;
     const candidates = useMemo<TravelCandidate[]>(
@@ -131,6 +130,7 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
 
     const handleDepart = () => {
         if (!fromId || !selectedToId) return;
+        if (openMapTravelPreview(selectedToId, travelMode)) { onClose(); return; }
         const state = useAppStore.getState();
         const currentWorldDay = state.context.worldDay;
         const result = composeDeparture({
@@ -149,21 +149,6 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
             state.setLocationLedger(mergeUpserts(locationLedger, result.ledgerUpsert));
         }
 
-        if (result.travel) {
-            const newDay = result.contextPatch.worldDay ?? (currentWorldDay ?? 0) + 1;
-            addMessage(buildCheckpointMessage(result.travel, newDay, locationLedger));
-        } else {
-            // Single-day journey: arrived immediately.
-            const newDay = result.contextPatch.worldDay ?? (currentWorldDay ?? 0) + 1;
-            const to = locationLedger.find(l => l.id === selectedToId);
-            addMessage({
-                id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
-                role: 'system',
-                name: 'travel-arrive',
-                content: `Day ${newDay} · arrived at ${to?.name ?? selectedToId}`,
-                timestamp: Date.now(),
-            });
-        }
         onClose();
     };
 

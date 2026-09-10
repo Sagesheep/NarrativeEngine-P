@@ -548,16 +548,16 @@ describe('buildTravelBlock (WO3 §8)', () => {
         const block = buildTravelBlock(ctx, [a, b]);
         expect(block).toContain('[TRAVEL]');
         expect(block).toContain('Day 2 of 3 — Point A → Point B by cart.');
-        expect(block).toContain('End this scene at nightfall. Do not reach Point B.');
+        expect(block).toContain('Stay at this checkpoint. Do not advance travel or arrive at Point B; the player moves with Travel.');
     });
 
-    it('final leg: the second line says the party reaches the destination', () => {
+    it('legacy final-leg state still waits for the engine to move', () => {
         const a = makeEntry({ id: 'loc_a', name: 'Point A' });
         const b = makeEntry({ id: 'loc_b', name: 'Point B' });
         const ctx = makeCtx({ travel: makeTravel({ leg: 3, totalLegs: 3, mode: 'cart' }) });
         const block = buildTravelBlock(ctx, [a, b]);
         expect(block).toContain('Day 3 of 3 — Point A → Point B by cart.');
-        expect(block).toContain('The party reaches Point B in this scene.');
+        expect(block).toContain('Stay at this checkpoint. Do not advance travel or arrive at Point B; the player moves with Travel.');
         expect(block).not.toContain('Do not reach');
     });
 

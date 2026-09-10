@@ -196,6 +196,7 @@ export interface ModLocation {
     readonly travel?: TravelState | null;
     /** WO 6.2 — the in-game day counter. Read-only to the mod. */
     readonly worldDay?: number;
+    readonly travelMode?: GameContext['travelMode'];
 }
 
 /**
@@ -473,6 +474,7 @@ export interface ModLocationStateInput {
     readonly travel?: TravelState | null;
     /** WO 6.2 — the in-game day counter. */
     readonly worldDay?: number;
+    readonly travelMode?: GameContext['travelMode'];
 }
 
 export interface ModContextBuildOptions {
@@ -864,6 +866,7 @@ function buildModData(
         // the mod, so pass them through unchanged rather than normalising.
         travel: locationState?.travel ?? context.travel ?? null,
         worldDay: locationState?.worldDay ?? context.worldDay,
+        travelMode: locationState?.travelMode ?? context.travelMode,
     });
     const chapters: readonly ModChapter[] = Object.freeze(
         (facadeData.chapters ?? []).map(projectChapter),

@@ -240,8 +240,8 @@ describe('advance', () => {
         expect(result.contextPatch.travel).toBe(result.travel);
     });
 
-    it('arrives when leg exceeds totalLegs — clears travel, sets currentPlaceId to toId', () => {
-        const travel = makeTravel({ leg: 3, totalLegs: 3, toId: 'loc_b' });
+    it('arrives when the next day reaches totalLegs — clears travel, sets currentPlaceId to toId', () => {
+        const travel = makeTravel({ leg: 2, totalLegs: 3, toId: 'loc_b' });
         const result = advance(travel, 14);
         expect(result.travel).toBeNull();
         expect(result.contextPatch.travel).toBeNull();

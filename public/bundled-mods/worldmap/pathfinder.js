@@ -1,3 +1,4 @@
+import { MIN_TRAIL_MULTIPLIER, trailMultiplier } from './trails.js';
 /**
  * World Map — terrain pathfinding (WORKORDER 6.0).
  *
@@ -19,7 +20,7 @@
  * an impassable set, so route choice becomes mode-dependent — the point of
  * the feature, not a side effect.
  *
- * This module deliberately has no imports. A bundled native mod is served as
+ * This module imports only local mod code. A bundled native mod is served as
  * a runtime asset and may not depend on host-internal `src/` paths.
  */
 
@@ -296,7 +297,8 @@ export function findRoute(chunkStore, from, to, mode, options = {}) {
         };
     }
 
-    const minCost = minimumPassableCost(modeDef);
+    const shortest = options.preference === 'shortest';
+    const minCost = shortest ? 1 : minimumPassableCost(modeDef) * (options.trails ? MIN_TRAIL_MULTIPLIER : 1);
     const open = new MinHeap();
     const gScore = new Map();
     const cameFrom = new Map();
@@ -340,7 +342,8 @@ export function findRoute(chunkStore, from, to, mode, options = {}) {
                 if (!Number.isFinite(a) && !Number.isFinite(b)) continue;
             }
 
-            const moveCost = diagonal ? stepCost * SQRT2 : stepCost;
+            const multiplier = mode === 'boat' ? 1 : trailMultiplier(options.trails, { x: cx, y: cy }, { x: nx, y: ny });
+            const moveCost = (shortest ? 1 : stepCost * multiplier) * (diagonal ? SQRT2 : 1);
             const tentative = currentG + moveCost;
             const nKey = cellKey(nx, ny);
             const known = gScore.get(nKey) ?? Infinity;
@@ -372,7 +375,17 @@ export function findRoute(chunkStore, from, to, mode, options = {}) {
     }
     path.reverse();
 
-    const cost = gScore.get(bestKey) ?? 0;
+    // Search distance and travel time are separate for the shortest option.
+    // Both options return actual cumulative travel costs for daily checkpoints.
+    let cost = 0;
+    for (let i = 0; i < path.length; i++) {
+        if (i > 0) {
+            const a = path[i - 1], b = path[i];
+            const multiplier = mode === 'boat' ? 1 : trailMultiplier(options.trails, a, b);
+            cost += cellCost(chunkStore, b.x, b.y, modeDef) * multiplier * Math.hypot(b.x - a.x, b.y - a.y);
+        }
+        path[i].cost = cost;
+    }
     const days = Math.ceil(cost / (BASE_GRIDS_PER_DAY * modeDef.speed));
 
     let snapped;

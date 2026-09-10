@@ -202,11 +202,11 @@ describe('World Map — the route panel becomes the journey panel', () => {
         // The player has to be able to see where they are without counting
         // dots on the map.
         expect(root.textContent).toContain('Briarwatch');
-        expect(root.textContent).toContain('camp 1 of 8');
+        expect(root.textContent).toContain('camp 1 of 7');
         expect(root.textContent).toContain('day 12');
 
         const cont = buttonNamed(root, 'Continue →');
-        expect(cont.title).toContain('camp 2 of 8');
+        expect(cont.title).toContain('camp 2 of 7');
         buttonNamed(root, 'Abandon');
         cleanupRenderer();
     });
@@ -238,7 +238,7 @@ describe('World Map — the route panel becomes the journey panel', () => {
 
     it('reads Arrive on the last leg', () => {
         const snapshot = makeSnapshot({
-            travel: travelling({ leg: 8, totalLegs: 8 }),
+            travel: travelling({ leg: 7, totalLegs: 8 }),
             locationId: 'transit-a-b',
         });
         const cleanupRenderer = mountMapRenderer(root, {

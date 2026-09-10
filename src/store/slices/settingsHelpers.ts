@@ -76,6 +76,7 @@ export const defaultPreset: AIPreset = {
     utilityAIProviderId: '',
     auxiliaryAIProviderId: '',
     imageAIProviderId: '',
+    visionAIProviderId: '',
 };
 
 export const defaultSettings: AppSettings = {
@@ -289,10 +290,11 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
             const utilityAIProviderId = p.utilityAIProviderId || getOrAddProvider(p.utilityAI) || '';
             const auxiliaryAIProviderId = p.auxiliaryAIProviderId || getOrAddProvider(p.auxiliaryAI) || '';
             const imageAIProviderId = p.imageAIProviderId || getOrAddProvider(p.imageAI) || '';
+            const visionAIProviderId = p.visionAIProviderId || getOrAddProvider(p.visionAI) || '';
 
             // Strip legacy inline endpoint configs; keep everything else (id, name, sampling, etc.)
-            const { storyAI, summarizerAI, utilityAI, auxiliaryAI, imageAI, ...presetRest } = p;
-            void storyAI; void summarizerAI; void utilityAI; void auxiliaryAI; void imageAI;
+            const { storyAI, summarizerAI, utilityAI, auxiliaryAI, imageAI, visionAI, ...presetRest } = p;
+            void storyAI; void summarizerAI; void utilityAI; void auxiliaryAI; void imageAI; void visionAI;
             return {
                 ...presetRest,
                 storyAIProviderId,
@@ -300,6 +302,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
                 utilityAIProviderId,
                 auxiliaryAIProviderId,
                 imageAIProviderId,
+                visionAIProviderId,
             } as AIPreset;
         });
     } else {
@@ -336,6 +339,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
             utilityAIProviderId: '',
             auxiliaryAIProviderId: '',
             imageAIProviderId: '',
+    visionAIProviderId: '',
         }];
 
         // Carry over legacy image endpoint config into its own provider if present

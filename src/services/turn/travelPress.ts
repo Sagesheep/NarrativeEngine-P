@@ -39,7 +39,7 @@ export function buildCheckpointMessage(
     const to = ledger.find(l => l.id === travel.toId);
     const toName = to?.name ?? travel.toId;
     const campNum = travel.leg;
-    const totalCamps = travel.totalLegs;
+    const totalCamps = Math.max(0, travel.totalLegs - 1);
     const day = worldDay ?? 1;
 
     const header = `Day ${day} · camp ${campNum} of ${totalCamps} — road to ${toName}`;
@@ -130,13 +130,13 @@ export function buildAbandonMessage(
  */
 export function travelButtonLabel(travel: TravelState | null | undefined): string {
     if (!travel) return 'Travel';
-    if (travel.leg >= travel.totalLegs) return 'Arrive';
+    if (travel.leg + 1 >= travel.totalLegs) return 'Arrive';
     return `Continue →`;
 }
 
 /** The hover text that carries the detail the compact label leaves out. */
 export function travelButtonTitle(travel: TravelState | null | undefined): string {
     if (!travel) return 'Open the destination picker and depart';
-    if (travel.leg >= travel.totalLegs) return 'Finish the journey and arrive';
-    return `Travel on to camp ${travel.leg + 1} of ${travel.totalLegs} — one press, one day`;
+    if (travel.leg + 1 >= travel.totalLegs) return 'Finish the journey and arrive';
+    return `Travel on to camp ${travel.leg + 1} of ${travel.totalLegs - 1} — one press, one day`;
 }

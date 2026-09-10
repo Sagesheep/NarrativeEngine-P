@@ -1,3 +1,4 @@
+import { useAppStore } from '../../store/useAppStore';
 /**
  * Phase 4.5 — the `WindowManager` React component tests.
  *
@@ -18,7 +19,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { WindowManager } from '../WindowManager';
 import {
     clearAllWindowsWindows,
@@ -334,5 +335,33 @@ describe('Phase 4.5 — WindowManager: two windows, z-order + focus', () => {
         const zA = parseInt(frameA.style.zIndex, 10);
         const zB = parseInt(frameB.style.zIndex, 10);
         expect(zB).toBeGreaterThan(zA);
+    });
+});
+
+
+describe('window campaign subscriptions', () => {
+    it('refreshes a registration-time context and rebinds on campaign change', async () => {
+        useAppStore.setState({ activeCampaignId: 'window-a' });
+        const stop = vi.fn();
+        const mount = vi.fn(() => stop);
+        const refresh = vi.fn(async () => ({ campaign: useAppStore.getState().activeCampaignId }));
+        registerWindowDeclaration(MOD_A.id, MOD_A.name, { ...declaration, mount }, 0, { refresh });
+        openWindow('mod.mod-a.editor');
+        render(<WindowManager />);
+        await waitFor(() => expect(mount).toHaveBeenCalledWith(expect.any(HTMLElement), { campaign: 'window-a' }));
+        act(() => useAppStore.setState({ activeCampaignId: 'window-b' }));
+        await waitFor(() => expect(mount).toHaveBeenLastCalledWith(expect.any(HTMLElement), { campaign: 'window-b' }));
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(refresh).toHaveBeenCalledTimes(2);
+    });
+    it('does not mount a late refresh after the window closes', async () => {
+        let resolve!: (value: unknown) => void;
+        const mount = vi.fn();
+        const refresh = () => new Promise(r => { resolve = r; });
+        registerWindowDeclaration(MOD_A.id, MOD_A.name, { ...declaration, mount }, 0, { refresh });
+        openWindow('mod.mod-a.editor'); render(<WindowManager />);
+        act(() => closeWindow('mod.mod-a.editor'));
+        await act(async () => { resolve({}); });
+        expect(mount).not.toHaveBeenCalled();
     });
 });

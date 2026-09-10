@@ -333,6 +333,7 @@ describe('WO 4.2 §3 — player marker', () => {
         // `getContext` to return it, so we can inspect draw calls across a
         // paint. `arc` and `stroke` are the ones we assert on.
         stubCtx = makeStubContext();
+        stubCtx.setLineDash = vi.fn();
         stubCtx.arc = vi.fn();
         stubCtx.stroke = vi.fn();
         stubCtx.fill = vi.fn();

@@ -94,7 +94,8 @@ describe('World Map bundled mod — lifecycle', () => {
         expect(visitedWrites.length).toBeGreaterThanOrEqual(1);
         const last = visitedWrites[visitedWrites.length - 1].value;
         expect(Array.isArray(last)).toBe(true);
-        expect(last.length).toBe(1);
+        const anchor = fixture.anchors().find(row => row.locationId === 'frosthold');
+        expect(last).toEqual(expect.arrayContaining([expect.objectContaining({ x: anchor.x, y: anchor.y, biome: expect.any(String) })]));
         expect(last[0]).toMatchObject({ biome: expect.any(String) });
         expect(Number.isFinite(last[0].x)).toBe(true);
         expect(Number.isFinite(last[0].y)).toBe(true);

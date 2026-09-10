@@ -1,3 +1,5 @@
+import { loadPixelArt, drawPixelSprite, paintPixelCell, paintPixelObjects, SITE_SPRITES } from './pixelArt.js';
+import { siteLabel } from './discoveries.js';
 /**
  * World Map — the tiled canvas renderer.
  *
@@ -148,7 +150,7 @@ const PARTY_PULSE_PERIOD_MS = 2000;
 const PARTY_INDICATOR_RADIUS_PX = 16;
 const PARTY_INDICATOR_HIT_PX = 22;
 const DEFAULT_LAYER_SETTINGS = Object.freeze({
-    grid: true,
+    grid: false,
     roads: true,
     labels: true,
 });
@@ -842,128 +844,18 @@ class TilePyramid {
  * applied per cell from the stored elevation of the four neighbours. This is
  * one pass per cell — not per pixel and not per frame.
  */
-function rasteriseTile(pyramid, level, tileX, tileY, snapshot, atlas, rect) {
+function rasteriseTile(pyramid, level, tileX, tileY, snapshot) {
     const { cellPixels } = ZOOM_LEVELS[level];
-    const cellsPerTile = Math.ceil(TILE_PIXELS / cellPixels);
-    const originX = tileX * cellsPerTile;
-    const originY = tileY * cellsPerTile;
+    const count = Math.ceil(TILE_PIXELS / cellPixels);
     const canvas = makeOffscreenCanvas(TILE_PIXELS, TILE_PIXELS);
     const ctx = canvas.getContext('2d');
     if (!ctx) return canvas;
-    const { chunkStore, settings } = snapshot;
-    const renderSettings = normaliseRenderSettings(settings);
-    const cellPixelSize = TILE_PIXELS / cellsPerTile;
-
-    for (let ly = 0; ly < cellsPerTile; ly += 1) {
-        for (let lx = 0; lx < cellsPerTile; lx += 1) {
-            const worldX = originX + lx;
-            const worldY = originY + ly;
-            const cell = chunkStore.getCell(worldX, worldY);
-            if (!cell) continue;
-            // The cell is always drawn in its OWN biome. The shore used to be
-            // a substitute square painted in the plains colour, so a desert
-            // coast came out green — and because the mask was wrong, so did
-            // every inland cell of every biome.
-            const variant = cellTextureVariant(worldX, worldY);
-            const rect = atlasRect(atlas, cell.biome, variant, atlas.variants)
-                ?? atlasRect(atlas, 'plains', variant, atlas.variants);
-            const px = lx * cellPixelSize;
-            const py = ly * cellPixelSize;
-            const drawSize = Math.ceil(cellPixelSize) + 0.5;
-            if (rect) {
-                ctx.drawImage(
-                    atlas.atlas,
-                    rect.sx, rect.sy, rect.size, rect.size,
-                    px, py, drawSize, drawSize,
-                );
-            }
-            // A coast reads as a shore by being shaded down towards the water
-            // it meets, in its own colour, one step per ocean side. One
-            // fillRect, and only on cells that actually touch the sea.
-            const mask = shoreBitmask(chunkStore, worldX, worldY);
-            if (mask > 0) {
-                ctx.fillStyle = `rgba(0,0,0,${popcount(mask) * 0.07})`;
-                ctx.fillRect(px, py, drawSize, drawSize);
-            }
-
-            // Hillshade from the stored elevation of the four neighbours,
-            // computed once per cell at tile-raster time (§4.2).
-            if (cell.biome !== 'ocean') {
-                const east = chunkStore.getCell(worldX + 1, worldY);
-                const west = chunkStore.getCell(worldX - 1, worldY);
-                const south = chunkStore.getCell(worldX, worldY + 1);
-                const north = chunkStore.getCell(worldX, worldY - 1);
-                const ex = (east?.elevation ?? cell.elevation) - (west?.elevation ?? cell.elevation);
-                const ey = (south?.elevation ?? cell.elevation) - (north?.elevation ?? cell.elevation);
-                const shade = hillshadeMultiplier(ex, ey, 1, renderSettings.lightAzimuth, renderSettings.shadeStrength);
-                if (shade !== 1) {
-                    // `hillshadeMultiplier` returns up to 1.28, so a lit slope
-                    // used to paint `rgba(0,0,0,-0.28)` — an invalid colour
-                    // string the canvas ignores. Half the relief was being
-                    // thrown away: slopes could darken but never catch light.
-                    ctx.fillStyle = shade < 1
-                        ? `rgba(0,0,0,${clamp(1 - shade, 0, 1)})`
-                        : `rgba(255,255,255,${clamp((shade - 1) * 0.7, 0, 1)})`;
-                    ctx.fillRect(px, py, drawSize, drawSize);
-                }
-                // Contour lines. The band a cell sits in is compared with its
-                // north and west neighbours, and the shared edge is inked when
-                // they differ — which is what makes flat-looking country read
-                // as country with a shape. The four neighbours are already
-                // fetched for the hillshade, so this costs a comparison and at
-                // most two thin rects.
-                //
-                // Skipped below `CONTOUR_MIN_CELL_PIXELS`: at the zoomed-out
-                // level one tile covers 4096 cells and the lines would be
-                // wider than the cells they separate.
-                if (cellPixelSize >= CONTOUR_MIN_CELL_PIXELS) {
-                    const band = Math.floor(cell.elevation / CONTOUR_INTERVAL);
-                    const inkWidth = Math.max(1, cellPixelSize / 16);
-                    ctx.fillStyle = 'rgba(0,0,0,0.16)';
-                    if (north && Math.floor(north.elevation / CONTOUR_INTERVAL) !== band) {
-                        ctx.fillRect(px, py, drawSize, inkWidth);
-                    }
-                    if (west && Math.floor(west.elevation / CONTOUR_INTERVAL) !== band) {
-                        ctx.fillRect(px, py, inkWidth, drawSize);
-                    }
-                }
-
-                // Beach blend near sea level.
-                if (cell.elevation >= FIELD_SEA_LEVEL && cell.elevation < FIELD_SEA_LEVEL + BEACH_EPSILON) {
-                    const sand = atlasRect(atlas, 'desert', variant, atlas.variants)
-                        ?? atlasRect(atlas, 'plains', variant, atlas.variants);
-                    const beachAmount = clamp(
-                        1 - ((cell.elevation - FIELD_SEA_LEVEL) / BEACH_EPSILON),
-                        0, 1,
-                    ) * 0.5;
-                    if (sand) {
-                        ctx.globalAlpha = beachAmount;
-                        ctx.drawImage(
-                            atlas.atlas,
-                            sand.sx, sand.sy, sand.size, sand.size,
-                            px, py, drawSize, drawSize,
-                        );
-                        ctx.globalAlpha = 1;
-                    }
-                }
-            } else {
-                // Ocean depth ramp.
-                const depth = clamp(
-                    (FIELD_SEA_LEVEL - cell.elevation) / (FIELD_SEA_LEVEL - FIELD_MIN_ELEVATION),
-                    0, 1,
-                );
-                if (depth > 0.01) {
-                    ctx.fillStyle = `rgba(0,0,0,${clamp(depth * 0.35, 0, 0.45)})`;
-                    ctx.fillRect(px, py, drawSize, drawSize);
-                }
-                // Shallow band lighten.
-                const shallowDepth = SHALLOW_WATER_EPSILON / (FIELD_SEA_LEVEL - FIELD_MIN_ELEVATION);
-                if (depth < shallowDepth && depth > 0) {
-                    ctx.fillStyle = `rgba(255,255,255,${clamp(0.12 * (1 - depth / shallowDepth), 0, 0.12)})`;
-                    ctx.fillRect(px, py, drawSize, drawSize);
-                }
-            }
-        }
+    for (let y = 0; y < count; y++) for (let x = 0; x < count; x++) {
+        paintPixelCell(ctx, snapshot.chunkStore, tileX * count + x, tileY * count + y, x * cellPixels, y * cellPixels, cellPixels);
+    }
+    // One cell of overscan makes overhanging canopies seamless across cached tiles.
+    for (let y = -1; y <= count; y++) for (let x = -1; x <= count; x++) {
+        paintPixelObjects(ctx, snapshot.chunkStore, tileX * count + x, tileY * count + y, x * cellPixels, y * cellPixels, cellPixels);
     }
     pyramid.set(level, tileX, tileY, canvas);
     return canvas;
@@ -1051,7 +943,7 @@ export function mountMapRenderer(root, options) {
     canvas.setAttribute('aria-label', 'World map. Use arrow keys to pan, plus and minus to zoom, and zero to fit the map.');
     applyStyle(canvas, {
         position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block',
-        outline: 'none',
+        outline: 'none', imageRendering: 'pixelated',
     });
     canvas.addEventListener('focus', () => { canvas.style.boxShadow = 'inset 0 0 0 2px var(--color-terminal, #A78BFA)'; });
     canvas.addEventListener('blur', () => { canvas.style.boxShadow = ''; });
@@ -1059,6 +951,17 @@ export function mountMapRenderer(root, options) {
     const ctx = canvas.getContext('2d');
 
     const overlay = makeElement('div', undefined, { position: 'absolute', inset: '0', pointerEvents: 'none' });
+    overlay.className = 'worldmap-pixel-controls';
+    const artStyle = makeElement('style');
+    artStyle.textContent = `
+        .worldmap-pixel-controls { --color-text-primary:#293e40; --color-text-dim:#526b62; --color-border:#68816a; --color-void-lighter:#f4edcf; --color-void-darker:#e4dbba; --color-terminal:#276b67; --color-terminal-dim:#478477; }
+        .worldmap-pixel-controls > div { color:#293e40 !important; background:#f4edcf !important; border:2px solid #617a62 !important; border-radius:3px !important; box-shadow:2px 3px 0 #243f4255; }
+        .worldmap-pixel-controls button, .worldmap-pixel-controls select { font:12px ui-monospace,monospace; color:#f9f2d7 !important; background:#326c64 !important; border:1px solid #254c49 !important; border-radius:2px !important; padding:4px 7px; cursor:pointer; }
+        .worldmap-pixel-controls button:hover { background:#478b79 !important; }
+        .worldmap-pixel-controls button:disabled { opacity:.5; cursor:default; }
+        .worldmap-pixel-controls input, .worldmap-pixel-controls textarea { color:#293e40 !important; background:#fff8df !important; accent-color:#326c64; }
+    `;
+    overlay.appendChild(artStyle);
     root.appendChild(overlay);
 
     const hud = makeElement('div', undefined, {
@@ -1216,7 +1119,7 @@ export function mountMapRenderer(root, options) {
         contextMenu.appendChild(button);
     }
     overlay.appendChild(contextMenu);
-    const help = makeElement('div', 'Scroll to zoom · Drag to pan · Click a cell to travel', {
+    const help = makeElement('div', 'Scroll to zoom · Drag to pan · Dashed: connections · Tan: travelled trails', {
         position: 'absolute', bottom: '8px', left: '8px', padding: '4px 8px', borderRadius: '4px',
         background: 'var(--color-void-lighter, rgba(20,21,25,0.72))',
         color: 'var(--color-text-dim, inherit)',
@@ -1245,6 +1148,115 @@ export function mountMapRenderer(root, options) {
         display: 'none', flexDirection: 'column', gap: '4px', minWidth: '160px',
     });
     overlay.appendChild(routePanel);
+    const encounterPanel = makeElement('div', undefined, {
+        position: 'absolute', top: '88px', left: '8px', width: '265px', maxHeight: 'min(390px, 45%)', overflowY: 'auto', padding: '8px',
+        background: 'var(--color-void-lighter, #141519)', color: 'var(--color-text-primary, white)',
+        border: '1px solid var(--color-border, #555)', borderRadius: '5px', font: '11px/1.4 ui-monospace, monospace',
+        pointerEvents: 'auto', display: 'none',
+    });
+    encounterPanel.dataset.worldmapEncounter = 'true'; overlay.append(encounterPanel);
+    let encounterPanelKey = '';
+    function updateEncounterPanel(snapshot) {
+        const record = snapshot.encounter;
+        const key = JSON.stringify([record, snapshot.encounterJournal]);
+        if (key === encounterPanelKey) return;
+        encounterPanelKey = key; encounterPanel.replaceChildren();
+        encounterPanel.style.display = record ? 'block' : 'none';
+        if (!record) return;
+        encounterPanel.append(makeElement('div', `Day ${record.worldDay} · ${record.weather}`, { fontWeight: 'bold' }));
+        if (record.scene) encounterPanel.append(makeElement('div', record.scene, { margin: '4px 0' }));
+        if (record.quiet) encounterPanel.append(makeElement('div', 'Quiet checkpoint. Nothing requires your attention.'));
+        else {
+            for (const event of record.events) {
+                encounterPanel.append(makeElement('div', event.title, { fontWeight: 'bold', marginTop: '4px' }), makeElement('div', event.text));
+                if (record.status === 'available') {
+                    const reply = makeElement('button', 'Write reply', { marginTop: '4px', cursor: 'pointer' });
+                    reply.type = 'button';
+                    reply.addEventListener('click', () => onRouteAction?.('roleplayEncounter', { key: record.key, kind: 'reply',
+                        text: event.action || `I take a closer look at the situation: ${event.title}.` }));
+                    encounterPanel.append(reply);
+                }
+            }
+            if (record.status === 'available') {
+                const handled = makeElement('button', 'Mark handled', { marginTop: '5px', cursor: 'pointer', background: 'transparent', color: 'inherit', border: '1px solid var(--color-border, #555)' });
+                handled.type = 'button'; handled.addEventListener('click', () => onRouteAction?.('handleEncounter', { key: record.key }));
+                encounterPanel.append(handled);
+            } else encounterPanel.append(makeElement('div', record.status === 'handled' ? 'Handled' : 'Left behind', { opacity: '0.7' }));
+        }
+        const actions = makeElement('div', undefined, { display: 'flex', gap: '4px', marginTop: '6px' });
+        for (const [label, kind, text] of [['Look around', 'look', 'I look around our current stopping place.'],
+            ['Make camp', 'camp', 'I make camp here.']]) {
+            const button = makeElement('button', label, { cursor: 'pointer' }); button.type = 'button';
+            button.addEventListener('click', () => onRouteAction?.('roleplayEncounter', { key: record.key, kind, text }));
+            actions.append(button);
+        }
+        encounterPanel.append(actions, makeElement('div', 'Opens an editable reply in story chat. Send it when ready.', { opacity: '0.7', marginTop: '4px' }));
+        const notes = document.createElement('details');
+        const noteLabel = document.createElement('summary'); noteLabel.textContent = 'Remember an outcome'; notes.append(noteLabel);
+        const note = document.createElement('textarea'); note.setAttribute('aria-label', 'Encounter outcome');
+        note.maxLength = 1200; note.rows = 3; note.value = record.note || ''; note.style.width = '100%';
+        note.placeholder = 'For example: Bought rope; agreed to meet the merchant again.';
+        const saveNote = makeElement('button', 'Save outcome'); saveNote.type = 'button';
+        saveNote.addEventListener('click', () => onRouteAction?.('noteEncounter', { key: record.key, note: note.value }));
+        notes.append(note, saveNote); encounterPanel.append(notes);
+        const journal = document.createElement('details');
+        const summary = document.createElement('summary'); summary.textContent = 'Recent checkpoints'; journal.append(summary);
+        for (const old of snapshot.encounterJournal ?? []) journal.append(makeElement('div',
+            `Day ${old.worldDay} · ${old.weather} · ${old.quiet ? 'Quiet' : old.events.map(event => event.title).join(', ')} · ${old.status}${old.note ? ' · ' + old.note : ''}`, { marginTop: '4px' }));
+        encounterPanel.append(journal);
+    }
+
+
+    const discoveryPanel = makeElement('div', undefined, {
+        position: 'absolute', bottom: '38px', left: '8px', width: '230px', padding: '8px',
+        background: 'var(--color-void-lighter, #141519)', color: 'var(--color-text-primary, white)',
+        border: '1px solid var(--color-border, #555)', borderRadius: '5px',
+        font: '11px/1.4 ui-monospace, monospace', pointerEvents: 'auto', display: 'none',
+    });
+    discoveryPanel.dataset.worldmapDiscoveries = 'true';
+    overlay.append(discoveryPanel);
+    let discoveryPanelKey = '';
+    function updateDiscoveryPanel(snapshot) {
+        const nearby = snapshot.nearbyDiscoveries ?? [];
+        const sites = [...nearby, ...(snapshot.discoveries ?? []).filter(site => !nearby.some(local => local.id === site.id))
+            .map(site => ({ ...site, distance: Infinity }))];
+        const key = JSON.stringify([sites, Boolean(snapshot.travel), snapshot.locationId]);
+        if (key === discoveryPanelKey) return;
+        discoveryPanelKey = key;
+        discoveryPanel.replaceChildren();
+        discoveryPanel.style.display = sites.length ? 'block' : 'none';
+        if (!sites.length) return;
+        discoveryPanel.append(makeElement('div', 'Discovered sites', { fontWeight: 'bold', marginBottom: '5px' }));
+        const select = document.createElement('select');
+        select.setAttribute('aria-label', 'Discovered site');
+        applyStyle(select, { width: '100%', color: 'inherit', background: 'var(--color-void, #141519)' });
+        for (const site of sites) {
+            const option = document.createElement('option'); option.value = site.id;
+            option.textContent = `${siteLabel(site)} · ${site.distance === 0 ? 'at this cell' : site.distance <= 2 ? 'nearby' : 'known site'}`;
+            select.append(option);
+        }
+        const name = document.createElement('input'); name.setAttribute('aria-label', 'Site name'); name.maxLength = 80;
+        const description = document.createElement('textarea'); description.setAttribute('aria-label', 'Site details'); description.maxLength = 600; description.rows = 2;
+        for (const input of [name, description]) applyStyle(input, { boxSizing: 'border-box', width: '100%', marginTop: '5px', color: 'inherit', background: 'var(--color-void, #141519)', font: 'inherit' });
+        const fill = () => { const site = sites.find(item => item.id === select.value); name.value = site.name || ''; name.placeholder = siteLabel(site); description.value = site.description || ''; };
+        select.addEventListener('change', fill); fill();
+        const save = makeElement('button', 'Save site details', { marginTop: '5px', cursor: 'pointer', color: 'inherit', background: 'transparent', border: '1px solid var(--color-border, #555)' });
+        save.type = 'button';
+        save.addEventListener('click', () => onRouteAction?.('nameDiscovery', { id: select.value, name: name.value, description: description.value }));
+        const visit = makeElement('button', snapshot.travel ? 'Abandon journey to visit' : 'Visit site', {
+            marginTop: '5px', marginLeft: '6px', cursor: 'pointer', color: 'inherit', background: 'transparent', border: '1px solid var(--color-border, #555)',
+        });
+        visit.type = 'button'; visit.disabled = Boolean(snapshot.travel);
+        const updateVisit = () => {
+            const site = sites.find(item => item.id === select.value);
+            visit.disabled = Boolean(snapshot.travel) || site.id === snapshot.locationId;
+            visit.textContent = snapshot.travel ? 'Abandon journey to visit' : site.id === snapshot.locationId ? 'At this site' : site.distance === 0 ? 'Enter site' : 'Visit site';
+        };
+        select.addEventListener('change', updateVisit); updateVisit();
+        visit.addEventListener('click', () => onRouteAction?.('visitDiscovery', { id: select.value }));
+        discoveryPanel.append(select, name, description, save, visit);
+    }
+
 
     const modeRow = makeElement('div', undefined, { display: 'flex', alignItems: 'center', gap: '6px' });
     const modeLabel = makeElement('span', 'Mode', { opacity: '0.7', fontSize: '10px' });
@@ -1270,6 +1282,16 @@ export function mountMapRenderer(root, options) {
     });
     modeRow.append(modeLabel, modeSelect);
     routePanel.appendChild(modeRow);
+    const preferenceSelect = document.createElement('select');
+    preferenceSelect.setAttribute('aria-label', 'Route preference');
+    applyStyle(preferenceSelect, { background: 'var(--color-void, #0e0f12)', color: 'inherit', font: 'inherit' });
+    for (const [value, label] of [['fastest', 'Fastest · terrain and trails'], ['shortest', 'Shortest · distance']]) {
+        const option = document.createElement('option');
+        option.value = value; option.textContent = label; preferenceSelect.append(option);
+    }
+    preferenceSelect.addEventListener('change', () => onRouteAction?.('setPreference', preferenceSelect.value));
+    routePanel.append(preferenceSelect);
+
 
     const routeReadout = makeElement('div', undefined, { fontSize: '11px', whiteSpace: 'pre-wrap' });
     routePanel.appendChild(routeReadout);
@@ -1394,6 +1416,12 @@ export function mountMapRenderer(root, options) {
     // Tile pyramid + atlas. The pyramid is dropped wholesale on a world
     // version change; the atlas is rebuilt only when the theme changes.
     let pyramid = new TilePyramid();
+    void loadPixelArt().then(loaded => {
+        if (!loaded || disposed) return;
+        pyramid.clear();
+        root.dataset.worldmapArt = 'pixel-v1';
+        scheduleRender();
+    });
     let atlas = null;
     let atlasWorldVersion = -1;
     let paintedWorldVersion = -1;
@@ -1487,6 +1515,7 @@ export function mountMapRenderer(root, options) {
         let best = null;
         let bestDistance = DRAG_HIT_RADIUS_PX;
         for (const anchor of snapshot.anchors) {
+            if (anchor.kind === 'transit' && anchor.locationId !== snapshot.locationId) continue;
             const screen = cellCentreToScreen(anchor.x, anchor.y);
             const d = Math.hypot(screen.x - px, screen.y - py);
             if (d <= bestDistance) { bestDistance = d; best = anchor; }
@@ -1500,6 +1529,7 @@ export function mountMapRenderer(root, options) {
         let best = null;
         let bestDistance = 3;
         for (const anchor of snapshot.anchors) {
+            if (anchor.kind === 'transit' && anchor.locationId !== snapshot.locationId) continue;
             const distance = Math.max(Math.abs(anchor.x - x), Math.abs(anchor.y - y));
             if (distance <= 2 && distance < bestDistance) {
                 best = anchor;
@@ -1522,7 +1552,7 @@ export function mountMapRenderer(root, options) {
         }
         const cell = snapshot.chunkStore.getCell(x, y);
         hoverCell = { x, y, biome: cell.biome, elevation: cell.elevation };
-        hoverReadout.textContent = `cell ${x},${y} · ${cell.biome} · elevation ${cell.elevation.toFixed(2)}`;
+        hoverReadout.textContent = cell.biome.charAt(0).toUpperCase() + cell.biome.slice(1);
     }
 
     function showContextMenu(event) {
@@ -1620,6 +1650,20 @@ export function mountMapRenderer(root, options) {
         // a tab switch leaves it on screen (§3).
         drawJourney(snapshot, cell);
         drawRoutePreview(cell);
+        const anchoredSiteIds = new Set((snapshot.anchors ?? []).map(anchor => anchor.locationId));
+        for (const site of snapshot.discoveries ?? []) {
+            if (anchoredSiteIds.has(site.id)) continue;
+            const screen = cellCentreToScreen(site.x, site.y);
+            ctx.save(); ctx.fillStyle = '#e4c785';
+            const size = Math.max(28, Math.min(54, cell * 1.8));
+            if (!drawPixelSprite(ctx, SITE_SPRITES[site.type] ?? 14, screen.x - size / 2, screen.y - size * 0.7, size)) {
+                ctx.beginPath(); ctx.arc(screen.x, screen.y, Math.max(2, cell / 6), 0, Math.PI * 2); ctx.fill();
+            }
+            if (layerState.labels && cell >= LABEL_MIN_CELL_PIXELS) {
+                drawAnchorLabel(screen, size / 3, siteLabel(site), '#293e40');
+            }
+            ctx.restore();
+        }
         drawAnchors(snapshot, cell);
         // WO 5.5 §2 — the off-screen indicator draws AFTER the party marker so
         // it sits on top of the terrain and roads, and only when the party is
@@ -1627,6 +1671,8 @@ export function mountMapRenderer(root, options) {
         drawPartyIndicator(width, height, cell);
         drawHud(snapshot, cell);
         updateRoutePanel(snapshot);
+        updateDiscoveryPanel(snapshot);
+        updateEncounterPanel(snapshot);
 
         // WO 5.5 §1 — keep the pulse alive. The halo's slow cycle is a
         // continuous animation, so the phase must advance even when the map
@@ -1799,6 +1845,19 @@ export function mountMapRenderer(root, options) {
     }
 
     function drawConnections(snapshot, cell) {
+        if (layerState.roads) {
+            ctx.save();
+            ctx.strokeStyle = '#e4ce91';
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            for (const edge of snapshot.trails ?? []) {
+                const a = cellCentreToScreen(edge.a.x, edge.a.y);
+                const b = cellCentreToScreen(edge.b.x, edge.b.y);
+                ctx.lineWidth = Math.max(2, cell * 0.25) * (1 + Math.min(3, edge.passes) / 8);
+                ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+            }
+            ctx.restore();
+        }
         if (!layerState.roads || !snapshot.connections || cell < LABEL_MIN_CELL_PIXELS) return;
         const byId = new Map((snapshot.anchors || []).map(a => [a.locationId, a]));
         // WO 4.1 §3.1 — one polyline per edge, routed through any waypoints
@@ -1825,15 +1884,18 @@ export function mountMapRenderer(root, options) {
         // is drawable the emphasis stands down. It stays for the degrade path
         // (a Places-panel or composer departure carries no route geometry),
         // where the road really is the only thing that can show the journey.
-        if (currentPlaceId && !journeyIsDrawable(snapshot)) {
+        if (currentPlaceId && !journeyIsDrawable(snapshot) && !snapshot.party) {
             for (const [key, list] of waypointsByEdge) {
                 if (list.some(waypoint => waypoint.locationId === currentPlaceId)) {
                     emphasisedEdges.add(key);
                 }
             }
         }
-        const baseWidth = Math.max(1, cell / 6);
-        const baseStroke = readTokenOnce(root, '--color-border', 'rgba(220,220,220,0.55)');
+        const baseWidth = Math.max(1, cell / 12);
+        ctx.save();
+        ctx.setLineDash([3, 5]);
+        ctx.globalAlpha = 0.45;
+        const baseStroke = '#f6e6b0';
         // WO 5.5 §4 — the road emphasis uses `--color-terminal-dim`, not the
         // reserved party colour. "You" and "the road you are on" are no longer
         // the same colour.
@@ -1862,9 +1924,13 @@ export function mountMapRenderer(root, options) {
             ctx.lineTo(toScreen.x, toScreen.y);
             ctx.stroke();
         }
+        ctx.restore();
     }
 
     function drawAnchorDot(anchor, screen, radius, fill, strokeColor) {
+        const site = (getSnapshot()?.discoveries ?? []).find(row => row.id === anchor.locationId);
+        const size = Math.max(32, Math.min(64, radius * 4.5));
+        if (drawPixelSprite(ctx, SITE_SPRITES[site?.type] ?? 13, screen.x - size / 2, screen.y - size * 0.7, size)) return;
         ctx.beginPath();
         ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
         ctx.fillStyle = fill;
@@ -1881,9 +1947,9 @@ export function mountMapRenderer(root, options) {
         const labelX = screen.x + radius + 4;
         const labelY = screen.y - radius - 2;
         const metrics = ctx.measureText(label);
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillStyle = '#f4edcf';
         ctx.fillRect(labelX - 2, labelY - 8, metrics.width + 4, 16);
-        ctx.fillStyle = textColor;
+        ctx.fillStyle = '#293e40';
         ctx.fillText(label, labelX, labelY);
     }
 
@@ -1897,6 +1963,11 @@ export function mountMapRenderer(root, options) {
      * Under `prefers-reduced-motion` the rings draw static (§1 / §7).
      */
     function drawPartyPin(screen, color, groundColor) {
+        if (drawPixelSprite(ctx, 12, screen.x - 22, screen.y - 37, 44)) {
+            ctx.fillStyle = '#fff0a6';
+            ctx.fillRect(Math.round(screen.x - 3), Math.round(screen.y + 5), 6, 2);
+            return;
+        }
         const reduced = prefersReducedMotion();
         // The pulse phase is advanced by the interval in `paint()`, not here
         // (so it advances at a steady rate independent of paint frequency).
@@ -1960,6 +2031,7 @@ export function mountMapRenderer(root, options) {
                 currentAnchorEntry = anchor;
                 continue;
             }
+            if (anchor.kind === 'transit') continue;
             const screen = cellCentreToScreen(anchor.x, anchor.y);
             const radius = Math.max(5, cell / 2.4);
             const fill = idleColor;
@@ -1982,6 +2054,7 @@ export function mountMapRenderer(root, options) {
         // node, e.g. "Road between A and B") so the HUD and the marker agree
         // on what the header says.
         if (currentAnchorEntry) {
+            if (currentAnchorEntry.kind !== 'transit') drawAnchorDot(currentAnchorEntry, cellCentreToScreen(currentAnchorEntry.x, currentAnchorEntry.y), Math.max(5, cell / 2.4), idleColor, strokeColor);
             const partyCell = snapshot.party;
             const usePartyCell = Boolean(partyCell)
                 && Number.isFinite(partyCell.x) && Number.isFinite(partyCell.y);
@@ -1990,6 +2063,7 @@ export function mountMapRenderer(root, options) {
             const screen = cellCentreToScreen(ax, ay);
             // Record the party's screen position + on-screen flag for the
             // off-screen edge indicator (§2) and its hit test.
+            canvas.dataset.worldmapPartyCell = `${ax},${ay}`;
             partyScreen = { x: screen.x, y: screen.y };
             const rect = cachedRect;
             partyOnScreen = Boolean(rect)
@@ -2001,7 +2075,7 @@ export function mountMapRenderer(root, options) {
             // Label offset: clear the pin body (which rises above the tip).
             const labelRadius = PARTY_PIN_WIDTH_PX / 2 + 4;
             if (layerState.labels) {
-                drawAnchorLabel(screen, labelRadius, currentAnchorEntry.name || currentAnchorEntry.locationId, textColor);
+                drawAnchorLabel(screen, labelRadius, snapshot.travel ? 'Travelling' : (currentAnchorEntry.name || currentAnchorEntry.locationId), textColor);
             }
         } else {
             partyScreen = null;
@@ -2089,7 +2163,7 @@ export function mountMapRenderer(root, options) {
         const metrics = ctx.measureText(label);
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillRect(lx - (metrics.width / 2) - 3, ly - 8, metrics.width + 6, 16);
-        ctx.fillStyle = textColor;
+        ctx.fillStyle = '#293e40';
         ctx.fillText(label, lx, ly);
         ctx.restore();
     }
@@ -2323,20 +2397,20 @@ export function mountMapRenderer(root, options) {
         // control lives where the journey is drawn.
         //
         // It reads the HOST's travel state, not the journey record's
-        // `totalLegs`. The two disagree (the record counts days, the host
-        // counts camps) and the host owns the journey's state, so the host is
-        // the one that gets to say "camp 1 of 8".
+        // `totalLegs`. Both count total days, including arrival; the host
+        // owns progress. A journey of N days has N - 1 camps.
         const travel = snapshot?.travel ?? null;
         if (travel) {
             panelMode = 'journey';
             routePanel.style.display = 'flex';
             modeRow.style.display = 'none';
+            preferenceSelect.style.display = 'none';
             offerRow.style.display = 'none';
             const toName = travel.toName || 'your destination';
-            const arriving = travel.leg >= travel.totalLegs;
+            const arriving = travel.leg + 1 >= travel.totalLegs;
             const lines = [
                 '\u2192 ' + toName,
-                'camp ' + travel.leg + ' of ' + travel.totalLegs
+                'camp ' + travel.leg + ' of ' + (travel.totalLegs - 1)
                     + (Number.isFinite(snapshot.worldDay) ? ' \u00b7 day ' + snapshot.worldDay : ''),
             ];
             // A click on the map mid-journey is refused (one route at a time).
@@ -2347,6 +2421,8 @@ export function mountMapRenderer(root, options) {
             if (refusal && refusal.blocked && refusal.reason === 'journey-active') {
                 lines.push('Abandon to plan a new route.');
             }
+            const stop = snapshot.journey?.checkpoints?.[travel.leg - 1];
+            if (stop?.siteName) lines.push('Stopping at ' + stop.siteName);
             routeReadout.textContent = lines.join('\n');
             routeReadout.style.color = 'var(--color-text-primary, inherit)';
             routeTravelButton.style.display = 'inline-block';
@@ -2355,17 +2431,20 @@ export function mountMapRenderer(root, options) {
                 : 'Continue \u2192';
             routeTravelButton.title = arriving
                 ? 'Finish the journey and arrive at ' + toName
-                : 'Travel on to camp ' + (travel.leg + 1) + ' of ' + travel.totalLegs;
+                : 'Travel on to camp ' + (travel.leg + 1) + ' of ' + (travel.totalLegs - 1);
             routeCancelButton.textContent = 'Abandon';
             routeCancelButton.title = 'Stop travelling without arriving';
             return;
         }
 
+        preferenceSelect.style.display = 'none';
         panelMode = 'plan';
         modeRow.style.display = 'flex';
         routeCancelButton.title = '';
         if (!getRoutePreview) { routePanel.style.display = 'none'; return; }
         const preview = getRoutePreview();
+        preferenceSelect.style.display = preview?.hasRouteChoice ? '' : 'none';
+        preferenceSelect.value = preview?.preference ?? 'fastest';
         if (!preview) {
             routePanel.style.display = 'none';
             offerRow.style.display = 'none';
@@ -2440,9 +2519,7 @@ export function mountMapRenderer(root, options) {
         const currentLine = currentPlaceId && !hasCurrent
             ? ' · current place has no anchor'
             : '';
-        hud.textContent = 'cell ' + view.cx.toFixed(0) + ',' + view.cy.toFixed(0)
-            + ' · ' + cell.toFixed(0) + 'px · ' + anchorCount + ' anchors · '
-            + pyramid.size + ' tiles' + currentLine;
+        hud.textContent = 'OVERWORLD' + (Number.isFinite(snapshot.worldDay) ? ' · Day ' + snapshot.worldDay : '') + currentLine;
     }
 
     // ── Interaction (§7 fixes) ──

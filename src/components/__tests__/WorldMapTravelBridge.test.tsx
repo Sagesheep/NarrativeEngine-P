@@ -136,7 +136,7 @@ describe('WorldMapTravelBridge', () => {
         expect(useAppStore.getState().context.travel).toBeUndefined();
     });
 
-    it('WO 6.5 — posts a checkpoint system message on departure', () => {
+    it('WO 6.5 — moves without posting routine checkpoint text', () => {
         render(<WorldMapTravelBridge />);
         act(() => {
             modEventBus.emit('mod.worldmap.travelRequest', {
@@ -148,11 +148,7 @@ describe('WorldMapTravelBridge', () => {
         });
         const messages = useAppStore.getState().messages;
         const checkpointMsg = messages.find(m => m.name === 'travel-checkpoint');
-        expect(checkpointMsg).toBeDefined();
-        expect(checkpointMsg!.role).toBe('system');
-        expect(checkpointMsg!.content).toContain('Day 2');
-        expect(checkpointMsg!.content).toContain('camp 1');
-        expect(checkpointMsg!.content).toContain('Briarwatch');
+        expect(checkpointMsg).toBeUndefined();
     });
 
     it('the map panel’s Continue advances a leg, without the LLM', () => {
@@ -173,8 +169,7 @@ describe('WorldMapTravelBridge', () => {
         expect(after.context.worldDay).toBe((departed.worldDay ?? 0) + 1);
         // One press, one day, one camp — and one line from the engine.
         const camps = after.messages.filter(m => m.name === 'travel-checkpoint');
-        expect(camps).toHaveLength(2);
-        expect(camps[1].content).toContain('camp 2');
+        expect(camps).toHaveLength(0);
     });
 
     it('the map panel’s Abandon clears the journey without arriving', () => {
@@ -210,4 +205,13 @@ describe('WorldMapTravelBridge', () => {
         expect(after.context.travel ?? null).toBeNull();
         expect(after.messages).toHaveLength(before);
     });
+    it('ignores a stale departure click while a journey is already active', () => {
+        render(<WorldMapTravelBridge />);
+        const payload = { fromId: 'a', toId: 'b', mode: 'foot' as const, hops: [{ fromId: 'a', toId: 'b', transitId: 't1', legs: 3 }] };
+        act(() => { modEventBus.emit('mod.worldmap.travelRequest', payload); });
+        const before = useAppStore.getState().context;
+        act(() => { modEventBus.emit('mod.worldmap.travelRequest', payload); });
+        expect(useAppStore.getState().context).toEqual(before);
+    });
+
 });

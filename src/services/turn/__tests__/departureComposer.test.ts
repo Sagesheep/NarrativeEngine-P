@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { LocationEntry } from '../../types';
+import type { LocationEntry } from '../../../types';
 import {
     composeDeparture,
     ensureConnection,
@@ -8,6 +8,7 @@ import {
     bandFromLegs,
     type DepartureDeps,
 } from '../departureComposer';
+import { advance } from '../travelState';
 
 function makePlace(id: string, name: string, overrides: Partial<LocationEntry> = {}): LocationEntry {
     return {
@@ -276,4 +277,62 @@ describe('bandFromLegs', () => {
         expect(bandFromLegs(3, 'foot')).toBe('regional');
         expect(bandFromLegs(1, 'foot')).not.toBe('adjacent');
     });
+});
+
+describe('exact map journey duration', () => {
+    it.each([1, 2, 3, 5, 9, 17])('arrives after exactly %i presses, preserving terrain days', days => {
+        const ledger = [makePlace('a', 'A'), makePlace('b', 'B')];
+        let result = composeDeparture({
+            fromId: 'a', toId: 'b', mode: 'foot', band: 'far', ledger,
+            hops: [{ fromId: 'a', toId: 'b', transitId: '', legs: days }],
+            deps: makeDeps(), currentWorldDay: 10,
+        })!;
+        for (let press = 1; press < days; press++) {
+            expect(result.travel?.leg).toBe(press);
+            expect(result.contextPatch.worldDay).toBe(10 + press);
+            // Exercise the persisted state representation between presses.
+            result = advance(JSON.parse(JSON.stringify(result.travel)), result.contextPatch.worldDay);
+        }
+        expect(result.travel).toBeNull();
+        expect(result.contextPatch.currentPlaceId).toBe('b');
+        expect(result.contextPatch.worldDay).toBe(10 + days);
+    });
+
+    it('a multi-hop departure never adds an A-to-C shortcut', () => {
+        const deps = makeDeps();
+        const result = composeDeparture({
+            fromId: 'a', toId: 'c', mode: 'foot', band: 'far',
+            ledger: [makePlace('a', 'A'), makePlace('b', 'B'), makePlace('c', 'C')],
+            hops: [
+                { fromId: 'a', toId: 'b', transitId: '', legs: 2 },
+                { fromId: 'b', toId: 'c', transitId: '', legs: 3 },
+            ], deps, currentWorldDay: 10,
+        })!;
+        expect(deps.updateLocation).not.toHaveBeenCalled();
+        expect(result.ledgerUpsert?.find(place => place.id === 'a')?.connections.some(c => c.toId === 'c')).toBe(false);
+        let current = result;
+        for (let press = 2; press <= 5; press++) {
+            current = advance(current.travel!, current.contextPatch.worldDay);
+            if (press === 2) expect(current.contextPatch.currentPlaceId).toBe('b');
+        }
+        expect(current.travel).toBeNull();
+        expect(current.contextPatch.worldDay).toBe(15);
+        expect(current.contextPatch.currentPlaceId).toBe('c');
+    });
+});
+
+
+it('exact map days do not rewrite authored distance bands', () => {
+    const ledger = [
+        makePlace('a', 'A', { connections: [{ toId: 'b', band: 'remote' }] }),
+        makePlace('b', 'B', { connections: [{ toId: 'a', band: 'remote' }] }),
+    ];
+    const result = composeDeparture({
+        fromId: 'a', toId: 'b', mode: 'flying', band: 'local', ledger,
+        hops: [{ fromId: 'a', toId: 'b', transitId: '', legs: 2 }],
+        deps: makeDeps(), currentWorldDay: 10,
+    })!;
+    expect(result.travel!.totalLegs).toBe(2);
+    const updated = mergeUpserts(ledger, result.ledgerUpsert ?? []);
+    expect(updated.find(place => place.id === 'a')!.connections).toEqual([{ toId: 'b', band: 'remote' }]);
 });

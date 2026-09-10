@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
+import { closeWindow } from '../services/mods/mounts/windowStore';
 import { modEventBus } from '../services/mods/events';
 import { useAppStore } from '../store/useAppStore';
 import { composeDeparture, mergeUpserts, bandFromLegs } from '../services/turn/departureComposer';
-import { buildCheckpointMessage } from '../services/turn/travelPress';
 import { applyTravelAdvance } from './TravelButton';
 import { applyAbandonJourney } from './chat/AbandonJourneyChip';
 import type { TravelHop, TravelMode } from '../types';
@@ -15,7 +15,7 @@ import type { TravelHop, TravelMode } from '../types';
  * (terrain-real, multi-hop) and emits `mod.worldmap.travelRequest` on commit.
  * The host owns the travel state, so this listener translates the event into a
  * `composeDeparture` call that immediately applies the `depart()` transition
- * and posts the engine's checkpoint system message. No LLM call, no intent,
+ * without routine chat output. No LLM call, no intent,
  * no composer injection.
  *
  * It also carries the map panel's two journey controls — Continue and
@@ -46,7 +46,7 @@ export function WorldMapTravelBridge() {
             const locationLedger = state.locationLedger;
             const fromId = data.fromId;
             const toId = data.toId;
-            if (!fromId || !toId || fromId === toId) return;
+            if (!fromId || !toId || fromId === toId || state.context.travel) return;
             const target = locationLedger.find(l => l.id === toId);
             if (!target) return;
 
@@ -70,28 +70,28 @@ export function WorldMapTravelBridge() {
                 state.setLocationLedger(mergeUpserts(locationLedger, result.ledgerUpsert));
             }
 
-            if (result.travel) {
-                const newDay = result.contextPatch.worldDay ?? (currentWorldDay ?? 0) + 1;
-                state.addMessage(buildCheckpointMessage(result.travel, newDay, locationLedger));
-            } else {
-                // Single-day journey: arrived immediately — post a checkpoint
-                // message that names the destination. The `travel` field is
-                // null but the context patch carries the arrival.
-                const newDay = result.contextPatch.worldDay ?? (currentWorldDay ?? 0) + 1;
-                state.addMessage({
-                    id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
-                    role: 'system',
-                    name: 'travel-arrive',
-                    content: `Day ${newDay} · arrived at ${target.name}`,
-                    timestamp: Date.now(),
-                });
-            }
+
         });
         const unsubscribeAdvance = modEventBus.on('mod.worldmap.travelAdvance', () => {
             applyTravelAdvance();
         });
         const unsubscribeAbandon = modEventBus.on('mod.worldmap.travelAbandon', () => {
             applyAbandonJourney();
+        });
+        const unsubscribeRoleplay = modEventBus.on('mod.worldmap.roleplayRequest', (rawPayload) => {
+            const payload = rawPayload as Record<string, any> | undefined;
+            const state = useAppStore.getState();
+            const scene = state.context.mapEncounter;
+            if (!payload || payload.campaignId !== state.activeCampaignId || !scene || state.isStreaming
+                || payload.key !== scene.key || payload.placeId !== state.context.currentPlaceId
+                || payload.worldDay !== state.context.worldDay || payload.leg !== (state.context.travel?.leg ?? null)
+                || scene.placeId !== state.context.currentPlaceId || scene.worldDay !== state.context.worldDay
+                || scene.leg !== (state.context.travel?.leg ?? null)) return;
+            if (typeof payload.kind !== 'string' || !['reply', 'camp', 'look'].includes(payload.kind)
+                || (payload.kind === 'reply' && (scene.quiet || scene.status !== 'available'))
+                || typeof payload.text !== 'string' || !payload.text.trim()) return;
+            state.injectToComposer(payload.text.trim().slice(0, 2000));
+            closeWindow('mod.worldmap.map-canvas');
         });
         const unsubscribeCurrent = modEventBus.on('mod.worldmap.setCurrentPlace', (payload) => {
             const locationId = typeof payload?.locationId === 'string' ? payload.locationId : null;
@@ -103,6 +103,7 @@ export function WorldMapTravelBridge() {
             unsubscribeAdvance();
             unsubscribeAbandon();
             unsubscribeCurrent();
+            unsubscribeRoleplay();
         };
     }, [activeCampaignId, updateLocation, updateContext]);
 

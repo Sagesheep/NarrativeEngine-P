@@ -1,3 +1,7 @@
+import { checkpointKey, readEncounters, serializeEncounters, recordCheckpoint, handleEncounter, noteEncounter } from './encounters.js';
+import { fixedSiteAnchors, promoteSite, preferSiteStops } from './siteTravel.js';
+import { readDiscoveries, serializeDiscoveries, surveyDiscoveries, nearbyDiscoveries, nameDiscovery, siteLabel } from './discoveries.js';
+import { readTrails, serializeTrails, recordTrailProgress } from './trails.js';
 import { solveWorldMap } from './solver.js';
 import { mountMapRenderer, normaliseLayerSettings } from './renderer.js';
 import { findRoute, BASE_GRIDS_PER_DAY } from './pathfinder.js';
@@ -11,7 +15,7 @@ import {
 } from './field.js';
 
 const DEFAULT_CLIMATE_GRADIENT = 0.65;
-const DEFAULT_LAYERS = Object.freeze({ grid: true, roads: true, labels: true });
+const DEFAULT_LAYERS = Object.freeze({ grid: false, roads: true, labels: true });
 const reportsByCampaign = new Map();
 const reportListeners = new Set();
 const mapPaintListeners = new Set();
@@ -31,6 +35,137 @@ let settingsWriteQueue = Promise.resolve();
 // switch all manifest as `travel` becoming null, so watch the state, not the
 // transition). `null` when no journey is in progress, mirroring `settings`.
 const journeyByCampaign = new Map();
+const positionByCampaign = new Map();
+const trailsByCampaign = new Map();
+const discoveriesByCampaign = new Map();
+const discoveryContextByCampaign = new Map();
+const encountersByCampaign = new Map();
+const encounterContextByCampaign = new Map();
+let encounterQueue = Promise.resolve();
+const routePreferenceByCampaign = new Map();
+let movementQueue = Promise.resolve();
+
+// Coordinates belong to the occupied place, so arrival or an explicit place
+// change cannot reuse a camp left behind on an earlier journey.
+export function stoppedCell(position, location) {
+    if (!position || position.placeId !== location?.currentPlaceId) return null;
+    if (!Number.isSafeInteger(position.x) || !Number.isSafeInteger(position.y)) return null;
+    return { x: position.x, y: position.y };
+}
+
+async function hydratePosition(ctx) {
+    encountersByCampaign.set(ctx.data.campaignId, readEncounters(await ctx.table.read('encounters')));
+    encounterContextByCampaign.delete(ctx.data.campaignId);
+    discoveriesByCampaign.set(ctx.data.campaignId, readDiscoveries(await ctx.table.read('discoveries')));
+    discoveryContextByCampaign.delete(ctx.data.campaignId);
+    trailsByCampaign.set(ctx.data.campaignId, readTrails(await ctx.table.read('trails')));
+    const position = await ctx.table.read('position');
+    positionByCampaign.set(ctx.data.campaignId, position);
+    snapshotCacheByCampaign.delete(ctx.data.campaignId);
+}
+
+async function updateEncounters(ctx, centre, snapshot, feature) {
+    const location = ctx.data.location;
+    if (!Number.isFinite(location.worldDay)) return;
+    const campaignId = ctx.data.campaignId;
+    const input = { seed: snapshot.settings.worldSeed, x: centre.x, y: centre.y,
+        worldDay: location.worldDay, biome: snapshot.chunkStore.getCell(centre.x, centre.y).biome, feature,
+        onRoad: [...(trailsByCampaign.get(campaignId)?.edges.values() ?? [])].some(edge => edge.passes >= 2
+            && [edge.a, edge.b].some(cell => cell.x === centre.x && cell.y === centre.y)) };
+    const task = encounterQueue.then(async () => {
+        const result = recordCheckpoint(encountersByCampaign.get(campaignId) ?? new Map(), input);
+        if (result.changed) {
+            await ctx.table.write('encounters', serializeEncounters(result.records));
+            encountersByCampaign.set(campaignId, result.records);
+            snapshotCacheByCampaign.delete(campaignId);
+            for (const listener of mapPaintListeners) listener(campaignId);
+        }
+        return result.record;
+    });
+    encounterQueue = task.catch(error => ctx.log?.('[worldmap] encounter save failed', error));
+    const record = await task;
+    const live = await freshCampaignContext(ctx);
+    if (!live || live.data.campaignId !== campaignId || live.data.location?.currentPlaceId !== location.currentPlaceId
+        || live.data.location?.worldDay !== location.worldDay
+        || (live.data.location?.travel?.leg ?? null) !== (location.travel?.leg ?? null)) return;
+    const summary = { ...record, placeId: location.currentPlaceId, leg: location.travel?.leg ?? null };
+    const digest = JSON.stringify(summary);
+    if (encounterContextByCampaign.get(campaignId) !== digest && live.write?.updateContext) {
+        encounterContextByCampaign.set(campaignId, digest);
+        live.write.updateContext({ mapEncounter: summary });
+    }
+}
+
+async function updateDiscoveries(ctx) {
+    const campaignId = ctx.data.campaignId;
+    const snapshot = mapSnapshot(ctx);
+    if (!snapshot) return;
+    const location = ctx.data.location;
+    const centre = snapshot.party ?? snapshot.anchors.find(anchor => anchor.locationId === location.currentPlaceId);
+    if (!centre) return;
+    const state = discoveriesByCampaign.get(campaignId) ?? readDiscoveries(null);
+    let identityChanged = false;
+    for (const entry of location.ledger ?? []) {
+        const site = state.sites.get(entry.id);
+        const name = String(entry.name ?? '').trim().slice(0, 80);
+        const description = String(entry.description ?? '').trim().slice(0, 600);
+        if (site && (site.name !== name || site.description !== description)) {
+            nameDiscovery(state, site.id, name, description); identityChanged = true;
+        }
+    }
+    if (surveyDiscoveries(state, snapshot.settings.worldSeed, snapshot.chunkStore, centre, trailsByCampaign.get(campaignId), location.worldDay) || identityChanged) {
+        discoveriesByCampaign.set(campaignId, state);
+        await ctx.table.write('discoveries', serializeDiscoveries(state));
+        let hardened = hardenedByCampaign.get(campaignId) ?? await readHardened(ctx);
+        const previous = hardened;
+        for (const site of state.sites.values()) hardened = hardenCell(site.x, site.y, site.biome, hardened);
+        if (hardened !== previous) await writeHardened(ctx, hardened);
+        snapshotCacheByCampaign.delete(campaignId);
+        for (const listener of mapPaintListeners) listener(campaignId);
+    }
+    const summary = { placeId: location.currentPlaceId, worldDay: location.worldDay,
+        leg: location.travel?.leg ?? null,
+        sites: nearbyDiscoveries(state, centre).map(site => ({ id: site.id, name: siteLabel(site),
+            description: site.description, type: site.type, distance: site.distance })) };
+    const digest = JSON.stringify(summary);
+    const live = await freshCampaignContext(ctx);
+    if (!live || live.data.campaignId !== campaignId
+        || live.data.location?.currentPlaceId !== location.currentPlaceId
+        || live.data.location?.worldDay !== location.worldDay
+        || (live.data.location?.travel?.leg ?? null) !== (location.travel?.leg ?? null)) return;
+    if (discoveryContextByCampaign.get(campaignId) !== digest && ctx.write?.updateContext) {
+        discoveryContextByCampaign.set(campaignId, digest);
+        ctx.write.updateContext({ mapDiscoveries: summary });
+    }
+    await updateEncounters(ctx, centre, snapshot, nearbyDiscoveries(state, centre)[0]);
+}
+
+async function rememberTrails(ctx, journey) {
+    if (!journey) return;
+    const location = ctx.data.location;
+    const cell = partyCellForJourney(journey, location?.travel);
+    const arrived = !location?.travel && location?.currentPlaceId === journey.toId
+        && location?.worldDay >= journey.startedOnDay + journey.totalLegs;
+    const endIndex = arrived ? journey.cells.length - 1
+        : cell ? journey.cells.findIndex(c => c.x === cell.x && c.y === cell.y) : -1;
+    const trails = trailsByCampaign.get(ctx.data.campaignId) ?? readTrails(null);
+    if (!recordTrailProgress(trails, journey, endIndex)) return;
+    trailsByCampaign.set(ctx.data.campaignId, trails);
+    await ctx.table.write('trails', serializeTrails(trails));
+    snapshotCacheByCampaign.delete(ctx.data.campaignId);
+    for (const listener of mapPaintListeners) listener(ctx.data.campaignId);
+}
+
+async function rememberJourneyPosition(ctx) {
+    const campaignId = ctx.data.campaignId;
+    const location = ctx.data.location;
+    const cell = partyCellForJourney(journeyByCampaign.get(campaignId), location?.travel);
+    if (!cell || !location.currentPlaceId) return;
+    const position = { ...cell, placeId: location.currentPlaceId };
+    positionByCampaign.set(campaignId, position);
+    snapshotCacheByCampaign.delete(campaignId);
+    await ctx.table.write('position', position);
+}
 
 // WO 6.1 — click-to-travel route-preview state, per campaign. The preview is
 // computed by the mod (which owns the pathfinder and the chunk store) and
@@ -177,22 +312,24 @@ function modeToPathfinder(mode) {
  * cost is the octile distance (≈ cell count); days derived from WO 3's flying
  * speed (20 grids/day).
  */
-function straightLineRoute(from, to) {
+export function straightLineRoute(from, to) {
+    // Bresenham on integer cells, with the same cumulative octile cost
+    // contract as A*. Checkpoints consume cell.cost, not just route.cost.
     const dx = Math.abs(to.x - from.x);
     const dy = Math.abs(to.y - from.y);
-    const cost = Math.abs(dx - dy) + Math.SQRT2 * Math.min(dx, dy);
-    const days = Math.max(1, Math.ceil(cost / 20)); // flying: 20 grids/day
-    // Build the cell list as a Bresen line so the renderer has a polyline.
-    const cells = [];
-    let x = from.x, y = from.y;
-    const sx = to.x > from.x ? 1 : to.x < from.x ? -1 : 0;
-    const sy = to.y > from.y ? 1 : to.y < from.y ? -1 : 0;
-    const steps = Math.max(Math.abs(dx), Math.abs(dy));
-    for (let i = 0; i <= steps; i += 1) {
-        cells.push({ x, y });
-        if (i < steps) { x += sx; y += sy; }
+    const sx = from.x < to.x ? 1 : -1;
+    const sy = from.y < to.y ? 1 : -1;
+    let x = from.x, y = from.y, error = dx - dy, cost = 0;
+    const cells = [{ x, y, cost }];
+    while (x !== to.x || y !== to.y) {
+        const previousX = x, previousY = y;
+        const doubled = 2 * error;
+        if (doubled > -dy) { error -= dy; x += sx; }
+        if (doubled < dx) { error += dx; y += sy; }
+        cost += x !== previousX && y !== previousY ? Math.SQRT2 : 1;
+        cells.push({ x, y, cost });
     }
-    return { cells, cost, days };
+    return { cells, cost, days: Math.max(1, Math.ceil(cost / 20)) };
 }
 
 /**
@@ -256,11 +393,11 @@ function findLedgerPath(ledger, fromId, toId) {
  *   { cells, cost, days, mode, blocked?, fromAnchor, toAnchor, cellCount, hops }
  * `hops` is the per-hop breakdown for the host's `composeDeparture`/intent.
  */
-function computeRoutePreview(ctx, campaignId, toX, toY, mode) {
+export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference = routePreferenceByCampaign.get(campaignId) ?? 'fastest', compare = true, targetId = null) {
     const result = reportsByCampaign.get(campaignId);
     if (!result) return { blocked: true, reason: 'no-solve', label: 'No map solve yet' };
-    const anchors = result.anchors || [];
     const ledger = ctx.data?.location?.ledger ?? [];
+    const anchors = fixedSiteAnchors(result, discoveriesByCampaign.get(campaignId)?.sites.values() ?? [], ledger);
 
     // AT MOST ONE ROUTE IS ACTIVE AT A TIME.
     //
@@ -297,14 +434,16 @@ function computeRoutePreview(ctx, campaignId, toX, toY, mode) {
     const fromId = ctx.data?.location?.currentPlaceId ?? null;
     if (!fromId) return { blocked: true, reason: 'no-current-place', label: 'No current place — set one in the Places panel' };
 
-    const fromAnchor = anchors.find(a => a.locationId === fromId);
+    const originCell = stoppedCell(positionByCampaign.get(campaignId), ctx.data?.location);
+    const baseFromAnchor = anchors.find(a => a.locationId === fromId);
+    const fromAnchor = baseFromAnchor && { ...baseFromAnchor, ...originCell };
     if (!fromAnchor || !Number.isFinite(fromAnchor.x) || !Number.isFinite(fromAnchor.y)) {
         return { blocked: true, reason: 'no-current-anchor', label: 'Current place has no map anchor' };
     }
 
     // Snap the click to the nearest anchor within radius. If the click is on
     // an anchor's exact cell, that anchor is the destination. Otherwise snap.
-    const toAnchor = nearestAnchor(anchors, toX, toY, ANCHOR_SNAP_RADIUS);
+    const toAnchor = targetId ? anchors.find(anchor => anchor.locationId === targetId) : nearestAnchor(anchors.filter(anchor => !ledger.some(entry => entry.id === anchor.locationId && entry.kind === 'transit')), toX, toY, ANCHOR_SNAP_RADIUS);
     if (!toAnchor) {
         return { blocked: true, reason: 'no-anchor-near', label: 'No place within 2 cells — click a place to travel' };
     }
@@ -318,7 +457,9 @@ function computeRoutePreview(ctx, campaignId, toX, toY, mode) {
     const chunkStore = ensureChunkStore(campaignId, settings, controls, hardened);
 
     // Find the ledger path (A→B→C). Single-hop if directly connected.
-    const ledgerPath = findLedgerPath(ledger, fromId, toAnchor.locationId);
+    const isSiteRoute = discoveriesByCampaign.get(campaignId)?.sites.has(toAnchor.locationId)
+        || discoveriesByCampaign.get(campaignId)?.sites.has(fromId);
+    const ledgerPath = isSiteRoute ? [fromId, toAnchor.locationId] : findLedgerPath(ledger, fromId, toAnchor.locationId);
     if (!ledgerPath || ledgerPath.length < 2) {
         // No ledger path — the destination is not reachable through known
         // connections. This is a blocked result, not an error: the player
@@ -353,7 +494,7 @@ function computeRoutePreview(ctx, campaignId, toX, toY, mode) {
     for (let i = 0; i < ledgerPath.length - 1; i += 1) {
         const hopFromId = ledgerPath[i];
         const hopToId = ledgerPath[i + 1];
-        const hopFromAnchor = anchors.find(a => a.locationId === hopFromId);
+        const hopFromAnchor = i === 0 ? fromAnchor : anchors.find(a => a.locationId === hopFromId);
         const hopToAnchor = anchors.find(a => a.locationId === hopToId);
         if (!hopFromAnchor || !hopToAnchor) {
             blockedByPathfinder = { reason: 'no-anchor', label: `Place ${hopFromId} or ${hopToId} has no anchor` };
@@ -372,8 +513,10 @@ function computeRoutePreview(ctx, campaignId, toX, toY, mode) {
                 { x: hopFromAnchor.x, y: hopFromAnchor.y },
                 { x: hopToAnchor.x, y: hopToAnchor.y },
                 pfMode,
+                { trails: trailsByCampaign.get(campaignId), preference },
             );
         }
+        if (isSiteRoute && route.snapped) route = { blocked: true, reason: 'endpoint-impassable' };
         if (route.blocked) {
             // WO 6.1 §1 — a blocked route is a real answer. Surface the
             // reason and the mode(s) that would work.
@@ -425,6 +568,12 @@ function computeRoutePreview(ctx, campaignId, toX, toY, mode) {
     // after the first leg matter to the host (the first hop is the depart);
     // but the host needs all hops to create transit nodes per hop.
     const hops = hopResults.map(h => ({ fromId: h.fromId, toId: h.toId, transitId: '', legs: h.legs }));
+    const alternative = compare && pfMode !== null
+        ? computeRoutePreview(ctx, campaignId, toX, toY, mode, preference === 'fastest' ? 'shortest' : 'fastest', false, targetId)
+        : null;
+    const hasRouteChoice = alternative && !alternative.blocked
+        && Math.abs(alternative.cost - totalCost) > 0.001;
+
     return {
         cells: allCells,
         cost: totalCost,
@@ -433,10 +582,13 @@ function computeRoutePreview(ctx, campaignId, toX, toY, mode) {
         fromAnchor: { locationId: fromAnchor.locationId, name: fromName },
         toAnchor: { locationId: toAnchor.locationId, name: toName },
         cellCount: Math.max(0, allCells.length - 1),
+        preference,
+        hasRouteChoice: Boolean(hasRouteChoice),
         checkpoints: buildCheckpoints(
             hopResults,
             gridsPerDayForMode(mode),
             pfMode !== null ? pathfinderMultiplier(pfMode) : 1,
+            [...(discoveriesByCampaign.get(campaignId)?.sites.values() ?? [])],
         ),
         hops,
     };
@@ -514,13 +666,14 @@ function pathfinderMultiplier(pfMode) {
  * itself a checkpoint — that is a night under a roof, not a night in a tent.
  * The final arrival is not a checkpoint; it is the destination.
  */
-export function buildCheckpoints(hopResults, gridsPerDay, multiplier) {
+export function buildCheckpoints(hopResults, gridsPerDay, multiplier, sites = []) {
     const costPerDay = Math.max(1e-6, gridsPerDay * multiplier);
     const checkpoints = [];
     let dayOffset = 0;
     for (let index = 0; index < hopResults.length; index += 1) {
         const hop = hopResults[index];
         const cells = Array.isArray(hop.cells) ? hop.cells : [];
+        const firstCheckpoint = checkpoints.length;
         let nextDay = 1;
         for (const cell of cells) {
             if (!Number.isFinite(cell.cost)) break;
@@ -528,6 +681,10 @@ export function buildCheckpoints(hopResults, gridsPerDay, multiplier) {
                 checkpoints.push({ x: cell.x, y: cell.y, day: dayOffset + nextDay, kind: 'camp' });
                 nextDay += 1;
             }
+        }
+        if (sites.length) {
+            const local = checkpoints.splice(firstCheckpoint);
+            checkpoints.push(...preferSiteStops(local, cells, sites, costPerDay));
         }
         dayOffset += hop.legs;
         if (index < hopResults.length - 1 && cells.length > 0) {
@@ -645,7 +802,7 @@ export async function writeJourney(ctx, journey) {
 }
 
 /**
- * Clear the journey record — write `null` to the table and drop the
+ * Clear the journey record — write an empty object to the table and drop the
  * in-memory cache. Called when `context.travel` goes null (§4: arrive, halt,
  * campaign switch). Exported for direct unit testing of the §4 clear path.
  */
@@ -653,7 +810,7 @@ export async function clearJourney(ctx) {
     const fresh = await freshCampaignContext(ctx);
     if (!fresh) return false;
     const campaignId = fresh.data.campaignId;
-    await fresh.table.write('journey', null);
+    await fresh.table.write('journey', {}); // HTTP JSON parser accepts objects; validJourney treats this as inactive.
     journeyByCampaign.delete(campaignId);
     bumpWorldVersion(campaignId);
     for (const listener of mapPaintListeners) listener(campaignId);
@@ -765,11 +922,12 @@ function buildJourneyFromPreview(preview, worldDay) {
     if (!fromId || !toId) return null;
     const totalLegs = hops.reduce((sum, h) => sum + (Number.isFinite(h?.legs) ? h.legs : 0), 0);
     return {
+        id: globalThis.crypto?.randomUUID?.() ?? `${fromId}:${toId}:${worldDay}:${Date.now()}`,
         fromId,
         toId,
         mode: preview.mode,
         cells: cells.map(c => ({ x: c.x, y: c.y, cost: c.cost })),
-        checkpoints: checkpoints.map(c => ({ x: c.x, y: c.y, day: c.day, kind: c.kind })),
+        checkpoints: checkpoints.map(c => ({ x: c.x, y: c.y, day: c.day, kind: c.kind, ...(c.siteId ? { siteId: c.siteId, siteName: c.siteName } : {}) })),
         totalLegs,
         startedOnDay: Number.isFinite(worldDay) ? worldDay : 1,
     };
@@ -786,8 +944,10 @@ async function hardenCurrentCell(ctx) {
     const campaignId = fresh.data.campaignId;
     const placeId = fresh.data.location?.currentPlaceId;
     const ledger = fresh.data.location?.ledger ?? [];
-    const anchor = (reportsByCampaign.get(campaignId)?.anchors ?? [])
-        .find(candidate => candidate.locationId === placeId);
+    const anchor = partyCellForJourney(journeyByCampaign.get(campaignId), fresh.data.location?.travel)
+        ?? stoppedCell(positionByCampaign.get(campaignId), fresh.data.location)
+        ?? (reportsByCampaign.get(campaignId)?.anchors ?? [])
+            .find(candidate => candidate.locationId === placeId);
     if (!anchor || !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y)) return null;
     const settings = reportsByCampaign.get(campaignId)?.settings;
     if (!settings) return null;
@@ -824,8 +984,13 @@ export async function solveAndPersist(ctx) {
     const terrainChunkStore = ensureChunkStore(campaignId, settings, previousControls, hardened);
     // WO 4.4 — the anchors table is a pure output cache; the ledger and the
     // lore are the only inputs. No `existingAnchors` is read or passed.
+    const sites = discoveriesByCampaign.get(campaignId)?.sites ?? new Map();
+    const sourceLedger = fresh.data.location?.ledger ?? [];
+    const excluded = new Set([...sites.keys(), ...sourceLedger.filter(entry => entry.kind === 'transit'
+        && entry.connections.some(edge => sites.has(edge.toId))).map(entry => entry.id)]);
     const result = solveWorldMap({
-        locations: fresh.data.location?.ledger ?? [],
+        locations: sourceLedger.filter(entry => !excluded.has(entry.id))
+            .map(entry => ({ ...entry, connections: entry.connections.filter(edge => !excluded.has(edge.toId)) })),
         loreChunks: fresh.data.loreChunks ?? [],
         worldSeed: settings.worldSeed,
         hardenedCells: hardened,
@@ -836,6 +1001,7 @@ export async function solveAndPersist(ctx) {
     // before writing so an old campaign's solve never lands in the new file.
     const confirm = await freshCampaignContext(fresh);
     if (!confirm || confirm.data.campaignId !== campaignId) return null;
+    result.anchors = fixedSiteAnchors(result, sites.values(), sourceLedger);
     await confirm.table.write('anchors', result.anchors);
     publishResult(campaignId, result, settings);
     return result;
@@ -1215,7 +1381,7 @@ export function mapSnapshot(ctx) {
     // The leg is part of what the snapshot depends on, so it is part of the
     // key. Deleting the cache from the one subscription that noticed would
     // have fixed this call site and left the trap armed for the next field.
-    const travelKey = travelSnapshotKey(ctx.data?.location?.travel ?? null);
+    const travelKey = `${ctx.data?.location?.currentPlaceId ?? ""}:${travelSnapshotKey(ctx.data?.location?.travel ?? null)}`;
     const cached = snapshotCacheByCampaign.get(campaignId);
     if (cached && cached.worldVersion === version && cached.travelKey === travelKey) {
         return cached.snapshot;
@@ -1224,9 +1390,9 @@ export function mapSnapshot(ctx) {
     const hardened = hardenedByCampaign.get(campaignId) ?? new Map();
     const ledger = ctx.data?.location?.ledger ?? [];
     const ledgerById = new Map(ledger.map(entry => [entry.id, entry]));
-    const anchors = (result.anchors || []).map(anchor => {
+    const anchors = fixedSiteAnchors(result, discoveriesByCampaign.get(campaignId)?.sites.values() ?? [], ledger).map(anchor => {
         const location = ledgerById.get(anchor.locationId);
-        return { ...anchor, name: location?.name ?? anchor.locationId };
+        return { ...anchor, name: location?.name ?? anchor.locationId, ...(location?.kind === 'transit' ? { kind: 'transit' } : {}) };
     });
     const controls = buildWarpField(result.transects || []);
     const chunkStore = ensureChunkStore(campaignId, result.settings, controls, hardened);
@@ -1240,14 +1406,15 @@ export function mapSnapshot(ctx) {
     // degrade path: no journey record, or a mismatch, or no travel state).
     const travel = ctx.data?.location?.travel ?? null;
     const journey = journeyByCampaign.get(campaignId) ?? null;
-    const party = partyCellForJourney(journey, travel);
+    const party = partyCellForJourney(journey, travel)
+        ?? (!travel ? stoppedCell(positionByCampaign.get(campaignId), ctx.data?.location) : null);
     // `journeyLeg` is the host's current leg, passed to the renderer so it
     // can split the route into walked vs remaining and fill the passed
     // checkpoints. `null` when no journey is active.
     const journeyLeg = (journey && travel) ? travel.leg : null;
     // The panel's journey state renders from the HOST's numbers, resolved to
     // a name here because the renderer has no ledger. `journey.totalLegs`
-    // counts days and `travel.totalLegs` counts camps; the host owns the
+    // and `travel.totalLegs` both count days, including arrival; the host owns the
     // journey's state, so the host's number is the one the player sees.
     const travelSummary = travel
         ? {
@@ -1258,10 +1425,19 @@ export function mapSnapshot(ctx) {
         }
         : null;
 
+    const encounterCell = party ?? anchors.find(anchor => anchor.locationId === ctx.data?.location?.currentPlaceId);
+    const encounterRecords = encountersByCampaign.get(campaignId) ?? new Map();
+    const encounter = encounterCell ? encounterRecords.get(checkpointKey({ ...encounterCell, worldDay: ctx.data?.location?.worldDay })) ?? null : null;
     const snapshot = {
+        encounter,
+        encounterJournal: [...encounterRecords.values()].slice(-6).reverse(),
         anchors,
         transects: result.transects || [],
         connections: result.connections || [],
+        trails: serializeTrails(trailsByCampaign.get(campaignId) ?? readTrails(null)).edges,
+        discoveries: [...(discoveriesByCampaign.get(campaignId)?.sites.values() ?? [])],
+        nearbyDiscoveries: nearbyDiscoveries(discoveriesByCampaign.get(campaignId) ?? readDiscoveries(null),
+            party ?? anchors.find(anchor => anchor.locationId === ctx.data?.location?.currentPlaceId)),
         waypoints: result.waypoints || [],
         settings: result.settings,
         hardened,
@@ -1319,17 +1495,98 @@ function mountMap(node, ctx) {
     }
 
     const handleRouteAction = (action, payload) => {
+        if (action === 'roleplayEncounter') {
+            const campaignId = currentCampaignId;
+            void (async () => {
+                const fresh = await freshCampaignContext(ctx);
+                if (!fresh || fresh.data.campaignId !== campaignId) return;
+                await updateDiscoveries(fresh);
+                const latest = await freshCampaignContext(ctx);
+                if (!latest || latest.data.campaignId !== campaignId) return;
+                const record = mapSnapshot(latest)?.encounter;
+                if (!record || record.key !== payload?.key) return;
+                latest.events?.emit('roleplayRequest', { campaignId, key: record.key,
+                    placeId: latest.data.location.currentPlaceId, worldDay: record.worldDay,
+                    leg: latest.data.location.travel?.leg ?? null, text: payload.text, kind: payload.kind });
+            })().catch(error => ctx.log?.('[worldmap] roleplay handoff failed', error));
+            return;
+        }
+        if (action === 'handleEncounter' || action === 'noteEncounter') {
+            const campaignId = currentCampaignId;
+            const task = encounterQueue.then(async () => {
+                const fresh = await freshCampaignContext(ctx);
+                if (!fresh || fresh.data.campaignId !== campaignId || mapSnapshot(fresh)?.encounter?.key !== payload?.key) return;
+                const previous = encountersByCampaign.get(campaignId) ?? new Map();
+                const next = action === 'noteEncounter' ? noteEncounter(previous, payload.key, payload.note) : handleEncounter(previous, payload.key);
+                if (next === previous) return;
+                await fresh.table.write('encounters', serializeEncounters(next));
+                encountersByCampaign.set(campaignId, next);
+                snapshotCacheByCampaign.delete(campaignId);
+            });
+            encounterQueue = task.catch(error => ctx.log?.('[worldmap] encounter save failed', error));
+            void task.then(async () => {
+                const fresh = await freshCampaignContext(ctx);
+                if (fresh?.data.campaignId === campaignId) { await updateDiscoveries(fresh); refreshPreview(); }
+            }).catch(error => ctx.log?.('[worldmap] encounter update failed', error));
+            return;
+        }
+        if (action === 'visitDiscovery') {
+            void (async () => {
+                const fresh = await freshCampaignContext(ctx);
+                const site = discoveriesByCampaign.get(currentCampaignId)?.sites.get(payload?.id);
+                if (!fresh || !site || fresh.data.campaignId !== currentCampaignId || fresh.data.location?.travel) return;
+                const ledger = fresh.data.location?.ledger ?? [];
+                const anchors = mapSnapshot(fresh)?.anchors ?? [];
+                const next = promoteSite(site, ledger, fresh.data.location?.currentPlaceId, id =>
+                    bandFromGridDistance(anchors.find(anchor => anchor.locationId === id), site));
+                if (next !== ledger) fresh.write?.setLocationLedger?.(next);
+                await queueSolve(ctx);
+                const latest = await freshCampaignContext(ctx);
+                if (!latest || latest.data.campaignId !== currentCampaignId) return;
+                const snapshot = mapSnapshot(latest);
+                const party = snapshot?.party ?? snapshot?.anchors.find(anchor => anchor.locationId === latest.data.location?.currentPlaceId);
+                if (party?.x === site.x && party?.y === site.y) {
+                    latest.write?.updateContext?.({ currentPlaceId: site.id, currentFeature: null });
+                    return;
+                }
+                const preview = computeRoutePreview(latest, currentCampaignId, site.x, site.y, currentTravelMode, undefined, true, site.id);
+                preview._clickCell = { x: site.x, y: site.y, targetId: site.id };
+                routePreviewByCampaign.set(currentCampaignId, preview);
+                refreshPreview();
+            })();
+            return;
+        }
+        if (action === 'nameDiscovery') {
+            const state = discoveriesByCampaign.get(currentCampaignId);
+            if (!state || !nameDiscovery(state, payload?.id, payload?.name, payload?.description)) return;
+            void (async () => {
+                const fresh = await freshCampaignContext(ctx);
+                if (!fresh || fresh.data.campaignId !== currentCampaignId) return;
+                await fresh.table.write('discoveries', serializeDiscoveries(state));
+                const ledger = fresh.data.location?.ledger ?? [];
+                if (ledger.some(entry => entry.id === payload.id) && fresh.write?.setLocationLedger) {
+                    fresh.write.setLocationLedger(ledger.map(entry => entry.id === payload.id
+                        ? { ...entry, name: state.sites.get(payload.id).name || siteLabel(state.sites.get(payload.id)), description: state.sites.get(payload.id).description } : entry));
+                }
+                snapshotCacheByCampaign.delete(currentCampaignId);
+                const updated = await freshCampaignContext(ctx);
+                if (updated?.data.campaignId === currentCampaignId) await updateDiscoveries(updated);
+                refreshPreview();
+            })();
+            return;
+        }
         if (action === 'cancel') {
             routePreviewByCampaign.delete(currentCampaignId);
             refreshPreview();
             return;
         }
-        if (action === 'setMode') {
-            currentTravelMode = String(payload || 'foot');
+        if (action === 'setMode' || action === 'setPreference') {
+            if (action === 'setMode') currentTravelMode = String(payload || 'foot');
+            else routePreferenceByCampaign.set(currentCampaignId, payload === 'shortest' ? 'shortest' : 'fastest');
             // Re-route with the new mode if there's a pending click target.
             const preview = routePreviewByCampaign.get(currentCampaignId);
             if (preview && preview._clickCell) {
-                const recomputed = computeRoutePreview(liveCtx, currentCampaignId, preview._clickCell.x, preview._clickCell.y, currentTravelMode);
+                const recomputed = computeRoutePreview(liveCtx, currentCampaignId, preview._clickCell.x, preview._clickCell.y, currentTravelMode, undefined, true, preview._clickCell.targetId);
                 recomputed._clickCell = preview._clickCell;
                 routePreviewByCampaign.set(currentCampaignId, recomputed);
                 refreshPreview();
@@ -1512,7 +1769,7 @@ function mountMap(node, ctx) {
         // wants the next mount to recentre.
         recentreOnNextMount = false;
         // Sync the selector's mode from the host context on (re)mount.
-        const ctxMode = liveCtx.data?.context?.travelMode;
+        const ctxMode = liveCtx.data?.location?.travelMode;
         if (ctxMode && typeof ctxMode === 'string') currentTravelMode = ctxMode;
         cleanupRenderer = mountMapRenderer(node, {
             getSnapshot: snapshot,
@@ -1564,6 +1821,7 @@ function mountMap(node, ctx) {
         prevLeg = null;
         const fresh = await freshCampaignContext(ctx);
         if (!disposed && fresh && fresh.data.campaignId === campaignId) {
+            await hydratePosition(fresh);
             journeyByCampaign.set(campaignId, await readJourney(fresh));
             prevTravelWasActive = Boolean(fresh.data?.location?.travel ?? null);
             prevPlaceId = fresh.data?.location?.currentPlaceId ?? null;
@@ -1691,6 +1949,21 @@ function registerMapWindow(ctx) {
         tooltip: 'Open the World Map canvas',
         onSelect: () => mapWindow.open(),
     });
+    ctx.events?.on('mod.worldmap.planTravel', async payload => {
+        const fresh = await freshCampaignContext(ctx);
+        if (!fresh) return;
+        await queueSolve(fresh);
+        const campaignId = fresh.data.campaignId;
+        const anchor = reportsByCampaign.get(campaignId)?.anchors.find(a => a.locationId === payload.toId);
+        currentTravelMode = MAP_TRAVEL_MODES.some(mode => mode.id === payload.mode) ? payload.mode : 'foot';
+        const preview = anchor
+            ? computeRoutePreview(fresh, campaignId, anchor.x, anchor.y, currentTravelMode, undefined, true, payload.toId)
+            : { blocked: true, reason: 'no-anchor', label: 'Destination has no map anchor yet' };
+        if (anchor) preview._clickCell = { x: anchor.x, y: anchor.y, targetId: payload.toId };
+        routePreviewByCampaign.set(campaignId, preview);
+        mapWindow.open();
+        for (const listener of mapPaintListeners) listener(campaignId);
+    });
 }
 
 /** Generate the per-campaign seed on first install when a campaign is open. */
@@ -1705,19 +1978,48 @@ export async function onActivate(ctx) {
     registerReportWindow(ctx);
     registerMapWindow(ctx);
     ctx.subscribe('location', () => {
+        // The native host context is a snapshot; refresh it on each movement.
+        // This listener also runs while the map window is closed.
+        // Capture the refreshed state and geometry before a window listener
+        // clears the completed journey. Serialize writes across rapid presses.
+        const captured = freshCampaignContext(ctx).then(fresh => fresh && ({
+            fresh: { ...fresh, data: fresh.data }, journey: journeyByCampaign.get(fresh.data.campaignId),
+        }));
+        movementQueue = movementQueue.then(async () => {
+            const event = await captured;
+            if (!event) return;
+            await rememberJourneyPosition(event.fresh);
+            await rememberTrails(event.fresh, event.journey);
+            await updateDiscoveries(event.fresh);
+            if (!event.fresh.data.location?.travel && event.journey
+                && journeyByCampaign.get(event.fresh.data.campaignId) === event.journey) {
+                await clearJourney(event.fresh);
+            }
+        }).catch(error => ctx.log?.('[worldmap] movement save failed', error));
         queueSolve(ctx).then(() => hardenCurrentCell(ctx));
     });
     ctx.subscribe('loreChunks', () => queueSolve(ctx));
     ctx.events?.on('campaign.opened', async () => {
         const fresh = await freshCampaignContext(ctx);
-        if (fresh) hardenedByCampaign.set(fresh.data.campaignId, await readHardened(fresh));
+        if (fresh) {
+            await hydratePosition(fresh);
+            journeyByCampaign.set(fresh.data.campaignId, await readJourney(fresh));
+            hardenedByCampaign.set(fresh.data.campaignId, await readHardened(fresh));
+        }
         queueSolve(ctx);
     });
+    const positionContext = await freshCampaignContext(ctx);
+    if (positionContext) {
+        await hydratePosition(positionContext);
+        journeyByCampaign.set(positionContext.data.campaignId, await readJourney(positionContext));
+        await rememberJourneyPosition(positionContext);
+    }
     await queueSolve(ctx);
     const initial = await freshCampaignContext(ctx);
     if (initial) {
         hardenedByCampaign.set(initial.data.campaignId, await readHardened(initial));
         await hardenCurrentCell(initial);
+        await updateDiscoveries(initial);
     }
 }
 

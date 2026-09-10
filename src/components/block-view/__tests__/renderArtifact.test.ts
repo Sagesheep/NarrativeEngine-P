@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { enumerateBlocks } from '../blockModel';
 
@@ -89,7 +89,9 @@ ${section('Post-turn tracks', 'Background work that runs after the scene commits
 <p style="margin-top:20px;font-size:10px;color:#909090;border-top:1px solid #363A44;padding-top:10px">Generated from real registry data. Tier: ${tier.length} blocks. Contributions: ${contributions.length} blocks. Tracks: ${tracks.length} blocks. Total: ${tier.length + contributions.length + tracks.length} blocks.</p>
 </div></body></html>`;
 
-        const outPath = resolve(__dirname, '../../../../Upgrade/EPIC PROJECT - Modularity/Project 5 - Block Architecture/BLOCK_VIEW_ARTIFACT.html');
+        const outDir = resolve(__dirname, '../../../../Upgrade/EPIC PROJECT - Modularity/Project 5 - Block Architecture');
+        mkdirSync(outDir, { recursive: true });
+        const outPath = resolve(outDir, 'BLOCK_VIEW_ARTIFACT.html');
         writeFileSync(outPath, html);
         expect(html.length).toBeGreaterThan(1000);
         // Phase 8.3 — 27 built-in TierFeature ids (enemyDiscovery left with the

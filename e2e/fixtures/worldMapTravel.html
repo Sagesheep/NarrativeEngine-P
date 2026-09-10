@@ -1,0 +1,10 @@
+<!doctype html><html><body style="margin:0;background:#17212b;color:white">
+<div id="bridge"></div><div style="width:100vw;height:90vh"><div id="map"></div></div>
+<script type="module">
+import RefreshRuntime from '/@react-refresh';
+RefreshRuntime.injectIntoGlobalHook(window);
+window.$RefreshReg$ = () => {};
+window.$RefreshSig$ = () => type => type;
+window.__vite_plugin_react_preamble_installed__ = true;
+await import('/e2e/fixtures/worldMapTravel.ts');
+</script></body></html>

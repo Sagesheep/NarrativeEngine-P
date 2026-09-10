@@ -1,7 +1,8 @@
-import { Loader2, Image as ImageIcon, Trash2, Upload } from 'lucide-react';
+import { Loader2, Image as ImageIcon, Trash2, Upload, ScanEye } from 'lucide-react';
 import type { NPCVisualProfile } from '../../types';
 import { useRef } from 'react';
 import { DEFAULT_PORTRAIT_ART_STYLE, PORTRAIT_ART_STYLE_OPTIONS } from '../../data/portraitStyles';
+import { useVisionDescribe } from '../hooks/useVisionDescribe';
 
 type Props = {
     portrait?: string;
@@ -22,6 +23,27 @@ export function NPCPortraitSection({
     onGeneratePortrait, onUploadPortrait, onRemovePortrait, onVisualProfileChange, appearance, onAppearanceChange,
 }: Props) {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const { isDescribing, visionConfigured, describe } = useVisionDescribe();
+
+    // Vision v1 — read the portrait back into the fields the payload already
+    // carries. Writes to FORM state only; the user still has to press Save.
+    const handleReadImage = async () => {
+        if (!portrait) return;
+        const result = await describe(portrait, name);
+        if (!result) return;
+        for (const [field, value] of Object.entries(result.visualProfile)) {
+            if (value) onVisualProfileChange(field as keyof NPCVisualProfile, value);
+        }
+        if (result.appearance) onAppearanceChange(result.appearance);
+    };
+
+    const readImageTitle = !portrait
+        ? 'Add a portrait first'
+        : !visionConfigured
+            ? 'No Vision AI configured (Settings → Presets → Vision AI)'
+            : !isEditing
+                ? 'Click Edit first — the description lands in these fields for you to review'
+                : 'Read this image with the Vision AI and fill the fields below';
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -82,6 +104,16 @@ export function NPCPortraitSection({
                     >
                         <Upload size={10} />
                         Upload
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleReadImage}
+                        disabled={isDescribing || isGeneratingImage || !portrait || !isEditing || !visionConfigured}
+                        title={readImageTitle}
+                        className="flex items-center gap-1 px-2 py-1 border border-border hover:border-terminal text-terminal text-[9px] uppercase tracking-wider rounded transition-colors disabled:opacity-50"
+                    >
+                        {isDescribing ? <Loader2 size={10} className="animate-spin" /> : <ScanEye size={10} />}
+                        {isDescribing ? 'Reading…' : 'Read Image'}
                     </button>
                     <button
                         type="button"

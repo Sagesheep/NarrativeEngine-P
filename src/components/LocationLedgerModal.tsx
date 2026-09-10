@@ -1,3 +1,4 @@
+import { openMapTravelPreview } from '../services/turn/mapTravelPreview';
 import { useState, useEffect, useMemo } from 'react';
 import { X, Plus, MapPin, Trash2, Search, Navigation, BookOpen, Compass } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
@@ -221,6 +222,11 @@ export function LocationLedgerModal() {
 
     const handleConfirmTravel = () => {
         if (!travelTargetId) return;
+        if (openMapTravelPreview(travelTargetId, travelMode)) {
+            setTravelTargetId(null);
+            toggleLocationLedger();
+            return;
+        }
         const target = locationLedger.find(l => l.id === travelTargetId);
         if (!target) return;
         const fromId = context.currentPlaceId;
