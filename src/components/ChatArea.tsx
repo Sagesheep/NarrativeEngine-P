@@ -20,6 +20,7 @@ import { useCondenser } from './hooks/useCondenser';
 import { useChapterSealing } from './hooks/useChapterSealing';
 import { useMessageEditor } from './hooks/useMessageEditor';
 import { useChatOperations } from '../hooks/useChatOperations';
+import { useChatAttachment } from './hooks/useChatAttachment';
 import { useChatPersistence } from '../hooks/useChatPersistence';
 import { useAutoresizeInput } from '../hooks/useAutoresizeInput';
 import { useChatKeyboard } from '../hooks/useChatKeyboard';
@@ -73,6 +74,19 @@ export function ChatArea() {
     );
 
     const [input, setInput] = useState('');
+    // Vision v1.5 — the image staged for the next message. Mirrored into a ref
+    // so `takeAttachment` (called from inside the send closure) always reads the
+    // latest value rather than the render it was created in.
+    const {
+        attachment,
+        isBusy: attachmentBusy,
+        attach: attachImage,
+        attachFromDataTransfer,
+        setCaption: setAttachmentCaption,
+        clear: clearAttachment,
+    } = useChatAttachment();
+    const attachmentRef = useRef(attachment);
+    attachmentRef.current = attachment;
     // Session-local OOC state stays outside the campaign store and turn lifecycle.
     const [oocOpen, setOocOpen] = useState(false);
     const [oocBusy, setOocBusy] = useState(false);
@@ -148,6 +162,16 @@ export function ChatArea() {
         setArmedAskGmBrief,
         sceneContinue,
         checkAndSealChapter,
+        takeAttachment: () => {
+            const a = attachmentRef.current;
+            if (!a || !a.localPath) return null;
+            clearAttachment();
+            return { caption: a.caption, localPath: a.localPath };
+        },
+        hasAttachment: () => {
+            const a = attachmentRef.current;
+            return !!a?.localPath && !!a.caption.trim();
+        },
     });
 
     const { isSaving, handleForceSave, handleOpenArchive } = useChatPersistence();
@@ -267,6 +291,12 @@ export function ChatArea() {
                     onKeyDown={handleKeyDown}
                     onSend={() => handleSend()}
                     onStop={handleStop}
+                    attachment={attachment}
+                    attachmentBusy={attachmentBusy}
+                    onAttachFile={(file) => void attachImage(file, input)}
+                    onAttachFromDataTransfer={(data) => attachFromDataTransfer(data, input)}
+                    onCaptionChange={setAttachmentCaption}
+                    onRemoveAttachment={clearAttachment}
                 />
             </div>
 

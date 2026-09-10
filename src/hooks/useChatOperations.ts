@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { runTurn } from '../services/turn/turnOrchestrator';
+import { formatAttachmentBlock } from '../services/vision/describeImage';
 import { commitPendingTurn, findRetryableMessage, persistPendingTurn } from '../services/turn/pendingCommit';
 import { debouncedSaveCampaignState } from '../store/slices/campaignSlice';
 import type { InventoryProposal } from '../types';
@@ -21,6 +22,8 @@ export function useChatOperations({
     setArmedAskGmBrief,
     sceneContinue,
     checkAndSealChapter,
+    takeAttachment,
+    hasAttachment,
 }: {
     input: string;
     setInput: (v: string) => void;
@@ -30,6 +33,12 @@ export function useChatOperations({
     setArmedAskGmBrief: (v: { campaignId: string; text: string } | null) => void;
     sceneContinue: ReturnType<typeof useSceneContinue>;
     checkAndSealChapter: (campaignId: string) => void;
+    /** Vision v1.5 — consume the pending chat image, if any. Called once per
+     *  send, and clears the composer chip. Returns null when nothing is attached. */
+    takeAttachment?: () => { caption: string; localPath: string } | null;
+    /** True when an image is staged. Lets an image-only message through the
+     *  empty-input guard — sending a picture with no words is a real message. */
+    hasAttachment?: () => boolean;
 }) {
     const context = useAppStore(s => s.context);
     const activeCampaignId = useAppStore(s => s.activeCampaignId);
@@ -120,7 +129,8 @@ export function useChatOperations({
 
     const handleSend = async (overrideText?: string, deepSearch = false) => {
         const textToUse = overrideText || input.trim();
-        if (!textToUse || isStreaming || oocBusy) return;
+        const imageOnly = !textToUse && !overrideText && !!hasAttachment?.();
+        if ((!textToUse && !imageOnly) || isStreaming || oocBusy) return;
 
         // WO-A2 §2.1 Trigger B — first-send intercept. If no PC exists and the
         // user hasn't dismissed the prompt for this campaign, block the send
@@ -137,6 +147,21 @@ export function useChatOperations({
             // 'proceed' → set the dismissed flag and continue.
             st.updateContext({ pcPromptDismissed: true } as never);
         }
+
+        // Vision v1.5 — fold the attached image's caption into this turn. It goes
+        // into BOTH the model text and the display text: the story model needs it
+        // to answer, and the archive stores `displayInput`, so leaving it out
+        // there would make the scene unreadable later ("what do you think of her?"
+        // with no her). The picture itself never leaves the machine.
+        const attachment = takeAttachment?.() ?? null;
+        const attachmentBlock = attachment?.caption.trim()
+            ? formatAttachmentBlock(attachment.caption)
+            : '';
+        const composedText = attachmentBlock
+            ? (textToUse ? `${attachmentBlock}
+
+${textToUse}` : attachmentBlock)
+            : textToUse;
 
         const useDeepSearch = deepSearch || deepArmed;
         if (deepArmed) setDeepArmed(false);
@@ -208,8 +233,9 @@ export function useChatOperations({
         }
 
         await runTurn({
-            input: textToUse,
-            displayInput: textToUse,
+            input: composedText,
+            displayInput: composedText,
+            attachmentUrl: attachment?.localPath || undefined,
             settings,
             context,
             messages: storeSnapshot.messages,

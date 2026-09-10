@@ -91,6 +91,10 @@ export type TurnCallbacks = {
 export type TurnState = {
     input: string;
     displayInput: string;
+    /** Vision v1.5 — local asset path of an image attached to this turn. Carried
+     *  through so the user bubble can render a thumbnail. Purely cosmetic: the
+     *  caption is already inline in `input`/`displayInput`. */
+    attachmentUrl?: string;
     settings: AppSettings;
     context: GameContext;
     messages: ChatMessage[];
@@ -174,6 +178,7 @@ export async function runTurn(
     const ctx = createTurnContext({
         input,
         displayInput,
+        attachmentUrl: state.attachmentUrl,
         locationLedger: useAppStore.getState().locationLedger ?? [],
         npcLedger: npcLedger ?? [],
     });

@@ -74,6 +74,8 @@ export type TurnContext = {
     input: string;
     /** The original player-facing display input (before engine-roll reveals). */
     displayInput: string;
+    /** Vision v1.5 — attached image path, for the user bubble's thumbnail. */
+    attachmentUrl?: string;
     /** The location ledger at turn start — lifted from the store ONCE so the
      *  buildPayload call no longer reaches into `useAppStore.getState()`. */
     locationLedger: LocationEntry[];
@@ -156,6 +158,7 @@ export type TurnContext = {
 export function createTurnContext(args: {
     input: string;
     displayInput: string;
+    attachmentUrl?: string;
     locationLedger: LocationEntry[];
     npcLedger: NPCEntry[];
 }): TurnContext {
@@ -163,6 +166,7 @@ export function createTurnContext(args: {
         turnId: `turn_${++turnCounter}`,
         input: args.input,
         displayInput: args.displayInput,
+        attachmentUrl: args.attachmentUrl,
         locationLedger: args.locationLedger,
         npcLedger: args.npcLedger,
         finalInput: args.input,

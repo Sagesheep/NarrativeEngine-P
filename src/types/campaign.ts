@@ -21,6 +21,11 @@ export type ChatMessage = {
     content: string;
     displayContent?: string;
     timestamp: number;
+    /** Vision v1.5 — local asset path of an image the player attached to this
+     *  message (e.g. `/assets/portraits/attachment_123.png`). Renders as a
+     *  thumbnail on the bubble. The model never receives the image itself: the
+     *  caption is already inline in `content`, written there at send time. */
+    attachmentUrl?: string;
     debugPayload?: unknown;
     name?: string;
     tool_calls?: {

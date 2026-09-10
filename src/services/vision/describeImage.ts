@@ -186,3 +186,95 @@ export async function describeImage(
         queue.releaseSlot();
     }
 }
+
+// ─── Free-form captioning (chat attachments) ─────────────────────────────
+//
+// The portrait path above returns character-sheet JSON. A chat attachment can
+// be anything — a map, an item, a scene, a meme — so it gets prose instead,
+// and a much shorter leash: this text is prepended to the player's message and
+// then lives in the archive forever, so it must stay cheap to carry.
+
+/** Cap for a chat-attachment caption. Roughly 100 tokens. */
+export const CAPTION_CAP = 500;
+
+export function buildCaptionInstruction(userNote?: string): string {
+    const note = userNote?.trim()
+        ? `
+
+The player said this alongside the image: "${userNote.trim().slice(0, 200)}". Let it steer what you pay attention to, but describe the image, do not answer the message.`
+        : '';
+    return `Describe this image for a game master who cannot see it.
+
+Write 2-4 sentences of plain prose. Lead with what the image IS (a person, a place, a map, an object, a diagram), then the details that would matter at a tabletop: who or what is shown, notable features, mood, and any legible text or labels.
+
+Do not comment on art quality, style, or the medium. Do not speculate about anything not visible. Do not use markdown or bullet points.${note}`;
+}
+
+/**
+ * Caption an arbitrary image as prose. Same transport as `describeImage`, but
+ * no JSON contract — a caption that comes back malformed is still a caption.
+ */
+export async function captionImage(
+    provider: EndpointConfig | ProviderConfig,
+    image: VisionImage,
+    opts?: { userNote?: string; signal?: AbortSignal },
+): Promise<string> {
+    const format = getApiFormat(provider);
+    const body = buildVisionBody(provider, image, buildCaptionInstruction(opts?.userNote), { maxTokens: 400 });
+
+    let url = getChatUrl(provider);
+    if (format === 'gemini' && provider.apiKey) {
+        url += (url.includes('?') ? '&' : '?') + `key=${provider.apiKey}`;
+    }
+
+    const trackingName = (provider as EndpointConfig).modelName || provider.endpoint;
+    const handle = startUtilityCall('vision-caption', trackingName, CALL_TIMEOUT_MS);
+    const ownAbort = new AbortController();
+    const signal = opts?.signal ? AbortSignal.any([opts.signal, ownAbort.signal]) : ownAbort.signal;
+    handle.deadlinePromise.then(() => ownAbort.abort()).catch(() => { /* settled */ });
+
+    const queue = getQueueForEndpoint(provider.endpoint);
+    await queue.acquireSlot('normal');
+    try {
+        const res = await llmFetch(url, { method: 'POST', headers: buildChatHeaders(provider), body: JSON.stringify(body), signal });
+        if (!res.ok) {
+            const errBody = await res.text();
+            if (res.status === 429 || res.status === 503 || res.status === 529) queue.onRateLimitHit();
+            throw new Error(`Vision API error ${res.status}: ${errBody}`);
+        }
+        const text = extractContent(await res.json(), provider).trim();
+        if (!text) throw new VisionParseError('');
+        handle.settleSuccess();
+        // Strip stray fences/quotes some models wrap prose in.
+        const cleaned = text.replace(/^\s*```[a-z]*\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+        return cleaned.length <= CAPTION_CAP ? cleaned : cleaned.slice(0, CAPTION_CAP).trim() + '…';
+    } catch (err) {
+        const aborted = ownAbort.signal.aborted || opts?.signal?.aborted;
+        if (aborted) handle.settleError(ownAbort.signal.aborted ? 'timeout' : 'aborted');
+        else handle.settleError('error', err instanceof Error ? err.message : String(err));
+        throw err;
+    } finally {
+        queue.releaseSlot();
+    }
+}
+
+/** Wrap a caption in the block the story model sees inline in the player's message. */
+export function formatAttachmentBlock(caption: string): string {
+    return `[THE PLAYER SHOWS YOU AN IMAGE]
+${caption.trim()}
+[/IMAGE]`;
+}
+
+/** Marker pair wrapping an attachment caption inside a player message. */
+const ATTACHMENT_BLOCK_RE = /^\[THE PLAYER SHOWS YOU AN IMAGE\]\r?\n([\s\S]*?)\r?\n\[\/IMAGE\]\s*/;
+
+/**
+ * Inverse of `formatAttachmentBlock` — pull the caption back out of a stored
+ * message so the bubble can show the player's own words with the caption
+ * tucked behind a disclosure instead of shouting it inline.
+ */
+export function splitAttachmentBlock(text: string): { caption: string; body: string } {
+    const match = ATTACHMENT_BLOCK_RE.exec(text);
+    if (!match) return { caption: '', body: text };
+    return { caption: match[1].trim(), body: text.slice(match[0].length) };
+}

@@ -176,6 +176,7 @@ export function addUserTurnMessage(
         role: 'user',
         content: ctx.historyInput,
         displayContent: ctx.displayInputFinal,
+        attachmentUrl: ctx.attachmentUrl,
         timestamp: Date.now()
     });
     callbacks.setStreaming(true);

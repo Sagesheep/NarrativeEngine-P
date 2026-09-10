@@ -14,6 +14,8 @@ import { InlineMessageEditor } from './message/InlineMessageEditor';
 import { MessageActionRail } from './message/MessageActionRail';
 import { MessageBelowSlots } from './message/MessageBelowSlots';
 import { SceneImageAttachmentView } from './message/SceneImageAttachmentView';
+import { splitAttachmentBlock } from '../services/vision/describeImage';
+import { PlayerAttachmentView } from './message/PlayerAttachmentView';
 
 interface MessageBubbleProps {
     message: ChatMessage;
@@ -88,6 +90,13 @@ export function MessageBubble({
     // was predicted at gather time and glued on; that prediction was frequently
     // wrong, so strip it rather than show a stale number next to the real one.
     markdownContent = markdownContent.replace(/^Scene\s*#\d+\s*\|?\s*/i, '');
+
+    // Vision v1.5 — an attached image's caption is stored inline in the message
+    // (the model and the archive both need it there). Lift it out for display so
+    // the bubble shows the player's own words, with the machine's reading of the
+    // picture tucked behind a disclosure for auditing.
+    const { caption: attachmentCaption, body: attachmentBody } = splitAttachmentBlock(markdownContent);
+    if (attachmentCaption) markdownContent = attachmentBody;
 
     let thinkingBlock = '';
     const thinkMatch = markdownContent.match(/<think([\s\S]*?)<\/think>/i);
@@ -206,6 +215,9 @@ export function MessageBubble({
                 </div>
 
                 <div className="gm-prose">
+                    {isUser && !isEditing && (msg.attachmentUrl || attachmentCaption) && (
+                        <PlayerAttachmentView url={msg.attachmentUrl} caption={attachmentCaption} />
+                    )}
                     {msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0 && (
                         <ToolCallChips toolCalls={msg.tool_calls} toolResult={toolResult} />
                     )}
