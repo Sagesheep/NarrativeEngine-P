@@ -617,9 +617,9 @@ describe('World Map renderer — pan does not invalidate tiles (§11)', () => {
     });
 describe('World Map standard surface helpers', () => {
     it('uses visible defaults for legacy layer settings and sensible scale units', () => {
-        expect(normaliseLayerSettings()).toEqual({ grid: false, roads: true, labels: true });
+        expect(normaliseLayerSettings()).toEqual({ grid: false, roads: true, labels: true, fog: true });
         expect(normaliseLayerSettings({ grid: false, roads: true, labels: false })).toEqual({
-            grid: false, roads: true, labels: false,
+            grid: false, roads: true, labels: false, fog: true,
         });
         expect(scaleDistanceKilometres(8)).toBe(100);
         expect(formatScaleDistance(1200)).toBe('1.2k km');

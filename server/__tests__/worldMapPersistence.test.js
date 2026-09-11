@@ -72,12 +72,20 @@ it('ground checkpoints and trails survive backend disk save and fresh mod activa
 
         await vi.waitFor(async () => expect((await table.read('encounters'))?.records.some(row => row.key === '12:6:0')).toBe(true));
         const diskEncounters = await table.read('encounters');
+        const persistedRoads = { routes: [{ id: 'saved-road', name: 'Old causeway', kind: 'road', cells: [{ x: 40, y: 40 }, { x: 41, y: 40 }] }] };
+        await table.write('roads', persistedRoads);
+        const diskExploration = await table.read('exploration');
+        expect(diskExploration.cells).toContain('3,0');
+        expect(diskExploration.cells).not.toContain('100,100');
         request = createServer();
         vi.resetModules(); listeners = [];
         mod = await import('../../public/bundled-mods/worldmap/index.js');
         await mod.onActivate(ctx);
         expect(mod.mapSnapshot(ctx).party).toEqual({ x: 6, y: 0 });
         expect(await table.read('encounters')).toEqual(diskEncounters);
+        expect(await table.read('exploration')).toEqual(diskExploration);
+        expect(await table.read('roads')).toEqual(persistedRoads);
+        expect(mod.mapSnapshot(ctx).roads).toEqual(persistedRoads.routes);
         expect(mod.mapSnapshot(ctx).discoveries.find(site => site.id === namedSite.id)).toEqual(namedSite);
         const { promoteSite } = await import('../../public/bundled-mods/worldmap/siteTravel.js');
         location = { ...location, ledger: promoteSite(namedSite, location.ledger, 'a') };

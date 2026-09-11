@@ -107,8 +107,20 @@ if (new URLSearchParams(location.search).has('realWindow')) {
     flushSync(() => createRoot(document.getElementById('map')!).render(React.createElement(WindowManager)));
 } else windows.find(w => w.id === 'map-canvas').mount(document.getElementById('map'), ctx);
 (window as any).worldmapTest = {
-    read: async () => { const live = await ctx.refresh(); return ({ ledger: useAppStore.getState().locationLedger, context: useAppStore.getState().context, messages: useAppStore.getState().messages,
-        snapshot: { party: mapSnapshot(live)?.party, locationId: mapSnapshot(live)?.locationId }, journey: validJourney(tables.journey) ? tables.journey : null, trails: tables.trails, discoveries: tables.discoveries, encounters: tables.encounters }); },
+    read: async () => { const live = await ctx.refresh(); return ({ ledger: useAppStore.getState().locationLedger, context: useAppStore.getState().context, messages: useAppStore.getState().messages, composerInjection: useAppStore.getState().composerInjection,
+        snapshot: { party: mapSnapshot(live)?.party, locationId: mapSnapshot(live)?.locationId, visible: [...(mapSnapshot(live)?.visible ?? [])] }, journey: validJourney(tables.journey) ? tables.journey : null, trails: tables.trails, discoveries: tables.discoveries, encounters: tables.encounters, exploration: tables.exploration, roads: tables.roads }); },
+    encounterScene: async () => {
+        const { rollEncounter } = await (new Function('return import("/bundled-mods/worldmap/encounters.js")'))();
+        const snapshot = mapSnapshot(makeContext());
+        const party = snapshot.party ?? snapshot.anchors.find((row: any) => row.locationId === useAppStore.getState().context.currentPlaceId);
+        const record = rollEncounter({ seed: 'milestone-one', x: party.x, y: party.y,
+            worldDay: useAppStore.getState().context.worldDay, biome: 'forest', weather: 'clear', onRoad: true }, () => 0);
+        tables.encounters = { records: [record] };
+        tables.visited = [];
+        for (let y = -24; y <= 24; y++) for (let x = -24; x <= 24; x++) tables.visited.push({ x: party.x + x, y: party.y + y, biome: 'forest' });
+        tables.trails = { edges: [{ a: party, b: { x: party.x + 1, y: party.y }, passes: 3 }] };
+        save();
+    },
     artScene: () => {
         const anchor = mapSnapshot(makeContext()).anchors.find((row: any) => row.locationId === 'a');
         tables.visited = [];

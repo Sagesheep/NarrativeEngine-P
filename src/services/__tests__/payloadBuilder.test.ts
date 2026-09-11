@@ -1440,3 +1440,42 @@ describe('buildPayload — Director Brief (WO-04)', () => {
 // block through its generation interceptor; the in-tree payload path no
 // longer renders enemy content. The mod's own test suite will cover the
 // active-encounter and compendium-lookup behaviours post-8.5.
+
+
+describe('map scene reaches the ordinary story payload', () => {
+    it.each([false, true])('appends current map facts with debugMode=%s', debugMode => {
+        const context = { ...baseContext(), currentPlaceId: 'road-stop', worldDay: 8, travel: null,
+            mapEncounter: { key: '8:4:5', placeId: 'road-stop', worldDay: 8, leg: null, weather: 'clear', biome: 'forest',
+                quiet: false, status: 'available' as const, scene: 'A worn trail beneath the canopy.', note: 'Bought rope yesterday.',
+                events: [{ id: 'merchant', source: 'road', title: 'Merchant', text: 'Sella waits beside her pack.',
+                    actor: { id: 'map-person-1', name: 'Sella Reed', role: 'merchant', motive: 'trade supplies' } }] },
+            mapDiscoveries: { placeId: 'road-stop', worldDay: 8, leg: null,
+                sites: [{ id: 'shrine', name: 'Quiet Bell', type: 'shrine', description: 'An old bell.', distance: 1 }] } };
+        const history = [makeMsg('assistant', 'You have been travelling with Maren.')];
+        const userMessage = 'I ask what she has for sale.';
+        const result = buildPayload({ settings: { ...baseSettings(), debugMode }, context, history, userMessage });
+        const outgoing = result.messages.at(-1)!.content;
+        expect(outgoing).toContain('[CHECKPOINT SITUATION]');
+        expect(outgoing).toContain('Sella Reed'); expect(outgoing).toContain('Bought rope yesterday.');
+        expect(outgoing).toContain('Nearby, not yet reached: Quiet Bell'); expect(outgoing).toContain(userMessage);
+        expect(result.messages.some(message => String(message.content).includes('travelling with Maren'))).toBe(true);
+        expect(history[0].content).toBe('You have been travelling with Maren.');
+        if (debugMode) expect(result.trace).toEqual(expect.arrayContaining([expect.objectContaining({ source: 'Checkpoint encounter', included: true })]));
+        else { expect(result.trace).toBeUndefined(); expect(result.debugSections).toBeUndefined(); }
+    });
+});
+
+
+it('includes the selected world setting in the hidden story append and suppresses a previous-setting encounter', () => {
+    const context = { ...baseContext(), currentPlaceId: 'stop', worldDay: 9, travel: null,
+        mapWorldSetting: { id: 'cyberpunk', label: 'Cyberpunk', guidance: 'Do not introduce magic or fantasy creatures.' },
+        mapEncounter: { key: '9:1:1', placeId: 'stop', worldDay: 9, leg: null, biome: 'forest', weather: 'clear',
+            worldProfile: 'fantasy', quiet: false, status: 'available' as const,
+            events: [{ id: 'old', source: 'test', title: 'Old fantasy scene', text: 'A magical unicorn arrives.' }] } };
+    const result = buildPayload({ settings: baseSettings(), context, history: [], userMessage: 'I look around.' });
+    const outgoing = result.messages.at(-1)!.content;
+    expect(outgoing).toContain('[MAP WORLD SETTING]');
+    expect(outgoing).toContain('Cyberpunk'); expect(outgoing).toContain('Do not introduce magic');
+    expect(outgoing).not.toContain('A magical unicorn arrives.');
+    expect(result.trace).toEqual(expect.arrayContaining([expect.objectContaining({ source: 'Map world setting', included: true })]));
+});

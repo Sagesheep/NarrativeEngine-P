@@ -232,3 +232,81 @@ registration context. It asserts the rendered party-cell attribute, visible
 camp number and day after Continue without closing/reopening. All 62 window
 unit tests pass, along with production build and targeted lint. The complete
 map browser suite includes this scenario alongside the prior nine checks.
+
+
+## Gameplay G1 — encounters and roleplay — 2026-09-10
+
+New checkpoints save local scenery and varied terrain/site/path encounters, including
+road merchants and forest bears. Named participants have saved roles and motives.
+Only reached sites generate at-site activity; neighbouring discoveries remain nearby.
+A travelled trail must have two passes before it qualifies for road travellers.
+
+Write reply, Look around and Make camp prepare editable text in normal story chat,
+closing the floating map. The player sends the draft to their configured GM. Ordinary
+free text receives the same current-location scene context. No action silently sends a
+model request, advances time, changes position or awards items. Outcome notes persist
+with journal entries; handled scenes cannot be restarted through the reply control.
+Existing saved rolls remain intact; newly observed stops receive the expanded scenes.
+
+257 affected checks, 12 browser scenarios, build and targeted lint pass. Actual provider
+narration is not covered by the isolated browser fixture. See MILESTONES.md for G1 scope
+and the planned G2 places/roads and G3 geography/biome work.
+
+
+## G1a — world settings — 2026-09-10
+
+World setting is now selectable and saved per campaign. Six profiles filter local
+encounters and guide the same story AI through its hidden append/debug payload.
+Fifteen new local templates include hardware traders, drones, field technicians,
+modern rangers and salvage encounters. Saved scenes are not rerolled by a setting
+change; older-setting premises stay in history and are excluded from the new prompt.
+This is a content setting, not yet a terrain or sprite regeneration control.
+G2/G3 will apply it to place, road and biome generation. 342 checks and 13 browser
+scenarios pass, alongside build and targeted lint.
+
+
+## G2A — free-cell exploration and fog — 2026-09-11
+
+Any reachable cell now supports a preview and committed journey. Unnamed cells become
+fixed exploration points, remain renameable, and never imply that a town was generated.
+Settlement tiers obey separate distance limits, including existing-place exclusions.
+Fog retains explored terrain, reveals the actual travelled corridor and hides unknown
+hover details while keeping known lore markers visible. The Fog layer toggles it.
+Historical recorded trails seed the new exploration table for older saves.
+
+Verified: 263 affected tests, 14 browser scenarios (one infrastructure navigation retry),
+backend disk persistence, production build and targeted lint. Browser checks include
+empty-cell preview without reveal, arrival, rename/reload, travel away and return.
+See MILESTONES.md for spacing defaults, legacy classification and remaining G2B work.
+
+
+## Three-state fog correction — 2026-09-11
+
+Exploration schema v2 persists generatedCells independently from remembered cells.
+Legacy explored cells migrate without erasing known ground. Current visibility is
+computed from party position; it is never used as proof that generation finished.
+Generation is committed only after terrain and discovery/empty results have saved.
+
+Visible generated terrain is bright; generated terrain outside sight is dim; ungenerated
+terrain stays dark. Known ledger markers may appear above that darkness without revealing
+surrounding terrain. Hover text and the map legend distinguish these states. The Fog
+checkbox controls remembered-terrain dimming; it cannot reveal ungenerated terrain.
+The renderer and shoreline neighbour lookups read only generated cells, so panning does
+not generate terrain content. Pathfinder/solver terrain sampling remains provisional
+calculation for route pricing and geography constraints, not saved exploration.
+
+Tests cover independent states, old-save migration, unknown-cell read prevention,
+preview without generation, remembered ground after movement, and reload persistence.
+
+
+## G2B — roads and manual waypoint paths — COMPLETE 2026-09-11
+
+The Roads and paths panel now offers terrain-aware generated proposals and manual
+waypoint drawing, preview, surface selection, naming, undo, save and removal.
+Roads persist independently from actual travel trails and affect future route costs
+without bypassing impassable terrain or stacking discounts. Creation never moves the
+party, reveals fog or calls story AI. Existing journeys keep their saved schedule.
+
+Verified: 252 map/backend tests, 16 browser scenarios, production build, targeted lint
+and dependency import graph refresh. See MILESTONES.md for candidate rules and limits.
+Next planned milestone: G3 biome logic and expanded biome palette.

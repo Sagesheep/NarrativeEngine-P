@@ -126,6 +126,11 @@ export function buildVolatile(opts: {
             volatileParts.push(travelBlockStr);
         }
     }
+    if (context.mapWorldSetting) {
+        const settingBlock = `[MAP WORLD SETTING]\n${String(context.mapWorldSetting.label).slice(0, 80)}: ${String(context.mapWorldSetting.guidance).slice(0, 700)}\nApply this setting to new scene details, encounters and characters. Preserve established campaign facts and history.`;
+        volatileParts.push(settingBlock);
+        collector.addTrace({ source: 'Map world setting', classification: 'volatile_state', tokens: countTokens(settingBlock), reason: 'Player-selected world setting', included: true, position: 'system_dynamic', preview: settingBlock });
+    }
     const encounterBlock = buildMapEncounterBlock(context);
     if (encounterBlock) {
         volatileParts.push(encounterBlock);
@@ -349,7 +354,9 @@ export function buildMapEncounterBlock(context: GameContext): string {
     const event = context.mapEncounter;
     if (!event || event.placeId !== context.currentPlaceId || event.worldDay !== context.worldDay
         || event.leg !== (context.travel?.leg ?? null)) return '';
-    const situation = event.status !== 'available' ? 'This situation has already been handled or left behind. Do not restart it.'
+    const settingChanged = context.mapWorldSetting && (event.worldProfile ?? 'fantasy') !== context.mapWorldSetting.id;
+    const situation = settingChanged ? 'The player changed the world setting. The previous encounter is historical; do not reintroduce its participants or premise as a new encounter.'
+        : event.status !== 'available' ? 'This situation has already been handled or left behind. Do not restart it.'
         : event.quiet ? 'Quiet checkpoint. No encounter is required.'
             : event.events.slice(0, 3).map(row => `${String(row.title).slice(0, 80)}: ${String(row.text).slice(0, 300)}`
                 + (row.actor ? `\nSaved participant: ${String(row.actor.name).slice(0, 80)} (${String(row.actor.role).slice(0, 80)}; identity ${String(row.actor.id).slice(0, 80)}). Motive: ${String(row.actor.motive).slice(0, 200)}.` : '')).join('\n');

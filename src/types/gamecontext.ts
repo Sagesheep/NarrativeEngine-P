@@ -268,10 +268,11 @@ export type GameContext = {
     //    LLM only proposes, player can always override). Lazy migration:
     //    absent on existing campaigns → undefined → "no current place".
     currentPlaceId?: string | null;
+    mapWorldSetting?: { id: string; label: string; guidance: string };
     mapEncounter?: {
         key: string; placeId: string | null; worldDay: number; leg: number | null;
         weather: string; biome: string; quiet: boolean; status: 'available' | 'handled' | 'passed';
-        scene?: string; note?: string; onRoad?: boolean;
+        scene?: string; note?: string; onRoad?: boolean; worldProfile?: string;
         events: { id: string; source: string; title: string; text: string; action?: string;
             actor?: { id: string; name: string; role: string; motive: string } }[];
     };

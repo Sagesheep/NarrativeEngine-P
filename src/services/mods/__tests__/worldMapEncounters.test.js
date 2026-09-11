@@ -73,3 +73,10 @@ it('limits notes and keeps the original map untouched', () => {
     expect(first.get('10:5:7').note).toBeUndefined();
     expect(noteEncounter(first, 'missing', 'note')).toBe(first);
 });
+
+it('records the selected setting on new rolls without rerolling a previous setting', () => {
+    const first = recordCheckpoint(new Map(), { ...input, worldProfile: 'cyberpunk' });
+    expect(first.record.worldProfile).toBe('cyberpunk');
+    expect(recordCheckpoint(first.records, { ...input, worldProfile: 'fantasy' }).record).toEqual(first.record);
+    expect(recordCheckpoint(first.records, { ...input, worldDay: 11, worldProfile: 'scifi' }).record.worldProfile).toBe('scifi');
+});

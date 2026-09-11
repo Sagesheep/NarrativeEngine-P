@@ -1,3 +1,4 @@
+import { worldProfile } from './worldProfiles.js';
 import { localEvent, siteEvent, localScene } from './encounterScenes.js';
 // Authored situations: prompts for optional play, never automatic damage or movement.
 export const FEATURE_EVENTS = {
@@ -76,7 +77,7 @@ export function rollEncounter(input, random = randomFor(`${input.seed}:encounter
         }
     }
     return { key: checkpointKey(input), x: input.x, y: input.y, worldDay: input.worldDay, biome: input.biome,
-        weather, scene: localScene(input), onRoad: Boolean(input.onRoad), featureId: input.feature?.id ?? null, quiet: events.length === 0, events, status: 'available' };
+        weather, worldProfile: worldProfile(input.worldProfile).id, scene: localScene(input), onRoad: Boolean(input.onRoad), featureId: input.feature?.id ?? null, quiet: events.length === 0, events, status: 'available' };
 }
 export function readEncounters(raw) {
     const records = new Map();

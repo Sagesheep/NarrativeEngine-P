@@ -24,3 +24,25 @@ it('varies eligible scenes while keeping identities stable for the same saved en
     expect(localScene(input)).toEqual(localScene({ ...input, worldDay: 20 }));
     expect(localScene(input)).toContain('worn trail');
 });
+
+
+it('filters technology by world setting and excludes Earth wildlife from science-fiction rolls', () => {
+    const input = { biome: 'forest', onRoad: true };
+    const ids = profile => eligibleLocalEvents({ ...input, worldProfile: profile }).map(row => row.id);
+    expect(ids('fantasy')).toContain('road-merchant');
+    expect(ids('historical')).not.toContain('cyberpunk-drone');
+    expect(ids('modern')).toContain('modern-ranger');
+    expect(ids('modern')).not.toContain('road-merchant');
+    expect(ids('cyberpunk')).toContain('cyberpunk-vendor');
+    expect(ids('cyberpunk')).toContain('cyberpunk-courier');
+    expect(ids('cyberpunk')).not.toContain('road-merchant');
+    expect(ids('scifi')).toContain('scifi-technician');
+    expect(ids('scifi')).not.toContain('forest-bear');
+    expect(ids('postapoc')).toContain('postapoc-trader');
+    expect(ids('postapoc')).not.toContain('cyberpunk-drone');
+});
+it('retains several eligible cyberpunk encounters away from roads without inventing a road vendor', () => {
+    const rows = eligibleLocalEvents({ worldProfile: 'cyberpunk', biome: 'desert', onRoad: false });
+    expect(rows.length).toBeGreaterThanOrEqual(3);
+    expect(rows.some(row => row.road)).toBe(false);
+});

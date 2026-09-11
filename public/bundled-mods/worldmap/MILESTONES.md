@@ -194,7 +194,7 @@ only storage and window mounts remain fixture adapters.
 
 ## Gameplay phase — agreed 2026-09-10
 
-### G1. Encounters and roleplay — IN PROGRESS
+### G1. Encounters and roleplay — IMPLEMENTED; ready for live playtest
 - Context-eligible, varied encounters at the occupied checkpoint: worn-path travellers,
   wildlife appropriate to terrain, activity at reached sites, and weather situations.
 - Saved local scene, participant identity, motive and interaction suggestion. Reopening,
@@ -212,3 +212,113 @@ Persistent usable places, terrain-aware generated road connections, and manual w
 ### G3. Geography and biome expansion — PLANNED
 Coherent elevation/climate/moisture regions and transitions; volcanic, snowy, dead-zone,
 sand and swamp variants with distinct travel, discoveries, encounters and art.
+
+G1 verification: 257 map/bridge/payload/backend checks and 12 Chromium scenarios passed;
+production build and targeted TypeScript lint passed. Browser checks cover an actual
+floating window closing into a prepared story draft, unchanged position/day/messages,
+identity/outcome reload, handled-state controls and camp drafts. No paid provider was called.
+New scene details apply to newly observed checkpoints; existing saved encounters are kept.
+Road travellers currently require a physical trail with at least two recorded passes;
+ledger connection lines alone are not generated roads (G2). Participants are saved in the
+encounter journal; automatic promotion into fully simulated NPC-ledger agents is deferred.
+Outcome notes are player-authored; story consequences still use the ordinary GM pipeline.
+
+
+### G1a. World-setting selection — IMPLEMENTED 2026-09-10
+- Saved World setting dropdown: Fantasy, Historical / low-tech, Modern day, Cyberpunk,
+  Science fiction, Post-apocalyptic. Missing/invalid older settings default to Fantasy.
+- 15 additional profile-specific local encounters join the original 12 local templates.
+  Eligibility combines setting, terrain and physical trail presence; site participants
+  adapt to the setting. Science fiction avoids assuming Earth wildlife.
+- The selected label/guidance is appended to the ordinary story payload in normal and
+  debug modes. New details must fit the setting and established campaign lore.
+- Existing rolls, participants and notes remain historical. Switching settings does not
+  reroll a stop; old-setting event premises are suppressed until a newly observed stop.
+- Selection does not regenerate terrain, roads, place identities or sprites. G2/G3 must
+  consume this same saved profile when those generators are expanded.
+- Verification: 342 affected tests, all 13 browser scenarios, production build and
+  targeted lint pass. Tests include dropdown/layer persistence, next-stop generation,
+  profile eligibility and full outgoing payload constraints. No provider call was made.
+
+
+### G2A. Free-cell exploration and fog — IMPLEMENTED 2026-09-11
+Every reachable grid cell can be previewed and committed as a fixed destination.
+Exploration persists both discoveries and empty results; settlements obey tier-dependent
+spacing, including authored places. Fog reveals the traversed corridor and current sight
+radius, retains explored ground and allows known lore locations to remain marked.
+No terrain is revealed merely by panning or previewing a route. Existing journeys and
+place identities remain valid. Roads/manual waypoint construction follow in G2B.
+
+
+G2A delivery details:
+- Exact-cell destination previews replace the old two-cell anchor requirement. The
+  context menu now previews Travel here even on empty cells; committing saves a fixed,
+  nameable exploration point and then performs the normal terrain-priced journey.
+- Empty points use plain markers, not town sprites. They survive rename, reload,
+  travelling away and returning. Impassable ground endpoints are not silently snapped.
+- Settlement spacing in cells: village 8, town 12, city 24, capital 40. For mixed tiers,
+  the smaller tier sets separation, so villages can surround capitals. Generated
+  candidates compete deterministically and respect already saved/authored places.
+  Legacy unclassified authored places use town spacing; names explicitly containing
+  capital/city get those tiers. Existing conflicting places are never deleted/moved.
+- Sight radius is two cells. Travel reveals its traversed corridor, persists explored
+  ground, and surveys along that corridor. Known ledger markers remain above fog;
+  unknown terrain hover details are hidden. Fog can be toggled as a map layer.
+- Older saves seed exploration from recorded physical trails when no exploration
+  table exists. Other unrecorded historical travel cannot be reconstructed.
+- New exploration storage is registered in the bundled manifest and tested through
+  the backend's actual JSON-file routes. No real campaign was modified by tests.
+- 263 affected tests and all 14 browser scenarios verified. One browser navigation
+  hit Windows ERR_NO_BUFFER_SPACE before loading; its isolated rerun passed.
+  Build and targeted lint passed. Place generation still uses sparse seeded slots;
+  this milestone does not populate every cell with a settlement or generate roads.
+
+
+## Three-state fog correction — 2026-09-11
+
+Exploration schema v2 persists generatedCells independently from remembered cells.
+Legacy explored cells migrate without erasing known ground. Current visibility is
+computed from party position; it is never used as proof that generation finished.
+Generation is committed only after terrain and discovery/empty results have saved.
+
+Visible generated terrain is bright; generated terrain outside sight is dim; ungenerated
+terrain stays dark. Known ledger markers may appear above that darkness without revealing
+surrounding terrain. Hover text and the map legend distinguish these states. The Fog
+checkbox controls remembered-terrain dimming; it cannot reveal ungenerated terrain.
+The renderer and shoreline neighbour lookups read only generated cells, so panning does
+not generate terrain content. Pathfinder/solver terrain sampling remains provisional
+calculation for route pricing and geography constraints, not saved exploration.
+
+Tests cover independent states, old-save migration, unknown-cell read prevention,
+preview without generation, remembered ground after movement, and reload persistence.
+
+
+## G2B. Roads and manual paths — COMPLETE 2026-09-11
+Terrain-aware road proposals between known connected places and nearby discovered
+settlements; manual waypoint footpaths/roads with preview, naming, undo and save.
+Separate saved geometry affects pathfinding without stacking discounts or bypassing
+terrain. Preview/save never moves the party, advances time or reveals terrain.
+Saved roads can be removed; existing authored ledger connections remain untouched.
+
+
+G2B delivery details:
+- Open Roads and paths, then Generate roads to review proposals and Save roads to
+  commit them. Candidates follow known ledger connections and connect discovered
+  settlements to their nearest known place within 40 cells. Wilderness exploration
+  points are excluded; existing saved endpoint pairs are not generated again.
+- Draw path accepts 2–12 waypoint cells, with Undo waypoint, Footpath/Cart road,
+  an optional name, preview, save and removal. Each segment is limited to 160 cells;
+  generation proposes at most 24 connections per run. Impassable or snapped endpoints
+  are rejected; this milestone does not build bridges or change terrain.
+- Roads and paths persist separately from actual travelled trails. Roads reduce
+  terrain travel cost by 30%, footpaths by 10%; overlapping surfaces use the strongest
+  discount without stacking. Terrain passability still applies. Already committed
+  journeys retain their original schedule; future previews use the saved surfaces.
+- Saved geometry draws beneath fog, while editing previews remain visible. Drawing,
+  generating and saving do not explore cells, spend time, move the party or call AI.
+  Authored ledger connections remain untouched. Saved paths survive reload and can
+  be removed from the same panel; road save/remove feedback stays visible.
+- Verified: 252 map/backend tests, all 16 browser scenarios, production build and
+  targeted lint pass. Backend coverage exercises real JSON-file persistence; browser
+  coverage exercises manual save/reload/remove and duplicate-free generated proposals.
+  Dependency import graph refreshed. No live campaign or paid AI provider was used.

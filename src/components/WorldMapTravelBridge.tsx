@@ -79,7 +79,7 @@ export function WorldMapTravelBridge() {
             applyAbandonJourney();
         });
         const unsubscribeRoleplay = modEventBus.on('mod.worldmap.roleplayRequest', (rawPayload) => {
-            const payload = rawPayload as Record<string, any> | undefined;
+            const payload = rawPayload as Record<string, unknown> | undefined;
             const state = useAppStore.getState();
             const scene = state.context.mapEncounter;
             if (!payload || payload.campaignId !== state.activeCampaignId || !scene || state.isStreaming
@@ -88,7 +88,8 @@ export function WorldMapTravelBridge() {
                 || scene.placeId !== state.context.currentPlaceId || scene.worldDay !== state.context.worldDay
                 || scene.leg !== (state.context.travel?.leg ?? null)) return;
             if (typeof payload.kind !== 'string' || !['reply', 'camp', 'look'].includes(payload.kind)
-                || (payload.kind === 'reply' && (scene.quiet || scene.status !== 'available'))
+                || (payload.kind === 'reply' && (scene.quiet || scene.status !== 'available'
+                    || (state.context.mapWorldSetting && (scene.worldProfile ?? 'fantasy') !== state.context.mapWorldSetting.id)))
                 || typeof payload.text !== 'string' || !payload.text.trim()) return;
             state.injectToComposer(payload.text.trim().slice(0, 2000));
             closeWindow('mod.worldmap.map-canvas');

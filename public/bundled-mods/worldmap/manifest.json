@@ -1,8 +1,8 @@
 {
     "id": "worldmap",
     "name": "World Map",
-    "version": "0.5.0-wip",
-    "description": "A pixel-art overworld with terrain sprites, persistent trails, fixed discoveries and optional checkpoint situations. Travel moves one day at a time without routine chat output. See STATUS.md.",
+    "version": "0.6.0-wip",
+    "description": "A pixel-art overworld with free-cell exploration, persistent fog, spaced discoveries, trails and setting-aware encounters. Travel moves one day at a time without routine chat output. See STATUS.md.",
     "tables": [
         {
             "name": "anchors",
@@ -43,6 +43,16 @@
             "name": "encounters",
             "recordShape": "single-object",
             "label": "Checkpoint journal"
+        },
+        {
+            "name": "exploration",
+            "recordShape": "single-object",
+            "label": "Explored cells"
+        },
+        {
+            "name": "roads",
+            "recordShape": "single-object",
+            "label": "Roads and paths"
         }
     ],
     "native": {

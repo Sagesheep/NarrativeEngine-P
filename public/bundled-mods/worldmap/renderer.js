@@ -1,3 +1,5 @@
+import { cellVisibility, observedTerrainStore } from './exploration.js';
+import { WORLD_PROFILES, worldProfile } from './worldProfiles.js';
 import { loadPixelArt, drawPixelSprite, paintPixelCell, paintPixelObjects, SITE_SPRITES } from './pixelArt.js';
 import { siteLabel } from './discoveries.js';
 /**
@@ -153,6 +155,7 @@ const DEFAULT_LAYER_SETTINGS = Object.freeze({
     grid: false,
     roads: true,
     labels: true,
+    fog: true,
 });
 const BIOME_VALUE_SCALES = Object.freeze({
     plains: 0.93,
@@ -188,6 +191,7 @@ export function normaliseLayerSettings(settings = {}) {
         grid: layers.grid === undefined ? DEFAULT_LAYER_SETTINGS.grid : layers.grid !== false,
         roads: layers.roads === undefined ? DEFAULT_LAYER_SETTINGS.roads : layers.roads !== false,
         labels: layers.labels === undefined ? DEFAULT_LAYER_SETTINGS.labels : layers.labels !== false,
+        fog: layers.fog !== false,
     };
 }
 
@@ -847,15 +851,16 @@ class TilePyramid {
 function rasteriseTile(pyramid, level, tileX, tileY, snapshot) {
     const { cellPixels } = ZOOM_LEVELS[level];
     const count = Math.ceil(TILE_PIXELS / cellPixels);
+    const terrain = observedTerrainStore(snapshot.chunkStore, snapshot.generated);
     const canvas = makeOffscreenCanvas(TILE_PIXELS, TILE_PIXELS);
     const ctx = canvas.getContext('2d');
     if (!ctx) return canvas;
     for (let y = 0; y < count; y++) for (let x = 0; x < count; x++) {
-        paintPixelCell(ctx, snapshot.chunkStore, tileX * count + x, tileY * count + y, x * cellPixels, y * cellPixels, cellPixels);
+        paintPixelCell(ctx, terrain, tileX * count + x, tileY * count + y, x * cellPixels, y * cellPixels, cellPixels);
     }
     // One cell of overscan makes overhanging canopies seamless across cached tiles.
     for (let y = -1; y <= count; y++) for (let x = -1; x <= count; x++) {
-        paintPixelObjects(ctx, snapshot.chunkStore, tileX * count + x, tileY * count + y, x * cellPixels, y * cellPixels, cellPixels);
+        paintPixelObjects(ctx, terrain, tileX * count + x, tileY * count + y, x * cellPixels, y * cellPixels, cellPixels);
     }
     pyramid.set(level, tileX, tileY, canvas);
     return canvas;
@@ -1044,7 +1049,7 @@ export function mountMapRenderer(root, options) {
     const layerLabels = [
         ['grid', 'Grid'],
         ['roads', 'Roads'],
-        ['labels', 'Labels'],
+        ['labels', 'Labels'], ['fog', 'Fog'],
     ];
     for (const [key, label] of layerLabels) {
         const labelNode = makeElement('label', undefined, {
@@ -1066,6 +1071,65 @@ export function mountMapRenderer(root, options) {
         layerInputs.set(key, input);
     }
     overlay.appendChild(layerPanel);
+    const settingPanel = makeElement('div', undefined, { position: 'absolute', left: '8px', top: '88px',
+        padding: '5px', pointerEvents: 'auto', background: '#f4edcf', color: '#263c35', border: '1px solid #71896c', borderRadius: '4px' });
+    const settingLabel = document.createElement('label'); settingLabel.textContent = 'World setting ';
+    const settingSelect = document.createElement('select'); settingSelect.setAttribute('aria-label', 'World setting');
+    settingSelect.title = 'Controls new encounters and story context. Terrain and existing history are preserved.';
+    for (const profile of WORLD_PROFILES) {
+        const option = document.createElement('option'); option.value = profile.id; option.textContent = profile.label; settingSelect.append(option);
+    }
+    settingSelect.addEventListener('change', () => onRouteAction?.('setWorldProfile', settingSelect.value));
+    settingLabel.append(settingSelect); settingPanel.append(settingLabel); overlay.append(settingPanel);
+
+    const roadPanel = document.createElement('details');
+    roadPanel.dataset.worldmapRoads = 'true';
+    applyStyle(roadPanel, { position: 'absolute', right: '8px', bottom: '80px', width: '265px', maxHeight: '260px',
+        overflowY: 'auto', padding: '7px', background: '#f4edcf', color: '#263c35', border: '1px solid #71896c',
+        borderRadius: '4px', pointerEvents: 'auto', font: '11px/1.4 ui-monospace, monospace' });
+    overlay.append(roadPanel);
+    let roadPanelKey = '';
+    function updateRoadPanel(snapshot) {
+        const editor = snapshot.roadEditor ?? { mode: 'idle', routes: [], points: [] };
+        const key = JSON.stringify([editor, (snapshot.roads ?? []).map(route => [route.id, route.name])]);
+        if (key === roadPanelKey) return;
+        roadPanelKey = key; roadPanel.replaceChildren();
+        // Keep save/remove feedback visible even when a refreshed snapshot remounts the map.
+        if (editor.message) roadPanel.open = true;
+        const heading = document.createElement('summary'); heading.textContent = 'Roads and paths'; roadPanel.append(heading);
+        const button = (label, action, payload, disabled = false) => {
+            const node = makeElement('button', label, { margin: '4px 4px 0 0', cursor: 'pointer' });
+            node.type = 'button'; node.disabled = disabled;
+            node.addEventListener('click', () => onRouteAction?.(action, typeof payload === 'function' ? payload() : payload));
+            roadPanel.append(node); return node;
+        };
+        if (editor.mode === 'idle') {
+            button('Draw path', 'roadStart'); button('Generate roads', 'roadGenerate');
+        } else {
+            roadPanel.open = true;
+            if (editor.mode === 'manual') {
+                const kind = document.createElement('select'); kind.setAttribute('aria-label', 'Path surface');
+                for (const [value, label] of [['path', 'Footpath'], ['road', 'Cart road']]) {
+                    const option = document.createElement('option'); option.value = value; option.textContent = label; kind.append(option);
+                }
+                kind.value = editor.kind; kind.disabled = editor.busy;
+                kind.addEventListener('change', () => onRouteAction?.('roadKind', kind.value)); roadPanel.append(kind);
+                roadPanel.append(makeElement('div', `${editor.points.length}/12 waypoints · click the map to add`));
+                button('Undo waypoint', 'roadUndo', undefined, editor.busy || !editor.points.length);
+            }
+            const name = document.createElement('input'); name.setAttribute('aria-label', 'Path name'); name.maxLength = 80; name.placeholder = 'Path name';
+            name.style.width = '100%'; if (editor.mode === 'manual') roadPanel.append(name);
+            button(editor.mode === 'manual' ? 'Save path' : 'Save roads', 'roadSave', () => ({ name: name.value }), editor.busy || !editor.routes.length);
+            button('Cancel drawing', 'roadCancel', undefined, editor.busy && editor.mode !== 'generated');
+        }
+        if (editor.message) roadPanel.append(makeElement('div', editor.message, { marginTop: '5px' }));
+        roadPanel.append(makeElement('div', 'Creating a route does not move you or reveal terrain.', { opacity: '0.75', marginTop: '4px' }));
+        if ((snapshot.roads ?? []).length && editor.mode === 'idle') {
+            const saved = document.createElement('select'); saved.setAttribute('aria-label', 'Saved road or path'); saved.style.width = '100%';
+            for (const route of snapshot.roads) { const option = document.createElement('option'); option.value = route.id; option.textContent = `${route.name} (${route.kind})`; saved.append(option); }
+            roadPanel.append(saved); button('Remove selected path', 'roadDelete', () => ({ id: saved.value }));
+        }
+    }
 
     const scaleBar = makeElement('div', undefined, {
         position: 'absolute', right: '8px', bottom: '42px', padding: '4px 7px',
@@ -1119,7 +1183,7 @@ export function mountMapRenderer(root, options) {
         contextMenu.appendChild(button);
     }
     overlay.appendChild(contextMenu);
-    const help = makeElement('div', 'Scroll to zoom · Drag to pan · Dashed: connections · Tan: travelled trails', {
+    const help = makeElement('div', 'Bright: visible · Dim: known · Dark: not generated · Markers can be known beyond sight', {
         position: 'absolute', bottom: '8px', left: '8px', padding: '4px 8px', borderRadius: '4px',
         background: 'var(--color-void-lighter, rgba(20,21,25,0.72))',
         color: 'var(--color-text-dim, inherit)',
@@ -1149,7 +1213,7 @@ export function mountMapRenderer(root, options) {
     });
     overlay.appendChild(routePanel);
     const encounterPanel = makeElement('div', undefined, {
-        position: 'absolute', top: '88px', left: '8px', width: '265px', maxHeight: 'min(390px, 45%)', overflowY: 'auto', padding: '8px',
+        position: 'absolute', top: '128px', left: '8px', width: '265px', maxHeight: 'min(390px, 45%)', overflowY: 'auto', padding: '8px',
         background: 'var(--color-void-lighter, #141519)', color: 'var(--color-text-primary, white)',
         border: '1px solid var(--color-border, #555)', borderRadius: '5px', font: '11px/1.4 ui-monospace, monospace',
         pointerEvents: 'auto', display: 'none',
@@ -1158,14 +1222,18 @@ export function mountMapRenderer(root, options) {
     let encounterPanelKey = '';
     function updateEncounterPanel(snapshot) {
         const record = snapshot.encounter;
-        const key = JSON.stringify([record, snapshot.encounterJournal]);
+        const profile = worldProfile(snapshot.settings?.worldProfile);
+        const settingChanged = record && (record.worldProfile ?? 'fantasy') !== profile.id;
+        const key = JSON.stringify([record, snapshot.encounterJournal, profile.id]);
         if (key === encounterPanelKey) return;
         encounterPanelKey = key; encounterPanel.replaceChildren();
         encounterPanel.style.display = record ? 'block' : 'none';
         if (!record) return;
         encounterPanel.append(makeElement('div', `Day ${record.worldDay} · ${record.weather}`, { fontWeight: 'bold' }));
+        if (settingChanged) encounterPanel.append(makeElement('div', 'Setting changed. The previous encounter stays in your journal; new stops use ' + profile.label + '.'));
         if (record.scene) encounterPanel.append(makeElement('div', record.scene, { margin: '4px 0' }));
-        if (record.quiet) encounterPanel.append(makeElement('div', 'Quiet checkpoint. Nothing requires your attention.'));
+        if (settingChanged) { /* Keep historical encounters in the journal, not the new scene. */ }
+        else if (record.quiet) encounterPanel.append(makeElement('div', 'Quiet checkpoint. Nothing requires your attention.'));
         else {
             for (const event of record.events) {
                 encounterPanel.append(makeElement('div', event.title, { fontWeight: 'bold', marginTop: '4px' }), makeElement('div', event.text));
@@ -1425,6 +1493,7 @@ export function mountMapRenderer(root, options) {
     let atlas = null;
     let atlasWorldVersion = -1;
     let paintedWorldVersion = -1;
+    let paintedGenerated;
     let rasterCount = 0;
     let pendingTiles = new Map();
     let pendingFlushTimer = 0;
@@ -1550,9 +1619,15 @@ export function mountMapRenderer(root, options) {
             hoverReadout.textContent = 'Hover a cell for terrain details';
             return;
         }
+        if (snapshot.generated && !snapshot.generated.has(`${x},${y}`)) {
+            hoverCell = null;
+            const known = snapshot.anchors?.some(anchor => anchor.x === x && anchor.y === y);
+            hoverReadout.textContent = known ? 'Known place — surrounding terrain not generated' : 'Not generated — explore to reveal';
+            return;
+        }
         const cell = snapshot.chunkStore.getCell(x, y);
         hoverCell = { x, y, biome: cell.biome, elevation: cell.elevation };
-        hoverReadout.textContent = cell.biome.charAt(0).toUpperCase() + cell.biome.slice(1);
+        hoverReadout.textContent = (snapshot.generated ? (snapshot.visible?.has(`${x},${y}`) ? 'Visible · ' : 'Known · ') : '') + cell.biome.charAt(0).toUpperCase() + cell.biome.slice(1);
     }
 
     function showContextMenu(event) {
@@ -1581,7 +1656,7 @@ export function mountMapRenderer(root, options) {
         const buttons = contextMenu.querySelectorAll('[data-context-action]');
         for (const button of buttons) {
             const action = button.dataset.contextAction;
-            const enabled = Boolean(anchor);
+            const enabled = action === 'travel' || Boolean(anchor);
             button.disabled = !enabled;
             button.style.opacity = enabled ? '1' : '0.45';
             button.style.cursor = enabled ? 'pointer' : 'not-allowed';
@@ -1627,7 +1702,10 @@ export function mountMapRenderer(root, options) {
             pyramid.clear();
             paintedWorldVersion = snapshot.worldVersion;
         }
+        if (paintedGenerated !== snapshot.generated) { pyramid.clear(); paintedGenerated = snapshot.generated; }
         const currentAtlas = ensureAtlas(snapshot);
+        const selectedProfile = worldProfile(snapshot.settings?.worldProfile).id;
+        if (settingSelect.value !== selectedProfile) settingSelect.value = selectedProfile;
         const nextLayers = normaliseLayerSettings(snapshot.settings);
         layerState = nextLayers;
         for (const [key, input] of layerInputs) {
@@ -1638,8 +1716,8 @@ export function mountMapRenderer(root, options) {
         ctx.fillRect(0, 0, width, height);
 
         drawTiles(snapshot, currentAtlas, width, height, cell);
-        drawGridOverlay(width, height, cell);
         drawConnections(snapshot, cell);
+        drawRoadLines(snapshot.roadEdges ?? [], cell, false);
         // WO 6.2 — the committed journey draws behind the preview. The two
         // are mutually exclusive, and are now enforced to be:
         // `computeRoutePreview` refuses while `context.travel` is set, and the
@@ -1648,11 +1726,14 @@ export function mountMapRenderer(root, options) {
         // The journey survives a repaint (it is backed by the `journey`
         // table, not the ephemeral preview) — a solve, a ledger change or
         // a tab switch leaves it on screen (§3).
+        drawFog(snapshot, width, height, cell);
+        drawGridOverlay(width, height, cell);
         drawJourney(snapshot, cell);
         drawRoutePreview(cell);
+        drawRoadDraft(snapshot, cell);
         const anchoredSiteIds = new Set((snapshot.anchors ?? []).map(anchor => anchor.locationId));
         for (const site of snapshot.discoveries ?? []) {
-            if (anchoredSiteIds.has(site.id)) continue;
+            if (anchoredSiteIds.has(site.id) || (layerState.fog && snapshot.explored && !snapshot.explored.has(`${site.x},${site.y}`))) continue;
             const screen = cellCentreToScreen(site.x, site.y);
             ctx.save(); ctx.fillStyle = '#e4c785';
             const size = Math.max(28, Math.min(54, cell * 1.8));
@@ -1673,6 +1754,7 @@ export function mountMapRenderer(root, options) {
         updateRoutePanel(snapshot);
         updateDiscoveryPanel(snapshot);
         updateEncounterPanel(snapshot);
+        updateRoadPanel(snapshot);
 
         // WO 5.5 §1 — keep the pulse alive. The halo's slow cycle is a
         // continuous animation, so the phase must advance even when the map
@@ -1930,7 +2012,7 @@ export function mountMapRenderer(root, options) {
     function drawAnchorDot(anchor, screen, radius, fill, strokeColor) {
         const site = (getSnapshot()?.discoveries ?? []).find(row => row.id === anchor.locationId);
         const size = Math.max(32, Math.min(64, radius * 4.5));
-        if (drawPixelSprite(ctx, SITE_SPRITES[site?.type] ?? 13, screen.x - size / 2, screen.y - size * 0.7, size)) return;
+        if (site?.type !== 'wilderness' && drawPixelSprite(ctx, SITE_SPRITES[site?.type] ?? 13, screen.x - size / 2, screen.y - size * 0.7, size)) return;
         ctx.beginPath();
         ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
         ctx.fillStyle = fill;
@@ -2016,6 +2098,46 @@ export function mountMapRenderer(root, options) {
         ctx.arc(bodyCx, bodyCy - r * 0.25, r * 0.28, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
+    }
+
+    function drawRoadLines(edges, cell, preview) {
+        if (!preview && !layerState.roads) return;
+        ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        for (const edge of edges) {
+            const a = cellCentreToScreen(edge.a.x, edge.a.y), b = cellCentreToScreen(edge.b.x, edge.b.y);
+            ctx.strokeStyle = preview ? '#58d5d1' : edge.kind === 'road' ? '#b4a37d' : '#ddc88c';
+            ctx.lineWidth = Math.max(2, cell * (edge.kind === 'road' ? 0.38 : 0.18));
+            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+        ctx.restore();
+    }
+    function drawRoadDraft(snapshot, cell) {
+        const editor = snapshot.roadEditor;
+        if (!editor || editor.mode === 'idle') return;
+        const edges = [];
+        for (const route of editor.routes ?? []) for (let i = 1; i < route.cells.length; i++) edges.push({ a: route.cells[i-1], b: route.cells[i], kind: route.kind });
+        drawRoadLines(edges, cell, true);
+        for (const [i, point] of (editor.points ?? []).entries()) {
+            const screen = cellCentreToScreen(point.x, point.y);
+            ctx.fillStyle = '#58d5d1'; ctx.beginPath(); ctx.arc(screen.x, screen.y, 4, 0, Math.PI * 2); ctx.fill();
+            drawAnchorLabel(screen, 5, String(i + 1), '#263c35');
+        }
+    }
+
+    function drawFog(snapshot, width, height, cell) {
+        canvas.dataset.worldmapFog = layerState.fog ? 'on' : 'off';
+        canvas.dataset.worldmapExploredCount = String(snapshot.explored?.size ?? 0);
+        if (!snapshot.generated) return;
+        canvas.dataset.worldmapGeneratedCount = String(snapshot.generated.size);
+        const start = screenToCell(0, 0), end = screenToCell(width, height);
+        for (let y = Math.floor(start.y); y <= Math.ceil(end.y); y++) for (let x = Math.floor(start.x); x <= Math.ceil(end.x); x++) {
+            const key = `${x},${y}`;
+            const state = cellVisibility(key, snapshot.generated, snapshot.visible ?? new Set());
+            if (state === 'visible' || (state === 'known' && !layerState.fog)) continue;
+            ctx.fillStyle = state === 'known' ? 'rgba(12, 23, 30, 0.48)' : '#17252d';
+            const screen = cellToScreen(x, y);
+            ctx.fillRect(Math.floor(screen.x), Math.floor(screen.y), Math.ceil(cell) + 1, Math.ceil(cell) + 1);
+        }
     }
 
     function drawAnchors(snapshot, cell) {

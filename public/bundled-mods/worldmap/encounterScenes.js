@@ -1,3 +1,4 @@
+import { worldProfile, PROFILE_EVENTS } from './worldProfiles.js';
 // Engine-owned scene seeds. The normal GM turn elaborates these saved facts.
 const SCENERY = {
     plains: ['Low grass bends in the wind.', 'Seed heads brush against the travel gear.'],
@@ -45,11 +46,16 @@ function choose(rows, random) {
 }
 export function eligibleLocalEvents(input) {
     if (input.feature?.distance === 0 && input.feature.type === 'settlement') return [];
-    return LOCAL_EVENTS.filter(row => row.road ? input.onRoad && input.biome !== 'ocean' && input.biome !== 'glacier' : row.biomes.includes(input.biome));
+    const profile = worldProfile(input.worldProfile).id;
+    const traditional = ['fantasy', 'historical'].includes(profile);
+    const base = profile === 'scifi' ? [] : LOCAL_EVENTS.filter(row => traditional || (!row.road && !row.role));
+    const rows = [...base, ...PROFILE_EVENTS.filter(row => row.profiles.includes(profile))];
+    return rows.filter(row => row.road ? input.onRoad && input.biome !== 'ocean' && input.biome !== 'glacier' : row.biomes.includes(input.biome));
 }
 function instantiate(row, input, source) {
     const identity = `${input.seed}:${input.worldDay}:${input.x}:${input.y}:${row.id}`;
-    const name = row.role ? `${PEOPLE[hash(identity) % PEOPLE.length]} ${SURNAMES[hash(identity + ':surname') % SURNAMES.length]}` : null;
+    const names = ['fantasy', 'historical'].includes(worldProfile(input.worldProfile).id) ? PEOPLE : ['Alex', 'Sam', 'Morgan', 'Jordan', 'Ari', 'Robin', 'Kai', 'Ren'];
+    const name = row.role ? `${names[hash(identity) % names.length]} ${SURNAMES[hash(identity + ':surname') % SURNAMES.length]}` : null;
     return { id: row.id, source, title: row.title, text: row.text.replaceAll('{name}', name ?? ''),
         action: row.action ?? `I greet ${name} and ask what brings them here.`,
         ...(name ? { actor: { id: `map-person-${hash(identity).toString(16)}`, name, role: row.role, motive: row.motive } } : {}) };
@@ -62,7 +68,17 @@ export function localEvent(input, random) {
 }
 export function siteEvent(input) {
     if (input.feature?.distance !== 0) return null;
-    const row = SITE_PEOPLE[input.feature.type];
+    const profile = worldProfile(input.worldProfile).id;
+    const modern = !['fantasy', 'historical'].includes(profile);
+    const alternatives = {
+        settlement: ['Someone checking supplies', profile === 'cyberpunk' ? 'local technician' : 'resident', 'check which supplies are needed locally', '{name} checks a supply list near the settlement’s activity.'],
+        ruin: ['A survey of the remains', 'site surveyor', 'document the remains without disturbing them', '{name} records the condition of the visible remains.'],
+        shrine: ['A caretaker at the shrine', 'caretaker', 'maintain the site and hear news from visitors', '{name} tidies the area around the shrine.'],
+        camp: ['A traveller checking equipment', 'traveller', 'check equipment before the next leg', '{name} tests a piece of travelling equipment beside a packed bag.'],
+        crossing: ['A crossing inspection', 'route inspector', 'check whether the crossing is usable', '{name} notes the condition of the crossing from the near side.'],
+        landmark: ['A survey in progress', 'field surveyor', 'compare the landmark with a recorded survey', '{name} takes observations beside the landmark.'],
+    };
+    const row = (modern ? alternatives : SITE_PEOPLE)[input.feature.type];
     if (!row) return null;
     return instantiate({ id: `feature-${input.feature.type}`, title: row[0], role: row[1], motive: row[2], text: row[3] }, input, 'feature');
 }

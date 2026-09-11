@@ -1,3 +1,6 @@
+import { readRoads, serializeRoads, roadEdges, travelSurfaces, planRoad, roadCandidates, roadConnectedLedger } from './roads.js';
+import { readExploration, readGeneratedCells, serializeExploration, revealCells, visibleCells, explorationPoint, validCell } from './exploration.js';
+import { worldProfile } from './worldProfiles.js';
 import { checkpointKey, readEncounters, serializeEncounters, recordCheckpoint, handleEncounter, noteEncounter } from './encounters.js';
 import { fixedSiteAnchors, promoteSite, preferSiteStops } from './siteTravel.js';
 import { readDiscoveries, serializeDiscoveries, surveyDiscoveries, nearbyDiscoveries, nameDiscovery, siteLabel } from './discoveries.js';
@@ -37,7 +40,12 @@ let settingsWriteQueue = Promise.resolve();
 const journeyByCampaign = new Map();
 const positionByCampaign = new Map();
 const trailsByCampaign = new Map();
+const roadsByCampaign = new Map();
+const roadEditorsByCampaign = new Map();
+function surfacesFor(campaignId) { return travelSurfaces(trailsByCampaign.get(campaignId), roadsByCampaign.get(campaignId) ?? []); }
 const discoveriesByCampaign = new Map();
+const explorationByCampaign = new Map();
+const generatedByCampaign = new Map();
 const discoveryContextByCampaign = new Map();
 const encountersByCampaign = new Map();
 const encounterContextByCampaign = new Map();
@@ -54,11 +62,21 @@ export function stoppedCell(position, location) {
 }
 
 async function hydratePosition(ctx) {
+    roadsByCampaign.set(ctx.data.campaignId, readRoads(await ctx.table.read('roads')));
+    const savedExploration = await ctx.table.read('exploration');
+    explorationByCampaign.set(ctx.data.campaignId, readExploration(savedExploration));
+    generatedByCampaign.set(ctx.data.campaignId, readGeneratedCells(savedExploration));
     encountersByCampaign.set(ctx.data.campaignId, readEncounters(await ctx.table.read('encounters')));
     encounterContextByCampaign.delete(ctx.data.campaignId);
     discoveriesByCampaign.set(ctx.data.campaignId, readDiscoveries(await ctx.table.read('discoveries')));
     discoveryContextByCampaign.delete(ctx.data.campaignId);
-    trailsByCampaign.set(ctx.data.campaignId, readTrails(await ctx.table.read('trails')));
+    const trails = readTrails(await ctx.table.read('trails'));
+    trailsByCampaign.set(ctx.data.campaignId, trails);
+    if (!Array.isArray(savedExploration?.cells) && trails.edges.size) {
+        const explored = explorationByCampaign.get(ctx.data.campaignId);
+        revealCells(explored, [...trails.edges.values()].flatMap(edge => [edge.a, edge.b]));
+        await ctx.table.write('exploration', serializeExploration(explored, generatedByCampaign.get(ctx.data.campaignId)));
+    }
     const position = await ctx.table.read('position');
     positionByCampaign.set(ctx.data.campaignId, position);
     snapshotCacheByCampaign.delete(ctx.data.campaignId);
@@ -68,9 +86,9 @@ async function updateEncounters(ctx, centre, snapshot, feature) {
     const location = ctx.data.location;
     if (!Number.isFinite(location.worldDay)) return;
     const campaignId = ctx.data.campaignId;
-    const input = { seed: snapshot.settings.worldSeed, x: centre.x, y: centre.y,
+    const input = { worldProfile: worldProfile(snapshot.settings.worldProfile).id, seed: snapshot.settings.worldSeed, x: centre.x, y: centre.y,
         worldDay: location.worldDay, biome: snapshot.chunkStore.getCell(centre.x, centre.y).biome, feature,
-        onRoad: [...(trailsByCampaign.get(campaignId)?.edges.values() ?? [])].some(edge => edge.passes >= 2
+        onRoad: [...(surfacesFor(campaignId).edges.values())].some(edge => edge.passes >= 2
             && [edge.a, edge.b].some(cell => cell.x === centre.x && cell.y === centre.y)) };
     const task = encounterQueue.then(async () => {
         const result = recordCheckpoint(encountersByCampaign.get(campaignId) ?? new Map(), input);
@@ -89,11 +107,49 @@ async function updateEncounters(ctx, centre, snapshot, feature) {
         || live.data.location?.worldDay !== location.worldDay
         || (live.data.location?.travel?.leg ?? null) !== (location.travel?.leg ?? null)) return;
     const summary = { ...record, placeId: location.currentPlaceId, leg: location.travel?.leg ?? null };
-    const digest = JSON.stringify(summary);
+    const profile = worldProfile(snapshot.settings.worldProfile);
+    const digest = JSON.stringify([summary, profile]);
     if (encounterContextByCampaign.get(campaignId) !== digest && live.write?.updateContext) {
         encounterContextByCampaign.set(campaignId, digest);
-        live.write.updateContext({ mapEncounter: summary });
+        live.write.updateContext({ mapEncounter: summary, mapWorldSetting: profile });
     }
+}
+
+async function observeTerrain(ctx, centres) {
+    const campaignId = ctx.data.campaignId;
+    const snapshot = mapSnapshot(ctx);
+    if (!snapshot) return;
+    const explored = new Set(explorationByCampaign.get(campaignId) ?? []);
+    const exploredChanged = revealCells(explored, centres);
+    const generated = new Set(generatedByCampaign.get(campaignId) ?? []);
+    const generatedChanged = revealCells(generated, centres);
+    const state = discoveriesByCampaign.get(campaignId) ?? readDiscoveries(null);
+    const authored = snapshot.anchors.filter(anchor => anchor.kind !== 'transit' && !state.sites.has(anchor.locationId))
+        .map(anchor => ({ ...anchor, id: anchor.locationId, type: 'settlement',
+            settlementKind: /\bcapital\b/i.test(anchor.name ?? '') ? 'capital' : /\bcity\b/i.test(anchor.name ?? '') ? 'city' : 'town' }));
+    let changed = false;
+    for (const centre of centres) changed = surveyDiscoveries(state, snapshot.settings.worldSeed, snapshot.chunkStore,
+        centre, surfacesFor(campaignId), ctx.data.location.worldDay, authored) || changed;
+    if (changed) {
+        await ctx.table.write('discoveries', serializeDiscoveries(state));
+        discoveriesByCampaign.set(campaignId, state);
+        snapshotCacheByCampaign.delete(campaignId);
+    }
+    let hardened = hardenedByCampaign.get(campaignId) ?? await readHardened(ctx);
+    const previous = hardened;
+    for (const centre of centres) for (const key of visibleCells(centre)) {
+        const [x, y] = key.split(',').map(Number);
+        hardened = hardenCell(x, y, snapshot.chunkStore.getCell(x, y).biome, hardened);
+    }
+    if (hardened !== previous) await writeHardened(ctx, hardened);
+    // Publish completed generation only after site/empty results and terrain have saved.
+    if (exploredChanged || generatedChanged) {
+        await ctx.table.write('exploration', serializeExploration(explored, generated));
+        explorationByCampaign.set(campaignId, explored);
+        generatedByCampaign.set(campaignId, generated);
+        snapshotCacheByCampaign.delete(campaignId);
+    }
+    for (const listener of mapPaintListeners) listener(campaignId);
 }
 
 async function updateDiscoveries(ctx) {
@@ -103,6 +159,7 @@ async function updateDiscoveries(ctx) {
     const location = ctx.data.location;
     const centre = snapshot.party ?? snapshot.anchors.find(anchor => anchor.locationId === location.currentPlaceId);
     if (!centre) return;
+    await observeTerrain(ctx, [centre]);
     const state = discoveriesByCampaign.get(campaignId) ?? readDiscoveries(null);
     let identityChanged = false;
     for (const entry of location.ledger ?? []) {
@@ -113,12 +170,12 @@ async function updateDiscoveries(ctx) {
             nameDiscovery(state, site.id, name, description); identityChanged = true;
         }
     }
-    if (surveyDiscoveries(state, snapshot.settings.worldSeed, snapshot.chunkStore, centre, trailsByCampaign.get(campaignId), location.worldDay) || identityChanged) {
+    if (identityChanged) {
         discoveriesByCampaign.set(campaignId, state);
         await ctx.table.write('discoveries', serializeDiscoveries(state));
         let hardened = hardenedByCampaign.get(campaignId) ?? await readHardened(ctx);
         const previous = hardened;
-        for (const site of state.sites.values()) hardened = hardenCell(site.x, site.y, site.biome, hardened);
+        for (const site of state.sites.values()) if (site.biome) hardened = hardenCell(site.x, site.y, site.biome, hardened);
         if (hardened !== previous) await writeHardened(ctx, hardened);
         snapshotCacheByCampaign.delete(campaignId);
         for (const listener of mapPaintListeners) listener(campaignId);
@@ -148,6 +205,7 @@ async function rememberTrails(ctx, journey) {
         && location?.worldDay >= journey.startedOnDay + journey.totalLegs;
     const endIndex = arrived ? journey.cells.length - 1
         : cell ? journey.cells.findIndex(c => c.x === cell.x && c.y === cell.y) : -1;
+    if (endIndex >= 0) await observeTerrain(ctx, journey.cells.slice(0, endIndex + 1));
     const trails = trailsByCampaign.get(ctx.data.campaignId) ?? readTrails(null);
     if (!recordTrailProgress(trails, journey, endIndex)) return;
     trailsByCampaign.set(ctx.data.campaignId, trails);
@@ -188,9 +246,7 @@ const MAP_TRAVEL_MODES = Object.freeze([
     { id: 'horseback', label: 'Horseback' },
     { id: 'flying', label: 'Flying' },
 ]);
-// WO 6.1 §1 — a click on a cell with no anchor within 2 cells refuses rather
-// than inventing a destination. The radius is in cells.
-const ANCHOR_SNAP_RADIUS = 2;
+// Empty grid cells are provisional destinations; they become fixed points only on commit.
 
 function validSettings(value) {
     return value
@@ -223,12 +279,14 @@ async function ensureSettings(ctx) {
     if (validSettings(raw)) {
         return {
             worldSeed: raw.worldSeed,
+            worldProfile: worldProfile(raw.worldProfile).id,
             climateGradient: Math.max(0, Math.min(1, raw.climateGradient)),
             layers: normaliseLayerSettings(raw.layers ?? DEFAULT_LAYERS),
         };
     }
     const settings = {
         worldSeed: createWorldSeed(ctx.data.campaignId ?? ''),
+        worldProfile: 'fantasy',
         climateGradient: DEFAULT_CLIMATE_GRADIENT,
         layers: { ...DEFAULT_LAYERS },
     };
@@ -250,8 +308,7 @@ function persistLayerSettings(ctx, campaignId, patch) {
             if (!fresh || fresh.data.campaignId !== campaignId) return;
             const raw = await fresh.table.read('settings');
             await fresh.table.write('settings', {
-                ...(raw && typeof raw === 'object' ? raw : {}),
-                ...settings,
+                ...(validSettings(raw) ? raw : settings),
                 layers,
             });
         })
@@ -384,8 +441,8 @@ function findLedgerPath(ledger, fromId, toId) {
 
 /**
  * Compute a route preview for a click on cell `(toX, toY)`. Snaps to the
- * nearest anchor within `ANCHOR_SNAP_RADIUS` cells; if none, refuses with a
- * blocked preview. Routes from the current place's anchor to the snapped
+ * exact anchor cell, or proposes a fixed exploration point if none exists.
+ * Routes from the occupied coordinate to the selected
  * anchor via the pathfinder (single hop if directly connected, multi-hop
  * through the ledger graph otherwise). Each hop is terrain-priced.
  *
@@ -441,12 +498,18 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
         return { blocked: true, reason: 'no-current-anchor', label: 'Current place has no map anchor' };
     }
 
-    // Snap the click to the nearest anchor within radius. If the click is on
-    // an anchor's exact cell, that anchor is the destination. Otherwise snap.
-    const toAnchor = targetId ? anchors.find(anchor => anchor.locationId === targetId) : nearestAnchor(anchors.filter(anchor => !ledger.some(entry => entry.id === anchor.locationId && entry.kind === 'transit')), toX, toY, ANCHOR_SNAP_RADIUS);
-    if (!toAnchor) {
-        return { blocked: true, reason: 'no-anchor-near', label: 'No place within 2 cells — click a place to travel' };
+    // Exact-cell selection: adjacent wilderness must remain independently reachable.
+    if (!validCell({ x: toX, y: toY })) return { blocked: true, reason: 'outside-world', label: 'Choose a cell inside the map' };
+    if (fromAnchor.x === toX && fromAnchor.y === toY) return { blocked: true, reason: 'same-place', label: 'Already here' };
+    let destinationSite = null;
+    let toAnchor = targetId ? anchors.find(anchor => anchor.locationId === targetId) : nearestAnchor(anchors.filter(anchor => !ledger.some(entry => entry.id === anchor.locationId && entry.kind === 'transit')), toX, toY, 0);
+    if (!toAnchor && !targetId) {
+        destinationSite = [...(discoveriesByCampaign.get(campaignId)?.sites.values() ?? [])].find(site => site.x === toX && site.y === toY)
+            ?? explorationPoint(result.settings.worldSeed, toX, toY);
+        toAnchor = { locationId: destinationSite.id, x: toX, y: toY, name: siteLabel(destinationSite) };
+        anchors.push(toAnchor);
     }
+    if (!toAnchor) return { blocked: true, reason: 'missing-place', label: 'Destination is no longer available' };
     if (toAnchor.locationId === fromId) {
         return { blocked: true, reason: 'same-place', label: 'Already here' };
     }
@@ -457,9 +520,9 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
     const chunkStore = ensureChunkStore(campaignId, settings, controls, hardened);
 
     // Find the ledger path (A→B→C). Single-hop if directly connected.
-    const isSiteRoute = discoveriesByCampaign.get(campaignId)?.sites.has(toAnchor.locationId)
+    const isSiteRoute = Boolean(destinationSite) || discoveriesByCampaign.get(campaignId)?.sites.has(toAnchor.locationId)
         || discoveriesByCampaign.get(campaignId)?.sites.has(fromId);
-    const ledgerPath = isSiteRoute ? [fromId, toAnchor.locationId] : findLedgerPath(ledger, fromId, toAnchor.locationId);
+    const ledgerPath = isSiteRoute ? [fromId, toAnchor.locationId] : findLedgerPath(roadConnectedLedger(ledger, roadsByCampaign.get(campaignId) ?? []), fromId, toAnchor.locationId);
     if (!ledgerPath || ledgerPath.length < 2) {
         // No ledger path — the destination is not reachable through known
         // connections. This is a blocked result, not an error: the player
@@ -470,7 +533,7 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
         // so the renderer can show a band selector + "Create and travel".
         // The player commits the connection; the map only proposes it.
         const fromName = ledger.find(l => l.id === fromId)?.name ?? fromId;
-        const toName = ledger.find(l => l.id === toAnchor.locationId)?.name ?? toAnchor.locationId;
+        const toName = ledger.find(l => l.id === toAnchor.locationId)?.name ?? toAnchor.name ?? toAnchor.locationId;
         const defaultBand = bandFromGridDistance(fromAnchor, toAnchor);
         return {
             blocked: true,
@@ -513,7 +576,7 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
                 { x: hopFromAnchor.x, y: hopFromAnchor.y },
                 { x: hopToAnchor.x, y: hopToAnchor.y },
                 pfMode,
-                { trails: trailsByCampaign.get(campaignId), preference },
+                { trails: surfacesFor(campaignId), preference },
             );
         }
         if (isSiteRoute && route.snapped) route = { blocked: true, reason: 'endpoint-impassable' };
@@ -549,7 +612,7 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
     }
 
     if (blockedByPathfinder) {
-        const toName = ledger.find(l => l.id === toAnchor.locationId)?.name ?? toAnchor.locationId;
+        const toName = ledger.find(l => l.id === toAnchor.locationId)?.name ?? toAnchor.name ?? toAnchor.locationId;
         return {
             cells: allCells,
             cost: totalCost,
@@ -562,7 +625,7 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
         };
     }
 
-    const toName = ledger.find(l => l.id === toAnchor.locationId)?.name ?? toAnchor.locationId;
+    const toName = ledger.find(l => l.id === toAnchor.locationId)?.name ?? toAnchor.name ?? toAnchor.locationId;
     const fromName = ledger.find(l => l.id === fromId)?.name ?? fromId;
     // `hops` is the per-hop breakdown for the host's intent. Only the hops
     // after the first leg matter to the host (the first hop is the depart);
@@ -575,6 +638,7 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
         && Math.abs(alternative.cost - totalCost) > 0.001;
 
     return {
+        destinationSite,
         cells: allCells,
         cost: totalCost,
         days: totalDays,
@@ -1429,6 +1493,12 @@ export function mapSnapshot(ctx) {
     const encounterRecords = encountersByCampaign.get(campaignId) ?? new Map();
     const encounter = encounterCell ? encounterRecords.get(checkpointKey({ ...encounterCell, worldDay: ctx.data?.location?.worldDay })) ?? null : null;
     const snapshot = {
+        roads: roadsByCampaign.get(campaignId) ?? [],
+        roadEdges: [...roadEdges(roadsByCampaign.get(campaignId) ?? []).values()],
+        roadEditor: roadEditorsByCampaign.get(campaignId) ?? { mode: 'idle', points: [], routes: [] },
+        explored: explorationByCampaign.get(campaignId) ?? new Set(),
+        generated: generatedByCampaign.get(campaignId) ?? new Set(),
+        visible: visibleCells(encounterCell),
         encounter,
         encounterJournal: [...encounterRecords.values()].slice(-6).reverse(),
         anchors,
@@ -1494,7 +1564,139 @@ function mountMap(node, ctx) {
         for (const listener of mapPaintListeners) listener(currentCampaignId);
     }
 
+    function showRoadEditor(editor) {
+        roadEditorsByCampaign.set(currentCampaignId, editor);
+        snapshotCacheByCampaign.delete(currentCampaignId);
+        refreshPreview();
+    }
+    function rebuildRoadDraft(editor) {
+        const snapshot = mapSnapshot(liveCtx);
+        const result = planRoad(snapshot.chunkStore, editor.points, editor.kind, surfacesFor(currentCampaignId));
+        const anchors = snapshot.anchors;
+        const from = anchors.find(a => a.x === editor.points[0]?.x && a.y === editor.points[0]?.y && a.kind !== 'transit');
+        const last = editor.points.at(-1);
+        const to = anchors.find(a => a.x === last?.x && a.y === last?.y && a.kind !== 'transit');
+        showRoadEditor({ ...editor, worldVersion: snapshot.worldVersion, routes: result.blocked ? [] : [{ ...result,
+            id: `manual-${Date.now()}-${Math.random().toString(36).slice(2)}`, source: 'manual', fromId: from?.locationId, toId: to?.locationId }],
+            message: result.blocked ? result.reason : `${result.cells.length - 1} cells · ready to save` });
+    }
+    async function handleRoadAction(action, payload) {
+        const campaignId = currentCampaignId;
+        const fresh = await freshCampaignContext(ctx);
+        if (!fresh || fresh.data.campaignId !== campaignId) return;
+        liveCtx = fresh;
+        const snapshot = mapSnapshot(fresh);
+        const editor = roadEditorsByCampaign.get(campaignId) ?? { mode: 'idle', points: [], routes: [] };
+        if (editor.busy && action !== 'roadCancel') return;
+        if (action === 'roadCancel') { showRoadEditor({ mode: 'idle', points: [], routes: [] }); return; }
+        if (action === 'roadStart') {
+            routePreviewByCampaign.delete(campaignId);
+            showRoadEditor({ mode: 'manual', points: [], routes: [], kind: 'path', message: 'Click waypoint cells on the map.' }); return;
+        }
+        if (action === 'roadUndo' || action === 'roadKind') {
+            if (editor.mode !== 'manual') return;
+            rebuildRoadDraft({ ...editor, points: action === 'roadUndo' ? editor.points.slice(0, -1) : editor.points,
+                kind: action === 'roadKind' && payload === 'road' ? 'road' : action === 'roadKind' ? 'path' : editor.kind }); return;
+        }
+        if (action === 'roadGenerate') {
+            routePreviewByCampaign.delete(campaignId);
+            const pending = { mode: 'generated', points: [], routes: [], busy: true, message: 'Finding passable road connections…', worldVersion: snapshot.worldVersion };
+            showRoadEditor(pending);
+            const pairs = roadCandidates(snapshot.anchors, fresh.data.location.ledger ?? [], snapshot.discoveries, roadsByCampaign.get(campaignId) ?? []);
+            const routes = []; let blocked = 0;
+            for (const [a, b] of pairs) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+                if (roadEditorsByCampaign.get(campaignId) !== pending) return;
+                const result = planRoad(snapshot.chunkStore, [a, b], 'road', surfacesFor(campaignId));
+                if (result.blocked) { blocked++; continue; }
+                routes.push({ ...result, id: `generated-${[a.locationId, b.locationId].sort().join('--')}`,
+                    name: `${a.name || siteLabel(a)} — ${b.name || siteLabel(b)}`.slice(0, 80), fromId: a.locationId, toId: b.locationId, source: 'generated' });
+            }
+            const latest = await freshCampaignContext(ctx);
+            if (!latest || latest.data.campaignId !== campaignId || roadEditorsByCampaign.get(campaignId) !== pending) return;
+            showRoadEditor({ ...pending, busy: false, routes, message: `${routes.length} new roads proposed · ${blocked} blocked connections skipped` }); return;
+        }
+        if (action === 'roadSave' || action === 'roadDelete') {
+            if (action === 'roadSave' && (!editor.routes.length || editor.worldVersion !== snapshot.worldVersion)) {
+                showRoadEditor({ ...editor, message: 'Preview again before saving; the map may have changed.' }); return;
+            }
+            const existing = roadsByCampaign.get(campaignId) ?? [];
+            let next;
+            if (action === 'roadDelete') { routePreviewByCampaign.delete(campaignId); next = existing.filter(route => route.id !== payload?.id); }
+            else {
+                const added = editor.routes.map(route => ({ ...route, name: editor.mode === 'manual'
+                    ? String(payload?.name || 'Unnamed path').trim().slice(0, 80) : route.name }));
+                next = [...existing.filter(route => !added.some(item => item.id === route.id)), ...added];
+            }
+            showRoadEditor({ ...editor, busy: true, message: 'Saving…' });
+            await fresh.table.write('roads', serializeRoads(next));
+            roadsByCampaign.set(campaignId, next);
+            if (currentCampaignId !== campaignId) return;
+            const confirmed = await freshCampaignContext(ctx);
+            if (!confirmed || confirmed.data.campaignId !== campaignId) return;
+            showRoadEditor({ mode: 'idle', points: [], routes: [], message: action === 'roadDelete' ? 'Removed.' : 'Saved. Travel now accounts for these surfaces.' });
+        }
+    }
+
+    let commitBusy = false;
+    async function commitPreview(preview) {
+        if (commitBusy || !preview || preview.blocked) return;
+        commitBusy = true;
+        const campaignId = currentCampaignId;
+        try {
+            const fresh = await freshCampaignContext(ctx);
+            if (!fresh || fresh.data.campaignId !== campaignId || fresh.data.location.travel
+                || fresh.data.location.currentPlaceId !== preview.fromAnchor?.locationId) return;
+            const site = preview.destinationSite;
+            if (site) {
+                const state = readDiscoveries(serializeDiscoveries(discoveriesByCampaign.get(campaignId) ?? readDiscoveries(null)));
+                if (!state.sites.has(site.id)) state.sites.set(site.id, { ...site, biome: mapSnapshot(fresh).chunkStore.getCell(site.x, site.y).biome });
+                await fresh.table.write('discoveries', serializeDiscoveries(state));
+                discoveriesByCampaign.set(campaignId, state);
+                snapshotCacheByCampaign.delete(campaignId);
+                const ledger = fresh.data.location.ledger ?? [];
+                await fresh.write?.setLocationLedger?.(promoteSite(site, ledger, fresh.data.location.currentPlaceId));
+            }
+            const latest = await freshCampaignContext(ctx);
+            if (!latest || latest.data.campaignId !== campaignId || latest.data.location.travel
+                || latest.data.location.currentPlaceId !== preview.fromAnchor?.locationId) return;
+            const journey = buildJourneyFromPreview(preview, latest.data.location.worldDay);
+            if (!journey || !await writeJourney(latest, journey)) return;
+            const confirmed = await freshCampaignContext(ctx);
+            if (!confirmed || confirmed.data.campaignId !== campaignId) return;
+            confirmed.events?.emit('travelRequest', { fromId: preview.fromAnchor.locationId,
+                toId: preview.toAnchor.locationId, mode: preview.mode, hops: preview.hops || [] });
+            routePreviewByCampaign.delete(campaignId);
+            refreshPreview();
+        } catch (error) { ctx.log?.('[worldmap] departure failed', error); }
+        finally { commitBusy = false; }
+    }
+
     const handleRouteAction = (action, payload) => {
+        if (action.startsWith('road')) {
+            void handleRoadAction(action, payload).catch(error => {
+                showRoadEditor({ ...(roadEditorsByCampaign.get(currentCampaignId) ?? {}), busy: false, message: 'Could not save or build the path. Please try again.' });
+                ctx.log?.('[worldmap] road action failed', error);
+            }); return;
+        }
+        if (action === 'setWorldProfile') {
+            const campaignId = currentCampaignId;
+            const profile = worldProfile(payload);
+            settingsWriteQueue = settingsWriteQueue.then(async () => {
+                const fresh = await freshCampaignContext(ctx);
+                if (!fresh || fresh.data.campaignId !== campaignId) return;
+                const raw = await fresh.table.read('settings');
+                if (!validSettings(raw)) return;
+                await fresh.table.write('settings', { ...raw, worldProfile: profile.id });
+                const current = reportsByCampaign.get(campaignId);
+                if (!current) return;
+                reportsByCampaign.set(campaignId, { ...current, settings: { ...current.settings, worldProfile: profile.id } });
+                snapshotCacheByCampaign.delete(campaignId);
+                await updateDiscoveries(fresh);
+                refreshPreview();
+            }).catch(error => ctx.log?.('[worldmap] world setting save failed', error));
+            return;
+        }
         if (action === 'roleplayEncounter') {
             const campaignId = currentCampaignId;
             void (async () => {
@@ -1593,41 +1795,7 @@ function mountMap(node, ctx) {
             }
             return;
         }
-        if (action === 'commit') {
-            const preview = routePreviewByCampaign.get(currentCampaignId);
-            if (!preview || preview.blocked) return;
-            // WO 6.1 §1 — commit emits `mod.worldmap.travelRequest` for the
-            // host listener. The host owns the departure sentence and the
-            // pending intent (via `composeDeparture`), so the sentence stays
-            // byte-identical across all three entry points.
-            //
-            // WO 6.2 §1 — the committed route is persisted to the `journey`
-            // table BEFORE the emit. The record and the departure must not
-            // be able to disagree, so write first and bail out of the emit
-            // if the write fails. A journey with no geometry (no cells) is
-            // a Places-panel-style departure: no record, and the map falls
-            // back to the transit-anchor behaviour (§2's degrade path).
-            const fromId = preview.fromAnchor?.locationId ?? null;
-            const toId = preview.toAnchor?.locationId ?? null;
-            if (!fromId || !toId) return;
-            const worldDay = liveCtx.data?.location?.worldDay;
-            const journey = buildJourneyFromPreview(preview, worldDay);
-            void (async () => {
-                if (journey) {
-                    const wrote = await writeJourney(liveCtx, journey);
-                    if (!wrote) return; // bail — no emit without the record
-                }
-                ctx.events?.emit('travelRequest', {
-                    fromId,
-                    toId,
-                    mode: preview.mode,
-                    hops: preview.hops || [],
-                });
-                routePreviewByCampaign.delete(currentCampaignId);
-                refreshPreview();
-            })();
-            return;
-        }
+        if (action === 'commit') { void commitPreview(routePreviewByCampaign.get(currentCampaignId)); return; }
         if (action === 'continue') {
             // WO 6.5 — one press, one day, one camp. The mod owns the route
             // geometry and nothing else, so advancing is a request to the
@@ -1660,6 +1828,12 @@ function mountMap(node, ctx) {
     };
 
     const handleClickCell = (x, y) => {
+        const editor = roadEditorsByCampaign.get(currentCampaignId);
+        if (editor?.mode === 'manual') {
+            if (editor.busy || !validCell({ x, y }) || editor.points.length >= 12) return;
+            rebuildRoadDraft({ ...editor, points: [...editor.points, { x, y }] }); return;
+        }
+        if (editor?.busy) return;
         const snapshot = mapSnapshot(liveCtx);
         if (!snapshot) return;
         // Read the current travel mode from the host context if available,
@@ -1682,41 +1856,8 @@ function mountMap(node, ctx) {
     const handleContextAction = (action, payload = {}) => {
         const locationId = payload.locationId ?? null;
         if (action === 'travel') {
-            const preview = computeRoutePreview(
-                liveCtx,
-                currentCampaignId,
-                payload.x,
-                payload.y,
-                currentTravelMode,
-            );
-            preview._clickCell = { x: payload.x, y: payload.y };
-            if (preview.blocked) {
-                routePreviewByCampaign.set(currentCampaignId, preview);
-                refreshPreview();
-                return;
-            }
-            const fromId = preview.fromAnchor?.locationId ?? null;
-            const toId = preview.toAnchor?.locationId ?? locationId;
-            if (!fromId || !toId) return;
-            // WO 6.2 §1 — persist the committed route before emitting, same
-            // as the main commit path. Bail out of the emit if the write
-            // fails (the record and the departure cannot disagree).
-            const worldDay = liveCtx.data?.location?.worldDay;
-            const journey = buildJourneyFromPreview(preview, worldDay);
-            void (async () => {
-                if (journey) {
-                    const wrote = await writeJourney(liveCtx, journey);
-                    if (!wrote) return;
-                }
-                ctx.events?.emit('travelRequest', {
-                    fromId,
-                    toId,
-                    mode: preview.mode,
-                    hops: preview.hops || [],
-                });
-                routePreviewByCampaign.delete(currentCampaignId);
-                refreshPreview();
-            })();
+            // Context-menu travel previews first, just like a left click.
+            handleClickCell(payload.x, payload.y);
             return;
         }
         if (action === 'current' && locationId) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SITE_TYPES, featureAtBlock, readDiscoveries, serializeDiscoveries, surveyDiscoveries, nameDiscovery } from '../../../../public/bundled-mods/worldmap/discoveries.js';
+import { SITE_TYPES, minimumSiteDistance, featureAtBlock, readDiscoveries, serializeDiscoveries, surveyDiscoveries, nameDiscovery } from '../../../../public/bundled-mods/worldmap/discoveries.js';
 const plains = { getCell: () => ({ biome: 'plains' }) };
 function sites(seed, store = plains, road = () => false) {
     const result = [];
@@ -15,6 +15,7 @@ describe('seeded discoveries', () => {
         expect(all.length).toBeGreaterThan(30);
         expect(all).toEqual(sites('discovery-test'));
         for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+            expect(Math.hypot(all[i].x - all[j].x, all[i].y - all[j].y)).toBeGreaterThanOrEqual(minimumSiteDistance(all[i], all[j]));
             if (all[i].type === all[j].type) expect(Math.hypot(all[i].x - all[j].x, all[i].y - all[j].y)).toBeGreaterThanOrEqual(SITE_TYPES[all[i].type].spacing);
         }
         expect(sites('other-seed')).not.toEqual(all);
