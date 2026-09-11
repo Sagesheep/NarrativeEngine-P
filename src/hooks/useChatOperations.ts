@@ -179,6 +179,11 @@ ${textToUse}` : attachmentBlock)
         const useArmedOneShot = useAppStore.getState().armedOneShot;
         useAppStore.getState().setArmedOneShot(null);
 
+        // Image Gallery recall: capture then clear before runTurn, exactly like the
+        // one-shot above, so an armed image fires once even if the turn errors.
+        const useArmedGalleryRecall = useAppStore.getState().armedGalleryRecall;
+        useAppStore.getState().setArmedGalleryRecall(null);
+
         // Absolute Command v1: capture then clear before runTurn, mirroring
         // armedOneShot. Fires exactly once; the command block travels as a
         // buildPayload parameter (placed after userMessage), never on
@@ -236,6 +241,7 @@ ${textToUse}` : attachmentBlock)
             input: composedText,
             displayInput: composedText,
             attachmentUrl: attachment?.localPath || undefined,
+            armedGalleryRecall: useArmedGalleryRecall,
             settings,
             context,
             messages: storeSnapshot.messages,

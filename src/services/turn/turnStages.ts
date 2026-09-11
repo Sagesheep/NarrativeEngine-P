@@ -153,6 +153,24 @@ export function resolveEngineRolls(
         }
     }
 
+    // Image Gallery recall: the player handed the story AI an image it has already
+    // been shown. Appended AFTER the historyInput capture like the one-shot above,
+    // so it steers THIS turn only — a costume recalled a dozen times across a long
+    // campaign must not leave a dozen copies compounding in durable history. The
+    // GM's reply is archived normally, so the detail still reaches long-term memory.
+    const armedRecall = state.armedGalleryRecall;
+    if (armedRecall && armedRecall.length > 0) {
+        const blocks = armedRecall
+            .filter(entry => entry.caption.trim())
+            .map(entry => `[IMAGE THE PLAYER IS SHOWING YOU — ${entry.title}]\n${entry.caption.trim()}\n[/IMAGE]`);
+        if (blocks.length > 0) {
+            ctx.finalInput += `\n\n${blocks.join('\n\n')}`;
+            for (const entry of armedRecall) {
+                ctx.displayInputFinal += `\n\n🖼 Image recalled — ${entry.title}`;
+            }
+        }
+    }
+
     // Absolute Command v1: player-facing reveal only. The command block itself
     // travels as a buildPayload parameter (placed AFTER userMessage for maximum
     // recency) so it is NOT appended to ctx.finalInput — that keeps it out of

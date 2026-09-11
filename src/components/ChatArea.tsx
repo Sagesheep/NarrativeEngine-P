@@ -21,6 +21,8 @@ import { useChapterSealing } from './hooks/useChapterSealing';
 import { useMessageEditor } from './hooks/useMessageEditor';
 import { useChatOperations } from '../hooks/useChatOperations';
 import { useChatAttachment } from './hooks/useChatAttachment';
+import { titleForUpload } from '../services/gallery/galleryIndex';
+import { uid } from '../utils/uid';
 import { useChatPersistence } from '../hooks/useChatPersistence';
 import { useAutoresizeInput } from '../hooks/useAutoresizeInput';
 import { useChatKeyboard } from '../hooks/useChatKeyboard';
@@ -165,6 +167,19 @@ export function ChatArea() {
         takeAttachment: () => {
             const a = attachmentRef.current;
             if (!a || !a.localPath) return null;
+            // Image Gallery: keep the caption instead of spending it on one turn.
+            // This is the whole reason the gallery exists — the vision call is
+            // already paid for, so the image becomes permanently recallable.
+            if (a.caption.trim()) {
+                useAppStore.getState().addGalleryUpload({
+                    id: uid(),
+                    source: 'uploaded',
+                    title: titleForUpload(a.fileName, a.caption),
+                    imageUrl: a.localPath,
+                    caption: a.caption.trim(),
+                    createdAt: Date.now(),
+                });
+            }
             clearAttachment();
             return { caption: a.caption, localPath: a.localPath };
         },

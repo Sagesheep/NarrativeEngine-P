@@ -96,6 +96,9 @@ vi.mock('../../store/useAppStore', () => {
         armLoot: vi.fn(),
         armedOneShot: null,
         setArmedOneShot: vi.fn(),
+        armedGalleryRecall: null,
+        setArmedGalleryRecall: vi.fn(),
+        addGalleryUpload: vi.fn(),
         armedAbsoluteCommand: null,
         setArmedAbsoluteCommand: vi.fn(),
     };

@@ -17,6 +17,7 @@ import { LoreCheckModal } from './components/LoreCheckModal';
 import { DivergenceReviewModal } from './components/DivergenceReviewModal';
 import { CreateTroubleModal } from './components/CreateTroubleModal';
 import { RenameNpcModal } from './components/RenameNpcModal';
+import { GalleryModal } from './components/GalleryModal';
 import { PinnedMemoriesPanel } from './components/PinnedMemoriesPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
@@ -214,6 +215,7 @@ export default function App() {
         open={pinnedMemoriesOpen}
         onClose={closePinnedMemories}
       />
+      <GalleryModal />
       <ToastContainer />
       <IndexingSpeedPrompt />
     </ErrorBoundary>

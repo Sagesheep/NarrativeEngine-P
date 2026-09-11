@@ -1,7 +1,7 @@
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import {
     Archive, BookOpen, Brain, ChevronDown, ChevronRight, Database, FileText,
-    MapPin, Pin, ScrollText, Sparkles, UserCircle, Users, Workflow,
+    Image as ImageIcon, MapPin, Pin, ScrollText, Sparkles, UserCircle, Users, Workflow,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import type { ContextScreenId } from '../store/slices/uiSlice';
@@ -16,9 +16,10 @@ import {
     type RegisteredChromeEntry,
 } from '../services/mods/mounts/mountRegistry';
 import { resolveModText } from '../services/mods/mounts/chromeRenderers';
+import { buildGallery } from '../services/gallery/galleryIndex';
 import { useTranslation } from '../i18n/useTranslation';
 
-type GroupId = 'story' | 'world' | 'play' | 'mods';
+type GroupId = 'story' | 'world' | 'play' | 'gallery' | 'mods';
 type NavIcon = typeof ScrollText;
 
 interface NavLeaf {
@@ -44,6 +45,7 @@ const GROUPS: Array<{ id: GroupId; label: string; icon: NavIcon }> = [
     { id: 'story', label: 'Story', icon: FileText },
     { id: 'world', label: 'World', icon: Database },
     { id: 'play', label: 'Play', icon: Sparkles },
+    { id: 'gallery', label: 'Gallery', icon: ImageIcon },
     { id: 'mods', label: 'Mods', icon: Workflow },
 ];
 
@@ -84,10 +86,20 @@ export function ContextNavigationDrawer() {
     const npcCount = useAppStore((s) => s.npcLedger.length);
     const placesCount = useAppStore((s) => s.locationLedger.length);
     const pinnedCount = useAppStore((s) => s.pinnedExcerpts.length);
+    const galleryMessages = useAppStore((s) => s.messages);
+    const galleryUploads = useAppStore((s) => s.context.galleryUploads);
+    const generatedCount = useMemo(
+        () => buildGallery(galleryMessages, galleryUploads, 'generated').length,
+        [galleryMessages, galleryUploads],
+    );
+    const uploadedCount = useMemo(
+        () => buildGallery(galleryMessages, galleryUploads, 'uploaded').length,
+        [galleryMessages, galleryUploads],
+    );
     const headerEntries = useHeaderEntries();
     const { t } = useTranslation();
     const [expanded, setExpanded] = useState<Record<GroupId, boolean>>({
-        story: true, world: true, play: true, mods: false,
+        story: true, world: true, play: true, gallery: false, mods: false,
     });
 
     const modEntries = useMemo(
@@ -112,6 +124,12 @@ export function ContextNavigationDrawer() {
             { id: 'character', label: 'Character', icon: UserCircle, onSelect: () => useAppStore.getState().togglePCPanel() },
             { id: 'pinned', label: 'Pinned', icon: Pin, badge: pinnedCount, onSelect: () => useAppStore.getState().togglePinnedMemories() },
             { ...CONTEXT_LEAVES.eng, onSelect: () => openContextScreen('eng') },
+        ],
+        // Image Gallery: two sources, two leaves. Counts are live — scene images
+        // are derived from message attachments, not stored (galleryIndex.ts).
+        gallery: [
+            { id: 'gallery-generated', label: 'AI Generated', icon: Sparkles, badge: generatedCount, onSelect: () => useAppStore.getState().openGallery('generated') },
+            { id: 'gallery-uploaded', label: 'Uploaded', icon: ImageIcon, badge: uploadedCount, onSelect: () => useAppStore.getState().openGallery('uploaded') },
         ],
         mods: modEntries.map((entry) => ({
             id: entry.qualifiedId,

@@ -1,5 +1,5 @@
 import { useAppStore } from '../../store/useAppStore';
-import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact } from '../../types';
+import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact, ArmedGalleryRecall } from '../../types';
 import type { OneShotEventId } from '../oneshot/oneShotEvents';
 import { createTurnContext } from './turnContext';
 import { buildHostFacade } from './hostFacade';
@@ -95,6 +95,10 @@ export type TurnState = {
      *  through so the user bubble can render a thumbnail. Purely cosmetic: the
      *  caption is already inline in `input`/`displayInput`. */
     attachmentUrl?: string;
+    /** Image Gallery — entries the player armed for this turn. Injected by
+     *  `applyEngineRolls` after the history capture, so they steer this turn
+     *  without persisting. Consumed and cleared by the sender, like `armedOneShot`. */
+    armedGalleryRecall?: ArmedGalleryRecall[] | null;
     settings: AppSettings;
     context: GameContext;
     messages: ChatMessage[];

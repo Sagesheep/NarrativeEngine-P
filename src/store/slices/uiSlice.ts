@@ -1,5 +1,5 @@
 ﻿import type { StateCreator } from 'zustand';
-import type { PayloadTrace, PipelinePhase, StreamingStats, LoreCheckResult, LoreCheckSelection, ArmedLoot } from '../../types';
+import type { PayloadTrace, PipelinePhase, StreamingStats, LoreCheckResult, LoreCheckSelection, ArmedLoot, ArmedGalleryRecall, GallerySource } from '../../types';
 import type { OneShotEventId } from '../../services/oneshot/oneShotEvents';
 
 // WO-screen-modernization §A-2 — `rules-mgr` is gone. Rules Manager merged
@@ -88,6 +88,15 @@ export type UISlice = {
     pinnedMemoriesOpen: boolean;
     togglePinnedMemories: () => void;
     closePinnedMemories: () => void;
+    // Image Gallery (Vision v2)
+    galleryOpen: boolean;
+    galleryFilter: GallerySource | null;
+    openGallery: (filter?: GallerySource | null) => void;
+    closeGallery: () => void;
+    /** Entries armed to be handed to the story AI on the NEXT send. Fires once,
+     *  then the sender clears it — same contract as `armedOneShot`. */
+    armedGalleryRecall: ArmedGalleryRecall[] | null;
+    setArmedGalleryRecall: (entries: ArmedGalleryRecall[] | null) => void;
     // Inline Scene Image V1
     sceneImageModalOpen: boolean;
     sceneImageDraft: import('../../types').SceneImageDraft | null;
@@ -166,6 +175,12 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     pinnedMemoriesOpen: false,
     togglePinnedMemories: () => set((s) => ({ pinnedMemoriesOpen: !s.pinnedMemoriesOpen })),
     closePinnedMemories: () => set({ pinnedMemoriesOpen: false }),
+    galleryOpen: false,
+    galleryFilter: null,
+    openGallery: (filter = null) => set({ galleryOpen: true, galleryFilter: filter }),
+    closeGallery: () => set({ galleryOpen: false }),
+    armedGalleryRecall: null,
+    setArmedGalleryRecall: (entries) => set({ armedGalleryRecall: entries && entries.length > 0 ? entries : null }),
     sceneImageModalOpen: false,
     sceneImageDraft: null,
     openSceneImageModal: (draft) => set({ sceneImageModalOpen: true, sceneImageDraft: draft }),

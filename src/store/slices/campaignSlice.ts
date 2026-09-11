@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion, RelationshipMemoryFault, RelationshipMemoryRecord } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion, RelationshipMemoryFault, RelationshipMemoryRecord, GalleryEntry } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { emitCoreEvent } from '../../services/mods/events';
 import { normalizeRelations } from '../../services/npc/relationDedupe';
@@ -346,6 +346,11 @@ export type CampaignSlice = {
 
     context: GameContext;
     updateContext: (patch: Partial<GameContext>) => void;
+    // ── Image Gallery (Vision v2) ──────────────────────────────────────────
+    /** Keep a sent chat attachment's caption so it can be recalled later. */
+    addGalleryUpload: (entry: GalleryEntry) => void;
+    updateGalleryEntry: (id: string, patch: Partial<GalleryEntry>) => void;
+    removeGalleryUpload: (id: string) => void;
     inventoryItems: InventoryItem[];
     setInventoryItems: (items: InventoryItem[]) => void;
     updateInventoryItem: (id: string, patch: Partial<InventoryItem>) => void;
@@ -700,6 +705,39 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     updateContext: (patch) =>
         set((s) => {
             const newContext = migrateLegacyContext({ ...s.context, ...patch });
+            debouncedSaveCampaignState();
+            return { context: newContext };
+        }),
+
+    addGalleryUpload: (entry) =>
+        set((s) => {
+            const uploads = s.context.galleryUploads ?? [];
+            // Same image pasted twice is one entry — re-captioning it would just
+            // duplicate a row the player then has to prune by hand.
+            if (uploads.some(e => e.imageUrl === entry.imageUrl)) return {};
+            const newContext = { ...s.context, galleryUploads: [...uploads, entry] };
+            debouncedSaveCampaignState();
+            return { context: newContext };
+        }),
+
+    updateGalleryEntry: (id, patch) =>
+        set((s) => {
+            const uploads = s.context.galleryUploads ?? [];
+            const existing = uploads.find(e => e.id === id);
+            if (!existing) return {};
+            const newContext = {
+                ...s.context,
+                galleryUploads: uploads.map(e => (e.id === id ? { ...e, ...patch } : e)),
+            };
+            debouncedSaveCampaignState();
+            return { context: newContext };
+        }),
+
+    removeGalleryUpload: (id) =>
+        set((s) => {
+            const uploads = s.context.galleryUploads ?? [];
+            if (!uploads.some(e => e.id === id)) return {};
+            const newContext = { ...s.context, galleryUploads: uploads.filter(e => e.id !== id) };
             debouncedSaveCampaignState();
             return { context: newContext };
         }),

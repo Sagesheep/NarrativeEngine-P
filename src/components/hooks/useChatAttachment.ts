@@ -25,6 +25,8 @@ export type AttachmentStatus = 'idle' | 'uploading' | 'captioning' | 'ready' | '
 export type ChatAttachment = {
     /** Object URL for instant local preview (revoked on clear). */
     previewUrl: string;
+    /** Original file name, used to title the gallery entry this becomes. */
+    fileName: string;
     /** Server-side asset path, once uploaded. Empty until then. */
     localPath: string;
     /** What the vision model saw. Editable by the user before send. */
@@ -69,7 +71,7 @@ export function useChatAttachment() {
         if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
         const previewUrl = URL.createObjectURL(file);
         previewUrlRef.current = previewUrl;
-        setAttachment({ previewUrl, localPath: '', caption: '', status: 'uploading' });
+        setAttachment({ previewUrl, fileName: file.name, localPath: '', caption: '', status: 'uploading' });
 
         let localPath = '';
         try {
