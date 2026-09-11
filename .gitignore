@@ -28,9 +28,17 @@ build-output
 *.sw?
 .claude/
 
-# Runtime-generated portraits
-public/assets/portraits/*.png
-public/assets/portraits/portraits/
+# ── Campaign data: never commit. This is the player's own material. ──
+# The whole `data/` tree (above) already covers campaigns, backups, embeddings.db,
+# settings.json and apikeys.vault. These are the paths that live outside it.
+#
+# Portraits: generated NPC art AND every image pasted into chat (Vision v1.5),
+# so this is personal content, not build output. The old rule only caught *.png
+# and leaked .jpg/.webp attachments. The server mkdir -p's this at boot
+# (server/lib/fileStore.js), so ignoring the directory outright is safe.
+# NOTE: deliberately scoped to portraits/ — `public/assets/Snow Asset Pack/` is a
+# licensed art pack and stays tracked.
+public/assets/portraits/
 
 # Debug / temp scripts
 debug_api.js
