@@ -89,7 +89,11 @@ export function ChatArea() {
         clear: clearAttachment,
     } = useChatAttachment();
     const attachmentRef = useRef(attachment);
-    attachmentRef.current = attachment;
+    // Synced in an effect, not during render: writing a ref while rendering is
+    // a concurrent-mode hazard (a render that React throws away would still
+    // have mutated it). The send closure reads this after commit, so an effect
+    // with no dependency array is both correct and lint-clean.
+    useEffect(() => { attachmentRef.current = attachment; });
     // Session-local OOC state stays outside the campaign store and turn lifecycle.
     const [oocOpen, setOocOpen] = useState(false);
     const [oocBusy, setOocBusy] = useState(false);
