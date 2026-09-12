@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
-import { X, Send, Trash2, Check, Sparkles, Upload as UploadIcon, Pencil } from 'lucide-react';
+import { useMemo, useState, useRef, useEffect } from 'react';
+import { X, Send, Trash2, Check, Sparkles, Upload as UploadIcon, Pencil, ImagePlus, ScanEye, Loader2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { buildGallery } from '../services/gallery/galleryIndex';
+import { useGalleryUpload } from './hooks/useGalleryUpload';
 import { toast } from './Toast';
 import type { GalleryEntry, GallerySource } from '../types';
 
@@ -34,6 +35,11 @@ export function GalleryModal() {
     const updateGalleryEntry = useAppStore(s => s.updateGalleryEntry);
     const removeGalleryUpload = useAppStore(s => s.removeGalleryUpload);
 
+    const { describing, saving, addFiles, describeEntry, describeMissing, dispose, revive } = useGalleryUpload();
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [dragOver, setDragOver] = useState(false);
+    useEffect(() => { revive(); return dispose; }, [revive, dispose]);
+
     const [tab, setTab] = useState<GallerySource | 'all'>(initialFilter ?? 'all');
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -43,6 +49,12 @@ export function GalleryModal() {
     const entries = useMemo(
         () => buildGallery(messages, uploads, tab === 'all' ? undefined : tab),
         [messages, uploads, tab],
+    );
+    // Only uploads can be missing a description — generated entries derive theirs
+    // from the prompt that made them, so they are never blank.
+    const missingCount = useMemo(
+        () => entries.filter(e => e.source === 'uploaded' && !e.caption.trim() && !describing.has(e.id)).length,
+        [entries, describing],
     );
 
     if (!open) return null;
@@ -107,9 +119,32 @@ export function GalleryModal() {
                         <h2 className="text-terminal text-sm font-bold tracking-[0.25em] uppercase">Gallery</h2>
                         <span className="text-[10px] text-text-dim font-mono">{entries.length} image{entries.length === 1 ? '' : 's'}</span>
                     </div>
-                    <button onClick={closeGallery} title="Close" className="text-text-dim hover:text-terminal transition-colors">
-                        <X size={18} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={e => {
+                                const picked = Array.from(e.target.files ?? []);
+                                if (picked.length) void addFiles(picked);
+                                e.target.value = '';
+                            }}
+                        />
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={saving > 0}
+                            title="Add images straight to the gallery — no chat message needed"
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] uppercase tracking-wider rounded-sm border border-border text-text-dim hover:text-terminal hover:border-terminal transition-colors disabled:opacity-40"
+                        >
+                            {saving > 0 ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+                            {saving > 0 ? `Saving ${saving}…` : 'Add Images'}
+                        </button>
+                        <button onClick={closeGallery} title="Close" className="text-text-dim hover:text-terminal transition-colors">
+                            <X size={18} />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-1 px-4 pt-3">
@@ -130,11 +165,21 @@ export function GalleryModal() {
                     })}
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-4">
+                <div
+                    className={`flex-1 overflow-y-auto p-4 transition-colors ${dragOver ? 'bg-terminal/5 outline-dashed outline-1 outline-terminal/40' : ''}`}
+                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={e => {
+                        e.preventDefault();
+                        setDragOver(false);
+                        const dropped = Array.from(e.dataTransfer?.files ?? []);
+                        if (dropped.length) void addFiles(dropped);
+                    }}
+                >
                     {entries.length === 0 ? (
                         <p className="text-center text-text-dim text-xs py-16">
-                            Nothing here yet. Paste an image into the chat, or generate a scene image
-                            from a highlighted passage — both land here automatically.
+                            Nothing here yet. Drop images here or press Add Images — no chat message
+                            needed. Pasted attachments and generated scene images land here too.
                         </p>
                     ) : (
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -187,11 +232,28 @@ export function GalleryModal() {
                                             ) : (
                                                 <>
                                                     <p className="text-[11px] text-text-primary truncate" title={entry.title}>{entry.title}</p>
-                                                    <p className="text-[9px] text-text-dim line-clamp-2 mt-0.5">{entry.caption || 'No description'}</p>
+                                                    {describing.has(entry.id) ? (
+                                                        <p className="flex items-center gap-1 text-[9px] text-text-dim mt-0.5">
+                                                            <Loader2 size={9} className="animate-spin" /> Describing…
+                                                        </p>
+                                                    ) : (
+                                                        <p className={`text-[9px] line-clamp-2 mt-0.5 ${entry.caption ? 'text-text-dim' : 'text-amber-400/80'}`}>
+                                                            {entry.caption || 'No description yet'}
+                                                        </p>
+                                                    )}
                                                     <div className="flex items-center gap-2 mt-1.5">
                                                         <button onClick={() => startEdit(entry)} title="Edit name and description" className="text-text-dim hover:text-terminal transition-colors">
                                                             <Pencil size={11} />
                                                         </button>
+                                                        {!entry.caption && !describing.has(entry.id) && (
+                                                            <button
+                                                                onClick={() => void describeEntry(entry)}
+                                                                title="Describe this image with the Vision AI"
+                                                                className="text-text-dim hover:text-terminal transition-colors"
+                                                            >
+                                                                <ScanEye size={11} />
+                                                            </button>
+                                                        )}
                                                         {entry.source === 'uploaded' && (
                                                             <button
                                                                 onClick={() => removeGalleryUpload(entry.id)}
@@ -218,6 +280,18 @@ export function GalleryModal() {
                             ? `${selected.size} selected — shown to the GM on your next message only.`
                             : 'Select images to hand back to the story AI.'}
                     </p>
+                    <div className="flex items-center">
+                    {missingCount > 0 && (
+                        <button
+                            onClick={() => void describeMissing(entries)}
+                            disabled={describing.size > 0}
+                            title="Run the Vision AI on every image that still has no description"
+                            className="flex items-center gap-1.5 px-3 py-1.5 mr-2 text-[10px] uppercase tracking-wider rounded-sm border border-border text-text-dim hover:text-terminal hover:border-terminal transition-colors disabled:opacity-40"
+                        >
+                            <ScanEye size={12} />
+                            Describe {missingCount} missing
+                        </button>
+                    )}
                     <button
                         onClick={handleAppend}
                         disabled={selected.size === 0}
@@ -226,6 +300,7 @@ export function GalleryModal() {
                         <Send size={12} />
                         Append to Story AI
                     </button>
+                    </div>
                 </div>
             </div>
         </div>
