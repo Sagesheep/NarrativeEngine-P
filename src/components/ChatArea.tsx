@@ -199,7 +199,20 @@ export function ChatArea() {
     });
 
     const { isSaving, handleForceSave, handleOpenArchive } = useChatPersistence();
-    const { handleKeyDown } = useChatKeyboard(() => { galleryMention.resetSuggestions(); handleSend(); });
+    /**
+     * Send, honouring anything the gallery is still offering.
+     *
+     * A visible suggestion is a standing offer — pressing Enter accepts it
+     * rather than discarding it. Arming is synchronous (Zustand), so the store
+     * already carries the entry by the time handleSend reads it.
+     */
+    const sendWithGallery = () => {
+        galleryMention.armPendingSuggestions();
+        galleryMention.resetSuggestions();
+        handleSend();
+    };
+
+    const { handleKeyDown } = useChatKeyboard(() => sendWithGallery());
 
     const archiveDeps = {
         setArchiveIndex,
@@ -313,7 +326,7 @@ export function ChatArea() {
                     oocBusy={oocBusy}
                     onInputChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    onSend={() => { galleryMention.resetSuggestions(); handleSend(); }}
+                    onSend={() => sendWithGallery()}
                     onStop={handleStop}
                     attachment={attachment}
                     attachmentBusy={attachmentBusy}

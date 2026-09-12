@@ -102,6 +102,29 @@ export function useGalleryMention({
     const resetSuggestions = useCallback(() => setDismissed(new Set()), []);
 
     /**
+     * Arm whatever is still being offered, at the moment of send.
+     *
+     * A suggestion is a STANDING offer, not a prompt that expires the instant
+     * you press Enter. Without this, typing "send cat pic" showed the chip,
+     * sent the message anyway, and the GM answered a question about an image it
+     * had never been given — the exact failure the gallery exists to prevent.
+     *
+     * This does not make it keyword auto-injection: the match is on a name the
+     * player typed, the chip was visible the whole time, and dismissing it is
+     * one click. Nothing fires that the player could not see coming.
+     */
+    const armPendingSuggestions = useCallback(() => {
+        if (suggestions.length === 0) return;
+        const current = useAppStore.getState().armedGalleryRecall ?? [];
+        const have = new Set(current.map(a => a.id));
+        const additions = suggestions
+            .filter(e => !have.has(e.id) && e.caption.trim())
+            .map(e => ({ id: e.id, title: e.title, caption: e.caption }));
+        if (additions.length === 0) return;
+        setArmedGalleryRecall([...current, ...additions]);
+    }, [suggestions, setArmedGalleryRecall]);
+
+    /**
      * Keyboard for the open picker. Returns true when the event was consumed,
      * so the composer knows not to send on Enter.
      */
@@ -145,6 +168,7 @@ export function useGalleryMention({
         arm,
         unarm,
         dismissSuggestion,
+        armPendingSuggestions,
         /** Called on send: a dismissal applies to the message it was made on,
          *  not to the rest of the session. */
         resetSuggestions,
