@@ -21,6 +21,7 @@ import { useChapterSealing } from './hooks/useChapterSealing';
 import { useMessageEditor } from './hooks/useMessageEditor';
 import { useChatOperations } from '../hooks/useChatOperations';
 import { useChatAttachment } from './hooks/useChatAttachment';
+import { useGalleryMention } from './hooks/useGalleryMention';
 import { titleForUpload } from '../services/gallery/galleryIndex';
 import { uid } from '../utils/uid';
 import { useChatPersistence } from '../hooks/useChatPersistence';
@@ -128,6 +129,10 @@ export function ChatArea() {
     const bottomRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    // Gallery `@` picker + suggestion offer. Local string matching only — it
+    // never adds a retrieval pass, and nothing reaches the payload unless the
+    // player picks it (see services/gallery/galleryMention.ts).
+    const galleryMention = useGalleryMention({ input, setInput, inputRef });
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -190,7 +195,7 @@ export function ChatArea() {
     });
 
     const { isSaving, handleForceSave, handleOpenArchive } = useChatPersistence();
-    const { handleKeyDown } = useChatKeyboard(() => handleSend());
+    const { handleKeyDown } = useChatKeyboard(() => { galleryMention.resetSuggestions(); handleSend(); });
 
     const archiveDeps = {
         setArchiveIndex,
@@ -304,7 +309,7 @@ export function ChatArea() {
                     oocBusy={oocBusy}
                     onInputChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    onSend={() => handleSend()}
+                    onSend={() => { galleryMention.resetSuggestions(); handleSend(); }}
                     onStop={handleStop}
                     attachment={attachment}
                     attachmentBusy={attachmentBusy}
@@ -312,6 +317,7 @@ export function ChatArea() {
                     onAttachFromDataTransfer={(data) => attachFromDataTransfer(data, input)}
                     onCaptionChange={setAttachmentCaption}
                     onRemoveAttachment={clearAttachment}
+                    gallery={galleryMention}
                 />
             </div>
 

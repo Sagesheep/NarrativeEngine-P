@@ -4,6 +4,8 @@ import { Send, Square, ImagePlus } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { ChatAttachmentChip } from './ChatAttachmentChip';
 import type { ChatAttachment } from '../hooks/useChatAttachment';
+import { GalleryPicker, GalleryArmedChips, GallerySuggestions } from './GalleryComposerBar';
+import type { useGalleryMention } from '../hooks/useGalleryMention';
 
 /**
  * Bottom composer row: active-preset selector, deep-search armed chip,
@@ -24,6 +26,7 @@ export function ChatComposer({
     onAttachFromDataTransfer,
     onCaptionChange,
     onRemoveAttachment,
+    gallery,
 }: {
     input: string;
     inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -39,6 +42,7 @@ export function ChatComposer({
     onAttachFromDataTransfer?: (data: DataTransfer | null) => boolean;
     onCaptionChange?: (caption: string) => void;
     onRemoveAttachment?: () => void;
+    gallery?: ReturnType<typeof useGalleryMention>;
 }) {
     const settings = useAppStore(s => s.settings);
     const deepArmed = useAppStore(s => s.deepArmed);
@@ -62,6 +66,24 @@ export function ChatComposer({
             onDrop={handleDrop}
             onDragOver={e => { if (onAttachFromDataTransfer) e.preventDefault(); }}
         >
+            {gallery && (
+                <>
+                    <GalleryPicker
+                        matches={gallery.pickerOpen ? gallery.matches : []}
+                        activeIndex={gallery.activeIndex}
+                        onHover={gallery.setActiveIndex}
+                        onPick={gallery.pick}
+                    />
+                    <GalleryArmedChips armed={gallery.armed} onRemove={gallery.unarm} />
+                    {!gallery.pickerOpen && (
+                        <GallerySuggestions
+                            suggestions={gallery.suggestions}
+                            onAdd={gallery.arm}
+                            onDismiss={gallery.dismissSuggestion}
+                        />
+                    )}
+                </>
+            )}
             {attachment && onCaptionChange && onRemoveAttachment && (
                 <ChatAttachmentChip
                     attachment={attachment}
@@ -113,8 +135,15 @@ export function ChatComposer({
                 <textarea
                     ref={inputRef}
                     value={input}
-                    onChange={onInputChange}
-                    onKeyDown={onKeyDown}
+                    onChange={e => { onInputChange(e); gallery?.syncFromTextarea(); }}
+                    onKeyDown={e => {
+                        // The picker claims Enter/Tab/arrows while it is open, so
+                        // Enter selects a match instead of sending the message.
+                        if (gallery?.handleKeyDown(e)) return;
+                        onKeyDown(e);
+                    }}
+                    onKeyUp={() => gallery?.syncFromTextarea()}
+                    onClick={() => gallery?.syncFromTextarea()}
                     onPaste={handlePaste}
                     placeholder="What do you do?"
                     className="flex-1 bg-transparent px-2 py-2.5 text-sm text-text-primary placeholder:text-text-dim/40 font-mono resize-none border-none outline-none min-h-[40px] leading-5"
