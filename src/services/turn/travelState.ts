@@ -66,6 +66,7 @@ export function ensureTransitNode(
         lastSeenScene: String(Date.now()),
         source: 'manual',
         kind: 'transit',
+        recordKind: 'route',
     };
     return { transitId: transit.id, upsert: [transit] };
 }

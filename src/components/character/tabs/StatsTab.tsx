@@ -4,6 +4,22 @@ import { scanCharacterProfile } from '../../../services/characterProfileParser';
 import { toast } from '../../Toast';
 import type { EndpointConfig, ProviderConfig, CharacterProfile } from '../../../types';
 
+// Local copy of the ledger's tab union -- deliberately not imported from
+// CharacterLedgerModal, which imports this file.
+type LedgerTab = 'sheet' | 'record' | 'inventory' | 'stats';
+
+/**
+ * Explicit labels for the three comma-separated lists. These used to be derived
+ * from the key (`abilities` -> "Abilities"), which collided head-on with the
+ * Sheet tab's "Abilities / Powers" and "Traits" -- same word, different store,
+ * different prompt path. The hint says which one the user is looking at.
+ */
+const LIST_FIELDS: { k: 'skills' | 'abilities' | 'traits'; label: string; hint: string }[] = [
+    { k: 'skills', label: 'Skills', hint: 'comma-separated' },
+    { k: 'abilities', label: 'Abilities', hint: 'stat block — not the Signature Kit powers' },
+    { k: 'traits', label: 'Traits', hint: 'stat block — not the Sheet tab traits' },
+];
+
 function SceneTag({ lastScene }: { lastScene: string }) {
     if (!lastScene || lastScene === 'Never') {
         return <span className="text-text-dim/40">Never updated</span>;
@@ -18,7 +34,7 @@ function SceneTag({ lastScene }: { lastScene: string }) {
  * (hp/level/skills/abilities) + `Populate Profile` button, moved verbatim
  * from the lower half of the old ContextDrawer `book` tab (BookkeepingTab.tsx).
  */
-export function StatsTab() {
+export function StatsTab({ onNavigateTab }: { onNavigateTab?: (tab: LedgerTab) => void } = {}) {
     const context = useAppStore((s) => s.context);
     const updateContext = useAppStore((s) => s.updateContext);
     const messages = useAppStore((s) => s.messages);
@@ -67,9 +83,32 @@ export function StatsTab() {
             </div>
 
             <div className="pt-2">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-1">
                     <h3 className="text-[11px] uppercase tracking-wider text-ember">Character Profile</h3>
                 </div>
+
+                {/* Three tabs in this modal show character data; this is the one
+                    the GM reads for numbers. Naming the other two here is what
+                    stops them reading as duplicates that failed to sync. */}
+                <p className="text-[9px] text-text-dim/50 leading-relaxed mb-2">
+                    The stat block: numbers the GM reads. Narrative gear and powers live in{' '}
+                    <button
+                        onClick={() => onNavigateTab?.('sheet')}
+                        disabled={!onNavigateTab}
+                        className="text-amber-400/80 hover:text-amber-400 underline decoration-dotted underline-offset-2 disabled:no-underline disabled:text-text-dim/50"
+                    >
+                        Sheet &rsaquo; Signature Kit
+                    </button>
+                    , carried items in{' '}
+                    <button
+                        onClick={() => onNavigateTab?.('inventory')}
+                        disabled={!onNavigateTab}
+                        className="text-ice/80 hover:text-ice underline decoration-dotted underline-offset-2 disabled:no-underline disabled:text-text-dim/50"
+                    >
+                        Inventory
+                    </button>
+                    . These lists are separate on purpose and do not sync.
+                </p>
                 {rawEdit ? (
                     <textarea
                         className="w-full bg-void border border-border rounded text-text-primary text-[11px] px-2 py-1 focus:border-terminal outline-none font-mono"
@@ -116,9 +155,9 @@ export function StatsTab() {
                                 onChange={(e) => setCharacterProfileData({ ...profile, hp: { ...profile.hp, max: Number(e.target.value) } })}
                             />
                         </div>
-                        {(['skills', 'abilities', 'traits'] as (keyof CharacterProfile)[]).map((k) => (
+                        {LIST_FIELDS.map(({ k, label, hint }) => (
                             <div key={k}>
-                                <label className="text-[9px] text-text-dim/60">{k[0].toUpperCase() + k.slice(1)} <span className="text-text-dim/30">(comma-separated)</span></label>
+                                <label className="text-[9px] text-text-dim/60">{label} <span className="text-text-dim/30">({hint})</span></label>
                                 <input
                                     className="w-full bg-transparent border-b border-border/50 hover:border-border focus:border-terminal outline-none text-text-primary text-[11px] px-1"
                                     value={((profile[k] as string[] | undefined) ?? []).join(', ')}

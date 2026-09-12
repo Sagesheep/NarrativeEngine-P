@@ -52,6 +52,11 @@ export function LocationEditForm({
 }: Props) {
     return (
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {renderedForm.coordinates && <div className="text-xs text-text-dim">Map coordinates: {renderedForm.coordinates.x}, {renderedForm.coordinates.y}</div>}
+            {isEditing && <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={Boolean(form.pinned)} onChange={event => setForm({ ...form, pinned: event.target.checked })} />
+                Pin in places
+            </label>}
             <div className="flex items-center justify-between gap-2 pr-8">
                 <h2 className="text-terminal text-base font-bold tracking-widest uppercase">
                     {isEditing ? (selectedId ? 'Edit Place' : 'New Place') : 'Place Details'}

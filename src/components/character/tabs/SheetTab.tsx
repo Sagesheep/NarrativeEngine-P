@@ -38,7 +38,11 @@ export interface SheetTabHandle {
  * identity (the persona block sources from `characterProfile`; the kit line
  * sources from `playerCharacter.signatureKit`).
  */
-export const SheetTab = forwardRef<SheetTabHandle, { onStartGuidedCreation?: () => void }>(function SheetTab({ onStartGuidedCreation }, ref) {
+// Local copy of the ledger's tab union -- deliberately not imported from
+// CharacterLedgerModal, which imports this file.
+type LedgerTab = 'sheet' | 'record' | 'inventory' | 'stats';
+
+export const SheetTab = forwardRef<SheetTabHandle, { onStartGuidedCreation?: () => void; onNavigateTab?: (tab: LedgerTab) => void }>(function SheetTab({ onStartGuidedCreation, onNavigateTab }, ref) {
     const {
         playerCharacter,
         setPlayerCharacter,
@@ -197,6 +201,7 @@ export const SheetTab = forwardRef<SheetTabHandle, { onStartGuidedCreation?: () 
                 onGeneratePortrait={handleGeneratePortrait}
                 onUploadPortrait={handleUploadPortrait}
                 onRemovePortrait={handleRemovePortrait}
+                onNavigateTab={onNavigateTab}
             />
         );
     }
@@ -215,6 +220,7 @@ export const SheetTab = forwardRef<SheetTabHandle, { onStartGuidedCreation?: () 
                 onGeneratePortrait={handleGeneratePortrait}
                 onUploadPortrait={handleUploadPortrait}
                 onRemovePortrait={handleRemovePortrait}
+                onNavigateTab={onNavigateTab}
             />
         );
     }

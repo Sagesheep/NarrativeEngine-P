@@ -15,7 +15,7 @@ import { ScreenLightbox } from '../ScreenLightbox';
 import { uid } from '../../utils/uid';
 import type { NPCEntry, PlayerCharacter } from '../../types';
 
-type LedgerTab = 'sheet' | 'record' | 'inventory' | 'stats';
+export type LedgerTab = 'sheet' | 'record' | 'inventory' | 'stats';
 
 const TABS: { key: LedgerTab; Icon: typeof FileText; label: string }[] = [
     { key: 'sheet' as const,     Icon: FileText,  label: 'Sheet' },
@@ -234,10 +234,10 @@ export function CharacterLedgerModal() {
                             `min-height: auto` on a flex item resolves to
                             min-content and the panel grows instead of scrolling. */}
                         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-                            {activeTab === 'sheet' && <SheetTab ref={sheetRef} onStartGuidedCreation={() => setGuidedMode(true)} />}
+                            {activeTab === 'sheet' && <SheetTab ref={sheetRef} onStartGuidedCreation={() => setGuidedMode(true)} onNavigateTab={setActiveTab} />}
                             {activeTab === 'record' && <RecordTab />}
-                            {activeTab === 'inventory' && <InventoryTab />}
-                            {activeTab === 'stats' && <StatsTab />}
+                            {activeTab === 'inventory' && <InventoryTab onNavigateTab={setActiveTab} />}
+                            {activeTab === 'stats' && <StatsTab onNavigateTab={setActiveTab} />}
                         </div>
                     </>
                 )}

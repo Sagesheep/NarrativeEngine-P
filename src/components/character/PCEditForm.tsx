@@ -8,6 +8,7 @@ import { getEntriesForNpc, CATEGORY_LABELS, EMPTY_REGISTER } from '../../service
 import { TRAIT_NAMES, TRAIT_VOCAB } from '../../services/npc/agency/agencyPools';
 import { hexBand, relationBand } from '../../services/npc/agency/agencyBands';
 import { RelationshipMemoryEditor } from './RelationshipMemoryEditor';
+import { inventoryMatchesForKitEntry } from '../../utils/signatureKitMatch';
 
 /**
  * PCEditForm — the player character editor (WO-A rewrite 2 — baseline parity).
@@ -36,6 +37,10 @@ import { RelationshipMemoryEditor } from './RelationshipMemoryEditor';
  * editor has too.
  */
 
+// Local copy of the ledger's tab union -- deliberately not imported from
+// CharacterLedgerModal, which owns the tab state this calls back into.
+type LedgerTab = 'sheet' | 'record' | 'inventory' | 'stats';
+
 type Props = {
     form: Partial<PlayerCharacter>;
     setForm: React.Dispatch<React.SetStateAction<Partial<PlayerCharacter>>>;
@@ -48,11 +53,13 @@ type Props = {
     onGeneratePortrait: () => void;
     onUploadPortrait: (file: File) => void;
     onRemovePortrait: () => void;
+    onNavigateTab?: (tab: LedgerTab) => void;
 };
 
 export function PCEditForm({
     form, setForm, selectedId, isEditing, isGeneratingImage,
     onEdit, onSave, onCancel, onGeneratePortrait, onUploadPortrait, onRemovePortrait,
+    onNavigateTab,
 }: Props) {
     const isPC = !!form.isPC;
     void isPC; // always true for the PC form — kept for parity with NPCEditForm branches
@@ -67,6 +74,10 @@ export function PCEditForm({
     const [traitSearch, setTraitSearch] = useState('');
     const [relationTargetId, setRelationTargetId] = useState('');
     const npcLedger = useAppStore(s => s.npcLedger);
+    // Display only: the kit and the inventory are separate stores with separate
+    // prompt paths, and nothing here writes across. We read the pack purely to
+    // tell the user which kit entries they are also actually carrying.
+    const inventoryItems = useAppStore(s => s.inventoryItems ?? s.context.inventoryItems ?? []);
     const relationshipMemoriesNpcToMc = useAppStore(s => s.relationshipMemoriesNpcToMc);
     const relationshipMemoryEnabled = useAppStore(s => s.context.relationshipMemory === true);
 
@@ -116,6 +127,16 @@ export function PCEditForm({
     };
 
     const KIT_MAX = 8;
+    // Which equipment entries also exist as inventory rows. Indices into
+    // `signatureKit.equipment`; display only.
+    const carriedKitEntries = useMemo(() => {
+        const carried = new Set<number>();
+        (form.signatureKit?.equipment || []).forEach((entry, i) => {
+            if (inventoryMatchesForKitEntry(entry, inventoryItems).length > 0) carried.add(i);
+        });
+        return carried;
+    }, [form.signatureKit, inventoryItems]);
+
     const emptyKit = { equipment: [] as string[], abilities: [] as string[] };
     const updateKitEntry = (field: 'equipment' | 'abilities', index: number, value: string) => {
         const kit = form.signatureKit ?? emptyKit;
@@ -300,11 +321,28 @@ export function PCEditForm({
                     <div className="bg-void p-4 rounded border border-border space-y-3">
                         <div className="flex items-center justify-between">
                             <span className="text-text-primary font-bold uppercase tracking-widest text-xs">Signature Kit</span>
-                            <span className="text-[9px] text-text-dim/50 normal-case tracking-normal">Durable gear &amp; powers — stays consistent across scenes</span>
                         </div>
+                        {/* This panel is the one most often mistaken for a second
+                            inventory. State the actual contract: few entries, every
+                            turn, forever -- and point at the pack. */}
+                        <p className="text-[9px] text-text-dim/50 leading-relaxed normal-case tracking-normal">
+                            The handful of things that define this character. Injected into{' '}
+                            <em className="not-italic text-text-dim/70">every</em> turn so the GM never forgets them, which is
+                            why it is capped at {KIT_MAX} each. It is not the pack &mdash; that is{' '}
+                            <button
+                                onClick={() => onNavigateTab?.('inventory')}
+                                disabled={!onNavigateTab}
+                                className="text-ice/80 hover:text-ice underline decoration-dotted underline-offset-2 disabled:no-underline disabled:text-text-dim/50"
+                            >
+                                Inventory
+                            </button>
+                            , and the two do not sync.
+                        </p>
                         <div>
                             <div className="flex items-center justify-between mb-1">
-                                <label className="text-amber-400 text-[10px] uppercase tracking-wider">Equipment</label>
+                                <label className="text-amber-400 text-[10px] uppercase tracking-wider">
+                                    Equipment <span className="text-text-dim/50">{(form.signatureKit?.equipment || []).length}/{KIT_MAX}</span>
+                                </label>
                                 {isEditing && (form.signatureKit?.equipment?.length ?? 0) < KIT_MAX && (
                                     <button onClick={() => addKitEntry('equipment')} className="text-[9px] text-terminal hover:text-terminal/80 uppercase tracking-wider">+ Add</button>
                                 )}
@@ -319,6 +357,25 @@ export function PCEditForm({
                                         placeholder="e.g. Excalibur (holy longsword)"
                                         className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void focus:outline-none focus:border-amber-500"
                                     />
+                                    {item.trim() !== '' && (
+                                        carriedKitEntries.has(i) ? (
+                                            <button
+                                                onClick={() => onNavigateTab?.('inventory')}
+                                                disabled={!onNavigateTab}
+                                                className="text-[8px] px-1 rounded bg-ice/10 border border-ice/40 text-ice/90 shrink-0 hover:border-ice transition-colors disabled:hover:border-ice/40"
+                                                title="Also a row in the Inventory tab. Click to open it."
+                                            >
+                                                CARRIED
+                                            </button>
+                                        ) : (
+                                            <span
+                                                className="text-[8px] px-1 rounded bg-void border border-border/40 text-text-dim/50 shrink-0"
+                                                title="No matching row in the Inventory tab. That is fine - the GM still remembers this every turn - but the pack will not list it."
+                                            >
+                                                NOT IN PACK
+                                            </span>
+                                        )
+                                    )}
                                     {isEditing && <button onClick={() => removeKitEntry('equipment', i)} className="text-danger/60 hover:text-danger p-1 shrink-0"><Trash2 size={11} /></button>}
                                 </div>
                             ))}
@@ -328,7 +385,9 @@ export function PCEditForm({
                         </div>
                         <div>
                             <div className="flex items-center justify-between mb-1">
-                                <label className="text-ice text-[10px] uppercase tracking-wider">Abilities / Powers</label>
+                                <label className="text-ice text-[10px] uppercase tracking-wider">
+                                    Abilities / Powers <span className="text-text-dim/50">{(form.signatureKit?.abilities || []).length}/{KIT_MAX}</span>
+                                </label>
                                 {isEditing && (form.signatureKit?.abilities?.length ?? 0) < KIT_MAX && (
                                     <button onClick={() => addKitEntry('abilities')} className="text-[9px] text-terminal hover:text-terminal/80 uppercase tracking-wider">+ Add</button>
                                 )}

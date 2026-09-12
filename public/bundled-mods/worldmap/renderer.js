@@ -1224,7 +1224,7 @@ export function mountMapRenderer(root, options) {
         const record = snapshot.encounter;
         const profile = worldProfile(snapshot.settings?.worldProfile);
         const settingChanged = record && (record.worldProfile ?? 'fantasy') !== profile.id;
-        const key = JSON.stringify([record, snapshot.encounterJournal, profile.id]);
+        const key = JSON.stringify([record, snapshot.encounterJournal, snapshot.encounterArchive, profile.id]);
         if (key === encounterPanelKey) return;
         encounterPanelKey = key; encounterPanel.replaceChildren();
         encounterPanel.style.display = record ? 'block' : 'none';
@@ -1267,11 +1267,40 @@ export function mountMapRenderer(root, options) {
         const saveNote = makeElement('button', 'Save outcome'); saveNote.type = 'button';
         saveNote.addEventListener('click', () => onRouteAction?.('noteEncounter', { key: record.key, note: note.value }));
         notes.append(note, saveNote); encounterPanel.append(notes);
+        const flags = (row, parent) => {
+            for (const [field, label] of [['pinned', 'Pin encounter'], ['unresolved', 'Keep unresolved / active lead']]) {
+                const control = document.createElement('label'); control.style.display = 'block';
+                const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = Boolean(row[field]);
+                checkbox.setAttribute('aria-label', `${label} ${row.key}`);
+                checkbox.addEventListener('change', () => onRouteAction?.('flagEncounter', { key: row.key, flags: { [field]: checkbox.checked } }));
+                control.append(checkbox, document.createTextNode(label)); parent.append(control);
+            }
+        };
+        flags(record, encounterPanel);
         const journal = document.createElement('details');
         const summary = document.createElement('summary'); summary.textContent = 'Recent checkpoints'; journal.append(summary);
-        for (const old of snapshot.encounterJournal ?? []) journal.append(makeElement('div',
-            `Day ${old.worldDay} · ${old.weather} · ${old.quiet ? 'Quiet' : old.events.map(event => event.title).join(', ')} · ${old.status}${old.note ? ' · ' + old.note : ''}`, { marginTop: '4px' }));
+        const addRecord = (old, parent) => {
+            const row = document.createElement('details'); row.style.marginTop = '5px';
+            const title = document.createElement('summary');
+            title.textContent = `Day ${old.worldDay} · (${old.x}, ${old.y}) · ${old.quiet ? 'Quiet' : old.events.map(event => event.title).join(', ')}${old.unresolved ? ' · unresolved' : ''}${old.pinned ? ' · pinned' : ''}`;
+            row.append(title);
+            row.append(makeElement('div', `${old.status}${old.note ? ' · ' + old.note : ''}`));
+            for (const event of old.events) row.append(makeElement('div', event.text));
+            flags(old, row);
+            if (old.unresolved) {
+                const resolve = makeElement('button', 'Mark resolved'); resolve.type = 'button';
+                resolve.addEventListener('click', () => onRouteAction?.('handleEncounter', { key: old.key })); row.append(resolve);
+            }
+            parent.append(row);
+        };
+        for (const old of snapshot.encounterJournal ?? []) if (old.key !== record.key) addRecord(old, journal);
         encounterPanel.append(journal);
+        const archive = document.createElement('details');
+        const archiveTitle = document.createElement('summary'); archiveTitle.textContent = `Archived encounters (${(snapshot.encounterArchive ?? []).length})`;
+        archive.append(archiveTitle);
+        archive.append(makeElement('div', 'Inactive encounters archive after 7 in-game days. Pinned and unresolved leads stay available. Pin an archived entry to restore it.'));
+        for (const old of snapshot.encounterArchive ?? []) addRecord(old, archive);
+        encounterPanel.append(archive);
     }
 
 
@@ -1287,7 +1316,7 @@ export function mountMapRenderer(root, options) {
     function updateDiscoveryPanel(snapshot) {
         const nearby = snapshot.nearbyDiscoveries ?? [];
         const sites = [...nearby, ...(snapshot.discoveries ?? []).filter(site => !nearby.some(local => local.id === site.id))
-            .map(site => ({ ...site, distance: Infinity }))];
+            .map(site => ({ ...site, distance: Infinity }))].filter(site => site.id === snapshot.locationId || !(snapshot.discoveries ?? []).find(row => row.id === site.id)?.hidden);
         const key = JSON.stringify([sites, Boolean(snapshot.travel), snapshot.locationId]);
         if (key === discoveryPanelKey) return;
         discoveryPanelKey = key;
@@ -1627,7 +1656,7 @@ export function mountMapRenderer(root, options) {
         }
         const cell = snapshot.chunkStore.getCell(x, y);
         hoverCell = { x, y, biome: cell.biome, elevation: cell.elevation };
-        hoverReadout.textContent = (snapshot.generated ? (snapshot.visible?.has(`${x},${y}`) ? 'Visible · ' : 'Known · ') : '') + cell.biome.charAt(0).toUpperCase() + cell.biome.slice(1);
+        hoverReadout.textContent = (snapshot.generated ? (snapshot.visible?.has(`${x},${y}`) ? 'Visible · ' : 'Known · ') : '') + ({ deadzone: 'Dead zone', sand: 'Dry sand' }[cell.biome] ?? cell.biome.charAt(0).toUpperCase() + cell.biome.slice(1));
     }
 
     function showContextMenu(event) {
@@ -1733,6 +1762,7 @@ export function mountMapRenderer(root, options) {
         drawRoadDraft(snapshot, cell);
         const anchoredSiteIds = new Set((snapshot.anchors ?? []).map(anchor => anchor.locationId));
         for (const site of snapshot.discoveries ?? []) {
+            if (site.hidden && site.id !== snapshot.locationId) continue;
             if (anchoredSiteIds.has(site.id) || (layerState.fog && snapshot.explored && !snapshot.explored.has(`${site.x},${site.y}`))) continue;
             const screen = cellCentreToScreen(site.x, site.y);
             ctx.save(); ctx.fillStyle = '#e4c785';
@@ -2149,6 +2179,7 @@ export function mountMapRenderer(root, options) {
         let currentAnchorEntry = null;
         // First pass: every anchor except the current one.
         for (const anchor of snapshot.anchors || []) {
+            if (anchor.hidden && anchor.locationId !== snapshot.locationId) continue;
             if (anchor.locationId === currentPlaceId) {
                 currentAnchorEntry = anchor;
                 continue;

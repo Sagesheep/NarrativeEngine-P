@@ -30,6 +30,10 @@ export type LocationEntry = {
     source: 'llm' | 'manual';
     /** 'transit' = the road/route occupied while traversing an edge, not a
      *  destination. Undefined means 'place' — every existing entry stays a place. */
+    /** Stable world-map grid cell. Route records use journey geometry instead. */
+    coordinates?: { x: number; y: number };
+    recordKind?: 'place' | 'position' | 'route';
+    pinned?: boolean;
     kind?: 'place' | 'transit';
 };
 

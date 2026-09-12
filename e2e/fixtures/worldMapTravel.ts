@@ -92,10 +92,17 @@ function makeContext(): any {
         getLocationState: () => ({ ...useAppStore.getState().context, ledger: useAppStore.getState().locationLedger }),
     });
 }
+const lateCampaign = new URLSearchParams(location.search).has('lateCampaign');
+const openingCampaign = useAppStore.getState().activeCampaignId;
+if (lateCampaign) useAppStore.setState({ activeCampaignId: null });
 const ctx = makeContext();
 useAppStore.subscribe(save);
 flushSync(() => createRoot(document.getElementById('bridge')!).render(React.createElement(WorldMapTravelBridge)));
 await onActivate(ctx);
+if (lateCampaign) {
+    useAppStore.setState({ activeCampaignId: openingCampaign });
+    modEventBus.emit('campaign.opened', { campaignId: openingCampaign! });
+}
 if (new URLSearchParams(location.search).has('realWindow')) {
     await import('../../src/index.css');
     const campaign = useAppStore.getState().activeCampaignId;
@@ -105,10 +112,20 @@ if (new URLSearchParams(location.search).has('realWindow')) {
     registerWindowDeclaration('worldmap', 'World Map', windows.find(w => w.id === 'map-canvas'), 0, registrationContext);
     openWindow('mod.worldmap.map-canvas');
     flushSync(() => createRoot(document.getElementById('map')!).render(React.createElement(WindowManager)));
-} else windows.find(w => w.id === 'map-canvas').mount(document.getElementById('map'), ctx);
+} else windows.find(w => w.id === 'map-canvas').mount(document.getElementById('map'), makeContext());
 (window as any).worldmapTest = {
     read: async () => { const live = await ctx.refresh(); return ({ ledger: useAppStore.getState().locationLedger, context: useAppStore.getState().context, messages: useAppStore.getState().messages, composerInjection: useAppStore.getState().composerInjection,
         snapshot: { party: mapSnapshot(live)?.party, locationId: mapSnapshot(live)?.locationId, visible: [...(mapSnapshot(live)?.visible ?? [])] }, journey: validJourney(tables.journey) ? tables.journey : null, trails: tables.trails, discoveries: tables.discoveries, encounters: tables.encounters, exploration: tables.exploration, roads: tables.roads }); },
+    retentionScene: () => {
+        const a = mapSnapshot(makeContext()).anchors.find((row: any) => row.locationId === 'a');
+        const old = { x:a.x, y:a.y, worldDay:1, weather:'clear', biome:'plains', status:'passed', quiet:false, scene:'An old checkpoint.' };
+        tables.encounters = { records: [
+            { ...old, key:`1:${a.x}:${a.y}`, events:[{title:'Old merchant',text:'A trader offered rope.'}], note:'Bought rope.' },
+            { ...old, x:a.x+1, key:`1:${a.x+1}:${a.y}`, pinned:true, events:[{title:'Pinned trader',text:'Return here later.'}] },
+            { ...old, x:a.x+2, key:`1:${a.x+2}:${a.y}`, unresolved:true, events:[{title:'Missing parcel',text:'The parcel has not been found.'}] },
+        ] };
+        useAppStore.getState().updateContext({ worldDay:10, currentPlaceId:'a',travel:null }); save();
+    },
     encounterScene: async () => {
         const { rollEncounter } = await (new Function('return import("/bundled-mods/worldmap/encounters.js")'))();
         const snapshot = mapSnapshot(makeContext());
@@ -121,6 +138,22 @@ if (new URLSearchParams(location.search).has('realWindow')) {
         tables.trails = { edges: [{ a: party, b: { x: party.x + 1, y: party.y }, passes: 3 }] };
         save();
     },
+    biomeScene: () => {
+        const anchor = mapSnapshot(makeContext()).anchors.find((row: any) => row.locationId === 'a');
+        const biomes = ['snow', 'volcanic', 'deadzone', 'sand', 'swamp'];
+        tables.visited = [];
+        const cells: string[] = [];
+        for (let dy = -24; dy <= 24; dy++) for (let dx = -35; dx <= 35; dx++) {
+            const x = anchor.x + dx, y = anchor.y + dy;
+            tables.visited.push({ x, y, biome: biomes[Math.min(4, Math.floor((dx + 35) / 14))] });
+            cells.push(`${x},${y}`);
+        }
+        tables.exploration = { version: 2, cells, generatedCells: cells };
+        useAppStore.getState().updateContext({ travel: null, travelMode: 'foot', currentPlaceId: 'a' });
+        save();
+    },
+    forgetReveal: () => { tables.exploration = { version: 2, cells: [], generatedCells: [] }; save(); },
+    terrain: (x: number, y: number) => mapSnapshot(makeContext()).chunkStore.getCell(x, y),
     artScene: () => {
         const anchor = mapSnapshot(makeContext()).anchors.find((row: any) => row.locationId === 'a');
         tables.visited = [];

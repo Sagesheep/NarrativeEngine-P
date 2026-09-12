@@ -4,6 +4,11 @@ import { scanInventory } from '../../../services/inventoryParser';
 import { toast } from '../../Toast';
 import type { EndpointConfig, ProviderConfig, InventoryItemCategory, InventoryItem } from '../../../types';
 import { normalizeInventoryItem } from '../../../types';
+import { isItemInSignatureKit } from '../../../utils/signatureKitMatch';
+
+// Local copy of the ledger's tab union -- deliberately not imported from
+// CharacterLedgerModal, which imports this file.
+type LedgerTab = 'sheet' | 'record' | 'inventory' | 'stats';
 
 const ALL_CATS: (InventoryItemCategory | 'all' | 'equipped')[] = ['all', 'equipped', 'weapon', 'armor', 'consumable', 'currency', 'key', 'misc'];
 const DISPLAY_LABEL: Record<string, string> = {
@@ -28,10 +33,14 @@ function InventoryRow({
     it,
     onUpdate,
     onRemove,
+    inKit,
+    onOpenKit,
 }: {
     it: InventoryItem;
     onUpdate: (id: string, patch: Partial<InventoryItem>) => void;
     onRemove: (id: string) => void;
+    inKit?: boolean;
+    onOpenKit?: () => void;
 }) {
     const [expanded, setExpanded] = useState(false);
     return (
@@ -54,6 +63,15 @@ function InventoryRow({
                     value={it.name}
                     onChange={(e) => onUpdate(it.id, { name: e.target.value })}
                 />
+                {inKit && (
+                    <button
+                        onClick={onOpenKit}
+                        className="text-[8px] px-1 rounded bg-amber-500/10 border border-amber-500/40 text-amber-400/90 shrink-0 hover:border-amber-400 transition-colors"
+                        title="Also listed in the Signature Kit, so the GM is reminded of it every turn. Click to open the Sheet tab."
+                    >
+                        SIG
+                    </button>
+                )}
                 <span className="text-[8px] px-1 rounded bg-void border border-border/40 text-text-dim/70 shrink-0 max-w-[80px] truncate" title={`Location: ${it.locationTag || 'inventory'}`}>
                     {it.locationTag || 'inventory'}
                 </span>
@@ -126,8 +144,11 @@ function InventoryRow({
  * tabs, raw-edit, `Check Inventory` button), moved verbatim from the upper
  * half of the old ContextDrawer `book` tab (BookkeepingTab.tsx).
  */
-export function InventoryTab() {
+export function InventoryTab({ onNavigateTab }: { onNavigateTab?: (tab: LedgerTab) => void } = {}) {
     const context = useAppStore((s) => s.context);
+    // Same mirror-then-context read the inventory list uses below.
+    const playerCharacter = useAppStore((s) => s.playerCharacter ?? s.context.playerCharacter);
+    const kit = playerCharacter?.signatureKit ?? null;
     const updateContext = useAppStore((s) => s.updateContext);
     const messages = useAppStore((s) => s.messages);
     const archiveIndex = useAppStore((s) => s.archiveIndex);
@@ -188,6 +209,14 @@ export function InventoryTab() {
         setInventoryItems(inventoryItems.filter((it) => it.id !== id));
     };
 
+    // Rows the Signature Kit also names. Display only -- the two stores stay separate.
+    const sigItemIds = useMemo(
+        () => new Set(inventoryItems.filter((it) => isItemInSignatureKit(it, kit)).map((it) => it.id)),
+        [inventoryItems, kit],
+    );
+    const kitCount = kit?.equipment?.length ?? 0;
+    const sigCount = sigItemIds.size;
+
     const tabCounts = useMemo(() => {
         const counts: Record<string, number> = { all: inventoryItems.length };
         for (const it of inventoryItems) {
@@ -229,7 +258,7 @@ export function InventoryTab() {
             </div>
 
             <div>
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-1">
                     <h3 className="text-[11px] uppercase tracking-wider text-ice flex items-center gap-2">
                         Player Inventory <span className="text-[9px] text-text-dim/40">({inventoryItems.length} items)</span>
                     </h3>
@@ -240,6 +269,23 @@ export function InventoryTab() {
                         + Add
                     </button>
                 </div>
+
+                {/* What this list is, and what the other one is. These are two
+                    different mechanisms, not two copies -- say so here rather
+                    than letting them read as an out-of-sync duplicate. */}
+                <p className="text-[9px] text-text-dim/50 leading-relaxed mb-2">
+                    Everything the character is carrying. The GM is shown the rows that matter to the current scene.
+                    Gear that should <em className="not-italic text-text-dim/70">never</em> be forgotten belongs in{' '}
+                    <button
+                        onClick={() => onNavigateTab?.('sheet')}
+                        disabled={!onNavigateTab}
+                        className="text-amber-400/80 hover:text-amber-400 underline decoration-dotted underline-offset-2 disabled:no-underline disabled:text-text-dim/50"
+                    >
+                        Sheet &rsaquo; Signature Kit
+                    </button>
+                    {kitCount > 0 && <span className="text-text-dim/40"> ({kitCount} there now, {sigCount} matched below)</span>}
+                    . Adding an item here does not add it there.
+                </p>
 
                 {rawEdit ? (
                     <textarea
@@ -288,6 +334,8 @@ export function InventoryTab() {
                                     it={it}
                                     onUpdate={updateItem}
                                     onRemove={removeItem}
+                                    inKit={sigItemIds.has(it.id)}
+                                    onOpenKit={() => onNavigateTab?.('sheet')}
                                 />
                             ))}
                             {filteredItems.length === 0 && (

@@ -102,11 +102,13 @@ export const BIOME_COLORS = Object.freeze({
     marsh: '#4a6a55',
     jungle: '#1f5e34',
     mountain: '#7a6a5a',
+    snow: '#e4edf0', volcanic: '#63535b', deadzone: '#9b8c91', sand: '#e9cc8b', swamp: '#486b60',
 });
 
 export const BIOME_IDS = Object.freeze([
     'ocean', 'glacier', 'tundra', 'taiga', 'forest', 'plains',
     'farmland', 'savanna', 'desert', 'marsh', 'jungle', 'mountain',
+    'snow', 'volcanic', 'deadzone', 'sand', 'swamp',
 ]);
 
 /**
@@ -143,7 +145,7 @@ function ihash(x, y, salt) {
 }
 
 /**
- * Derive the three field salts from `worldSeed` numerically, once per field
+ * Derive the four field salts from `worldSeed` numerically, once per field
  * construction. Folding the octave in with `salt ^ Math.imul(octave + 1,
  * 0x9e3779b1)` replaces the per-octave string concatenation that dominated
  * the old hot path.
@@ -159,6 +161,7 @@ export function seedSalts(worldSeed) {
         elev: base ^ 0x11111111,
         temp: base ^ 0x22222222,
         moist: base ^ 0x33333333,
+        geology: base ^ 0x44444444,
     };
 }
 
@@ -217,7 +220,7 @@ function fbm(x, y, salt) {
 
 function latitudeFactor(y, worldSize) {
     const normalised = (y / worldSize) * 2 - 1;
-    return 1 - (normalised * normalised);
+    return 1 - 2 * (normalised * normalised);
 }
 
 function rainShadow(elev) {
@@ -250,8 +253,11 @@ export function sampleRawField(x, y, worldSeed, climateGradient = 0.65, salts = 
     const temp = (lat * climateGradient) - (elev * LAPSE_RATE) + ((1 - climateGradient) * tempNoise);
     const moistNoise = fbm((x / scale) * 0.8 + 11.3, (y / scale) * 0.8 + 7.1, salts.moist);
     const moist = moistNoise + rainShadow(elev);
+    // A broad geological field forms contiguous exposed rock and volcanic regions.
+    const geology = fbm(x / scale * 0.55, y / scale * 0.55, salts.geology ?? seedSalts(worldSeed).geology);
     return {
         elev,
+        geology,
         temp: clamp(temp, -1, 1),
         moist: clamp(moist, -1, 1),
     };
@@ -259,13 +265,18 @@ export function sampleRawField(x, y, worldSeed, climateGradient = 0.65, salts = 
 
 /**
  * Classify a raw field sample to a biome id. Below sea level is always
- * `ocean`; high elevation is `mountain` regardless of the Whittaker cell.
+ * `ocean`; high elevation forms peaks, with snow cover or volcanic ground where appropriate.
  * Those two rules are what make coastlines and peaks structural instead of
  * authored.
  */
 export function classifyBiome(sample) {
     if (sample.elev < FIELD_SEA_LEVEL) return 'ocean';
+    if (sample.elev > 0.3 && sample.geology > 0.32) return 'volcanic';
+    if (sample.temp < -0.25 && sample.moist > -0.3) return 'snow';
     if (sample.elev > FIELD_MOUNTAIN_LEVEL) return 'mountain';
+    if (sample.temp > 0.15 && sample.moist < -0.3 && sample.geology < -0.25) return 'deadzone';
+    if (sample.temp > 0.45 && sample.moist < -0.45) return 'sand';
+    if (sample.temp > 0.15 && sample.moist > 0.25 && sample.elev < 0.18) return 'swamp';
     const tempBucket = bucketIndex(sample.temp, TEMP_BUCKETS);
     const moistBucket = bucketIndex(sample.moist, MOIST_BUCKETS);
     return WHITTAKER_TABLE[tempBucket][moistBucket];
@@ -273,7 +284,7 @@ export function classifyBiome(sample) {
 
 /**
  * Build a lookup of warp control points from solved transects. Each control
- * point is `{ x, y, target: { elev, temp, moist }, radius }`. The radius is
+ * point is `{ x, y, target: { elev, temp, moist, geology }, radius }`. The radius is
  * the transect's `noiseResumeDistance`, beyond which the weight is zero and
  * the noise wins outright.
  */
@@ -294,6 +305,7 @@ export function buildWarpField(transects = []) {
                     elev: Number.isFinite(target.elev) ? target.elev : null,
                     temp: Number.isFinite(target.temp) ? target.temp : null,
                     moist: Number.isFinite(target.moist) ? target.moist : null,
+                    geology: Number.isFinite(target.geology) ? target.geology : null,
                 },
             });
         }
@@ -347,9 +359,11 @@ export function sampleField(x, y, worldSeed, climateGradient, controls = [], sal
     const elev = warpDimension(raw.elev, 'elev', x, y, controls);
     const temp = warpDimension(raw.temp, 'temp', x, y, controls);
     const moist = warpDimension(raw.moist, 'moist', x, y, controls);
-    const warped = (elev !== raw.elev) || (temp !== raw.temp) || (moist !== raw.moist);
+    const geology = warpDimension(raw.geology, 'geology', x, y, controls);
+    const warped = (geology !== raw.geology) || (elev !== raw.elev) || (temp !== raw.temp) || (moist !== raw.moist);
     const sample = {
         elev,
+        geology,
         temp: clamp(temp, -1, 1),
         moist: clamp(moist, -1, 1),
     };

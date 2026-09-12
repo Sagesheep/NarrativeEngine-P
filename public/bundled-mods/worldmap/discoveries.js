@@ -46,13 +46,13 @@ export function featureAtBlock(seed, bx, by, store, nearTrail = () => false) {
     }
     const biome = store.getCell(site.x, site.y).biome;
     if (biome === 'ocean' || biome === 'glacier') return null;
-    if (site.type === 'crossing' && !['marsh', 'forest', 'plains', 'farmland'].includes(biome)) return null;
-    if (site.type === 'settlement' && ['mountain', 'jungle', 'marsh'].includes(biome)) return null;
+    if (site.type === 'crossing' && !['marsh', 'swamp', 'forest', 'plains', 'farmland'].includes(biome)) return null;
+    if (site.type === 'settlement' && ['mountain', 'jungle', 'marsh', 'swamp', 'volcanic', 'deadzone', 'snow', 'sand'].includes(biome)) return null;
     const density = ['plains', 'farmland', 'forest', 'savanna'].includes(biome) ? 1 : 0.45;
     const roadAffinity = ['settlement', 'camp', 'crossing'].includes(site.type) && nearTrail(site.x, site.y) ? 1.35 : 1;
     if (site.roll > spec.density * density * roadAffinity) return null;
     return { id: `site-${hash(seed).toString(16)}-${site.x}-${site.y}`, x: site.x, y: site.y,
-        type: site.type, ...(site.type === 'settlement' ? { settlementKind: site.settlementKind } : {}), biome, name: '', description: '' };
+        type: site.type, ...(site.type === 'settlement' ? { settlementKind: site.settlementKind } : {}), biome, name: '', description: terrainDescription(biome, site.type) };
 }
 export function readDiscoveries(raw) {
     const sites = new Map();
@@ -92,4 +92,12 @@ export function nameDiscovery(state, id, name, description) {
     if (!site) return false;
     state.sites.set(id, { ...site, name: String(name ?? '').trim().slice(0, 80), description: String(description ?? '').trim().slice(0, 600) });
     return true;
+}
+
+// Physical geography only: no assumed curse, radiation, magic or advanced technology.
+export function terrainDescription(biome, type) {
+    const ground = { snow: 'Snow-covered ground and exposed rocks', volcanic: 'Dark volcanic rock and ash deposits',
+        deadzone: 'Barren, eroded ground with almost no vegetation', sand: 'Loose dunes and wind-shaped sand',
+        swamp: 'Waterlogged ground, wooded pools and tangled roots' }[biome];
+    return ground ? `${ground} surround this ${SITE_TYPES[type]?.label.toLowerCase() ?? 'place'}.` : '';
 }

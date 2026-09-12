@@ -1,6 +1,11 @@
 import { worldProfile, PROFILE_EVENTS } from './worldProfiles.js';
 // Engine-owned scene seeds. The normal GM turn elaborates these saved facts.
 const SCENERY = {
+    snow: ['Wind combs ridges into deep snow.', 'Snow fills the spaces between exposed rocks.'],
+    volcanic: ['Dark fractured rock rises through beds of ash.', 'Ash gathers in hollows between volcanic rocks.'],
+    deadzone: ['Bare eroded ground supports almost no vegetation.', 'Dry cracks divide a barren expanse. The cause is not established.'],
+    sand: ['Wind-shaped dunes shelter pockets of loose sand.', 'Fine sand slips down the lee of a dune.'],
+    swamp: ['Tangled roots overhang dark pools.', 'Waterlogged woodland leaves few patches of firm footing.'],
     plains: ['Low grass bends in the wind.', 'Seed heads brush against the travel gear.'],
     farmland: ['Field boundaries break up the cultivated ground.', 'Crop rows stretch across the surrounding fields.'],
     savanna: ['Dry grass rustles around scattered trees.', 'Open grassland leaves long sight lines between the trees.'],
@@ -18,6 +23,11 @@ const PEOPLE = ['Tamsin', 'Orin', 'Sella', 'Venn', 'Iria', 'Corin', 'Neris', 'Da
 const SURNAMES = ['Reed', 'Vale', 'Moss', 'Ash', 'Brook', 'Finch', 'Stone', 'Rowan'];
 // Eligibility is geography, not an instruction for the GM to force a result.
 export const LOCAL_EVENTS = [
+    { id: 'snow-drift', biomes: ['snow'], weight: 3, title: 'A covered trail marker', text: 'A trail marker barely protrudes from a snowdrift. Its markings are partly obscured.', action: 'I inspect the marker from secure footing.' },
+    { id: 'volcanic-vent', biomes: ['volcanic'], weight: 3, title: 'A steaming fissure', text: 'Vapour rises intermittently from a crack among the rocks. Loose ash outlines the opening.', action: 'I observe the fissure from a distance and look for a route around it.' },
+    { id: 'deadzone-marker', biomes: ['deadzone'], weight: 3, title: 'An eroded marker', text: 'A weathered marker stands alone in barren ground. Its remaining markings may explain who passed here.', action: 'I examine the remaining markings.' },
+    { id: 'sand-object', biomes: ['sand'], weight: 3, title: 'An object under the dune', text: 'Wind has exposed a corner of a buried object. Its nature is not yet clear.', action: 'I examine the exposed corner before disturbing the sand.' },
+    { id: 'swamp-log', biomes: ['swamp'], weight: 3, title: 'A drifting obstruction', text: 'A partly submerged log shifts across a narrow channel between the roots.', action: 'I watch the current and look for firm ground.' },
     { id: 'road-merchant', road: true, weight: 4, title: 'A roadside merchant', role: 'travelling merchant', motive: 'trade ordinary supplies and learn whether the route ahead is clear', text: '{name} rests beside a pack of small wares at the edge of the worn path.', action: 'I greet the merchant and ask what they have for sale.' },
     { id: 'road-courier', road: true, weight: 2, title: 'A courier taking a breather', role: 'courier', motive: 'find reliable directions before continuing a delivery', text: '{name} checks a folded route sketch beside the path, watching for someone to ask.', action: 'I ask the courier where they are heading.' },
     { id: 'road-repair', road: true, weight: 2, title: 'A broken pack strap', role: 'traveller', motive: 'repair a split strap without losing the daylight', text: '{name} has spread a small load beside the path and is trying to mend a broken strap.', action: 'I approach the traveller and offer to take a look.' },
@@ -48,7 +58,7 @@ export function eligibleLocalEvents(input) {
     if (input.feature?.distance === 0 && input.feature.type === 'settlement') return [];
     const profile = worldProfile(input.worldProfile).id;
     const traditional = ['fantasy', 'historical'].includes(profile);
-    const base = profile === 'scifi' ? [] : LOCAL_EVENTS.filter(row => traditional || (!row.road && !row.role));
+    const base = profile === 'scifi' ? LOCAL_EVENTS.filter(row => ['snow-drift', 'volcanic-vent', 'deadzone-marker', 'sand-object', 'swamp-log'].includes(row.id)) : LOCAL_EVENTS.filter(row => traditional || (!row.road && !row.role));
     const rows = [...base, ...PROFILE_EVENTS.filter(row => row.profiles.includes(profile))];
     return rows.filter(row => row.road ? input.onRoad && input.biome !== 'ocean' && input.biome !== 'glacier' : row.biomes.includes(input.biome));
 }

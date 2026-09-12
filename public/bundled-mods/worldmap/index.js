@@ -1,7 +1,8 @@
+import { reconcilePlaceRecords, isTemporaryPlace } from './placeRecords.js';
 import { readRoads, serializeRoads, roadEdges, travelSurfaces, planRoad, roadCandidates, roadConnectedLedger } from './roads.js';
 import { readExploration, readGeneratedCells, serializeExploration, revealCells, visibleCells, explorationPoint, validCell } from './exploration.js';
 import { worldProfile } from './worldProfiles.js';
-import { checkpointKey, readEncounters, serializeEncounters, recordCheckpoint, handleEncounter, noteEncounter } from './encounters.js';
+import { checkpointKey, readEncounters, serializeEncounters, recordCheckpoint, handleEncounter, noteEncounter, setEncounterFlags } from './encounters.js';
 import { fixedSiteAnchors, promoteSite, preferSiteStops } from './siteTravel.js';
 import { readDiscoveries, serializeDiscoveries, surveyDiscoveries, nearbyDiscoveries, nameDiscovery, siteLabel } from './discoveries.js';
 import { readTrails, serializeTrails, recordTrailProgress } from './trails.js';
@@ -157,6 +158,9 @@ async function updateDiscoveries(ctx) {
     const snapshot = mapSnapshot(ctx);
     if (!snapshot) return;
     const location = ctx.data.location;
+    const records = reconcilePlaceRecords(location.ledger ?? [], snapshot.anchors,
+        discoveriesByCampaign.get(campaignId)?.sites.values() ?? []);
+    if (records !== location.ledger && ctx.write?.setLocationLedger) await ctx.write.setLocationLedger(records);
     const centre = snapshot.party ?? snapshot.anchors.find(anchor => anchor.locationId === location.currentPlaceId);
     if (!centre) return;
     await observeTerrain(ctx, [centre]);
@@ -1456,7 +1460,7 @@ export function mapSnapshot(ctx) {
     const ledgerById = new Map(ledger.map(entry => [entry.id, entry]));
     const anchors = fixedSiteAnchors(result, discoveriesByCampaign.get(campaignId)?.sites.values() ?? [], ledger).map(anchor => {
         const location = ledgerById.get(anchor.locationId);
-        return { ...anchor, name: location?.name ?? anchor.locationId, ...(location?.kind === 'transit' ? { kind: 'transit' } : {}) };
+        return { ...anchor, hidden: isTemporaryPlace(location), name: location?.name ?? anchor.locationId, ...(location?.kind === 'transit' ? { kind: 'transit' } : {}) };
     });
     const controls = buildWarpField(result.transects || []);
     const chunkStore = ensureChunkStore(campaignId, result.settings, controls, hardened);
@@ -1500,12 +1504,13 @@ export function mapSnapshot(ctx) {
         generated: generatedByCampaign.get(campaignId) ?? new Set(),
         visible: visibleCells(encounterCell),
         encounter,
-        encounterJournal: [...encounterRecords.values()].slice(-6).reverse(),
+        encounterJournal: [...encounterRecords.values()].filter(row => row.archivedOnDay == null && (!row.quiet || row.note || row.pinned || row.unresolved)).reverse(),
+        encounterArchive: [...encounterRecords.values()].filter(row => row.archivedOnDay != null).reverse(),
         anchors,
         transects: result.transects || [],
         connections: result.connections || [],
         trails: serializeTrails(trailsByCampaign.get(campaignId) ?? readTrails(null)).edges,
-        discoveries: [...(discoveriesByCampaign.get(campaignId)?.sites.values() ?? [])],
+        discoveries: [...(discoveriesByCampaign.get(campaignId)?.sites.values() ?? [])].map(site => site.type === 'wilderness' && isTemporaryPlace(ledgerById.get(site.id) ?? { ...site, recordKind: 'position' }) ? { ...site, hidden: true } : site),
         nearbyDiscoveries: nearbyDiscoveries(discoveriesByCampaign.get(campaignId) ?? readDiscoveries(null),
             party ?? anchors.find(anchor => anchor.locationId === ctx.data?.location?.currentPlaceId)),
         waypoints: result.waypoints || [],
@@ -1707,19 +1712,30 @@ function mountMap(node, ctx) {
                 if (!latest || latest.data.campaignId !== campaignId) return;
                 const record = mapSnapshot(latest)?.encounter;
                 if (!record || record.key !== payload?.key) return;
+                if (payload.kind === 'reply') {
+                    const task = encounterQueue.then(async () => {
+                        const records = setEncounterFlags(encountersByCampaign.get(campaignId) ?? new Map(), record.key, { unresolved: true }, latest.data.location.worldDay);
+                        await latest.table.write('encounters', serializeEncounters(records));
+                        encountersByCampaign.set(campaignId, records); snapshotCacheByCampaign.delete(campaignId);
+                    });
+                    encounterQueue = task.catch(error => ctx.log?.('[worldmap] interaction save failed', error));
+                    await task;
+                }
                 latest.events?.emit('roleplayRequest', { campaignId, key: record.key,
                     placeId: latest.data.location.currentPlaceId, worldDay: record.worldDay,
                     leg: latest.data.location.travel?.leg ?? null, text: payload.text, kind: payload.kind });
             })().catch(error => ctx.log?.('[worldmap] roleplay handoff failed', error));
             return;
         }
-        if (action === 'handleEncounter' || action === 'noteEncounter') {
+        if (action === 'handleEncounter' || action === 'noteEncounter' || action === 'flagEncounter') {
             const campaignId = currentCampaignId;
             const task = encounterQueue.then(async () => {
                 const fresh = await freshCampaignContext(ctx);
-                if (!fresh || fresh.data.campaignId !== campaignId || mapSnapshot(fresh)?.encounter?.key !== payload?.key) return;
+                if (!fresh || fresh.data.campaignId !== campaignId) return;
                 const previous = encountersByCampaign.get(campaignId) ?? new Map();
-                const next = action === 'noteEncounter' ? noteEncounter(previous, payload.key, payload.note) : handleEncounter(previous, payload.key);
+                const day = fresh.data.location.worldDay;
+                const next = action === 'flagEncounter' ? setEncounterFlags(previous, payload?.key, payload?.flags, day)
+                    : action === 'noteEncounter' ? noteEncounter(previous, payload?.key, payload?.note, day) : handleEncounter(previous, payload?.key, day);
                 if (next === previous) return;
                 await fresh.table.write('encounters', serializeEncounters(next));
                 encountersByCampaign.set(campaignId, next);
@@ -2118,36 +2134,55 @@ export async function onActivate(ctx) {
     if (!ctx) return;
     registerReportWindow(ctx);
     registerMapWindow(ctx);
-    ctx.subscribe('location', () => {
-        // The native host context is a snapshot; refresh it on each movement.
-        // This listener also runs while the map window is closed.
-        // Capture the refreshed state and geometry before a window listener
-        // clears the completed journey. Serialize writes across rapid presses.
-        const captured = freshCampaignContext(ctx).then(fresh => fresh && ({
-            fresh: { ...fresh, data: fresh.data }, journey: journeyByCampaign.get(fresh.data.campaignId),
-        }));
-        movementQueue = movementQueue.then(async () => {
-            const event = await captured;
-            if (!event) return;
-            await rememberJourneyPosition(event.fresh);
-            await rememberTrails(event.fresh, event.journey);
-            await updateDiscoveries(event.fresh);
-            if (!event.fresh.data.location?.travel && event.journey
-                && journeyByCampaign.get(event.fresh.data.campaignId) === event.journey) {
-                await clearJourney(event.fresh);
-            }
-        }).catch(error => ctx.log?.('[worldmap] movement save failed', error));
-        queueSolve(ctx).then(() => hardenCurrentCell(ctx));
-    });
-    ctx.subscribe('loreChunks', () => queueSolve(ctx));
+    let stopLocation = () => {};
+    let stopLore = () => {};
+    function bindCampaignSubscriptions(campaignCtx) {
+        // Host reactive subscriptions are campaign-scoped and are revoked on open/switch.
+        // The activation context may have been created on the campaign selection screen.
+        stopLocation(); stopLore();
+        stopLocation = campaignCtx.subscribe('location', () => {
+            // The native host context is a snapshot; refresh it on each movement.
+            // This listener also runs while the map window is closed.
+            // Capture the refreshed state and geometry before a window listener
+            // clears the completed journey. Serialize writes across rapid presses.
+            const captured = freshCampaignContext(campaignCtx).then(fresh => fresh && fresh.data.campaignId === campaignCtx.data.campaignId && ({
+                fresh: { ...fresh, data: fresh.data }, journey: journeyByCampaign.get(fresh.data.campaignId),
+            }));
+            movementQueue = movementQueue.then(async () => {
+                const event = await captured;
+                if (!event) return;
+                await rememberJourneyPosition(event.fresh);
+                await rememberTrails(event.fresh, event.journey);
+                await updateDiscoveries(event.fresh);
+                if (!event.fresh.data.location?.travel && event.journey
+                    && journeyByCampaign.get(event.fresh.data.campaignId) === event.journey) {
+                    await clearJourney(event.fresh);
+                }
+            }).catch(error => ctx.log?.('[worldmap] movement save failed', error));
+            queueSolve(campaignCtx).then(() => hardenCurrentCell(campaignCtx));
+        });
+        stopLore = campaignCtx.subscribe('loreChunks', () => queueSolve(campaignCtx));
+    }
     ctx.events?.on('campaign.opened', async () => {
         const fresh = await freshCampaignContext(ctx);
         if (fresh) {
             await hydratePosition(fresh);
             journeyByCampaign.set(fresh.data.campaignId, await readJourney(fresh));
             hardenedByCampaign.set(fresh.data.campaignId, await readHardened(fresh));
+            bindCampaignSubscriptions(fresh);
+            await queueSolve(fresh);
+            // Repair the known prefix of an interrupted journey, never its future cells.
+            movementQueue = movementQueue.then(async () => {
+                const live = await freshCampaignContext(fresh);
+                if (!live || live.data.campaignId !== fresh.data.campaignId) return;
+                const journey = journeyByCampaign.get(live.data.campaignId);
+                await rememberJourneyPosition(live);
+                await rememberTrails(live, journey);
+                await updateDiscoveries(live);
+                if (!live.data.location?.travel && journey) await clearJourney(live);
+            }).catch(error => ctx.log?.('[worldmap] campaign reveal recovery failed', error));
+            await movementQueue;
         }
-        queueSolve(ctx);
     });
     const positionContext = await freshCampaignContext(ctx);
     if (positionContext) {
@@ -2158,8 +2193,10 @@ export async function onActivate(ctx) {
     await queueSolve(ctx);
     const initial = await freshCampaignContext(ctx);
     if (initial) {
+        bindCampaignSubscriptions(initial);
         hardenedByCampaign.set(initial.data.campaignId, await readHardened(initial));
         await hardenCurrentCell(initial);
+        await rememberTrails(initial, journeyByCampaign.get(initial.data.campaignId));
         await updateDiscoveries(initial);
     }
 }

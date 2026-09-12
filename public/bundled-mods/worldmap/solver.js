@@ -22,12 +22,20 @@ export const DISTANCE_BANDS = Object.freeze([
 
 export const TERRAIN_VOCABULARY = Object.freeze({
     ocean: Object.freeze({ elev: -0.60 }),
-    mountain: Object.freeze({ elev: 0.80, temp: -0.30 }),
+    mountain: Object.freeze({ elev: 0.80, temp: -0.10, geology: 0 }),
     hills: Object.freeze({ elev: 0.30 }),
     plains: Object.freeze({ elev: 0.05 }),
-    tundra: Object.freeze({ elev: 0.10, temp: -0.70, moist: -0.20 }),
+    tundra: Object.freeze({ elev: 0.10, temp: -0.30, moist: -0.40 }),
     pasture: Object.freeze({ moist: 0.30 }),
-    farmland: Object.freeze({ elev: 0.05, temp: 0.20, moist: 0.40 }),
+    farmland: Object.freeze({ elev: 0.05, temp: 0.20, moist: -0.10 }),
+    forest: Object.freeze({ elev: 0.2, temp: 0.1, moist: 0.15 }),
+    marsh: Object.freeze({ elev: 0.1, temp: 0.1, moist: 0.5 }),
+    desert: Object.freeze({ elev: 0.15, temp: 0.6, moist: -0.35, geology: 0 }),
+    snow: Object.freeze({ elev: 0.2, temp: -0.6, moist: 0.1, geology: 0 }),
+    volcanic: Object.freeze({ elev: 0.5, temp: 0.2, moist: -0.2, geology: 0.6 }),
+    deadzone: Object.freeze({ elev: 0.2, temp: 0.4, moist: -0.5, geology: -0.6 }),
+    sand: Object.freeze({ elev: 0.15, temp: 0.7, moist: -0.6, geology: 0 }),
+    swamp: Object.freeze({ elev: 0.08, temp: 0.4, moist: 0.6 }),
 });
 
 export const SLOPE_VOCABULARY = Object.freeze({
@@ -201,11 +209,12 @@ function terrainTarget(name) {
         elev: value.elev ?? null,
         temp: value.temp ?? null,
         moist: value.moist ?? null,
+        geology: value.geology ?? null,
     };
 }
 
 function mergeTerrainTargets(names) {
-    const dimensions = ['elev', 'temp', 'moist'];
+    const dimensions = ['elev', 'temp', 'moist', 'geology'];
     const merged = {};
     for (const dimension of dimensions) {
         const values = names
@@ -318,6 +327,8 @@ export function parseNeighborClause(rawClause, context = {}) {
         .toLowerCase()
         .replace(/-to-/g, ' to ')
         .replace(/-/g, ' ')
+        .replace(/\bdead zone\b/g, 'deadzone')
+        .replace(/\bdry sand\b/g, 'sand')
         .split(/\s+/)
         .filter(Boolean);
     const parts = [];
@@ -558,6 +569,9 @@ function sanitizeLocations(input, warnings) {
             aliases: String(raw.aliases ?? ''),
             connections: Array.isArray(raw.connections) ? raw.connections : [],
             kind: raw.kind === 'transit' ? 'transit' : 'place',
+            coordinates: Number.isSafeInteger(raw.coordinates?.x) && Number.isSafeInteger(raw.coordinates?.y)
+                && raw.coordinates.x >= 0 && raw.coordinates.y >= 0 && raw.coordinates.x < WORLD_SIZE && raw.coordinates.y < WORLD_SIZE
+                ? { x: raw.coordinates.x, y: raw.coordinates.y } : undefined,
         });
     }
     return locations.sort(stableNodeCompare);
@@ -705,6 +719,8 @@ function buildDistanceConstraints(locations, lore, warnings, transitLocations) {
  */
 function collectPins(locations, lorePins, refusals) {
     const candidates = [];
+    for (const place of locations) if (place.coordinates) candidates.push({ id: `saved:${place.id}`, locationId: place.id,
+        locationName: place.name, ...place.coordinates, order: 0, source: 'saved' });
     for (const pin of lorePins) candidates.push({ ...pin, order: 1 });
     candidates.sort((left, right) =>
         stableNodeCompare({ id: left.locationId, name: left.locationName }, { id: right.locationId, name: right.locationName })
@@ -970,7 +986,7 @@ function relaxDistanceConstraints(locations, pins, constraintsInput, fieldClause
 }
 
 function targetsConflict(left, right) {
-    const dimensions = ['elev', 'temp', 'moist'];
+    const dimensions = ['elev', 'temp', 'moist', 'geology'];
     return dimensions.some(dimension =>
         finiteNumber(left[dimension])
         && finiteNumber(right[dimension])
@@ -1553,8 +1569,8 @@ export function solveWorldMap(input = {}) {
     // Solve places only. Transit nodes never take part in relaxation.
     const lore = parseLoreConstraints(places, input.loreChunks);
     warnings.push(...lore.warnings);
-    // WO 4.4 — pins come from lore `Coords:` only; the anchors table is a
-    // pure output cache, never an input.
+    // Saved ledger coordinates and lore Coords constrain layout; the anchors table
+    // remains an output cache. Established coordinates win reported conflicts.
     const pins = collectPins(places, lore.pins, refusals);
     const distanceConstraints = buildDistanceConstraints(places, lore, warnings, transit);
     let fieldClauses = lore.clauses.filter(clause => clause.kind === 'transect');
@@ -1630,7 +1646,7 @@ export function solveWorldMap(input = {}) {
                 locationId: location.id,
                 x: position.x,
                 y: position.y,
-                source: pin ? 'lore' : 'solved',
+                source: pin ? pin.source === 'saved' ? 'saved' : 'lore' : 'solved',
             };
         }),
         ...waypoints.map(waypoint => ({

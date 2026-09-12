@@ -8,7 +8,7 @@ export const WORLD_PROFILES = [
     { id: 'postapoc', label: 'Post-apocalyptic', guidance: 'Post-apocalyptic setting: salvage, scarcity, damaged infrastructure and survivors. Do not assume mutations, zombies or supernatural creatures unless already established in campaign lore.' },
 ];
 export function worldProfile(id) { return WORLD_PROFILES.find(row => row.id === id) ?? WORLD_PROFILES[0]; }
-const LAND = ['plains', 'farmland', 'savanna', 'forest', 'taiga', 'tundra', 'desert', 'marsh', 'jungle', 'mountain', 'glacier'];
+const LAND = ['plains', 'farmland', 'savanna', 'forest', 'taiga', 'tundra', 'desert', 'marsh', 'jungle', 'mountain', 'glacier', 'snow', 'volcanic', 'deadzone', 'sand', 'swamp'];
 export const PROFILE_EVENTS = [
     { id: 'modern-delivery', profiles: ['modern'], road: true, weight: 4, title: 'A delayed delivery', role: 'delivery driver', motive: 'check the route before continuing a delivery', text: '{name} compares a delivery address with an offline map beside a parked vehicle.', action: 'I ask the driver whether they need directions.' },
     { id: 'modern-ranger', profiles: ['modern'], biomes: LAND, weight: 3, title: 'A ranger checking conditions', role: 'ranger', motive: 'check local conditions and warn travellers about hazards', text: '{name} records observations on a handheld device and notices the party.', action: 'I ask the ranger about conditions ahead.' },

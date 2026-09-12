@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LocationLedgerModal } from '../LocationLedgerModal';
 import { normalizeLocationIds } from '../../utils/locationIds';
 import { useAppStore } from '../../store/useAppStore';
@@ -200,4 +200,26 @@ describe('LocationLedgerModal', () => {
         expect(checkpointMsg).toBeDefined();
         expect(checkpointMsg!.content).toContain('Point B');
     });
+});
+
+it('keeps travel records accessible without filling the default sidebar', () => {
+    const road = { ...makeLocation('road','Road between A and B'), kind:'transit' as const, recordKind:'route' as const };
+    const point = { ...makeLocation('point','Exploration point (5, 7)'), recordKind:'position' as const, coordinates:{x:5,y:7} };
+    const inn = { ...makeLocation('inn','Road between C and D'), kind:'transit' as const, features:['An old inn'] };
+    useAppStore.setState({locationLedgerOpen:true, locationLedger:[road,point,inn,makeLocation('town','Town')],context:{}});
+    render(<LocationLedgerModal />);
+    expect(screen.queryByText(road.name)).not.toBeInTheDocument();
+    expect(screen.queryByText(point.name)).not.toBeInTheDocument();
+    expect(screen.getByText(inn.name)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Show travel records'));
+    fireEvent.click(screen.getByText(point.name));
+    expect(screen.getByText('Map coordinates: 5, 7')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Edit',exact:true}));
+    fireEvent.click(screen.getByLabelText('Pin in places'));
+    fireEvent.click(screen.getByRole('button',{name:'Save',exact:true}));
+    fireEvent.click(screen.getByLabelText('Show travel records'));
+    expect(screen.getByText(point.name)).toBeInTheDocument();
+    expect(useAppStore.getState().locationLedger).toHaveLength(4);
+    expect(useAppStore.getState().locationLedger.find(row=>row.id==='point')?.coordinates).toEqual({x:5,y:7});
+    cleanup(); useAppStore.setState({locationLedgerOpen:false,locationLedger:[]});
 });

@@ -310,3 +310,76 @@ party, reveals fog or calls story AI. Existing journeys keep their saved schedul
 Verified: 252 map/backend tests, 16 browser scenarios, production build, targeted lint
 and dependency import graph refresh. See MILESTONES.md for candidate rules and limits.
 Next planned milestone: G3 biome logic and expanded biome palette.
+
+
+## G3 — geography and biome expansion — COMPLETE 2026-09-12
+
+Added snow, volcanic terrain, barren dead zones, dry sand and swamp, with distinct
+pixel art, travel costs, site eligibility, scenery and genre-filtered local events.
+Corrected polar/equatorial climate and added broad seeded geology. Lore constraints
+can shape all five new types, including readable dead zone and dry sand phrases.
+Existing hardened terrain and saved scenes remain intact; reload the app to apply
+new generation in unexplored areas. Fog still distinguishes generated/visible state.
+
+Verified: 342 affected tests, 17 browser scenarios, production build, targeted lint,
+real-renderer visual inspection and dependency graph refresh. See MILESTONES.md for
+terrain rules, migration behavior and deferred urban/hazard simulation scope.
+
+
+## Fog observer recovery — FIXED 2026-09-12
+
+The host revokes reactive subscriptions when the active campaign changes. World Map
+had registered its movement observer only at mod activation, which can happen before
+campaign selection. A subsequently opened map could move the party marker while no
+background observer saved the traversed corridor, discoveries, trails or encounters.
+The previous browser fixture always activated inside an already open campaign.
+
+The mod now rebinds movement and lore subscriptions from a fresh campaign context on
+campaign.opened. Loading also observes the completed prefix of a saved journey and
+the current sight radius, restoring missing fog where route evidence remains. Future
+route cells remain ungenerated. Older routes that were never recorded and have since
+been replaced cannot be reconstructed from a location name alone.
+
+Verified with a new production-host browser regression that first failed with a moving
+party on unrevealed terrain, then passed after the fix. It covers campaign opening
+after activation, each checkpoint's sight radius, loss/recovery of saved fog, and no
+reveal beyond the travelled corridor. All 18 map browser scenarios, 342 affected tests,
+production build and targeted lint pass. The affected live campaign was read only;
+recovery runs through the normal mod lifecycle after reloading the app.
+
+
+## G4 — place records and encounter retention — COMPLETE 2026-09-12
+
+- Ledger entries now support persistent grid coordinates, a place/position/route
+  record kind, and pinning. Map activation/observation backfills existing mapped
+  entries without deleting IDs, descriptions, features, connections or references.
+  Saved coordinates constrain future solver layouts; conflicting lore coordinates
+  produce a reported conflict. Discovered sites keep their established exact cells.
+- Newly visited empty cells are coordinate-position records, not ordinary permanent
+  places. Named landmarks/sites remain places. Existing transit IDs are retained for
+  the host travel and story-reference contracts, rather than deleted or renumbered.
+- The Places sidebar hides plain automatic transit names and uncustomized coordinate
+  points by default. Show travel records restores access. Names, descriptions, features,
+  aliases, status or an explicit pin protect meaningful records from being hidden.
+  Old untyped Road between entries are not guessed to be disposable. Editing a record
+  preserves its coordinates and pin; place details show coordinates and search accepts
+  coordinates. Current travel reads Travelling toward the destination.
+- The map hides the same plain temporary markers except the current position. Its
+  discovery selector keeps the current empty point editable and hides other plain
+  empty points. Renaming/describing a point makes it visible. Terrain/fog/discovery
+  identities and saved road geometry remain separate and persistent.
+- Inactive encounters archive after seven in-game days since their last interaction.
+  This uses days, never message/turn counts. Viewing/reopening the map is not an
+  interaction. Replying marks an encounter unresolved; notes, flags and resolution
+  update the interaction date. Pins, unresolved leads, current available encounters
+  and explicit quest references are protected. Mark handled/resolved clears the lead.
+- Recent checkpoints omit quiet unannotated clutter. Archived encounters remain in
+  a separate expandable journal with original text, coordinates and notes. Pinning an
+  archived record restores it. No history is deleted; this is visibility/retention
+  organization, not destructive storage compaction. Automatic quest inference is not
+  introduced: Keep unresolved / active lead is the explicit protection control.
+- Verified: 396 affected map/location/travel/backend/story tests; 19 browser scenarios;
+  production build and targeted lint. Tests cover migration idempotence, fixed layout,
+  preserved IDs/links, sidebar filtering/pinning, seven-day expiry, protected leads,
+  archived notes and restore/reload. Dependency graph refreshed. No live campaign
+  files were manually rewritten; the normal lifecycle applies the migration on reload.

@@ -36,7 +36,8 @@ export function filterLocations(locations: LocationEntry[], query: string): Loca
         list = list.filter(l =>
             l.name.toLowerCase().includes(q) ||
             l.aliases?.toLowerCase().includes(q) ||
-            l.broadLocation?.toLowerCase().includes(q)
+            l.broadLocation?.toLowerCase().includes(q) ||
+            (l.coordinates ? `${l.coordinates.x}, ${l.coordinates.y}`.includes(q) : false)
         );
     }
     return [...list].sort((a, b) => a.name.localeCompare(b.name));

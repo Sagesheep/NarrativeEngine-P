@@ -483,3 +483,77 @@ test('generated road proposals can be reviewed and saved once without exploring'
     await expect(page.getByText('0 new roads proposed · 0 blocked connections skipped')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Save roads', exact: true })).toBeDisabled();
 });
+
+
+test('expanded biomes render distinct terrain and preserve it across reload', async ({ page }, testInfo) => {
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.evaluate(() => (window as any).worldmapTest.biomeScene());
+    await page.reload(); await page.waitForFunction(() => !!(window as any).worldmapTest);
+    await page.getByRole('button', { name: 'Centre on your party (C)', exact: true }).click();
+    await page.getByLabel('Fog layer').uncheck();
+    await expect(page.locator('[data-worldmap-loading]')).toBeHidden();
+    const saved = await read(page);
+    const terrain = await page.evaluate(() => {
+        const api = (window as any).worldmapTest;
+        const a = api.anchors().find((row: any) => row.locationId === 'a');
+        return [-28,-14,0,14,28].map(dx => api.terrain(a.x+dx,a.y).biome);
+    });
+    expect(terrain).toEqual(['snow','volcanic','deadzone','sand','swamp']);
+    await page.screenshot({ path: testInfo.outputPath('expanded-biomes.png') });
+    await page.reload(); await page.waitForFunction(() => !!(window as any).worldmapTest);
+    expect((await read(page)).exploration).toEqual(saved.exploration);
+    expect((await read(page)).context.worldDay).toBe(saved.context.worldDay);
+    expect(errors).toEqual([]);
+});
+
+
+test('opening a campaign after mod activation keeps fog following every travel checkpoint', async ({ page }) => {
+    await page.goto('/e2e/fixtures/worldMapTravel.html?lateCampaign=1');
+    await page.waitForFunction(() => !!(window as any).worldmapTest);
+    const journey = await depart(page);
+    const stops = Math.min(3, journey.checkpoints.length);
+    for (let leg = 1; leg <= stops; leg++) {
+        const cp = journey.checkpoints[leg - 1];
+        await expect.poll(async () => (await read(page)).snapshot.party).toEqual({ x: cp.x, y: cp.y });
+        await expect.poll(async () => (await read(page)).exploration?.generatedCells ?? []).toContain(`${cp.x},${cp.y}`);
+        const state = await read(page);
+        expect(state.snapshot.visible.every((key: string) => state.exploration.generatedCells.includes(key))).toBe(true);
+        if (leg < stops) await page.getByRole('button', { name: 'Continue →', exact: true }).click();
+    }
+    const revealed = (await read(page)).exploration.generatedCells;
+    // Reproduce a saved journey whose fog writes were lost while movement continued.
+    await page.evaluate(() => (window as any).worldmapTest.forgetReveal());
+    await page.reload(); await page.waitForFunction(() => !!(window as any).worldmapTest);
+    await expect.poll(async () => (await read(page)).exploration.generatedCells.length).toBeGreaterThanOrEqual(revealed.length);
+    const restored = await read(page);
+    expect(revealed.every((key: string) => restored.exploration.generatedCells.includes(key))).toBe(true);
+    const cp = journey.checkpoints[stops - 1];
+    const end = journey.cells.findIndex((cell: any) => cell.x === cp.x && cell.y === cp.y);
+    const prefix = journey.cells.slice(0, end + 1);
+    for (const key of restored.exploration.generatedCells) {
+        const [x,y] = key.split(',').map(Number);
+        expect(prefix.some((cell: any) => Math.hypot(x-cell.x,y-cell.y) <= 2)).toBe(true);
+    }
+});
+
+
+test('old encounters archive while pinned and unresolved leads remain accessible', async ({ page }) => {
+    await page.evaluate(() => (window as any).worldmapTest.retentionScene());
+    await page.reload(); await page.waitForFunction(() => !!(window as any).worldmapTest);
+    const rows = (await read(page)).encounters.records;
+    const merchant = rows.find((row: any) => row.events.some((event: any) => event.title === 'Old merchant'));
+    expect(merchant.archivedOnDay).toBe(10);
+    expect(rows.find((row: any) => row.pinned).archivedOnDay).toBeUndefined();
+    expect(rows.find((row: any) => row.unresolved).archivedOnDay).toBeUndefined();
+    await page.getByText('Recent checkpoints',{exact:true}).click();
+    await expect(page.getByText(/Day 1.*Pinned trader/)).toBeVisible();
+    await expect(page.getByText(/Day 1.*Missing parcel/)).toBeVisible();
+    await page.getByText('Archived encounters (1)',{exact:true}).click();
+    await page.getByText(/Day 1.*Old merchant/).click();
+    await expect(page.getByText('passed · Bought rope.',{exact:true})).toBeVisible();
+    await page.getByLabel(`Pin encounter ${merchant.key}`,{exact:true}).check();
+    await expect.poll(async () => (await read(page)).encounters.records.find((row: any) => row.key === merchant.key)?.pinned).toBe(true);
+    await page.reload(); await page.waitForFunction(() => !!(window as any).worldmapTest);
+    expect((await read(page)).encounters.records.find((row: any) => row.key === merchant.key)).toMatchObject({pinned:true,note:'Bought rope.'});
+    expect((await read(page)).encounters.records.find((row: any) => row.key === merchant.key).archivedOnDay).toBeUndefined();
+});

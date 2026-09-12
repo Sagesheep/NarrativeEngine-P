@@ -209,7 +209,7 @@ only storage and window mounts remain fixture adapters.
 ### G2. Places and roads — PLANNED
 Persistent usable places, terrain-aware generated road connections, and manual waypoint paths.
 
-### G3. Geography and biome expansion — PLANNED
+### G3. Geography and biome expansion — IMPLEMENTED 2026-09-12
 Coherent elevation/climate/moisture regions and transitions; volcanic, snowy, dead-zone,
 sand and swamp variants with distinct travel, discoveries, encounters and art.
 
@@ -322,3 +322,102 @@ G2B delivery details:
   targeted lint pass. Backend coverage exercises real JSON-file persistence; browser
   coverage exercises manual save/reload/remove and duplicate-free generated proposals.
   Dependency import graph refreshed. No live campaign or paid AI provider was used.
+
+
+## G3 delivery — COMPLETE 2026-09-12
+
+- Corrected latitude temperatures: both poles are cold and the equator is warm.
+  Elevation cooling and broad moisture fields remain; a seeded geological field
+  forms contiguous volcanic and barren-rock regions. All 17 biomes occur in the
+  sampled acceptance world and adjacent cells overwhelmingly retain their biome.
+- Added snow, volcanic, deadzone (Dead zone), sand (Dry sand), and swamp. Snow uses
+  cold conditions; swamps need warm, wet lowlands; sand needs hot, very dry ground;
+  volcanic terrain requires elevated geological regions. Dead zones are barren
+  erosion/drought terrain, with no assumed radiation, curse or supernatural origin.
+- Expanded travel base costs: snow 3, volcanic 4.5, dead zone 2.4, sand 2.8, swamp 3.5.
+  Carts cannot cross snow/volcanic/swamp; mounts cannot cross volcanic/swamp; boats
+  cannot cross any of these land biomes. Roads do not override terrain passability.
+- Every new biome has distinct original pixel ground motifs and scenery. Snowy rocks,
+  volcanic rock, dead trunks, dune ridges and swamp pools supplement the existing atlas.
+  Hover labels include Dead zone and Dry sand. Fog generation rules remain unchanged.
+- New local event seeds and descriptions reach the existing saved scene/story append
+  pipeline. Genre filtering remains active, including non-wildlife environmental
+  situations for science fiction. Snow precipitation is supported. No automatic
+  damage, rewards, AI calls or forced event response was introduced.
+- Automatic settlements are excluded from all five harsh terrain types; other site
+  types use existing sparse placement and spacing with biome-specific descriptions.
+  This does not delete authored settlements or established discoveries.
+- Lore neighbour clauses support the new canonical biome names, plus the readable
+  phrases dead zone and dry sand. Geology travels through compilation, compound
+  merging, field warping and conflict checks. Mountain, tundra and farmland targets
+  were corrected to select their intended terrain under the expanded classifier.
+- Saved/hardened terrain, names, discoveries and encounters remain unchanged. After
+  reloading the app, ungenerated ground uses the expanded field. Future routes can
+  therefore differ in unexplored areas; committed journeys retain their saved schedule.
+- Verified: 342 map/backend/story-payload checks; all 17 browser scenarios; production
+  build and targeted lint. Additional solver/parser regressions passed after the
+  geological target propagation fix. Rendered biome sample inspected; import graph
+  refreshed. Test campaigns only; no paid provider or live campaign writes.
+- Limits: geography is a coherent procedural approximation, not a hydrology/tectonics
+  simulation. Genre does not yet generate urban districts or replace building sprites.
+  Active lava, radiation, curses and corresponding survival systems require separate
+  explicit lore/game rules; the new biome names alone never establish those hazards.
+
+
+## Fog observer recovery — FIXED 2026-09-12
+
+The host revokes reactive subscriptions when the active campaign changes. World Map
+had registered its movement observer only at mod activation, which can happen before
+campaign selection. A subsequently opened map could move the party marker while no
+background observer saved the traversed corridor, discoveries, trails or encounters.
+The previous browser fixture always activated inside an already open campaign.
+
+The mod now rebinds movement and lore subscriptions from a fresh campaign context on
+campaign.opened. Loading also observes the completed prefix of a saved journey and
+the current sight radius, restoring missing fog where route evidence remains. Future
+route cells remain ungenerated. Older routes that were never recorded and have since
+been replaced cannot be reconstructed from a location name alone.
+
+Verified with a new production-host browser regression that first failed with a moving
+party on unrevealed terrain, then passed after the fix. It covers campaign opening
+after activation, each checkpoint's sight radius, loss/recovery of saved fog, and no
+reveal beyond the travelled corridor. All 18 map browser scenarios, 342 affected tests,
+production build and targeted lint pass. The affected live campaign was read only;
+recovery runs through the normal mod lifecycle after reloading the app.
+
+
+## G4 — place records and encounter retention — COMPLETE 2026-09-12
+
+- Ledger entries now support persistent grid coordinates, a place/position/route
+  record kind, and pinning. Map activation/observation backfills existing mapped
+  entries without deleting IDs, descriptions, features, connections or references.
+  Saved coordinates constrain future solver layouts; conflicting lore coordinates
+  produce a reported conflict. Discovered sites keep their established exact cells.
+- Newly visited empty cells are coordinate-position records, not ordinary permanent
+  places. Named landmarks/sites remain places. Existing transit IDs are retained for
+  the host travel and story-reference contracts, rather than deleted or renumbered.
+- The Places sidebar hides plain automatic transit names and uncustomized coordinate
+  points by default. Show travel records restores access. Names, descriptions, features,
+  aliases, status or an explicit pin protect meaningful records from being hidden.
+  Old untyped Road between entries are not guessed to be disposable. Editing a record
+  preserves its coordinates and pin; place details show coordinates and search accepts
+  coordinates. Current travel reads Travelling toward the destination.
+- The map hides the same plain temporary markers except the current position. Its
+  discovery selector keeps the current empty point editable and hides other plain
+  empty points. Renaming/describing a point makes it visible. Terrain/fog/discovery
+  identities and saved road geometry remain separate and persistent.
+- Inactive encounters archive after seven in-game days since their last interaction.
+  This uses days, never message/turn counts. Viewing/reopening the map is not an
+  interaction. Replying marks an encounter unresolved; notes, flags and resolution
+  update the interaction date. Pins, unresolved leads, current available encounters
+  and explicit quest references are protected. Mark handled/resolved clears the lead.
+- Recent checkpoints omit quiet unannotated clutter. Archived encounters remain in
+  a separate expandable journal with original text, coordinates and notes. Pinning an
+  archived record restores it. No history is deleted; this is visibility/retention
+  organization, not destructive storage compaction. Automatic quest inference is not
+  introduced: Keep unresolved / active lead is the explicit protection control.
+- Verified: 396 affected map/location/travel/backend/story tests; 19 browser scenarios;
+  production build and targeted lint. Tests cover migration idempotence, fixed layout,
+  preserved IDs/links, sidebar filtering/pinning, seven-day expiry, protected leads,
+  archived notes and restore/reload. Dependency graph refreshed. No live campaign
+  files were manually rewritten; the normal lifecycle applies the migration on reload.

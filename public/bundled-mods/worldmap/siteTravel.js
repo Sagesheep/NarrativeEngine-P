@@ -1,3 +1,4 @@
+import { validCell } from './exploration.js';
 import { siteLabel } from './discoveries.js';
 
 // Seeded geography stays outside the relational layout solver. Ledger edits
@@ -5,6 +6,7 @@ import { siteLabel } from './discoveries.js';
 export function fixedSiteAnchors(result, sites, ledger) {
     const byId = new Map((result.anchors ?? []).map(anchor => [anchor.locationId, anchor]));
     const entries = new Map(ledger.map(entry => [entry.id, entry]));
+    for (const entry of ledger) if (validCell(entry.coordinates)) byId.set(entry.id, { locationId: entry.id, ...entry.coordinates, source: 'saved', name: entry.name });
     for (const site of sites) if (entries.has(site.id)) {
         byId.set(site.id, { locationId: site.id, x: site.x, y: site.y, source: 'discovery', name: entries.get(site.id).name });
     }
@@ -23,6 +25,7 @@ export function promoteSite(site, ledger, fromId, bandFor = () => 'local') {
     const neighbours = from?.kind === 'transit' ? from.connections.map(edge => edge.toId) : [fromId];
     const connected = [...new Set(neighbours)].filter(id => id && id !== site.id && ledger.some(entry => entry.id === id));
     const entry = { id: site.id, name: siteLabel(site), description: site.description || '',
+        coordinates: { x: site.x, y: site.y }, recordKind: site.type === 'wilderness' ? 'position' : 'place',
         aliases: '', broadLocation: '', features: [], source: 'manual', firstSeenScene: '', lastSeenScene: '',
         connections: connected.map(toId => ({ toId, band: bandFor(toId) })) };
     return [...ledger.map(place => connected.includes(place.id)

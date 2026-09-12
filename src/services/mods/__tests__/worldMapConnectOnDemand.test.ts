@@ -287,6 +287,7 @@ describe('createConnectionAndRoute (WO 6.3 §1) — the offer-accept flow', () =
     it('writes a symmetric connection via setLocationLedger', async () => {
         const ctx = await buildCtxForConnect();
         const setLocationLedgerSpy = ctx.write.setLocationLedger;
+        setLocationLedgerSpy.mockClear(); // Activation may migrate coordinates before the connection action.
         const clickCell = { x: 0, y: 0 };
         // `createConnectionAndRoute` reads the fresh ledger, writes the
         // connection, re-solves, re-routes. The re-solve may fail to find

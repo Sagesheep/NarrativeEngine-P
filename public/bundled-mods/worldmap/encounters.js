@@ -10,6 +10,11 @@ export const FEATURE_EVENTS = {
     landmark: ['An unfinished sketch', 'A surveyor studies the landmark and compares it with a worn sketch.'],
 };
 export const BIOME_EVENTS = {
+    snow: ['Tracks under fresh snow', 'A line of impressions disappears beneath a fresh drift.'],
+    volcanic: ['Warm fissures', 'A wisp of vapour rises from a crack among dark rocks nearby.'],
+    deadzone: ['A marker in barren ground', 'A tilted marker interrupts an expanse of bare, eroded ground. Its origin is unclear.'],
+    sand: ['A shifting dune', 'Wind uncovers the edge of a buried object at the foot of a dune.'],
+    swamp: ['Ripples beneath the roots', 'Ripples spread from beneath tangled roots in the dark water.'],
     plains: ['Distant travellers', 'Travellers appear on the horizon. There is time to decide whether to seek contact.'],
     farmland: ['An unattended load', 'A laden cart stands beside the fields, with signs of work interrupted.'],
     savanna: ['A moving herd', 'A herd crosses the open ground in the distance. Something has disturbed it.'],
@@ -54,7 +59,7 @@ export function weatherAt(seed, x, y, day, biome) {
     const random = randomFor(`${seed}:weather:${Math.floor(x / 32)}:${Math.floor(y / 32)}:${day}`);
     const weather = pick([{ id: 'clear', weight: 5 }, { id: 'rain', weight: 2 }, { id: 'fog', weight: 1 },
         { id: 'wind', weight: 2 }, { id: 'thunderstorm', weight: 1 }], random).id;
-    return weather === 'rain' && ['tundra', 'taiga', 'glacier'].includes(biome) ? 'snow' : weather;
+    return weather === 'rain' && ['tundra', 'taiga', 'glacier', 'snow'].includes(biome) ? 'snow' : weather;
 }
 export function checkpointKey({ x, y, worldDay }) { return `${worldDay}:${x}:${y}`; }
 export function rollEncounter(input, random = randomFor(`${input.seed}:encounter:${checkpointKey(input)}`)) {
@@ -76,7 +81,7 @@ export function rollEncounter(input, random = randomFor(`${input.seed}:encounter
             }
         }
     }
-    return { key: checkpointKey(input), x: input.x, y: input.y, worldDay: input.worldDay, biome: input.biome,
+    return { lastInteractionDay: input.worldDay, key: checkpointKey(input), x: input.x, y: input.y, worldDay: input.worldDay, biome: input.biome,
         weather, worldProfile: worldProfile(input.worldProfile).id, scene: localScene(input), onRoad: Boolean(input.onRoad), featureId: input.feature?.id ?? null, quiet: events.length === 0, events, status: 'available' };
 }
 export function readEncounters(raw) {
@@ -98,19 +103,46 @@ export function recordCheckpoint(records, input) {
         next.set(oldKey, { ...row, status: 'passed' }); changed = true;
     }
     if (!next.has(key)) { next.set(key, rollEncounter(input)); changed = true; }
-    return { records: next, record: next.get(key), changed };
+    const archived = archiveEncounters(next, input.worldDay, key);
+    return { records: archived, record: archived.get(key), changed: changed || archived !== next };
 }
-export function handleEncounter(records, key) {
+export function handleEncounter(records, key, worldDay) {
     const row = records.get(key);
-    if (!row || row.status !== 'available') return records;
-    const next = new Map(records); next.set(key, { ...row, status: 'handled' }); return next;
+    if (!row || row.status === 'handled' && !row.unresolved) return records;
+    const next = new Map(records); next.set(key, { ...row, status: 'handled', unresolved: false, archivedOnDay: undefined, lastInteractionDay: Number.isFinite(worldDay) ? worldDay : row.lastInteractionDay ?? row.worldDay }); return next;
 }
 
 // Notes are player-authored memories, never an automatic reward or resolution.
-export function noteEncounter(records, key, note) {
+export function noteEncounter(records, key, note, worldDay) {
     const row = records.get(key);
     if (!row || typeof note !== 'string') return records;
     const next = new Map(records);
-    next.set(key, { ...row, note: note.trim().slice(0, 1200) });
+    next.set(key, { ...row, note: note.trim().slice(0, 1200), archivedOnDay: undefined, lastInteractionDay: Number.isFinite(worldDay) ? worldDay : row.lastInteractionDay ?? row.worldDay });
+    return next;
+}
+
+export const ENCOUNTER_ARCHIVE_DAYS = 7;
+export function archiveEncounters(records, worldDay, currentKey) {
+    if (!Number.isFinite(worldDay)) return records;
+    let next = records;
+    for (const [key, row] of records) {
+        if (key === currentKey || row.archivedOnDay != null || row.pinned || row.unresolved
+            || row.questId || row.questIds?.length || row.status === 'available') continue;
+        const lastDay = Number.isFinite(row.lastInteractionDay) ? row.lastInteractionDay : row.worldDay;
+        if (worldDay - lastDay < ENCOUNTER_ARCHIVE_DAYS) continue;
+        if (next === records) next = new Map(records);
+        next.set(key, { ...row, archivedOnDay: worldDay });
+    }
+    return next;
+}
+export function setEncounterFlags(records, key, flags, worldDay) {
+    const row = records.get(key);
+    if (!row) return records;
+    const allowed = {};
+    for (const name of ['pinned', 'unresolved']) if (typeof flags?.[name] === 'boolean') allowed[name] = flags[name];
+    if (!Object.keys(allowed).length) return records;
+    const next = new Map(records);
+    next.set(key, { ...row, ...allowed, archivedOnDay: undefined,
+        lastInteractionDay: Number.isFinite(worldDay) ? worldDay : row.lastInteractionDay ?? row.worldDay });
     return next;
 }

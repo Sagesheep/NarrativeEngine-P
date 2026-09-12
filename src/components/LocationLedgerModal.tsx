@@ -1,3 +1,4 @@
+import { isTemporaryLocation } from '../utils/locationRecords';
 import { openMapTravelPreview } from '../services/turn/mapTravelPreview';
 import { useState, useEffect, useMemo } from 'react';
 import { X, Plus, MapPin, Trash2, Search, Navigation, BookOpen, Compass } from 'lucide-react';
@@ -48,6 +49,7 @@ export function LocationLedgerModal() {
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
+    const [showTravelRecords, setShowTravelRecords] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [form, setForm] = useState<Partial<LocationEntry>>({ ...EMPTY_ENTRY });
     // Draft fields kept as comma-separated strings for the chip/field UX
@@ -63,7 +65,7 @@ export function LocationLedgerModal() {
     const [travelBand, setTravelBand] = useState<DistanceBand>('regional');
     const [travelMode, setTravelMode] = useState<TravelMode>('foot');
 
-    const displayed = useMemo(() => filterLocations(locationLedger, searchQuery), [locationLedger, searchQuery]);
+    const displayed = useMemo(() => filterLocations(showTravelRecords ? locationLedger : locationLedger.filter(entry => !isTemporaryLocation(entry)), searchQuery), [locationLedger, searchQuery, showTravelRecords]);
 
     useEffect(() => {
         if (!locationLedgerOpen) return;
@@ -151,6 +153,7 @@ export function LocationLedgerModal() {
             firstSeenScene: form.firstSeenScene || String(Date.now()),
             lastSeenScene: form.lastSeenScene || String(Date.now()),
             source: form.source ?? 'manual',
+            coordinates: form.coordinates, recordKind: form.recordKind, pinned: form.pinned,
             kind: form.kind === 'transit' ? 'transit' : 'place',
         };
         if (selectedId) {
@@ -399,7 +402,7 @@ export function LocationLedgerModal() {
                         </button>
                         {currentPlace && (
                             <div className="text-[10px] text-text-dim text-center">
-                                Current: <span className="text-terminal">{currentPlace.name}</span>
+                                Current: <span className="text-terminal">{context.travel ? `Travelling toward ${locationLedger.find(entry => entry.id === context.travel?.toId)?.name ?? "destination"}` : currentPlace.name}</span>
                             </div>
                         )}
                         <label className="block text-[10px] uppercase tracking-wider text-text-dim">
@@ -415,6 +418,10 @@ export function LocationLedgerModal() {
                         </label>
                     </div>
 
+                    <label className="flex items-center gap-2 px-4 py-2 text-xs text-text-dim">
+                        <input type="checkbox" checked={showTravelRecords} onChange={event => setShowTravelRecords(event.target.checked)} />
+                        Show travel records
+                    </label>
                     {!searchQuery.trim() && locationSuggestions && locationSuggestions.length > 0 && (
                         <div className="px-3 pt-2 shrink-0">
                             <LocationSuggestionsPanel suggestions={locationSuggestions} />

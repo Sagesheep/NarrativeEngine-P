@@ -248,4 +248,48 @@ describe('WO-A §6.4: buildPcKitLine + volatile payload', () => {
         expect(withPc).toBe(noPc);
         expect(withPc).not.toContain('Kit:');
     });
+
+    // ── Smart-bookkeeping path: the kit must ride the always-injected [CHARACTER] stub ──
+    // Regression for the branch gap: buildPcKitLine was only called in the
+    // `characterProfileActive` arm of the if/else chain in volatile.ts, so a campaign
+    // with smartBookkeepingActive on never received the PC signature kit at all.
+    const smartCtx = (pc: NPCEntry | null) => ({
+        ...baseCtx(),
+        smartBookkeepingActive: true,
+        characterProfileActive: false,
+        characterProfileData: {
+            name: 'Hero', race: 'Human', class: 'Fighter', level: 3,
+            hp: { current: 20, max: 20 }, stats: {}, skills: [], abilities: [], traits: [],
+            notes: '',
+        },
+        inventoryItems: [{
+            id: 'i1', name: 'torch', qty: 1, category: 'misc' as const, keywords: [],
+            equipped: false, lastUsedScene: '', importance: 5, notes: '',
+        }],
+        playerCharacter: pc,
+    } as unknown as GameContext);
+
+    const runPayload = (ctx: GameContext) => buildPayload({
+        settings: baseSettings(),
+        context: ctx,
+        history: [],
+        userMessage: 'What do I have?',
+        npcLedger: [],
+    }).messages.map(m => m.content as string).join('\n');
+
+    it('[CHARACTER] stub carries the PC kit when smart bookkeeping is active', () => {
+        const pc = makePc('Hero', { signatureKit: { equipment: ['Excalibur'], abilities: ['fire magic'], element: 'fire' } });
+        const allContent = runPayload(smartCtx(pc));
+        expect(allContent).toContain('[CHARACTER]');
+        expect(allContent).toContain('Kit: Excalibur');
+        expect(allContent).toContain('Powers: fire magic');
+        expect(allContent).toContain('element: fire');
+    });
+
+    it('[CHARACTER] stub is byte-identical to pre-kit when the PC has no kit (smart path)', () => {
+        const withPc = runPayload(smartCtx(makePc('Hero')));
+        const noPc = runPayload(smartCtx(null));
+        expect(withPc).toBe(noPc);
+        expect(withPc).not.toContain('Kit:');
+    });
 });

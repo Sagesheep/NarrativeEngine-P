@@ -214,10 +214,12 @@ describe('World Map field — acceptance (reprise)', () => {
         let mountain = 0;
         for (let y = 0; y < 100; y += 3) {
             for (let x = 0; x < 100; x += 3) {
-                const b = biomeAt(x, y, 'acceptance-seed', 0.65, controls, new Map()).biome;
+                const cell = biomeAt(x, y, 'acceptance-seed', 0.65, controls, new Map());
+                const b = cell.biome;
                 biomes.add(b);
                 if (b === 'ocean') ocean += 1;
-                if (b === 'mountain') mountain += 1;
+                // Snow may cover a high peak in the corrected polar climate.
+                if (cell.elev > 0.55) mountain += 1;
             }
         }
         expect(biomes.size).toBeGreaterThan(1);

@@ -2,6 +2,7 @@
 export const PIXEL_PALETTE = Object.freeze({
     plains: '#8cbd62', farmland: '#a8be64', forest: '#669e58', jungle: '#5d9f58',
     taiga: '#719a75', tundra: '#bbc9a4', glacier: '#d6e8e6', mountain: '#a9ac88',
+    snow: '#e4edf0', volcanic: '#63535b', deadzone: '#9b8c91', sand: '#e9cc8b', swamp: '#486b60',
     desert: '#e4cb85', savanna: '#c6c373', marsh: '#789d7a', ocean: '#3986b5',
 });
 export const SITE_SPRITES = Object.freeze({ settlement: 13, camp: 5, ruin: 6, shrine: 7, crossing: 15, landmark: 14 });
@@ -37,7 +38,7 @@ export function terrainSprite(biome, variant) {
     if (biome === 'taiga') return 2 === variant % 5 ? 10 : 1;
     if (biome === 'jungle') return variant % 3 ? 0 : 2;
     if (biome === 'mountain') return 3;
-    if (biome === 'marsh') return variant % 3 === 0 ? 11 : null;
+    if (biome === 'marsh' || biome === 'swamp') return variant % 3 === 0 ? 11 : null;
     if (biome === 'tundra') return variant % 9 === 0 ? 10 : null;
     if (biome === 'savanna') return variant % 7 === 0 ? 0 : null;
     if (biome === 'plains') return variant % 11 === 0 ? 9 : null;
@@ -59,6 +60,24 @@ export function paintPixelCell(ctx, store, x, y, px, py, size) {
         for (let i = 0; i < 3; i++) {
             const n = noise(x, y, i), a = n % 12, b = (n >>> 8) % 14;
             mark('#4f9ec9', a, b, 3, 1); mark('#72b9d6', a + 1, b + 1, 2, 1);
+        }
+    } else if (['snow', 'volcanic', 'deadzone', 'sand', 'swamp'].includes(biome)) {
+        for (let i = 0; i < 3; i++) {
+            const n = noise(x, y, i), a = 1 + n % 10, b = 2 + (n >>> 8) % 10;
+            if (biome === 'snow') {
+                mark('#b7cedd', a, b + 1, 5, 1); mark('#f7fcfa', a + 1, b, 4, 1);
+            } else if (biome === 'sand') {
+                mark('#c39b61', a, b + 1, 5, 1); mark('#f9e4ae', a + 1, b, 4, 1);
+            } else if (biome === 'volcanic') {
+                mark('#403d49', a, b, 1, 4); mark('#453b44', a + 1, b + 3, 3, 1);
+                mark('#aa8074', a + 1, b, 2, 1);
+            } else if (biome === 'deadzone') {
+                mark('#6e666e', a, b, 4, 1); mark('#6e666e', a + 2, b + 1, 1, 3);
+                mark('#c0ada7', a, b - 1, 3, 1);
+            } else {
+                mark('#304f59', a, b, 5, 3); mark('#669183', a + 1, b, 3, 1);
+                mark('#87a56a', a + 4, b - 1, 1, 3);
+            }
         }
     } else if (biome === 'farmland') {
         for (let row = 3; row < 16; row += 4) {
@@ -93,6 +112,19 @@ export function paintPixelCell(ctx, store, x, y, px, py, size) {
 export function paintPixelObjects(ctx, store, x, y, px, py, size) {
     if (size < 8) return;
     const biome = store.getCell(x, y)?.biome, seed = noise(x, y);
+    if (['snow', 'volcanic', 'deadzone'].includes(biome)) {
+        // Small original pixel silhouettes, stable in world coordinates.
+        if (seed % 4 !== 0) return;
+        const pixel = size / 16;
+        const mark = (color, a, b, w, h) => { ctx.fillStyle = color; ctx.fillRect(px + a * pixel, py + b * pixel, w * pixel, h * pixel); };
+        if (biome === 'deadzone') {
+            mark('#524c55', 8, 5, 2, 8); mark('#524c55', 5, 7, 4, 2); mark('#524c55', 10, 4, 3, 2);
+        } else {
+            for (let row = 0; row < 5; row++) mark(biome === 'snow' ? '#829aa7' : '#3c3643', 7 - row, 5 + row, 2 + row * 2, 1);
+            mark(biome === 'snow' ? '#ffffff' : '#af8175', 6, 5, 4, 2);
+        }
+        return;
+    }
     const sprite = terrainSprite(biome, seed);
     if (sprite === null) return;
     const dense = ['forest', 'jungle', 'taiga', 'mountain'].includes(biome);

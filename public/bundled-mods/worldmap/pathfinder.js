@@ -47,6 +47,7 @@ export const BIOME_BASE_COST = Object.freeze({
     mountain: 4.0,
     glacier: 5.0,
     ocean: 1.0,
+    snow: 3.0, volcanic: 4.5, deadzone: 2.4, sand: 2.8, swamp: 3.5,
 });
 
 /**
@@ -56,9 +57,9 @@ export const BIOME_BASE_COST = Object.freeze({
  */
 export const TRAVEL_MODES = Object.freeze({
     foot: Object.freeze({ multiplier: 1.0, impassable: Object.freeze(new Set(['ocean'])), speed: 1.0 }),
-    mount: Object.freeze({ multiplier: 0.7, impassable: Object.freeze(new Set(['ocean', 'glacier'])), speed: 1.4 }),
-    cart: Object.freeze({ multiplier: 0.6, impassable: Object.freeze(new Set(['ocean', 'glacier', 'mountain', 'marsh'])), speed: 1.2 }),
-    boat: Object.freeze({ multiplier: 1.0, impassable: Object.freeze(new Set(['glacier', 'tundra', 'taiga', 'forest', 'plains', 'farmland', 'savanna', 'desert', 'marsh', 'jungle', 'mountain'])), speed: 1.0 }),
+    mount: Object.freeze({ multiplier: 0.7, impassable: Object.freeze(new Set(['ocean', 'glacier', 'volcanic', 'swamp'])), speed: 1.4 }),
+    cart: Object.freeze({ multiplier: 0.6, impassable: Object.freeze(new Set(['ocean', 'glacier', 'mountain', 'marsh', 'snow', 'volcanic', 'swamp'])), speed: 1.2 }),
+    boat: Object.freeze({ multiplier: 1.0, impassable: Object.freeze(new Set(['glacier', 'tundra', 'taiga', 'forest', 'plains', 'farmland', 'savanna', 'desert', 'marsh', 'jungle', 'mountain', 'snow', 'volcanic', 'deadzone', 'sand', 'swamp'])), speed: 1.0 }),
 });
 
 export const DEFAULT_EXPLORED_CAP = 250_000;

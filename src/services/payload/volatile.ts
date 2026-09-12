@@ -41,7 +41,16 @@ export function buildVolatile(opts: {
         // Stub is always injected (cheap, prevents total amnesia)
         const stub = minifyBookkeepingStub(context.characterProfileData!, context.inventoryItems || []);
         if (stub) {
-            characterBlock = `[CHARACTER]\n${stub}`;
+            // WO-A §5: the PC signature kit is an anti-drift floor — the PC-side
+            // analogue of `buildCoreDirective` for NPCs — so it must ride the
+            // always-injected stub here too, not only the `[CHARACTER PROFILE]`
+            // branch below. Before this, a campaign with smart bookkeeping on never
+            // saw the PC kit at all. The two branches are mutually exclusive, so the
+            // line is never emitted twice.
+            const kitLine = buildPcKitLine(context.playerCharacter);
+            characterBlock = kitLine
+                ? `[CHARACTER]\n${stub}\n${kitLine}`
+                : `[CHARACTER]\n${stub}`;
             volatileParts.push(characterBlock);
         }
 
