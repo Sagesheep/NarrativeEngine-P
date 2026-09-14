@@ -1,0 +1,1229 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   BETA UI — "Lamplight"
+   ───────────────────────────────────────────────────────────────────────────
+   Opt-in restyle, gated entirely on `html[data-ui="beta"]` (projected by
+   `applyBetaUi` in settingsHelpers.ts from `settings.betaUi`). Flip the flag
+   off and every rule here stops matching, so the classic UI returns exactly —
+   there is no parallel component tree to drift, and no markup is conditional
+   on the flag. Components only gained inert `data-ui` attributes.
+
+   ── The idea ───────────────────────────────────────────────────────────────
+   Reading a manuscript by lamp. Warm bone text on deep ink; the interface in
+   oxidised copper (verdigris); and the lamp's own warm gold reserved, strictly,
+   for "this is armed and will fire on your next send".
+
+   That reservation is the whole colour system, and it fixes audit finding F14
+   almost for free: the classic UI painted its accent violet and its armed state
+   amber, so warm and cool were both doing two jobs at once. Moving the accent
+   to a cool verdigris leaves warm gold meaning one thing only. You can now read
+   "something is armed" from across the room.
+
+      cool  (verdigris)  → interactive, active, selected
+      warm  (lamp gold)  → ARMED. Nothing else. Ever.
+      red   (oxblood)    → destructive
+      green (sage)       → succeeded / connected
+
+   ── Why this is mostly a variable swap ─────────────────────────────────────
+   The app's Tailwind v4 theme is a set of `--color-*` custom properties, and
+   every utility in the codebase (`bg-void`, `text-terminal`, `border-border`)
+   resolves through them at paint time. Redefining those properties under the
+   flag therefore re-skins every screen the app has — including modals, ledgers,
+   settings, and mod-rendered chrome — without touching one component. The
+   structural work further down is then a short list of deliberate exceptions,
+   not a rewrite.
+
+   ── Cascade note ───────────────────────────────────────────────────────────
+   This file is imported UNLAYERED at the end of index.css. Tailwind's utilities
+   live in `@layer utilities`, and any unlayered rule beats a layered one
+   regardless of specificity — which is the same mechanism the chat-background
+   rules at the bottom of index.css already rely on. That is what lets the
+   structural overrides below win against the utility classes in the JSX
+   without a single `!important`.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   1. PALETTE — light ("parchment")
+   The app always stamps data-theme, so the bare flag selector is the light
+   branch and the [data-theme="dark"] pair below is the dark one.
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] {
+  --lamp-accent:      #0E7A6B;  /* verdigris, darkened for parchment — 4.8:1 */
+  --lamp-accent-dim:  #0B5F54;
+  --lamp-armed:       #8A5A00;  /* lamp gold, darkened for parchment — 4.9:1 */
+  --lamp-ok:          #2E7D52;
+
+  --color-void:         #F6F2E9;  /* parchment ground          */
+  --color-void-light:   #F0EBDF;  /* raised within a card      */
+  --color-void-lighter: #E9E3D4;  /* menus, inset panels       */
+  --color-void-darker:  #EDE8DB;  /* sunken / code blocks      */
+
+  --color-surface:      #F1ECE1;  /* cards, modals, lightboxes */
+  --color-border:       #D8D0BC;
+
+  --color-terminal:     var(--lamp-accent);
+  --color-terminal-dim: var(--lamp-accent-dim);
+
+  --color-ember:        #6B6659;  /* structural labels — neutral, never accent */
+  --color-ember-dim:    #565247;
+
+  --color-ice:          #1C1E22;  /* headings                  */
+  --color-ice-dim:      #43464C;
+
+  --color-text-primary: #1C1E22;
+  --color-text-dim:     #575349;
+
+  --color-danger:       #A8352B;
+
+  --color-overlay: rgba(28, 30, 34, 0.30);
+  --color-grain:   rgba(28, 30, 34, 0.014);
+
+  /* Type roles. `--font-mono` stays the app's token (chrome + data); the story
+     gets its own face. The app already NAMED these families without ever
+     loading them — index.html now does, and they fall back to the same system
+     faces the app has silently been using all along. */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  --lamp-story: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  --lamp-display: 'Cinzel', 'Iowan Old Style', Georgia, serif;
+
+  /* Elevation. The classic UI drew every separation with a 1px border; here
+     borders recede and light does the lifting, which is what makes an ink
+     ground read as depth rather than as a flat wall. */
+  --lamp-shadow-1: 0 1px 2px rgba(20, 18, 12, 0.06);
+  --lamp-shadow-2: 0 6px 22px rgba(20, 18, 12, 0.12);
+  --lamp-shadow-3: 0 18px 52px rgba(20, 18, 12, 0.20);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   2. PALETTE — dark ("ink"), the mode this design is drawn for
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"][data-theme="dark"] {
+  --lamp-accent:     #4FB8A8;   /* verdigris on ink — 7.9:1 */
+  --lamp-accent-dim: #3D9A8C;
+  --lamp-armed:      #E0A340;   /* lamp gold  on ink — 9.4:1 */
+  --lamp-ok:         #6FBF8E;
+
+  --color-void:         #0C0E13;
+  --color-void-light:   #14171F;
+  --color-void-lighter: #1C212B;
+  --color-void-darker:  #07080C;
+
+  --color-surface:      #141820;
+  --color-border:       #29303D;
+
+  --color-terminal:     var(--lamp-accent);
+  --color-terminal-dim: var(--lamp-accent-dim);
+
+  --color-ember:        #8E8878;
+  --color-ember-dim:    #6F6A5D;
+
+  --color-ice:          #EDE7D9;
+  --color-ice-dim:      #B6AF9E;
+
+  --color-text-primary: #E8E2D4;  /* warm bone, not white — paper under a lamp */
+  --color-text-dim:     #9A9486;
+
+  --color-danger:       #D9594C;
+
+  --color-overlay: rgba(3, 4, 6, 0.68);
+  --color-grain:   rgba(232, 226, 212, 0.011);
+
+  --lamp-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --lamp-shadow-2: 0 6px 22px rgba(0, 0, 0, 0.50);
+  --lamp-shadow-3: 0 18px 52px rgba(0, 0, 0, 0.62);
+}
+
+/* Grain is right for parchment but muddies an ink ground at this contrast. */
+html[data-ui="beta"][data-theme="dark"] #root::after { opacity: 0.5; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   3. TYPE — four steps doing four jobs (audit F13)
+   The classic UI had two: 14px prose and a 9/10/11px band carrying headings,
+   buttons, badges, timestamps and status alike, so nothing could outrank
+   anything. Chrome keeps the mono voice; the story gets a reading face.
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+html[data-ui="beta"] body,
+html[data-ui="beta"] input,
+html[data-ui="beta"] select,
+html[data-ui="beta"] button {
+  font-family: var(--font-mono);
+}
+
+/* Uppercase + wide tracking is now a GROUP-HEADING device only. The classic UI
+   applied it to 44 elements at once, which is why the chrome read as one
+   continuous band of small caps with no hierarchy inside it. */
+html[data-ui="beta"] .chrome-label {
+  letter-spacing: 0.12em;
+}
+
+/* ── The story. This is the thing you read for hours. ──
+   It was 14px monospace (MessageBubble.tsx). */
+html[data-ui="beta"] .gm-prose,
+html[data-ui="beta"] [data-ui="msg"] .gm-prose p,
+html[data-ui="beta"] [data-ui="msg"] .gm-prose li {
+  font-family: var(--lamp-story);
+  font-size: 18px;
+  line-height: 1.7;
+  letter-spacing: 0.002em;
+}
+html[data-ui="beta"] [data-ui="msg"] { font-family: var(--lamp-story); }
+html[data-ui="beta"] .gm-prose p { margin-top: 0; margin-bottom: 0.85em; }
+html[data-ui="beta"] .gm-prose p:last-child { margin-bottom: 0; }
+html[data-ui="beta"] .gm-prose strong { color: var(--color-ice); font-weight: 600; }
+html[data-ui="beta"] .gm-prose em { color: var(--color-text-dim); }
+html[data-ui="beta"] .gm-prose blockquote { border-left-color: var(--lamp-accent); }
+
+/* What you type is part of the same manuscript. */
+html[data-ui="beta"] [data-ui="composer-input"] textarea {
+  font-family: var(--lamp-story);
+  font-size: 16.5px;
+  line-height: 1.55;
+}
+html[data-ui="beta"] [data-ui="composer-input"] textarea::placeholder {
+  font-style: italic;
+  opacity: 0.75;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   4. THE MESSAGE COLUMN
+   Chat bubbles fragment long-form narrative and waste the width you asked the
+   app to fill. The story becomes one measured column; the player's turn is
+   marked by a rule and a tint rather than by being flung to the right.
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] .chat-panel { padding-top: 26px; }
+
+html[data-ui="beta"] [data-ui="msg-row"] {
+  /* The reading measure, set by measurement rather than by eye: 600px of 18px
+     EB Garamond renders ~80 characters per line. 780px measured 112 and 700px
+     measured 96 — both past the width where the eye starts losing its place on
+     the carriage return.
+     NOTE this is the ONE place the "fill the window" rule is deliberately not
+     applied. Chrome fills the window; body text is measured. */
+  max-width: 600px;
+  margin-inline: auto;
+  width: 100%;
+  justify-content: flex-start;
+  position: relative;
+  gap: 0;
+}
+
+html[data-ui="beta"] [data-ui="msg"] {
+  max-width: 100%;
+  width: 100%;
+  border-left: none;
+  background: transparent;
+  padding: 2px 0 0;
+}
+
+/* GM: no chrome at all. Just the manuscript. */
+html[data-ui="beta"] [data-ui="msg"][data-role="assistant"] {
+  background: transparent;
+}
+
+/* You: a rule and a breath of accent, reading as marginalia rather than a reply. */
+html[data-ui="beta"] [data-ui="msg"][data-role="user"] {
+  border-left: 2px solid var(--lamp-accent);
+  padding: 10px 0 10px 16px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--lamp-accent) 9%, transparent),
+    transparent 62%
+  );
+}
+html[data-ui="beta"] [data-ui="msg"][data-role="system"] {
+  border-left: 2px solid var(--color-ember);
+  padding: 8px 0 8px 16px;
+  background: transparent;
+  opacity: 0.85;
+}
+
+/* The meta line — role, scene, time — recedes to a single quiet row. */
+html[data-ui="beta"] [data-ui="msg-meta"] {
+  margin-bottom: 7px;
+  opacity: 0.72;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+}
+html[data-ui="beta"] [data-ui="msg-row"][data-role="assistant"] [data-ui="msg-meta"] {
+  padding-bottom: 7px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   5. THE ACTION RAIL (audit F3 + F5)
+   Was: 29px targets, invisible until hover, sticky to the viewport's middle so
+   it slid around as you scrolled, and Delete sitting flush against Rewind.
+   Now: 32px, anchored to the top of its own message, and Delete separated by a
+   rule and tinted destructive on approach.
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] [data-ui="msg-rail"] {
+  position: absolute;
+  top: 0;
+  right: -44px;
+  transform: none;
+  align-self: flex-start;
+  background: var(--color-void-lighter);
+  border-color: var(--color-border);
+  border-radius: 5px;
+  box-shadow: var(--lamp-shadow-1);
+  gap: 1px;
+  padding: 3px;
+  z-index: 12;
+}
+html[data-ui="beta"] [data-ui="msg-rail"] button {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 0.12s, color 0.12s;
+}
+html[data-ui="beta"] [data-ui="msg-rail"] button:hover {
+  background: var(--color-void-darker);
+  color: var(--color-ice);
+}
+/* Delete is the last child of the rail: give it air and a destructive read. */
+html[data-ui="beta"] [data-ui="msg-rail"] button:last-of-type {
+  margin-top: 4px;
+  position: relative;
+}
+html[data-ui="beta"] [data-ui="msg-rail"] button:last-of-type::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 2px;
+  right: 2px;
+  height: 1px;
+  background: var(--color-border);
+}
+html[data-ui="beta"] [data-ui="msg-rail"] button:last-of-type:hover {
+  background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+  color: var(--color-danger);
+}
+
+/* The message you actually act on is the newest one, so its rail does not hide.
+   Older messages keep the hover reveal — the classic behaviour — because a rail
+   on every message at once is noise. */
+html[data-ui="beta"] [data-ui="msg-row"][data-last="true"] [data-ui="msg-rail"] {
+  opacity: 1;
+}
+
+/* Keep it out of the way at widths where there is no margin to hang it in. */
+@media (max-width: 1180px) {
+  html[data-ui="beta"] [data-ui="msg-rail"] { right: 0; top: -6px; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   6. THE COMPOSER ACTION STRIP (audit F1 + F14)
+   The blocking bug: `overflow-x-auto` paired with `no-scrollbar`, so a clipped
+   button left no trace whatsoever — five of ten were unreachable at a 1180px
+   window. Wrapping is the honest fix that needs no JavaScript: every action
+   stays on screen at every width, and the row grows downward instead of
+   hiding its own tail.
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] [data-ui="composer-actions"] {
+  flex-wrap: wrap;
+  overflow: visible;
+  gap: 3px;
+  row-gap: 4px;
+  align-items: center;
+  /* The row's own 16px side padding was the last 20px that pushed ten buttons
+     onto a second line at a 1309px viewport. Wrapping is the safety net, not
+     the resting state — the aim is one row wherever one fits, and a second
+     row (never a hidden one) when it genuinely does not. */
+  padding-inline: 8px;
+  padding-bottom: 0;
+}
+
+/* Colour is state, not decoration. Every action reads neutral until something
+   is true about it — so the amber "armed" treatment the app already applies is
+   the only warm thing in the row, and becomes legible at a glance. */
+html[data-ui="beta"] [data-ui="composer-actions"] > button {
+  height: 26px;
+  padding-inline: 7px;
+  gap: 5px;
+  border-radius: 4px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-dim);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 11.5px;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+html[data-ui="beta"] [data-ui="composer-actions"] > button:hover:not(:disabled) {
+  background: var(--color-void-lighter);
+  color: var(--color-ice);
+  border-color: transparent;
+}
+/* Armed.
+   The discriminator is the FILL, not the border. `border-amber` is worn by
+   three different things: an armed control, an UNARMED Deep Search (which is
+   amber-tinted at rest), and the arc mod, which just uses amber as its brand.
+   Matching the border painted all three as armed — the precise inverse of what
+   this skin is for. Only a genuinely armed control carries `bg-amber-500/10`
+   (the unarmed rest state is `hover:bg-amber-500/5`), so that is the hook.
+   Everything else falls through to the neutral rule above, which is how the
+   arc mod's brand amber stops competing with real state. */
+html[data-ui="beta"] [data-ui="composer-actions"] > button[class*="bg-amber-500/10"] {
+  background: color-mix(in srgb, var(--lamp-armed) 15%, transparent);
+  border-color: color-mix(in srgb, var(--lamp-armed) 55%, transparent);
+  color: var(--lamp-armed);
+  font-weight: 600;
+}
+/* A pulsing button is a distraction when the state is already this clear. */
+html[data-ui="beta"] [data-ui="composer-actions"] > button.animate-pulse {
+  animation: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   7. COMPOSER
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] [data-ui="composer"] { padding-top: 8px; padding-bottom: 10px; }
+
+html[data-ui="beta"] [data-ui="composer-input"] {
+  border-radius: 7px;
+  border-color: var(--color-border);
+  background: var(--color-void-light);
+  padding: 5px;
+  box-shadow: var(--lamp-shadow-1);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+html[data-ui="beta"] [data-ui="composer-input"]:focus-within {
+  border-color: color-mix(in srgb, var(--lamp-accent) 60%, transparent);
+  box-shadow: var(--lamp-shadow-1),
+              0 0 0 3px color-mix(in srgb, var(--lamp-accent) 12%, transparent);
+}
+html[data-ui="beta"] [data-ui="composer-input"] select {
+  border-radius: 4px;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 11.5px;
+}
+
+/* Send is the one filled control on the screen — it should look like the
+   thing that commits. */
+html[data-ui="beta"] [data-ui="composer-input"] > button:last-child:not(:disabled) {
+  background: var(--lamp-accent);
+  color: var(--color-void);
+  border-radius: 4px;
+}
+html[data-ui="beta"] [data-ui="composer-input"] > button:last-child:not(:disabled):hover {
+  filter: brightness(1.1);
+  background: var(--lamp-accent);
+}
+
+/* Keep the composer measured against the same column the story uses, so the
+   eye never has to travel further to write than it did to read. */
+html[data-ui="beta"] [data-ui="composer"] > div:last-child {
+  max-width: 600px;
+  margin-inline: auto;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   8. HEADER (audit F12)
+   The context gauge was three raw token counts in 9px mono. Same numbers, one
+   proportional bar — the span TokenGauge always renders and the classic UI
+   keeps hidden.
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] [data-ui="appbar"] {
+  background: var(--color-void-light);
+  border-bottom-color: var(--color-border);
+}
+html[data-ui="beta"] [data-ui="appbar"] h1 {
+  font-family: var(--lamp-display);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  font-size: 13px;
+  color: var(--color-ice);
+}
+
+html[data-ui="beta"] [data-ui="gauge-bar"] {
+  display: flex;
+  width: 116px;
+  height: 5px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--color-void-lighter);
+  flex-shrink: 0;
+}
+html[data-ui="beta"] [data-ui="gauge-bar"] i[data-part="sys"] {
+  display: block;
+  height: 100%;
+  width: var(--sys, 0%);
+  background: var(--color-ember);
+}
+html[data-ui="beta"] [data-ui="gauge-bar"] i[data-part="his"] {
+  display: block;
+  height: 100%;
+  width: var(--his, 0%);
+  background: var(--lamp-accent);
+}
+html[data-ui="beta"] [data-ui="gauge-pct"] {
+  display: inline-block;
+  font-size: 10.5px;
+  color: var(--color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+/* The raw triplet and its "CTX" label are what the bar replaces. */
+html[data-ui="beta"] [data-ui="gauge"] > span:nth-of-type(3),
+html[data-ui="beta"] [data-ui="gauge"] > div { display: none; }
+html[data-ui="beta"] [data-ui="gauge"] { padding-inline: 8px; gap: 8px; }
+
+/* Header buttons: quiet until touched. */
+html[data-ui="beta"] [data-ui="appbar"] button {
+  border-color: transparent;
+  background: transparent;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  border-radius: 4px;
+}
+html[data-ui="beta"] [data-ui="appbar"] button:hover {
+  background: var(--color-void-lighter);
+  border-color: transparent;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   9. CONTEXT DRAWER
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] [data-ui="drawer"] {
+  width: 232px;
+  background: var(--color-void-light);
+  border-right-color: var(--color-border);
+}
+html[data-ui="beta"] [data-ui="drawer"] nav button {
+  border-radius: 0;
+  border-left: 2px solid transparent;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+html[data-ui="beta"] [data-ui="drawer"] nav > section > div > button:hover {
+  background: var(--color-void-lighter);
+  border-left-color: color-mix(in srgb, var(--lamp-accent) 45%, transparent);
+  color: var(--color-ice);
+}
+/* The drawer's close control was a bare × measuring 8×18px (audit F15). */
+html[data-ui="beta"] [data-ui="drawer"] > div:first-child > button {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: 15px;
+  line-height: 1;
+}
+html[data-ui="beta"] [data-ui="drawer"] > div:first-child > button:hover {
+  background: var(--color-void-lighter);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   10. LEDGERS (audit F4)
+   The list column keeps a fixed width while the detail pane beside it stays
+   empty until you pick something — so names truncate in the narrow half while
+   the wide half shows nothing. Giving the list a proportional share and
+   letting its rows tile is the cheap two-thirds of that fix.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (min-width: 1280px) {
+  html[data-ui="beta"] [data-ui="ledger-list"] {
+    width: clamp(420px, 42%, 760px);
+  }
+  /* Tile the rows once the column is wide enough to hold two. */
+  html[data-ui="beta"] [data-ui="ledger-list"] > div:last-child {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 5px;
+    align-content: start;
+  }
+  html[data-ui="beta"] [data-ui="ledger-list"] > div:last-child > * { margin: 0 !important; }
+}
+html[data-ui="beta"] [data-ui="ledger"] { background: color-mix(in srgb, var(--color-void) 96%, transparent); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   11. SURFACES — modals, screens, menus
+   Borders recede; elevation carries separation.
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] [data-ui="screen"] {
+  border-radius: 0;
+  box-shadow: var(--lamp-shadow-3);
+  border-color: var(--color-border);
+}
+html[data-ui="beta"] [data-ui="screen"] h2 {
+  font-family: var(--lamp-display);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+/* Inputs across every screen, in one place. */
+html[data-ui="beta"] input[type="text"],
+html[data-ui="beta"] input[type="password"],
+html[data-ui="beta"] input[type="number"],
+html[data-ui="beta"] input:not([type]),
+html[data-ui="beta"] textarea,
+html[data-ui="beta"] select {
+  border-radius: 4px;
+}
+html[data-ui="beta"] textarea:focus,
+html[data-ui="beta"] input:focus {
+  outline-color: var(--lamp-accent);
+}
+
+/* Settings' field grid stretched short values to the full window width
+   (audit F11). Cap the reading measure without touching the shell. */
+html[data-ui="beta"] [data-ui="screen"] input.w-full,
+html[data-ui="beta"] [data-ui="screen"] input[class*="w-full"] { max-width: 620px; }
+
+/* Floating chat nav, re-seated for the wrapped action strip. */
+html[data-ui="beta"] .chat-nav-fab {
+  border-radius: 5px;
+  background: var(--color-void-lighter);
+  border-color: var(--color-border);
+  box-shadow: var(--lamp-shadow-1);
+}
+html[data-ui="beta"] .chat-nav-fab:hover {
+  border-color: var(--lamp-accent);
+  color: var(--lamp-accent);
+}
+
+/* Scrollbars, in the new key. */
+html[data-ui="beta"] ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+html[data-ui="beta"] ::-webkit-scrollbar-thumb:hover { background: var(--lamp-accent); }
+html[data-ui="beta"] ::-webkit-scrollbar-track { background: transparent; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   12. CAMPAIGN HUB
+   The one screen that already had character. It keeps it — the palette moves
+   underneath it, and the three unlabelled corner circles (audit F10) gain a
+   readable resting state instead of sitting at roughly 1.2:1.
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] [data-ui="hub"] h1 { font-family: var(--lamp-display); }
+html[data-ui="beta"] [data-ui="hub"] > button {
+  color: var(--color-text-dim) !important;
+  border-color: color-mix(in srgb, var(--lamp-accent) 35%, transparent) !important;
+  background: var(--color-void-light) !important;
+  box-shadow: var(--lamp-shadow-1);
+}
+html[data-ui="beta"] [data-ui="hub"] > button:hover {
+  color: var(--lamp-accent) !important;
+  border-color: var(--lamp-accent) !important;
+}
+
+/* ── The flag's own control. Lives on the hub; see BetaUiToggle.tsx. ── */
+.beta-toggle {
+  position: absolute;
+  top: 20px;
+  left: 64px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 13px 0 11px;
+  border-radius: 18px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--color-terminal) 25%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  color: var(--color-text-dim);
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+.beta-toggle:hover {
+  color: var(--color-terminal);
+  border-color: color-mix(in srgb, var(--color-terminal) 65%, transparent);
+}
+.beta-toggle .beta-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-text-dim);
+  transition: background 0.18s, box-shadow 0.18s;
+}
+.beta-toggle[aria-pressed="true"] {
+  color: var(--color-terminal);
+  border-color: color-mix(in srgb, var(--color-terminal) 60%, transparent);
+  background: color-mix(in srgb, var(--color-terminal) 12%, transparent);
+}
+.beta-toggle[aria-pressed="true"] .beta-dot {
+  background: var(--color-terminal);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-terminal) 22%, transparent);
+}
+.beta-toggle .beta-state { opacity: 0.65; font-weight: 400; }
+.beta-toggle[aria-pressed="true"] .beta-state { opacity: 1; font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui="beta"] * { transition-duration: 0.01ms !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   13. SETTINGS — structure, not just colour (audit F11 + F14)
+   The first pass of this skin recoloured Settings and left its shape alone,
+   which is not the fix: the complaint was never the hue. Three things change.
+
+   (a) Two near-identical tab rows stacked on each other, so "which row am I
+       in" had no answer. The provider row becomes a SIDEBAR, leaving exactly
+       one row of section tabs.
+   (b) Section tabs were `flex-1`, so six tabs spread edge to edge and a 10px
+       label floated in 400px of nothing. They size to their content now.
+   (c) Delete Provider sat at identical weight to Test Connection, side by side
+       in a 50/50 grid. Test is the primary action; Delete is a quiet, right-
+       aligned exit that only turns destructive on approach.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* (b) — section tabs size to their labels and start at the left. */
+html[data-ui="beta"] [data-ui="settings-tabs"] {
+  gap: 2px;
+  padding-inline: 10px;
+  background: var(--color-void-light);
+}
+html[data-ui="beta"] [data-ui="settings-tabs"] > button {
+  flex: 0 0 auto;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 12.5px;
+  padding-inline: 14px;
+}
+
+/* (a) — providers become a master column beside the editor, not a second
+   tab strip above it. The two blocks are already siblings, so this is a grid
+   applied to their existing parent; no markup was reordered. */
+@media (min-width: 900px) {
+  html[data-ui="beta"] [data-ui="providers"] {
+    display: grid;
+    grid-template-columns: 212px minmax(0, 1fr);
+    gap: 0 26px;
+    align-items: start;
+  }
+  html[data-ui="beta"] [data-ui="provider-list"] { margin-bottom: 0; }
+  html[data-ui="beta"] [data-ui="provider-config"] { margin-bottom: 0; }
+
+  /* The strip itself: horizontal rail → vertical list. */
+  html[data-ui="beta"] [data-ui="provider-list"] > div {
+    flex-direction: column;
+    align-items: stretch;
+    border-bottom: none;
+    overflow: visible;
+    padding-bottom: 0;
+    gap: 1px;
+  }
+  /* The active/inactive colour already lives on the existing
+     `border-terminal` / `border-transparent` classes — so moving the 2px rule
+     from the bottom edge to the left edge inherits the right colour for free,
+     and the selected state needs no new rule. */
+  html[data-ui="beta"] [data-ui="provider-list"] > div > button {
+    text-align: left;
+    border-bottom-width: 0;
+    border-left-width: 2px;
+    border-left-style: solid;
+    margin-bottom: 0;
+    text-transform: none;
+    letter-spacing: 0.02em;
+    font-size: 12.5px;
+    padding: 7px 12px;
+    border-radius: 0 3px 3px 0;
+  }
+  html[data-ui="beta"] [data-ui="provider-list"] > div > button:hover {
+    background: var(--color-void-lighter);
+  }
+}
+
+/* The config card loses its box — inside a master/detail split it was a
+   border around the only thing on screen. */
+html[data-ui="beta"] [data-ui="provider-config"] > div {
+  border: none;
+  background: transparent;
+}
+html[data-ui="beta"] [data-ui="provider-config"] > div > button {
+  background: transparent;
+  padding-inline: 0;
+}
+html[data-ui="beta"] [data-ui="provider-config"] > div > div {
+  border-top: none;
+  background: transparent;
+  padding-inline: 0;
+}
+
+/* Fields sized to what they hold. A 12-character label does not need 740px. */
+html[data-ui="beta"] [data-ui="provider-config"] input { max-width: 520px; }
+
+/* Segmented controls shrink to their options instead of spanning the window. */
+html[data-ui="beta"] [data-ui="seg"] {
+  display: inline-flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+html[data-ui="beta"] [data-ui="seg"] > button {
+  flex: 0 0 auto;
+  padding-inline: 14px;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+/* (c) — Test is primary; Delete is a quiet exit. */
+html[data-ui="beta"] [data-ui="provider-actions"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+  margin-top: 8px;
+}
+html[data-ui="beta"] [data-ui="provider-actions"] > div:first-child { flex: 0 0 auto; }
+html[data-ui="beta"] [data-ui="provider-actions"] > div:first-child > button {
+  width: auto;
+  padding-inline: 20px;
+  background: var(--lamp-accent);
+  border-color: var(--lamp-accent);
+  color: var(--color-void);
+  font-weight: 700;
+  border-radius: 4px;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+html[data-ui="beta"] [data-ui="provider-actions"] > div:first-child > button:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: none;
+}
+html[data-ui="beta"] [data-ui="provider-actions"] > div:last-child { margin-left: auto; flex: 0 0 auto; }
+html[data-ui="beta"] [data-ui="provider-actions"] > div:last-child > button {
+  width: auto;
+  padding-inline: 12px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-dim);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  border-radius: 4px;
+}
+html[data-ui="beta"] [data-ui="provider-actions"] > div:last-child > button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 13%, transparent);
+  color: var(--color-danger);
+}
+
+/* Field labels: sentence case at a readable size, so they stop competing with
+   the section headings they sit under. */
+html[data-ui="beta"] [data-ui="screen"] label {
+  text-transform: none;
+  letter-spacing: 0.03em;
+  font-size: 11.5px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   14. THE ARMED ROW (audit F8) — BetaArmedRow.tsx
+   One place to answer "what will Enter do?". Warm gold, which by the rule at
+   the top of this file means exactly one thing and never anything else.
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] [data-ui="armed-row"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 0 8px 7px;
+}
+html[data-ui="beta"] [data-ui="armed-lead"] {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lamp-armed);
+}
+html[data-ui="beta"] [data-ui="armed-chip"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 23px;
+  padding: 0 3px 0 9px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: var(--lamp-armed);
+  background: color-mix(in srgb, var(--lamp-armed) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lamp-armed) 45%, transparent);
+}
+html[data-ui="beta"] [data-ui="armed-chip"] b { font-weight: 600; }
+html[data-ui="beta"] [data-ui="armed-chip"] i {
+  font-style: normal;
+  opacity: 0.78;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html[data-ui="beta"] [data-ui="armed-chip"] button {
+  width: 17px;
+  height: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: inherit;
+  opacity: 0.6;
+}
+html[data-ui="beta"] [data-ui="armed-chip"] button:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--lamp-armed) 30%, transparent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   15. COMMAND PALETTE (audit F6) — BetaCommandPalette.tsx
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-ui="beta"] [data-ui="palette-veil"] {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: color-mix(in srgb, var(--color-void-darker) 74%, transparent);
+  backdrop-filter: blur(2px);
+}
+html[data-ui="beta"] [data-ui="palette"] {
+  width: 520px;
+  max-width: calc(100% - 48px);
+  max-height: 62vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--color-void-light);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--lamp-shadow-3);
+}
+html[data-ui="beta"] [data-ui="palette-input"] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  color: var(--color-text-dim);
+}
+html[data-ui="beta"] [data-ui="palette-input"] input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  font-size: 14.5px;
+  color: var(--color-text-primary);
+}
+html[data-ui="beta"] [data-ui="palette-input"] input::placeholder { color: var(--color-text-dim); }
+html[data-ui="beta"] [data-ui="palette-input"] kbd {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-dim);
+  flex-shrink: 0;
+}
+html[data-ui="beta"] [data-ui="palette-list"] {
+  overflow-y: auto;
+  padding: 5px;
+  min-height: 0;
+}
+html[data-ui="beta"] [data-ui="palette-group"] {
+  display: block;
+  padding: 9px 10px 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+html[data-ui="beta"] [data-ui="palette-row"] {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+html[data-ui="beta"] [data-ui="palette-row"] i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--color-text-dim);
+  margin-left: auto;
+}
+html[data-ui="beta"] [data-ui="palette-row"][data-selected="true"] {
+  background: color-mix(in srgb, var(--lamp-accent) 16%, transparent);
+  color: var(--lamp-accent);
+}
+html[data-ui="beta"] [data-ui="palette-row"][data-selected="true"] i { color: var(--lamp-accent); }
+html[data-ui="beta"] [data-ui="palette-empty"] {
+  padding: 18px 12px;
+  margin: 0;
+  font-family: var(--lamp-story);
+  font-size: 15px;
+  color: var(--color-text-dim);
+}
+
+/* A quiet standing hint, so the binding is discoverable without a tour. */
+html[data-ui="beta"] [data-ui="composer-actions"]::after {
+  content: "⌘K";
+  align-self: center;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-dim);
+  opacity: 0.55;
+  padding-left: 8px;
+  flex-shrink: 0;
+}
+
+/* The composer's own inline "DEEP" chip is superseded by the armed row above
+   it — keeping both would reproduce the duplication F8 exists to remove (deep
+   search was the one feature that announced itself in TWO places at once). */
+html[data-ui="beta"] [data-ui="composer-input"] > div[class*="bg-amber-500/15"] {
+  display: none;
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   16. SETTINGS — the whole screen, to one standard
+   ─────────────────────────────────────────────────────────────────────────
+   Every tab was built the same way: an 11px UPPERCASE BOLD label above a 9px
+   (sometimes 8px) description, repeated 25+ times down a column. That is the
+   "wall of text": at 9px the description is too small to actually read but too
+   present to ignore, so the eye gives up and treats the whole column as grey
+   texture.
+
+   The counter-intuitive fix is to make descriptions BIGGER. 9px dark-grey and
+   13px dim read as opposite things — the first is noise you must squint past,
+   the second is a sentence you can skim in one pass and then skip. What
+   separates a label from its help text should be CONTRAST (weight + colour),
+   not a 2px size difference that only makes both harder to read.
+
+   So: one dominant label tier, one clearly recessive description tier, and the
+   same card around every setting so the grid reads as a deliberate table
+   instead of a ragged pile.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── Setting names: sentence case, dominant, scannable ── */
+html[data-ui="beta"] [data-ui="settings"] label[class*="uppercase"] {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1.35;
+}
+
+/* ── Descriptions: bigger, quieter, and measured ── */
+html[data-ui="beta"] [data-ui="settings"] p[class*="text-[9px]"],
+html[data-ui="beta"] [data-ui="settings"] p[class*="text-[8px]"],
+html[data-ui="beta"] [data-ui="settings"] p[class*="text-[10px]"],
+html[data-ui="beta"] [data-ui="settings"] div[class*="text-[9px]"]:not([class*="font-bold"]) {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-ink-3, var(--color-text-dim));
+  opacity: 0.82;
+  /* The source caps these at 200/240/280/320px, four different measures chosen
+     ad hoc. One measure, expressed in characters so it tracks the font. */
+  max-width: 56ch !important;
+  margin-top: 3px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Secondary field labels (the 10px dim ones inside compound sections) sit
+   between the two tiers — they name a control, they do not explain it. */
+html[data-ui="beta"] [data-ui="settings"] label[class*="text-[10px]"] {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--color-text-dim);
+}
+
+/* ── One card for every setting, so the 2-up grid reads as a table ── */
+html[data-ui="beta"] [data-ui="settings"] [class*="md:grid-cols-2"] > * {
+  background: var(--color-void-light);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 13px 15px;
+  align-content: start;
+}
+/* …including the ones that already had a card, which must not double up. */
+html[data-ui="beta"] [data-ui="settings"] [class*="md:grid-cols-2"] > [class*="border"] {
+  border-color: var(--color-border);
+}
+html[data-ui="beta"] [data-ui="settings"] [class*="md:grid-cols-2"] {
+  gap: 10px;
+  align-items: start;
+}
+
+/* The tab's own section heading ("Global Preferences", "Advanced") is a group
+   label, which is the ONE role that keeps uppercase + tracking in this skin. */
+html[data-ui="beta"] [data-ui="settings"] > div > label[class*="tracking-widest"],
+html[data-ui="beta"] [data-ui="settings"] > div > div > label[class*="tracking-widest"] {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-text-dim);
+}
+
+/* ── Colour discipline (audit F14), inside Settings ──
+   Nothing in Settings is "armed", so nothing in Settings may be gold. Two
+   toggles (Deep Archive Search, Auto-extract divergences) and a slider were
+   hardcoded amber purely as decoration, which under this palette reads as a
+   live armed state on a preferences screen. */
+html[data-ui="beta"] [data-ui="settings"] [class*="bg-amber-500"]:not([class*="bg-amber-500/"]) {
+  background-color: var(--lamp-accent) !important;
+}
+html[data-ui="beta"] [data-ui="settings"] [class*="accent-amber-500"] { accent-color: var(--lamp-accent); }
+html[data-ui="beta"] [data-ui="settings"] [class*="text-amber-500"] { color: var(--color-text-dim); }
+html[data-ui="beta"] [data-ui="settings"] [class*="bg-amber-500/10"] {
+  background-color: color-mix(in srgb, var(--lamp-accent) 12%, transparent) !important;
+}
+
+/* ── Controls to one size, so a column of settings lines up ── */
+html[data-ui="beta"] [data-ui="settings"] input[type="number"],
+html[data-ui="beta"] [data-ui="settings"] input[type="text"],
+html[data-ui="beta"] [data-ui="settings"] select {
+  height: 32px;
+  font-size: 12.5px;
+  border-radius: 4px;
+}
+html[data-ui="beta"] [data-ui="settings"] textarea {
+  font-size: 12.5px;
+  border-radius: 4px;
+  line-height: 1.5;
+}
+/* Chip rows (context-limit presets, UI-scale steps) — one shape. */
+html[data-ui="beta"] [data-ui="settings"] button[class*="text-[10px]"][class*="border"] {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 11.5px;
+  height: 26px;
+  padding-inline: 10px;
+  border-radius: 4px;
+}
+
+/* Presets tab carries the same horizontal tab strip Providers had; size its
+   tabs to their labels rather than letting six of them sprawl. */
+html[data-ui="beta"] [data-ui="settings"] [class*="border-b-2"][class*="-mb-px"] {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 12.5px;
+}
+
+/* Checkbox rows put the text in a `span` INSIDE the label, so the label-level
+   rule above never reaches it (e.g. Advanced → "Read GM replies aloud").
+   Status chips (READY / ACTIVE) are deliberately left uppercase: they are
+   micro-labels reporting state, which is the other role that keeps caps. */
+html[data-ui="beta"] [data-ui="settings"] label span[class*="uppercase"],
+html[data-ui="beta"] [data-ui="settings"] label div[class*="uppercase"] {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* ── Section headings inside Settings (the "wall of text" fix) ──
+   GlobalSettingsTab renders six `hidden` headings; beta un-hides them and
+   spans them across the 2-up grid so each group owns a band of the page. */
+html[data-ui="beta"] [data-ui="settings-group"] {
+  display: block;
+  grid-column: 1 / -1;
+  margin: 16px 0 0;
+  padding: 0 0 7px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lamp-accent);
+  background: none;
+  border-radius: 0;
+}
+/* It is a heading, not a setting — exempt it from the card rule above. */
+html[data-ui="beta"] [data-ui="settings"] [class*="md:grid-cols-2"] > [data-ui="settings-group"] {
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 0 7px;
+}
+html[data-ui="beta"] [data-ui="settings-group"]:first-child { margin-top: 0; }
+
+/* The per-tab title ("Global Preferences", "AI Presets", "Advanced") repeats
+   the tab you just clicked. With real section headings underneath it, it is
+   pure duplication — the groups now say where you are. */
+html[data-ui="beta"] [data-ui="settings"] > div > label[class*="tracking-widest"]:first-child,
+html[data-ui="beta"] [data-ui="settings"] > div > div > label[class*="tracking-widest"]:first-child {
+  display: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   17. GLOBAL TAB — the same master/detail shape as Providers
+   Six groups of preferences behaved differently from six providers for no
+   reason: one was a sidebar, the other an endless scroll. Both halves of
+   Settings navigate the same way now.
+
+   In the classic UI the section wrappers are `display: contents`, which makes
+   them invisible to layout — every block still lands in the same grid cell it
+   always did, and the rail is `hidden`. Nothing there moves.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (min-width: 900px) {
+  html[data-ui="beta"] [data-ui="global-root"] {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 0 26px;
+    align-items: start;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  html[data-ui="beta"] [data-ui="settings-nav"] {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    position: sticky;
+    top: 0;
+  }
+  html[data-ui="beta"] [data-ui="settings-nav"] button {
+    text-align: left;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    color: var(--color-text-dim);
+    border-left: 2px solid transparent;
+    border-radius: 0 3px 3px 0;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+  }
+  html[data-ui="beta"] [data-ui="settings-nav"] button:hover {
+    background: var(--color-void-lighter);
+    color: var(--color-text-primary);
+  }
+  html[data-ui="beta"] [data-ui="settings-nav"] button[data-active="true"] {
+    color: var(--lamp-accent);
+    border-left-color: var(--lamp-accent);
+    background: color-mix(in srgb, var(--lamp-accent) 10%, transparent);
+    font-weight: 600;
+  }
+
+  /* One group at a time. The active wrapper keeps `display: contents`, so its
+     blocks flow into the existing 2-up grid exactly as before. */
+  html[data-ui="beta"] [data-ui="settings-section"]:not([data-active="true"]) {
+    display: none;
+  }
+  /* With a rail naming the section, the in-content heading is the page title. */
+  html[data-ui="beta"] [data-ui="settings-group"] { margin-top: 0; }
+}
+
+/* Below the split point there is no room for a rail: show every section and
+   fall back to the scrolling list the headings already organise. */
+@media (max-width: 899px) {
+  html[data-ui="beta"] [data-ui="settings-nav"] { display: none; }
+}

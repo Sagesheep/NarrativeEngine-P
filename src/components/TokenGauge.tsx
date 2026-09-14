@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import type React from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { countTokens } from '../services/infrastructure/tokenizer';
@@ -71,8 +72,24 @@ export function TokenGauge() {
 
 
 
+    // Beta UI renders the same three numbers as one proportional bar. The bar is
+    // `display:none` in the classic UI (see beta.css) rather than conditional on
+    // the flag, so this component never has to read settings and the classic DOM
+    // gains nothing but an inert span.
+    const usedPct = total > 0 ? Math.min(100, ((adjustedSystemTokens + historyTokens) / total) * 100) : 0;
+    const sysPct = total > 0 ? Math.min(100, (adjustedSystemTokens / total) * 100) : 0;
+    const hisPct = Math.max(0, usedPct - sysPct);
+
     return (
-        <div className="flex items-center gap-2.5 shrink-0 px-3">
+        <div data-ui="gauge" className="flex items-center gap-2.5 shrink-0 px-3">
+            <span
+                data-ui="gauge-bar"
+                title={`Context ${Math.round(usedPct)}% used — ${adjustedSystemTokens} system, ${historyTokens} history, ${remaining} free`}
+                style={{ '--sys': `${sysPct}%`, '--his': `${hisPct}%` } as React.CSSProperties}
+            >
+                <i data-part="sys" /><i data-part="his" />
+            </span>
+            <span data-ui="gauge-pct">{Math.round(usedPct)}%</span>
             <span className="text-[10px] text-text-dim uppercase tracking-widest font-mono font-bold shrink-0">
                 CTX
             </span>

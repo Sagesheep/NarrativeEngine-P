@@ -12,6 +12,7 @@ import {
     migrateSettings,
     applyTheme,
     applyUIScale,
+    applyBetaUi,
     applyLocale,
     debouncedSaveSettings,
     defaultSettings,
@@ -22,7 +23,7 @@ export {
     DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_ENCOUNTER_TYPES, DEFAULT_ENCOUNTER_TONES,
     DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHY, DEFAULT_WORLD_WHAT,
     defaultProvider, defaultPreset, defaultSettings,
-    applyTheme, systemTheme, applyUIScale, applyLocale, migrateSettings, debouncedSaveSettings,
+    applyTheme, systemTheme, applyUIScale, applyBetaUi, applyLocale, migrateSettings, debouncedSaveSettings,
 } from './settingsHelpers';
 
 // ── Slice type ─────────────────────────────────────────────────────────
@@ -93,6 +94,7 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
                 } as Partial<SettingsSlice>);
                 applyTheme(migrated.theme ?? 'light');
                 applyUIScale(migrated.uiScale ?? 1.0);
+                applyBetaUi(migrated.betaUi ?? false);
                 applyLocale(migrated.locale ?? 'en');
                 return;
             }
@@ -107,6 +109,7 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
                 } as Partial<SettingsSlice>);
                 applyTheme(migrated.theme ?? 'light');
                 applyUIScale(migrated.uiScale ?? 1.0);
+                applyBetaUi(migrated.betaUi ?? false);
                 applyLocale(migrated.locale ?? 'en');
                 debouncedSaveSettings(migrated, null);
                 return;
@@ -132,6 +135,9 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
             }
             if (patch.uiScale !== undefined) {
                 applyUIScale(patch.uiScale);
+            }
+            if (patch.betaUi !== undefined) {
+                applyBetaUi(patch.betaUi);
             }
             if (patch.locale) {
                 applyLocale(patch.locale);

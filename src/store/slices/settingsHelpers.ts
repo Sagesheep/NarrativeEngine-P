@@ -104,6 +104,7 @@ export const defaultSettings: AppSettings = {
     retrievalAlgorithm: 'idf-rrf',
     archiveRecallDepth: 'standard',
     uiScale: 1.0,
+    betaUi: false,
     imageStylePrompt: '',
     imageNegativePrompt: '',
     showPcTab: true,
@@ -129,6 +130,21 @@ export function systemTheme(): 'light' | 'dark' {
 // helper from one place. Implementation lives in src/i18n (it must stay free of
 // store imports — see the note at the top of that file).
 export { applyLocale };
+
+/**
+ * Beta UI: project the opt-in flag onto the document as `data-ui="beta"`.
+ *
+ * Every beta rule in `src/styles/beta.css` is nested under that attribute, so
+ * flipping it off restores the classic UI exactly — there is no second
+ * component tree to drift out of sync, and no markup is conditional on it.
+ * The attribute is REMOVED rather than set to "classic" so the default
+ * document is byte-identical to a build that never had the flag.
+ */
+export function applyBetaUi(on: boolean): void {
+    const html = document.documentElement;
+    if (on) html.setAttribute('data-ui', 'beta');
+    else html.removeAttribute('data-ui');
+}
 
 export function applyUIScale(scale: number): void {
     const html = document.documentElement;
@@ -396,6 +412,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         matureMode: (raw.matureMode as boolean) ?? false,
         aiTier: raw.aiTier as AiTier | undefined,
         uiScale: (raw.uiScale as number) ?? 1.0,
+        betaUi: (raw.betaUi as boolean) ?? false,
         embeddingModel: raw.embeddingModel as ('standard' | 'high') | undefined,
         imageStylePrompt: (raw.imageStylePrompt as string) ?? '',
         imageNegativePrompt: (raw.imageNegativePrompt as string) ?? '',

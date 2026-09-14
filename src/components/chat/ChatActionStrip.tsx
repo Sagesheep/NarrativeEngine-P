@@ -93,7 +93,7 @@ export function ChatActionStrip({
     const ordered = useComposerActions();
 
     return (
-        <div className="px-2 md:px-4 pb-1 flex gap-2 overflow-x-auto no-scrollbar">
+        <div data-ui="composer-actions" className="px-2 md:px-4 pb-1 flex gap-2 overflow-x-auto no-scrollbar">
             {ordered.map((entry) => {
                 if (entry.renderer === 'builtin' && COMPOSER_BUILTIN_ID_SET.has(entry.entryId)) {
                     return renderComposerBuiltin(entry.entryId, {

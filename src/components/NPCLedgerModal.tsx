@@ -236,7 +236,7 @@ export function NPCLedgerModal() {
 
     // ── Render ────────────────────────────────────────────────────────────
     return (
-        <div className="fixed inset-0 z-50 flex flex-col bg-void/95 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="NPC Ledger" onClick={toggleNPCLedger}>
+        <div data-ui="ledger" className="fixed inset-0 z-50 flex flex-col bg-void/95 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="NPC Ledger" onClick={toggleNPCLedger}>
             <div className="relative bg-surface border border-border flex flex-col sm:flex-row w-full h-full overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
                 {/* Hidden import input lives INSIDE the stopPropagation container. If it sat
                     on the backdrop, importRef.current.click() would bubble a click to the
@@ -254,7 +254,7 @@ export function NPCLedgerModal() {
                 )}
 
                 {/* Left Sidebar */}
-                <div className="w-full sm:w-1/3 md:w-96 lg:w-[420px] border-b sm:border-b-0 sm:border-r border-border flex flex-col bg-void-lighter max-h-[40vh] sm:max-h-none shrink-0">
+                <div data-ui="ledger-list" className="w-full sm:w-1/3 md:w-96 lg:w-[420px] border-b sm:border-b-0 sm:border-r border-border flex flex-col bg-void-lighter max-h-[40vh] sm:max-h-none shrink-0">
                     {/* Header */}
                     <div className="p-4 border-b border-border flex justify-between items-center bg-void">
                         <div className="flex items-center gap-2 text-terminal font-bold uppercase tracking-widest text-sm">

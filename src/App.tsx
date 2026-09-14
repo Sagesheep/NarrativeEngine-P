@@ -1,4 +1,5 @@
 ﻿import './index.css';
+import './styles/beta.css';
 import { useEffect, useState } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { CampaignHub } from './components/CampaignHub';

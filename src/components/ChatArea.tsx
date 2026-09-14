@@ -30,6 +30,8 @@ import { useChatKeyboard } from '../hooks/useChatKeyboard';
 import { InventoryStagingBar } from './inventory/InventoryStagingBar';
 import { IndexingBanner } from './IndexingBanner';
 import { AskGmPanel } from './ooc/AskGmPanel';
+import { BetaArmedRow } from './beta/BetaArmedRow';
+import { BetaCommandPalette } from './beta/BetaCommandPalette';
 import { ArmedAskGmNote } from './ooc/ArmedAskGmNote';
 
 export function ChatArea() {
@@ -118,6 +120,10 @@ export function ChatArea() {
     const retry = useRetryStoryAI();
     const [swipeSheetMessageId, setSwipeSheetMessageId] = useState<string | null>(null);
 
+    // Beta UI: the only two places a component branches on the flag. Both are
+    // ADDITIVE surfaces (a readout of armed state, a shortcut to existing
+    // actions) — nothing existing renders differently, so OFF is the classic UI.
+    const betaUi = useAppStore(s => s.settings?.betaUi ?? false);
     const deepArmed = useAppStore(s => s.deepArmed);
     const setDeepArmed = useAppStore(s => s.setDeepArmed);
     const composerInjection = useAppStore(s => s.composerInjection);
@@ -251,7 +257,7 @@ export function ChatArea() {
     };
 
     return (
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        <div data-ui="stage" className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
             {context.sceneNoteActive && (
                 <div className="absolute top-0 left-0 right-0 z-20 px-4 py-1.5 bg-amber/90 backdrop-blur-sm border-b border-amber/40 flex items-center justify-between text-[10px] text-void-dark font-bold uppercase tracking-widest animate-in slide-in-from-top duration-300">
                     <div className="flex items-center gap-2">
@@ -319,6 +325,7 @@ export function ChatArea() {
                         onDone={() => setPendingProposal(null)}
                     />
                 )}
+                {betaUi && <BetaArmedRow />}
                 <ChatComposer
                     input={input}
                     inputRef={inputRef}
@@ -363,6 +370,8 @@ export function ChatArea() {
                     onClose={() => setOocOpen(false)}
                 />
             )}
+
+            {betaUi && <BetaCommandPalette />}
 
             <ChatNavFabs scrollContainerRef={scrollContainerRef} bottomRef={bottomRef} />
 

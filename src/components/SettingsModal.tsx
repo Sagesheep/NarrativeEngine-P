@@ -66,10 +66,10 @@ export function SettingsModal() {
           Viewport scaling is NOT applied here — ScreenLightbox owns it, on the
           wrapper directly above this one. Setting `zoom` again at this level
           would multiply against the parent's. */}
-      <div className="flex flex-col flex-1 min-h-0">
+      <div data-ui="settings" className="flex flex-col flex-1 min-h-0">
 
         {/* Tabs */}
-        <div className="flex border-b border-border sticky top-0 bg-void z-10">
+        <div data-ui="settings-tabs" className="flex border-b border-border sticky top-0 bg-void z-10">
           {TABS.map(({ key, labelKey }) => (
             <button
               key={key}

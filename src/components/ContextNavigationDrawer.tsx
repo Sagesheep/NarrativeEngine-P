@@ -159,7 +159,7 @@ export function ContextNavigationDrawer() {
     return (
         <>
             {drawerOpen && (
-                <aside className="w-72 max-w-[85vw] bg-surface border-r border-border flex flex-col overflow-hidden shrink-0">
+                <aside data-ui="drawer" className="w-72 max-w-[85vw] bg-surface border-r border-border flex flex-col overflow-hidden shrink-0">
                     <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
                         <h2 className="text-[11px] text-terminal uppercase tracking-[0.25em] font-bold">◆ CONTEXT</h2>
                         <button type="button" onClick={toggleDrawer} className="text-text-dim hover:text-terminal text-xs uppercase tracking-wider" title={t('header.drawer.close')} aria-label={t('header.drawer.close')}>×</button>

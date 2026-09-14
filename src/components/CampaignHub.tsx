@@ -15,6 +15,7 @@ import { CoverflowCarousel } from './CoverflowCarousel';
 import { Backdrop } from './primitives/Backdrop';
 import { GhostBtn, DangerBtn } from './primitives/Buttons';
 import { WorldLoreModal } from './WorldLoreModal';
+import { BetaUiToggle } from './BetaUiToggle';
 import { useTranslation } from '../i18n/useTranslation';
 
 export function CampaignHub() {
@@ -114,6 +115,7 @@ export function CampaignHub() {
 
     return (
         <div
+            data-ui="hub"
             style={{
                 minHeight: '100vh',
                 background: 'var(--color-void)',
@@ -164,6 +166,9 @@ export function CampaignHub() {
             >
                 {isImporting ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={15} />}
             </button>
+
+            {/* Beta UI flag — hub only (see BetaUiToggle). */}
+            <BetaUiToggle />
 
             {/* Settings button */}
             <button

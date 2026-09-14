@@ -1,19 +1,66 @@
+import { useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { VaultSection } from './VaultSection';
 import { LanguageSection } from './LanguageSection';
 import { BackgroundControl } from '../BackgroundControl';
 
+/**
+ * The six groups this tab divides into, in the order the blocks already appear
+ * below. Nothing was reordered to make this list — the grouping was chosen to
+ * fit the existing order, which is why switching the flag moves no classic pixel.
+ */
+const GLOBAL_GROUPS = [
+  { id: 'interface', label: 'Interface' },
+  { id: 'model', label: 'Model & play' },
+  { id: 'memory', label: 'Memory & retrieval' },
+  { id: 'display', label: 'Display' },
+  { id: 'images', label: 'Images' },
+  { id: 'security', label: 'Security' },
+] as const;
+
 export function GlobalSettingsTab() {
   const { settings, updateSettings } = useAppStore();
+  // Beta UI only. In the classic UI every section renders at once (the wrappers
+  // below are `display: contents`, so they are invisible to layout) and this
+  // state simply has no effect.
+  const [activeGroup, setActiveGroup] = useState<string>('interface');
 
   return (
-    <div className="mt-8 pt-6 border-t border-border space-y-4">
+    <div data-ui="global-root" className="mt-8 pt-6 border-t border-border space-y-4">
       <label className="text-text-dim text-xs uppercase tracking-widest font-bold block mb-2">Global Preferences</label>
+
+      {/* Section rail. Mirrors the Providers tab's provider list so both halves
+          of Settings navigate the same way. `hidden` by default: the classic UI
+          shows every section at once and has no use for it. */}
+      <nav data-ui="settings-nav" className="hidden" aria-label="Settings sections">
+        {GLOBAL_GROUPS.map(group => (
+          <button
+            key={group.id}
+            type="button"
+            onClick={() => setActiveGroup(group.id)}
+            data-active={activeGroup === group.id ? 'true' : undefined}
+          >
+            {group.label}
+          </button>
+        ))}
+      </nav>
 
       {/* WO-12.1 — 2-column grid on wide viewports (md+). Each preference is a
           card; compound sections (Rules RAG, Divergence, Auto-Trim, Auto-Archive)
           span both columns. Stacks to a single column on narrow/mobile. */}
       <div className="md:grid md:grid-cols-2 md:gap-4 space-y-4 md:space-y-0">
+
+            {/* Beta UI section headings (audit: "Global is a wall of text").
+          Twenty-odd unrelated preferences in one flat grid gives the eye no
+          place to rest. These split it into six groups WITHOUT reordering a
+          single block — the grouping follows the order the file already had.
+
+          Rendered always but `hidden`, the same trick TokenGauge's bar uses:
+          the classic UI gains six display:none headings and is otherwise
+          untouched, and beta.css un-hides them. That keeps the flag's promise
+          (no markup branches on it) while still changing the structure. */}
+      <div data-ui="settings-section" data-group="interface" data-active={activeGroup === 'interface' ? 'true' : undefined} className="contents">
+      <h4 data-ui="settings-group" className="hidden">Interface</h4>
 
       {/* Interface Language */}
       <LanguageSection />
@@ -28,6 +75,10 @@ export function GlobalSettingsTab() {
         </p>
         <BackgroundControl />
       </div>
+      </div>
+
+      <div data-ui="settings-section" data-group="model" data-active={activeGroup === 'model' ? 'true' : undefined} className="contents">
+      <h4 data-ui="settings-group" className="hidden">Model &amp; play</h4>
 
       {/* Context Limit */}
       <div>
@@ -136,6 +187,10 @@ export function GlobalSettingsTab() {
           <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-surface transition-transform ${settings.showReasoning ? 'translate-x-[22px]' : 'translate-x-[2px]'}`} />
         </button>
       </div>
+      </div>
+
+      <div data-ui="settings-section" data-group="memory" data-active={activeGroup === 'memory' ? 'true' : undefined} className="contents">
+      <h4 data-ui="settings-group" className="hidden">Memory &amp; retrieval</h4>
 
       {/* Deep Archive Search */}
       <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
@@ -465,6 +520,10 @@ export function GlobalSettingsTab() {
           </div>
         </div>
       </div>
+      </div>
+
+      <div data-ui="settings-section" data-group="display" data-active={activeGroup === 'display' ? 'true' : undefined} className="contents">
+      <h4 data-ui="settings-group" className="hidden">Display</h4>
 
       {/* Theme */}
       <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
@@ -523,6 +582,10 @@ export function GlobalSettingsTab() {
           ))}
         </div>
       </div>
+      </div>
+
+      <div data-ui="settings-section" data-group="images" data-active={activeGroup === 'images' ? 'true' : undefined} className="contents">
+      <h4 data-ui="settings-group" className="hidden">Images</h4>
 
       {/* Image Style Prompt */}
       <div className="flex flex-col bg-void p-3 border border-border rounded">
@@ -549,10 +612,15 @@ export function GlobalSettingsTab() {
           className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 focus:border-terminal focus:outline-none"
         />
       </div>
+      </div>
+
+      <div data-ui="settings-section" data-group="security" data-active={activeGroup === 'security' ? 'true' : undefined} className="contents">
+      <h4 data-ui="settings-group" className="hidden">Security</h4>
 
       {/* Vault Export/Import */}
       <div className="md:col-span-2">
         <VaultSection />
+      </div>
       </div>
       </div>
     </div>

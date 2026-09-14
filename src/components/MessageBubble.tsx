@@ -174,11 +174,16 @@ export function MessageBubble({
     return (
         <div
             key={msg.id}
+            data-ui="msg-row"
+            data-role={msg.role}
+            data-last={isLastMessage ? 'true' : undefined}
             className={`group flex items-start gap-2 animate-[msg-in_0.2s_ease-out] ${isEditing ? 'w-full' : isUser ? 'justify-end' : 'justify-start'}`}
         >
             {isUser && !isEditing && actionRail}
             <div
                 {...(msg.role === 'assistant' ? { 'data-lore-checkable': 'true', 'data-message-id': msg.id } : {})}
+                data-ui="msg"
+                data-role={msg.role}
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
                 className={`chat-bubble-base ${isEditing ? 'w-full max-w-full' : 'max-w-[95%] md:max-w-[75%]'} px-3 md:px-4 py-2 md:py-3 text-sm font-mono leading-relaxed relative ${isUser
@@ -188,7 +193,7 @@ export function MessageBubble({
                         : 'chat-bubble bg-void-lighter border-l-2 border-border text-text-primary'
                     }`}
             >
-                <div className="flex items-center gap-2 mb-1">
+                <div data-ui="msg-meta" className="flex items-center gap-2 mb-1">
                     <span
                         className={`text-[10px] uppercase tracking-widest ${msg.role === 'user'
                             ? 'text-terminal'

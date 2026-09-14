@@ -155,8 +155,8 @@ export function ProvidersTab() {
     const isOpenRouter = (config?.apiFormat || 'openai') === 'openrouter';
 
     return (
-        <div className="flex flex-col">
-            <div className="flex flex-col mb-6">
+        <div data-ui="providers" className="flex flex-col">
+            <div data-ui="provider-list" className="flex flex-col mb-6">
                 <label className="text-text-dim text-xs uppercase tracking-widest mb-2 font-bold">Providers</label>
                 <div className="flex items-center gap-1 border-b border-border overflow-x-auto pb-px">
                     {settings.providers.map((p) => (
@@ -182,7 +182,7 @@ export function ProvidersTab() {
             </div>
 
             {config && (
-                <div className="mb-8">
+                <div data-ui="provider-config" className="mb-8">
                     <div className="border border-border rounded mb-3 bg-void-lighter overflow-hidden">
                         <button
                             onClick={() => setIsExpanded(!isExpanded)}
@@ -232,7 +232,7 @@ export function ProvidersTab() {
                                 </div>
                                 <div className="xl:col-span-2">
                                     <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">API Format</label>
-                                    <div className="flex border border-border overflow-hidden rounded">
+                                    <div data-ui="seg" className="flex border border-border overflow-hidden rounded">
                                         {(['openai', 'ollama', 'claude', 'gemini', 'comfyui', 'openrouter'] as ApiFormat[]).map(fmt => (
                                             <button
                                                 key={fmt}
@@ -301,7 +301,7 @@ export function ProvidersTab() {
                                         <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1" title="Requests reasoning from the model when supported. 'Max' maps to xhigh on OpenAI, max on DeepSeek V4, HIGH on Gemini.">
                                             Thinking effort
                                         </label>
-                                        <div className="flex border border-border overflow-hidden rounded">
+                                        <div data-ui="seg" className="flex border border-border overflow-hidden rounded">
                                             {(['off', 'low', 'medium', 'high', 'max'] as ThinkingEffort[]).map(level => (
                                                 <button
                                                     key={level}
@@ -337,7 +337,7 @@ export function ProvidersTab() {
                                         </p>
                                     </div>
                                 )}
-                                <div className="pt-2 xl:col-span-2 grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-3 items-start">
+                                <div data-ui="provider-actions" className="pt-2 xl:col-span-2 grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-3 items-start">
                                   <div>
                                     <button
                                         onClick={handleTest}

@@ -62,7 +62,7 @@ export function MessageActionRail({
     onDelete: (id: string) => void;
 }) {
     return (
-        <div className="flex flex-col gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-void-darker border border-border p-1 rounded-md self-start sticky top-1/2 -translate-y-1/2 z-10">
+        <div data-ui="msg-rail" className="flex flex-col gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-void-darker border border-border p-1 rounded-md self-start sticky top-1/2 -translate-y-1/2 z-10">
             {isEditing ? (
                 <>
                     <button title="Save edit (Enter)" onClick={() => onInlineSubmit?.()} className="text-terminal hover:text-terminal p-1.5 bg-void-lighter rounded">

@@ -62,6 +62,7 @@ export function ChatComposer({
 
     return (
         <div
+            data-ui="composer"
             className="px-2 sm:px-4 pb-3 sm:pb-4 pt-3 sm:pt-4"
             onDrop={handleDrop}
             onDragOver={e => { if (onAttachFromDataTransfer) e.preventDefault(); }}
@@ -91,7 +92,7 @@ export function ChatComposer({
                     onRemove={onRemoveAttachment}
                 />
             )}
-            <div className="flex gap-1 border border-border bg-void focus-within:border-terminal transition-colors items-end p-1 rounded-sm">
+            <div data-ui="composer-input" className="flex gap-1 border border-border bg-void focus-within:border-terminal transition-colors items-end p-1 rounded-sm">
                 <div className="relative shrink-0 mb-[4px] ml-1">
                     <select
                         value={settings.activePresetId}

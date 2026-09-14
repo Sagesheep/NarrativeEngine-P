@@ -345,7 +345,7 @@ export function LocationLedgerModal() {
 
     return (
         <div
-            className="fixed inset-0 z-50 flex flex-col bg-void/95 backdrop-blur-sm"
+            data-ui="ledger" className="fixed inset-0 z-50 flex flex-col bg-void/95 backdrop-blur-sm"
             role="dialog"
             aria-modal="true"
             aria-label="Location Ledger"
@@ -356,7 +356,7 @@ export function LocationLedgerModal() {
                 onClick={e => e.stopPropagation()}
             >
                 {/* Left Sidebar */}
-                <div className="w-full sm:w-1/3 md:w-96 lg:w-[420px] border-b sm:border-b-0 sm:border-r border-border flex flex-col bg-void-lighter max-h-[40vh] sm:max-h-none shrink-0">
+                <div data-ui="ledger-list" className="w-full sm:w-1/3 md:w-96 lg:w-[420px] border-b sm:border-b-0 sm:border-r border-border flex flex-col bg-void-lighter max-h-[40vh] sm:max-h-none shrink-0">
                     <div className="p-4 border-b border-border flex justify-between items-center bg-void">
                         <div className="flex items-center gap-2 text-terminal font-bold uppercase tracking-widest text-sm">
                             <MapPin size={16} /> Location Ledger

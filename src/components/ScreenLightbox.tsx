@@ -114,6 +114,7 @@ export function ScreenLightbox({ size = 'default', width = 'form', title, onClos
             <div
                 ref={panelRef}
                 tabIndex={-1}
+                data-ui="screen"
                 className={`relative ${panelSize} bg-surface border border-border flex flex-col shadow-2xl overflow-hidden`}
                 onClick={(event) => event.stopPropagation()}
             >

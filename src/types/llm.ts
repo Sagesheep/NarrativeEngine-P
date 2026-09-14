@@ -144,6 +144,11 @@ export type AppSettings = {
     modLoadOrder?: string[];
     aiTier?: AiTier;                 // 'lite' | 'pro' | 'max' — gates which turn stages run (Phase 4)
     uiScale?: number;                // 0.7–1.3, default 1.0 — global UI zoom (ported from mobile settings)
+    /** Beta UI: opt-in restyle of the whole app (new palette, type scale and
+     *  chrome density). Projected onto <html data-ui="beta"> by applyBetaUi;
+     *  every rule lives in src/styles/beta.css behind that attribute, so OFF
+     *  is byte-identical to the classic UI. Default false. */
+    betaUi?: boolean;
     embeddingModel?: 'standard' | 'high';  // kept for type parity with mobile; mainApp runs a single server-side embedder, so this is informational only
     indexingSpeed?: 'eco' | 'balanced' | 'aggressive';  // governs lore/rules bulk-embed batch size + throttle; default 'balanced'. Higher = faster import but heavier CPU
     indexingSpeedPrompted?: boolean;       // true once the one-time first-run hardware suggestion has been shown
