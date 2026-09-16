@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings, Upload, Loader2, BookPlus } from 'lucide-react';
+import { Settings, Upload, Loader2, BookPlus, FileInput } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import {
     listCampaigns, deleteCampaign, saveCampaign,
@@ -15,6 +15,7 @@ import { CoverflowCarousel } from './CoverflowCarousel';
 import { Backdrop } from './primitives/Backdrop';
 import { GhostBtn, DangerBtn } from './primitives/Buttons';
 import { WorldLoreModal } from './WorldLoreModal';
+import { STImportWizard } from './import/STImportWizard';
 import { BetaUiToggle } from './BetaUiToggle';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -31,6 +32,9 @@ export function CampaignHub() {
     const importInputRef = useRef<HTMLInputElement>(null);
     const [modalOpen, setModalOpen] = useState(false);
     const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+    // WO-C §10.5 — the SillyTavern card import wizard. On success it hydrates the
+    // new campaign, which sets `activeCampaignId`; App.tsx leaves the hub by itself.
+    const [stImportOpen, setStImportOpen] = useState(false);
 
     const refresh = useCallback(async () => {
         const list = await listCampaigns();
@@ -165,6 +169,36 @@ export function CampaignHub() {
                 }}
             >
                 {isImporting ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={15} />}
+            </button>
+
+            {/* Import from SillyTavern.
+                WO-C §10.5 asked for top:20/left:64, but the Beta UI pill has held
+                that slot since 14cac1f (`.beta-toggle` in styles/beta.css, and it
+                is unscoped so it shows in both skins). Sitting directly under the
+                campaign-import button keeps the two import affordances together
+                and clears the pill, which ends at y=56. */}
+            <button
+                onClick={() => setStImportOpen(true)}
+                title={t('hub.stImport.tooltip')}
+                style={{
+                    position: 'absolute', top: 64, left: 20,
+                    width: 36, height: 36, borderRadius: '50%',
+                    border: '1px solid color-mix(in srgb, var(--color-terminal) 25%, transparent)',
+                    background: 'rgba(255,255,255,0.04)',
+                    color: 'rgba(107,107,107,0.5)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', zIndex: 10, transition: 'all 0.2s',
+                }}
+                onMouseEnter={e => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'color-mix(in srgb, var(--color-terminal) 65%, transparent)';
+                    (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-terminal)';
+                }}
+                onMouseLeave={e => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'color-mix(in srgb, var(--color-terminal) 25%, transparent)';
+                    (e.currentTarget as HTMLButtonElement).style.color = 'rgba(107,107,107,0.5)';
+                }}
+            >
+                <FileInput size={15} />
             </button>
 
             {/* Beta UI flag — hub only (see BetaUiToggle). */}
@@ -310,6 +344,13 @@ export function CampaignHub() {
                     onClose={() => setModalOpen(false)}
                 />
             )}
+
+            {/* ── SillyTavern Card Import ── */}
+            <STImportWizard
+                open={stImportOpen}
+                onClose={() => setStImportOpen(false)}
+                onDone={refresh}
+            />
 
             {/* ── World Lore Modal ── */}
             <WorldLoreModal />

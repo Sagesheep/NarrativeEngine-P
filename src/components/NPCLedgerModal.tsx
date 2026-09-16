@@ -9,6 +9,18 @@ import { toast } from './Toast';
 import { uid } from '../utils/uid';
 import { prepareImportedNpcs, type NpcImportMode } from '../services/npc/importTransform';
 import { filterNPCs, type SortOrder } from '../utils/ledgerFilters';
+import { uploadImageToLocal } from '../services/infrastructure/assetService';
+import { replaceCardLoreGroup } from '../services/import/importOverwrite';
+import {
+    applyOverwrite,
+    planQuickAdd,
+    routeQuickAddFile,
+    summarizeQuickAdd,
+    type QuickAddDecision,
+    type QuickAddPlan,
+    type QuickAddRouted,
+} from '../services/import/ledgerQuickAdd';
+import type { STCard } from '../services/import/stCardTypes';
 
 import { NPCListView } from './npc-ledger/NPCListView';
 import { NPCGalleryView } from './npc-ledger/NPCGalleryView';
@@ -16,11 +28,29 @@ import { NPCEditForm } from './npc-ledger/NPCEditForm';
 import { NPCSuggestionsPanel } from './npc-ledger/NPCSuggestionsPanel';
 import { NPCReviewModal } from './NPCReviewModal';
 import { ImportChoiceDialog } from './npc-ledger/ImportChoiceDialog';
+import { ImportOverwriteDialog } from './import/ImportOverwriteDialog';
 import { useNpcReview } from './hooks/useNpcReview';
 import { useNpcPortraits } from './hooks/useNpcPortraits';
 
+/**
+ * `File.arrayBuffer()` / `File.text()` exist in every browser this app ships to
+ * but NOT in jsdom, where the whole quick-add path is tested. `FileReader` is
+ * implemented in both — and it is what the rest of this file already uses.
+ */
+function readFile(file: File, as: 'buffer'): Promise<ArrayBuffer>;
+function readFile(file: File, as: 'text'): Promise<string>;
+function readFile(file: File, as: 'buffer' | 'text'): Promise<ArrayBuffer | string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer | string);
+        reader.onerror = () => reject(reader.error ?? new Error(`Failed to read ${file.name}`));
+        if (as === 'buffer') reader.readAsArrayBuffer(file);
+        else reader.readAsText(file);
+    });
+}
+
 export function NPCLedgerModal() {
-    const { npcLedger, npcLedgerOpen, toggleNPCLedger, addNPC, updateNPC, removeNPC, setNPCLedger, addNPCs, restoreNPC, npcSuggestions } = useAppStore();
+    const { npcLedger, npcLedgerOpen, toggleNPCLedger, addNPC, updateNPC, removeNPC, setNPCLedger, addNPCs, restoreNPC, npcSuggestions, setLoreChunks } = useAppStore();
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
 
@@ -34,6 +64,13 @@ export function NPCLedgerModal() {
     const importRef = useRef<HTMLInputElement>(null);
     // Parsed-but-not-yet-committed import, awaiting the user's mode choice.
     const [pendingImport, setPendingImport] = useState<Partial<NPCEntry>[] | null>(null);
+    // WO-C §9.4 — card collisions from the current drop, resolved one dialog at a time.
+    const [cardImport, setCardImport] = useState<{
+        plan: QuickAddPlan;
+        index: number;
+        decisions: QuickAddDecision[];
+        portraitFailures: string[];
+    } | null>(null);
 
     const displayedNPCs = useMemo(() => filterNPCs(npcLedger, searchQuery, sortOrder), [npcLedger, searchQuery, sortOrder]);
 
@@ -96,7 +133,7 @@ export function NPCLedgerModal() {
     const toggleCheck = (id: string) => {
         setCheckedIds(prev => {
             const next = new Set(prev);
-            next.has(id) ? next.delete(id) : next.add(id);
+            if (next.has(id)) next.delete(id); else next.add(id);
             return next;
         });
     };
@@ -120,7 +157,12 @@ export function NPCLedgerModal() {
 
     // ── Import / Export ──────────────────────────────────────────────────
     const handleExport = () => {
-        const exportData = npcLedger.map(({ portrait: _p, ...rest }) => rest);
+        // Portraits are local asset paths — meaningless on another machine, so strip them.
+        const exportData = npcLedger.map(npc => {
+            const { portrait, ...rest } = npc;
+            void portrait;
+            return rest;
+        });
         const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -132,21 +174,113 @@ export function NPCLedgerModal() {
         URL.revokeObjectURL(url);
     };
 
-    const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
+    /** A green toast would hide a rejected file; anything unclean goes out as a warning (§9.5). */
+    const emitQuickAddSummary = (plan: QuickAddPlan, collisions: QuickAddDecision[], portraitFailures: string[]) => {
+        const text = summarizeQuickAdd(plan, { collisions, portraitFailures });
+        const clean = plan.failures.length === 0 && portraitFailures.length === 0;
+        if (clean) toast.success(text); else toast.warning(text);
+    };
+
+    /**
+     * WO-C §5 / §10.4 — the Import button now takes SillyTavern cards too.
+     *
+     * A legacy ledger export (a JSON *array*) still goes through the
+     * Full/Strip/Isekai chooser: it carries origin-campaign baggage that needs
+     * triage. A card is a fresh character, so it skips the chooser entirely.
+     * Per §9.5 one bad file never blocks the good ones — every failure is
+     * reported in the completion toast instead.
+     */
+    const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const input = e.target;
+        const files = Array.from(input.files ?? []);
+        input.value = '';
+        if (files.length === 0) return;
+
+        const routed: QuickAddRouted[] = [];
+        // Card -> its source PNG, by object identity: file names can repeat in one drop.
+        const cardFiles = new Map<STCard, File>();
+        let legacyFileCount = 0;
+
+        for (const file of files) {
+            const isPng = /\.png$/i.test(file.name) || file.type === 'image/png';
+            let item: QuickAddRouted;
             try {
-                const parsed = JSON.parse(ev.target?.result as string);
-                if (!Array.isArray(parsed)) { alert('Invalid format: expected a JSON array of NPCs.'); return; }
-                if (parsed.length === 0) { alert('That file contains no NPCs.'); return; }
-                // Defer insertion until the user picks an import mode (Full / Strip / Isekai).
-                setPendingImport(parsed as Partial<NPCEntry>[]);
-            } catch { alert('Failed to parse JSON file. Please check the file format.'); }
+                item = isPng
+                    ? routeQuickAddFile(file.name, 'png', await readFile(file, 'buffer'))
+                    : routeQuickAddFile(file.name, 'json', await readFile(file, 'text'));
+            } catch {
+                routed.push({ kind: 'failed', fileName: file.name, reason: isPng ? 'not-png' : 'not-json' });
+                continue;
+            }
+            if (item.kind === 'card' && isPng) cardFiles.set(item.card, file);
+            if (item.kind === 'legacy-npc-array') legacyFileCount += 1;
+            routed.push(item);
+        }
+
+        const state = useAppStore.getState();
+        const plan = planQuickAdd(routed, state.npcLedger, {
+            userName: state.playerCharacter?.name ?? 'You',
+            matureMode: state.settings.matureMode ?? false,
+        });
+
+        // Legacy exports: unchanged path, unchanged dialog.
+        if (plan.legacyEntries.length > 0) setPendingImport(plan.legacyEntries);
+        else if (legacyFileCount > 0) alert('That file contains no NPCs.');
+
+        const portraitFailures: string[] = [];
+        // Portrait upload needs the server. A failure just means no portrait.
+        const attachPortrait = async (card: STCard, npc: NPCEntry) => {
+            const file = cardFiles.get(card);
+            if (!file) return;
+            try {
+                npc.portrait = await uploadImageToLocal(file, card.name);
+            } catch {
+                portraitFailures.push(card.name);
+            }
         };
-        reader.readAsText(file);
-        e.target.value = '';
+        for (const addition of plan.additions) await attachPortrait(addition.card, addition.npc);
+        for (const collision of plan.collisions) await attachPortrait(collision.card, collision.incoming);
+
+        // Additions land first so an intra-drop duplicate's "existing" row is a
+        // real ledger entry by the time its overwrite dialog resolves.
+        if (plan.additions.length > 0) {
+            addNPCs(plan.additions.map(a => a.npc));
+            const chunks = plan.additions.flatMap(a => a.loreChunks);
+            if (chunks.length > 0) setLoreChunks([...useAppStore.getState().loreChunks, ...chunks]);
+        }
+
+        if (plan.collisions.length > 0) {
+            setCardImport({ plan, index: 0, decisions: [], portraitFailures });
+            return;
+        }
+        if (plan.additions.length > 0 || plan.failures.length > 0 || portraitFailures.length > 0) {
+            emitQuickAddSummary(plan, [], portraitFailures);
+        }
+    };
+
+    /** §9.4 — Overwrite updates the row in place; Cancel skips that card entirely. */
+    const resolveCardCollision = (decision: QuickAddDecision) => {
+        if (!cardImport) return;
+        const { plan, index, decisions, portraitFailures } = cardImport;
+        const collision = plan.collisions[index];
+
+        if (decision === 'overwrite') {
+            updateNPC(collision.existing.id, applyOverwrite(collision.existing, collision.incoming));
+            setLoreChunks(replaceCardLoreGroup(
+                useAppStore.getState().loreChunks,
+                collision.card.name,
+                collision.loreChunks,
+            ));
+        }
+
+        const nextDecisions = [...decisions, decision];
+        const nextIndex = index + 1;
+        if (nextIndex < plan.collisions.length) {
+            setCardImport({ plan, index: nextIndex, decisions: nextDecisions, portraitFailures });
+            return;
+        }
+        setCardImport(null);
+        emitQuickAddSummary(plan, nextDecisions, portraitFailures);
     };
 
     const commitImport = (mode: NpcImportMode) => {
@@ -242,7 +376,7 @@ export function NPCLedgerModal() {
                     on the backdrop, importRef.current.click() would bubble a click to the
                     overlay's onClick={toggleNPCLedger}, closing the modal and unmounting the
                     input before the OS file dialog resolved — so onChange never fired. */}
-                <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
+                <input ref={importRef} type="file" accept=".json,.png" multiple className="hidden" onChange={(e) => { void handleImportFile(e); }} />
 
                 {pendingImport && (
                     <ImportChoiceDialog
@@ -250,6 +384,15 @@ export function NPCLedgerModal() {
                         label="NPC"
                         onChoose={commitImport}
                         onCancel={() => setPendingImport(null)}
+                    />
+                )}
+
+                {cardImport && (
+                    <ImportOverwriteDialog
+                        name={cardImport.plan.collisions[cardImport.index].card.name}
+                        kind="existing"
+                        onOverwrite={() => resolveCardCollision('overwrite')}
+                        onCancel={() => resolveCardCollision('skip')}
                     />
                 )}
 
@@ -311,7 +454,7 @@ export function NPCLedgerModal() {
                             </button>
                         </div>
                         <div className="flex items-center gap-1.5">
-                            <button onClick={() => importRef.current?.click()} title="Import NPCs from JSON" className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors">
+                            <button onClick={() => importRef.current?.click()} title="Import NPCs (JSON) or SillyTavern cards (PNG/JSON)" className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors">
                                 <Upload size={11} /> Import
                             </button>
                             <button onClick={handleSeedFromLore} title="Seed from Lore" className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors">

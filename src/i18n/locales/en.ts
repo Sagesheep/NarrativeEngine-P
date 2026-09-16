@@ -214,6 +214,7 @@ export const en = {
 
     // ── Campaign hub ─────────────────────────────────────────────────────
     'hub.import.tooltip': 'Import Campaign',
+    'hub.stImport.tooltip': 'Import from SillyTavern',
     'hub.settings.tooltip': 'Settings',
     'hub.worldLore.tooltip': 'Create World Lore',
     'hub.tagline': 'AI Game Master System',
