@@ -214,6 +214,11 @@ export type NPCEntry = {
     archivedReason?: string;
     // ---- NPC Agency fields (Phase 1, all optional → lazy migration) ----
     wants?: NPCWants;
+    /** WO-C §9.3 — where the current `wants` came from at import: `'pool'` = mechanical
+     *  draws (offline fallback), `'inferred'` = the optional AI adaptation pass. Absent on
+     *  NPCs that were never imported from a card. Display-only; the updater may revise wants
+     *  during play regardless. */
+    wantsProvenance?: 'pool' | 'inferred';
     personalityHex?: PersonalityHex;
     // ---- NPC Signature Kit (v1) — durable loadout; anti-drift for gear + powers ----
     signatureKit?: NPCSignatureKit;

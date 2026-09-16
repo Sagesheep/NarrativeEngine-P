@@ -180,6 +180,11 @@ describe('populateImportedNPC (WO-C §3.4, §6.5)', () => {
         expect(new Set(out.wants!.short).size).toBe(out.wants!.short.length);
     });
 
+    it('stamps the pool provenance so the UI never calls a pool draw inferred (§9.3)', () => {
+        const out = populateImportedNPC(npc(), card(), { rng: lcg(16), matureMode: false });
+        expect(out.wantsProvenance).toBe('pool');
+    });
+
     it('never draws a mature-tier want when matureMode is false', () => {
         const mature = new Set(WANT_POOL.filter(w => w.tier === 'mature').map(w => w.text));
         expect(mature.size).toBeGreaterThan(0);

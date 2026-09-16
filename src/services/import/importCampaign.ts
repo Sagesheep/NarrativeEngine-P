@@ -33,6 +33,7 @@ import type {
     PlayerCharacter,
 } from '../../types';
 import type { CampaignState } from '../../store/campaignStore';
+import type { AdaptationTarget } from './adaptationTypes';
 import type { STCard } from './stCardTypes';
 import type { ShelfTile } from './shelf';
 import { findDuplicateGroups, personaNameCollides, rosterFromTiles } from './shelf';
@@ -74,6 +75,14 @@ export type ImportChoices = {
     openingOverride?: string;
     /** §9.4 intra-drop duplicates, keyed by the LATER tile's id. */
     duplicateResolutions: Record<string, 'overwrite' | 'skip'>;
+    /**
+     * §9.3 (order "C2") — the Review step's explicit choice. `'living-world'` runs
+     * the AI adaptation pass after the import is on disk; `'direct'` is the fully
+     * offline path. Optional, defaulting to `'direct'`, so every caller written
+     * before C2 (and the feature flag being off) keeps the offline behaviour
+     * without opting into anything.
+     */
+    adaptation?: 'living-world' | 'direct';
 };
 
 // ─── Plan ────────────────────────────────────────────────────────────────────
@@ -112,6 +121,12 @@ export type ImportPlan = {
     playerName: string;
     /** §10.2 — seeded for the "build my own" path so the PC wizard opens pre-filled. */
     creationDraft: CharacterCreationDraft | null;
+    /**
+     * §9.3 — carried off the choices so the write sequence knows, without being
+     * handed the wizard's state, whether the adaptation hook may run at all.
+     * `'direct'` unless the user explicitly picked Living-world.
+     */
+    adaptation: 'living-world' | 'direct';
     summary: ImportSummary;
 };
 
@@ -345,6 +360,7 @@ export function buildImportPlan(
         persona,
         playerName,
         creationDraft,
+        adaptation: choices.adaptation ?? 'direct',
         summary: {
             inferredFromTags: roster.filter(e => e.flags.personalityInferredFromTags).map(e => e.npc.name),
             structuredDescriptions: roster.filter(e => e.flags.structuredDescription).map(e => e.npc.name),
@@ -359,6 +375,27 @@ export function buildImportPlan(
     };
 }
 
+/**
+ * §9.3 — the roster, as adaptation targets. Pure, so the wizard and the tests
+ * agree on exactly who the pass may touch.
+ *
+ * The persona is absent by construction: it never enters `plan.roster` (the
+ * player is not an NPC), and that is the point rather than an accident. The
+ * player's motivations are the player's; a model does not get to infer them.
+ *
+ * `npc` here is the plan's row, on pool wants. The caller may swap in the
+ * persisted row (the one that carries the uploaded portrait) by id — the ids
+ * are the same objects' ids, minted once by `cardToNPC`.
+ */
+export function adaptationTargetsFor(plan: ImportPlan): AdaptationTarget[] {
+    return plan.roster.map(entry => ({
+        id: entry.npc.id,
+        name: entry.npc.name,
+        card: entry.card,
+        npc: entry.npc,
+    }));
+}
+
 // ─── §10.3 write-then-hydrate ────────────────────────────────────────────────
 
 export type CreateDeps = {
@@ -369,6 +406,17 @@ export type CreateDeps = {
     hydrateCampaign: (campaignId: string) => Promise<unknown>;
     uploadImageToLocal: (file: File, npcName: string) => Promise<string>;
     downscaleCover: (file: File, maxEdge?: number) => Promise<string>;
+    /**
+     * §9.3 (C2) — the one seam where something may happen between the import
+     * landing on disk and the app switching into the new campaign. Runs only
+     * when `plan.adaptation === 'living-world'`. Returning an npc array re-saves
+     * the ledger; returning nothing leaves what was already written alone.
+     *
+     * It is deliberately a hook and not an LLM call: `importCampaign.ts` stays
+     * offline and testable, and the model, the progress UI and the cancel button
+     * all live in the wizard.
+     */
+    beforeHydrate?: (ctx: { campaignId: string; npcs: NPCEntry[] }) => Promise<NPCEntry[] | void>;
     makeId?: () => string;
     now?: () => number;
 };
@@ -470,6 +518,23 @@ export async function createCampaignFromImport(plan: ImportPlan, deps: CreateDep
         messages: plan.seedParts?.opening ? [plan.seedParts.opening] : [],
         condenser: { ...DEFAULT_CONDENSER },
     });
+
+    // 5.5 ── §9.3 the optional adaptation pass. PERSIST-FIRST IS THE INVARIANT:
+    //      campaign, portraits, lore, ledger and state are all on disk above, so
+    //      cancelling here, failing here, or closing the window here costs the
+    //      user some motivations and never the import.
+    //
+    //      Which is also why a throwing hook must not stop hydration: the
+    //      campaign exists, and refusing to open it would strand the user in the
+    //      hub in front of an import that did in fact succeed.
+    if (plan.adaptation === 'living-world' && deps.beforeHydrate) {
+        try {
+            const adapted = await deps.beforeHydrate({ campaignId, npcs });
+            if (Array.isArray(adapted)) await deps.saveNPCLedger(campaignId, adapted);
+        } catch (err) {
+            console.warn('[STImport] Adaptation pass failed; the import is already saved:', err);
+        }
+    }
 
     // 6 ── Hydrate: sets `activeCampaignId` and leaves the hub.
     await deps.hydrateCampaign(campaignId);

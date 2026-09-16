@@ -127,6 +127,10 @@ export type AppSettings = {
     retrievalAlgorithm?: 'classic' | 'idf-rrf';
     archiveRecallDepth?: 'lean' | 'standard' | 'deep';  // archive recall ceiling; default 'standard' (desktop). 'lean' = mobile parity (3/4/5)
     matureMode?: boolean;            // default false; gates mature-tier NPC traits/wants (NPC Agency Phase 2)
+    /** WO-C §9.3 (C2) — feature flag for the optional AI adaptation pass on SillyTavern card
+     *  import. Default OFF: when unset/false the import UI offers no AI option and makes no model
+     *  call. When ON, the Review step requires an explicit Living-world / Direct choice. */
+    stImportAdaptation?: boolean;
     /** Project 2 — per-module on/off for prompt contributions (built-ins and mods), keyed by
      *  module id. Global rather than per-campaign by design (see 00_PLAN.md D4): toggling a
      *  module affects every campaign, including saves in progress. An absent key means enabled,

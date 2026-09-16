@@ -157,6 +157,24 @@ export function GlobalSettingsTab() {
         </button>
       </div>
 
+      {/* AI adaptation for SillyTavern imports (WO-C §9.3 / C2) */}
+      <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
+        <div>
+          <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold mb-1">
+            AI adaptation for SillyTavern imports
+          </label>
+          <p className="text-[9px] text-text-dim max-w-[280px] leading-tight">
+            Experimental. After a card import is saved, ask your utility/story model for motivations that fit each character. Off = imports are fully offline.
+          </p>
+        </div>
+        <button
+          onClick={() => updateSettings({ stImportAdaptation: !settings.stImportAdaptation })}
+          className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${settings.stImportAdaptation ? 'bg-terminal' : 'bg-border'}`}
+        >
+          <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-surface transition-transform ${settings.stImportAdaptation ? 'translate-x-[22px]' : 'translate-x-[2px]'}`} />
+        </button>
+      </div>
+
       {/* Debug Mode */}
       <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
         <label className="text-[11px] text-text-primary uppercase tracking-wider font-bold">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { X, Plus, Users, LayoutGrid, List, CheckSquare, Upload, Download, BookOpen, Trash2, Search, ArrowDownAZ, ArrowUpZA, Sparkles, Images } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { updateExistingNPCs } from '../services/chatEngine';
@@ -29,8 +29,31 @@ import { NPCSuggestionsPanel } from './npc-ledger/NPCSuggestionsPanel';
 import { NPCReviewModal } from './NPCReviewModal';
 import { ImportChoiceDialog } from './npc-ledger/ImportChoiceDialog';
 import { ImportOverwriteDialog } from './import/ImportOverwriteDialog';
+import { AdaptChoiceDialog } from './import/AdaptChoiceDialog';
+import { AdaptationPanel } from './import/AdaptationPanel';
+import {
+    applyAdaptedWants,
+    describeAdaptationEndpoint,
+    makeModelCaller,
+    resolveAdaptationEndpoint,
+    runAdaptation,
+} from '../services/import/adaptation';
+import type {
+    AdaptationEndpointInfo,
+    AdaptationProgress,
+    AdaptationResult,
+    AdaptationTarget,
+} from '../services/import/adaptationTypes';
 import { useNpcReview } from './hooks/useNpcReview';
 import { useNpcPortraits } from './hooks/useNpcPortraits';
+
+/** WO-C §9.3 — a row this drop ADDED, held until the quick-add has fully landed. */
+type AdaptSeed = { id: string; name: string; card: STCard };
+/** `idle` = no panel; anything else overlays the ledger with the AdaptationPanel. */
+type AdaptPhase = 'idle' | 'running' | 'done';
+
+/** The same sentence the wizard shows on a dead endpoint — one phrasing, two surfaces. */
+const NO_ENDPOINT_COPY = 'no utility or story endpoint is configured';
 
 /**
  * `File.arrayBuffer()` / `File.text()` exist in every browser this app ships to
@@ -65,12 +88,31 @@ export function NPCLedgerModal() {
     // Parsed-but-not-yet-committed import, awaiting the user's mode choice.
     const [pendingImport, setPendingImport] = useState<Partial<NPCEntry>[] | null>(null);
     // WO-C §9.4 — card collisions from the current drop, resolved one dialog at a time.
+    // `adaptSeeds` rides along because §9.3's offer comes only once the whole
+    // quick-add has landed, which includes draining this queue.
     const [cardImport, setCardImport] = useState<{
         plan: QuickAddPlan;
         index: number;
         decisions: QuickAddDecision[];
         portraitFailures: string[];
+        adaptSeeds: AdaptSeed[];
     } | null>(null);
+
+    // ── WO-C §9.3 (order "C2") — the optional Living-world adaptation pass ────
+    // Offered after the fact, and only for rows this drop ADDED: an overwritten
+    // NPC keeps the campaign-owned motivations it already has (§9.4 — campaign
+    // facts are authoritative, never retconned by a card).
+    const [adaptOffer, setAdaptOffer] = useState<{ seeds: AdaptSeed[]; endpoint: AdaptationEndpointInfo | null } | null>(null);
+    const [adaptPhase, setAdaptPhase] = useState<AdaptPhase>('idle');
+    const [adaptProgress, setAdaptProgress] = useState<AdaptationProgress | null>(null);
+    const [adaptResults, setAdaptResults] = useState<AdaptationResult[]>([]);
+    const [adaptElapsed, setAdaptElapsed] = useState(0);
+    const abortRef = useRef<AbortController | null>(null);
+    const targetsRef = useRef<AdaptationTarget[]>([]);
+    /** Results by npc id — the ref is the source of truth, the state is its view. */
+    const collectedRef = useRef<Map<string, AdaptationResult>>(new Map());
+    const importIdRef = useRef('');
+    const adaptStartRef = useRef(0);
 
     const displayedNPCs = useMemo(() => filterNPCs(npcLedger, searchQuery, sortOrder), [npcLedger, searchQuery, sortOrder]);
 
@@ -82,13 +124,40 @@ export function NPCLedgerModal() {
         visualProfile: { ...DEFAULT_VISUAL_PROFILE }
     });
 
+    /**
+     * Closing the ledger mid-pass must not leave a run talking to a panel nobody
+     * can see: abort it and tear the panel down. Nothing is lost — the NPCs were
+     * written before the pass ever started (§9.3), and whatever adapted in time
+     * is already on their rows.
+     */
+    const closeLedger = useCallback(() => {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setAdaptOffer(null);
+        setAdaptPhase('idle');
+        setAdaptProgress(null);
+        setAdaptResults([]);
+        toggleNPCLedger();
+    }, [toggleNPCLedger]);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && npcLedgerOpen) toggleNPCLedger();
+            if (e.key === 'Escape' && npcLedgerOpen) closeLedger();
         };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [npcLedgerOpen, toggleNPCLedger]);
+    }, [npcLedgerOpen, closeLedger]);
+
+    // Elapsed seconds while a pass is in flight. Mirrors the wizard's timer: the
+    // interval owns the ticking, so nothing sets state in the effect body (the
+    // repo lints with react-hooks recommended).
+    useEffect(() => {
+        if (adaptPhase !== 'running') return;
+        const id = setInterval(() => {
+            setAdaptElapsed(Math.floor((Date.now() - adaptStartRef.current) / 1000));
+        }, 1000);
+        return () => clearInterval(id);
+    }, [adaptPhase]);
 
     if (!npcLedgerOpen) return null;
 
@@ -249,19 +318,23 @@ export function NPCLedgerModal() {
             if (chunks.length > 0) setLoreChunks([...useAppStore.getState().loreChunks, ...chunks]);
         }
 
+        // §9.3 — only the NEW rows are candidates for adaptation.
+        const adaptSeeds: AdaptSeed[] = plan.additions.map(a => ({ id: a.npc.id, name: a.npc.name, card: a.card }));
+
         if (plan.collisions.length > 0) {
-            setCardImport({ plan, index: 0, decisions: [], portraitFailures });
+            setCardImport({ plan, index: 0, decisions: [], portraitFailures, adaptSeeds });
             return;
         }
         if (plan.additions.length > 0 || plan.failures.length > 0 || portraitFailures.length > 0) {
             emitQuickAddSummary(plan, [], portraitFailures);
         }
+        offerAdaptation(adaptSeeds);
     };
 
     /** §9.4 — Overwrite updates the row in place; Cancel skips that card entirely. */
     const resolveCardCollision = (decision: QuickAddDecision) => {
         if (!cardImport) return;
-        const { plan, index, decisions, portraitFailures } = cardImport;
+        const { plan, index, decisions, portraitFailures, adaptSeeds } = cardImport;
         const collision = plan.collisions[index];
 
         if (decision === 'overwrite') {
@@ -276,11 +349,159 @@ export function NPCLedgerModal() {
         const nextDecisions = [...decisions, decision];
         const nextIndex = index + 1;
         if (nextIndex < plan.collisions.length) {
-            setCardImport({ plan, index: nextIndex, decisions: nextDecisions, portraitFailures });
+            setCardImport({ plan, index: nextIndex, decisions: nextDecisions, portraitFailures, adaptSeeds });
             return;
         }
         setCardImport(null);
         emitQuickAddSummary(plan, nextDecisions, portraitFailures);
+        // The queue is drained, so the quick-add is finally complete — this is
+        // the earliest moment §9.3's question can honestly be asked.
+        offerAdaptation(adaptSeeds);
+    };
+
+    /* ── WO-C §9.3 (order "C2") — the Living-world adaptation pass ─────────── */
+
+    /**
+     * Ask, but only when there is something to ask about: the flag is on and the
+     * drop actually added someone. Flag off is the default and changes nothing —
+     * no dialog, no endpoint resolution, no model call anywhere on this path.
+     */
+    const offerAdaptation = (seeds: AdaptSeed[]) => {
+        if (seeds.length === 0) return;
+        const state = useAppStore.getState();
+        if (!state.settings?.stImportAdaptation) return;
+        const provider = resolveAdaptationEndpoint({
+            utility: state.getActiveUtilityEndpoint,
+            auxiliary: state.getActiveAuxiliaryEndpoint,
+            summarizer: state.getActiveSummarizerEndpoint,
+            story: state.getActiveStoryEndpoint,
+        });
+        // `null` disables the Living-world button rather than hiding it — a user
+        // with no utility endpoint should learn why the option is dead.
+        setAdaptOffer({ seeds, endpoint: provider ? describeAdaptationEndpoint(provider) : null });
+    };
+
+    /** Ref → state, in roster order, so the panel's rows never jump around. */
+    const publishResults = () => {
+        const map = collectedRef.current;
+        setAdaptResults(
+            targetsRef.current
+                .map(t => map.get(t.id))
+                .filter((r): r is AdaptationResult => r !== undefined),
+        );
+    };
+
+    /**
+     * An adapted result lands on the LIVE row, not on the snapshot the pass was
+     * given: the ledger is open and the store is authoritative. Only `wants` and
+     * its provenance are written — this pass never authors anything else.
+     */
+    const applyAdapted = (result: AdaptationResult) => {
+        if (result.status !== 'adapted' || !result.wants) return;
+        const fresh = useAppStore.getState().npcLedger.find(n => n.id === result.id);
+        if (!fresh) return;
+        const adapted = applyAdaptedWants(fresh, result.wants);
+        updateNPC(result.id, { wants: adapted.wants, wantsProvenance: adapted.wantsProvenance });
+    };
+
+    /**
+     * One pass over `targets` — the first run and every Retry take this path, so
+     * a retry is literally "run it again for these ids" (§9.3) and there is no
+     * second, subtly different code path to keep in sync.
+     *
+     * The endpoint is re-resolved here rather than reused from the offer, so an
+     * endpoint that went away in between fails every target with a reason
+     * instead of throwing.
+     */
+    const runTargets = async (targets: AdaptationTarget[]) => {
+        if (targets.length === 0) return;
+        const state = useAppStore.getState();
+        const provider = resolveAdaptationEndpoint({
+            utility: state.getActiveUtilityEndpoint,
+            auxiliary: state.getActiveAuxiliaryEndpoint,
+            summarizer: state.getActiveSummarizerEndpoint,
+            story: state.getActiveStoryEndpoint,
+        });
+        if (!provider) {
+            for (const t of targets) {
+                collectedRef.current.set(t.id, { id: t.id, name: t.name, status: 'failed', error: NO_ENDPOINT_COPY });
+            }
+            publishResults();
+            setAdaptPhase('done');
+            return;
+        }
+
+        const controller = new AbortController();
+        abortRef.current = controller;
+        adaptStartRef.current = Date.now();
+        setAdaptElapsed(0);
+        setAdaptProgress(null);
+        setAdaptPhase('running');
+
+        try {
+            const results = await runAdaptation(targets, {
+                callModel: makeModelCaller(provider, { trackingLabel: 'ST ledger adaptation' }),
+                onProgress: setAdaptProgress,
+                onResult: r => { collectedRef.current.set(r.id, r); applyAdapted(r); publishResults(); },
+                signal: controller.signal,
+            }, { importId: importIdRef.current, matureMode: state.settings?.matureMode ?? false });
+            // Writing again from the resolved array is deliberate: `onResult` is
+            // optional in the contract, and re-applying the same clamped wants to
+            // the same row is a no-op.
+            for (const r of results) { collectedRef.current.set(r.id, r); applyAdapted(r); }
+        } catch (err) {
+            // A rejected run still has to name every NPC it never reached, or the
+            // completion list would quietly lose them and the user would never
+            // learn who stayed on pool wants.
+            console.warn('[NPCLedger] Adaptation run failed:', err);
+            const aborted = controller.signal.aborted;
+            const reason = err instanceof Error ? err.message : 'the adaptation pass stopped';
+            for (const t of targets) {
+                if (collectedRef.current.get(t.id)?.status === 'adapted') continue;
+                collectedRef.current.set(t.id, {
+                    id: t.id,
+                    name: t.name,
+                    status: aborted ? 'cancelled' : 'failed',
+                    error: aborted ? 'cancelled' : reason,
+                });
+            }
+        }
+        abortRef.current = null;
+        publishResults();
+        setAdaptPhase('done');
+    };
+
+    /**
+     * Living-world was chosen. Targets are rebuilt from the LIVE ledger rows
+     * (they carry the uploaded portraits and any dedupe the store applied); a
+     * seed whose row has since vanished is simply dropped.
+     */
+    const beginAdaptation = (seeds: AdaptSeed[]) => {
+        setAdaptOffer(null);
+        const byId = new Map(useAppStore.getState().npcLedger.map(n => [n.id, n]));
+        const targets: AdaptationTarget[] = [];
+        for (const seed of seeds) {
+            const npc = byId.get(seed.id);
+            if (npc) targets.push({ id: seed.id, name: npc.name, card: seed.card, npc });
+        }
+        if (targets.length === 0) return;
+
+        targetsRef.current = targets;
+        collectedRef.current = new Map();
+        // §9.3 — a stable per-import id so two drops' batches cannot be confused.
+        importIdRef.current = `ledger-${Date.now()}`;
+        setAdaptResults([]);
+        void runTargets(targets);
+    };
+
+    /** Continue: dismiss the panel and say what the pass actually achieved. */
+    const finishAdaptation = () => {
+        const seen = [...collectedRef.current.values()];
+        const adapted = seen.filter(r => r.status === 'adapted').length;
+        setAdaptPhase('idle');
+        setAdaptProgress(null);
+        setAdaptResults([]);
+        toast.success(`${adapted} adapted, ${seen.length - adapted} on offline fallback.`);
     };
 
     const commitImport = (mode: NpcImportMode) => {
@@ -370,7 +591,7 @@ export function NPCLedgerModal() {
 
     // ── Render ────────────────────────────────────────────────────────────
     return (
-        <div data-ui="ledger" className="fixed inset-0 z-50 flex flex-col bg-void/95 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="NPC Ledger" onClick={toggleNPCLedger}>
+        <div data-ui="ledger" className="fixed inset-0 z-50 flex flex-col bg-void/95 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="NPC Ledger" onClick={closeLedger}>
             <div className="relative bg-surface border border-border flex flex-col sm:flex-row w-full h-full overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
                 {/* Hidden import input lives INSIDE the stopPropagation container. If it sat
                     on the backdrop, importRef.current.click() would bubble a click to the
@@ -396,6 +617,39 @@ export function NPCLedgerModal() {
                     />
                 )}
 
+                {/* §9.3 — asked only once the whole quick-add has landed, and only
+                    about the rows it added. Declining costs nothing. */}
+                {adaptOffer && (
+                    <AdaptChoiceDialog
+                        count={adaptOffer.seeds.length}
+                        endpoint={adaptOffer.endpoint}
+                        onChoose={choice => {
+                            if (choice === 'living-world') beginAdaptation(adaptOffer.seeds);
+                            else setAdaptOffer(null);
+                        }}
+                        onCancel={() => setAdaptOffer(null)}
+                    />
+                )}
+
+                {/* The pass itself. An overlay like the dialogs, because the ledger
+                    underneath is live and already holds every imported NPC. */}
+                {adaptPhase !== 'idle' && (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-void/80 backdrop-blur-sm p-4">
+                        <div className="w-full max-w-lg max-h-full overflow-y-auto bg-surface border border-border rounded-lg shadow-2xl p-5">
+                            <AdaptationPanel
+                                progress={adaptProgress}
+                                results={adaptResults}
+                                running={adaptPhase === 'running'}
+                                elapsedSeconds={adaptElapsed}
+                                onCancel={() => abortRef.current?.abort()}
+                                onRetry={ids => { void runTargets(targetsRef.current.filter(t => ids.includes(t.id))); }}
+                                onContinue={finishAdaptation}
+                                continueLabel="Done"
+                            />
+                        </div>
+                    </div>
+                )}
+
                 {/* Left Sidebar */}
                 <div data-ui="ledger-list" className="w-full sm:w-1/3 md:w-96 lg:w-[420px] border-b sm:border-b-0 sm:border-r border-border flex flex-col bg-void-lighter max-h-[40vh] sm:max-h-none shrink-0">
                     {/* Header */}
@@ -415,7 +669,7 @@ export function NPCLedgerModal() {
                             <button onClick={() => setSortOrder(prev => prev === 'none' ? 'az' : prev === 'az' ? 'za' : 'none')} className={`p-1.5 border border-border rounded transition-colors ${sortOrder !== 'none' ? 'bg-terminal text-void border-terminal' : 'text-text-dim hover:text-text-primary'}`} title={sortOrder === 'az' ? 'Sorted A→Z (click for Z→A)' : sortOrder === 'za' ? 'Sorted Z→A (click to clear)' : 'Sort alphabetically'}>
                                 {sortOrder === 'za' ? <ArrowUpZA size={14} /> : <ArrowDownAZ size={14} />}
                             </button>
-                            <button onClick={toggleNPCLedger} className="text-text-dim hover:text-text-primary p-1 sm:hidden shrink-0"><X size={18} /></button>
+                            <button onClick={closeLedger} className="text-text-dim hover:text-text-primary p-1 sm:hidden shrink-0"><X size={18} /></button>
                         </div>
                     </div>
 
@@ -510,7 +764,7 @@ export function NPCLedgerModal() {
 
                 {/* Right Detail Pane */}
                 <div className="flex-1 flex flex-col bg-surface overflow-hidden relative">
-                    <button onClick={toggleNPCLedger} className="absolute top-4 right-4 text-text-dim hover:text-text-primary hidden sm:block p-1 bg-void rounded border border-border hover:border-terminal transition-colors z-10">
+                    <button onClick={closeLedger} className="absolute top-4 right-4 text-text-dim hover:text-text-primary hidden sm:block p-1 bg-void rounded border border-border hover:border-terminal transition-colors z-10">
                         <X size={18} />
                     </button>
                     <NPCEditForm

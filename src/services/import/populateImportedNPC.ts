@@ -30,7 +30,8 @@ export type PopulateOpts = {
  * - `personalityHex` — keyword heuristic over `personality` + `tags` ONLY. The card
  *   `description` is deliberately never scanned (W++ noise, §3.4).
  * - `wants` — the same pool draws generation uses; `long` stays `''` for the LLM
- *   updater to author later.
+ *   updater to author later. `wantsProvenance: 'pool'` (§9.3) marks them mechanical,
+ *   so the UI never presents a pool draw as inferred characterization.
  * - `populated: true` — with `tier: 'recurring'` this is the "boosted wandering"
  *   delivery: the NPC is a full agency participant from turn 1.
  * - `signatureKit` and `traits` are deliberately NOT set: the NPC updater seeds the kit
@@ -53,6 +54,9 @@ export function populateImportedNPC(npc: NPCEntry, card: STCard, opts: PopulateO
             medium: drawMediumWants({ matureMode, traits: [], rng }),
             long: '',
         },
+        // §9.3 — these are mechanical pool draws, not inference. The C2 adaptation
+        // pass restamps this `'inferred'` when a model actually authors the wants.
+        wantsProvenance: 'pool',
         skillRung: RUNG_DEFAULT,
         rungCeiling: 3,
         // Mirrors the band-homing in profile.ts: affinity 50 → the neutral band, 0.

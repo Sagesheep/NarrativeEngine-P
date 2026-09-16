@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+    adaptationTargetsFor,
     buildImportPlan,
     createCampaignFromImport,
     rosterTilesForImport,
@@ -319,6 +320,57 @@ describe('buildImportPlan — §9.6 disclosures', () => {
     });
 });
 
+describe('adaptationTargetsFor — §9.3 who the pass may touch', () => {
+    it('is every roster npc, carrying its own card', () => {
+        const plan = buildImportPlan(seededTiles(), seededFiles(), choices(), {
+            matureMode: false, rng, makeId: makeIdFactory(),
+        });
+
+        const targets = adaptationTargetsFor(plan);
+        expect(targets.map(t => t.name)).toEqual(['Aria', 'Bram']);
+        expect(targets.map(t => t.id)).toEqual(plan.roster.map(e => e.npc.id));
+        expect(targets.map(t => t.card.name)).toEqual(['Aria', 'Bram']);
+        expect(targets[0].npc).toBe(plan.roster[0].npc);
+    });
+
+    it('never includes the persona — the player\'s motivations are the player\'s', () => {
+        const plan = buildImportPlan(seededTiles(), seededFiles(), choices({
+            who: { kind: 'persona', tileId: 't-bram' },
+        }), { matureMode: false, rng, makeId: makeIdFactory() });
+
+        expect(plan.persona?.pc.name).toBe('Bram');
+        expect(adaptationTargetsFor(plan).map(t => t.name)).toEqual(['Aria']);
+    });
+
+    it('is empty for an empty roster', () => {
+        const plan = buildImportPlan([], new Map(), choices(), {
+            matureMode: false, rng, makeId: makeIdFactory(),
+        });
+        expect(adaptationTargetsFor(plan)).toEqual([]);
+    });
+});
+
+describe('buildImportPlan — §9.3 adaptation choice', () => {
+    it('defaults to direct when the choice is absent', () => {
+        const plan = buildImportPlan(seededTiles(), seededFiles(), choices(), {
+            matureMode: false, rng, makeId: makeIdFactory(),
+        });
+        expect(plan.adaptation).toBe('direct');
+    });
+
+    it('carries an explicit choice through to the plan', () => {
+        const living = buildImportPlan(seededTiles(), seededFiles(), choices({ adaptation: 'living-world' }), {
+            matureMode: false, rng, makeId: makeIdFactory(),
+        });
+        expect(living.adaptation).toBe('living-world');
+
+        const direct = buildImportPlan(seededTiles(), seededFiles(), choices({ adaptation: 'direct' }), {
+            matureMode: false, rng, makeId: makeIdFactory(),
+        });
+        expect(direct.adaptation).toBe('direct');
+    });
+});
+
 describe('rosterTilesForImport', () => {
     it('drops unparsed tiles and the persona, and honours the star only when seeding', () => {
         const tiles = [
@@ -492,5 +544,92 @@ describe('createCampaignFromImport — saved state', () => {
         expect(rec.state?.context.playerCharacter).toBeNull();
         expect(rec.state?.context.creationDraft).toBeNull();
         expect(rec.calls).not.toContain('downscaleCover');
+    });
+});
+
+// ─── §9.3 (C2) — the beforeHydrate seam ──────────────────────────────────────
+
+describe('createCampaignFromImport — the adaptation hook (§9.3)', () => {
+    let warn: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}); });
+    afterEach(() => { warn.mockRestore(); });
+
+    function livingPlan(): ImportPlan {
+        return seededPlan({ adaptation: 'living-world' });
+    }
+
+    it('runs after the state write and before hydration, and re-saves what it returns', async () => {
+        const rec = recordingDeps();
+        const seen: { campaignId?: string; names?: string[] } = {};
+        rec.deps.beforeHydrate = async ctx => {
+            rec.calls.push('beforeHydrate');
+            seen.campaignId = ctx.campaignId;
+            seen.names = ctx.npcs.map(n => n.name);
+            return ctx.npcs.map(n => ({ ...n, wantsProvenance: 'inferred' as const }));
+        };
+
+        await createCampaignFromImport(livingPlan(), rec.deps);
+
+        // The whole point of the seam: everything is already on disk when it runs.
+        expect(rec.calls).toEqual([
+            'downscaleCover',
+            'saveCampaign',
+            'upload:Aria',
+            'upload:Bram',
+            'saveLoreChunks',
+            'saveNPCLedger',
+            'saveCampaignState',
+            'beforeHydrate',
+            'saveNPCLedger',
+            'hydrateCampaign',
+        ]);
+        expect(seen.campaignId).toBe('camp-1');
+        expect(seen.names).toEqual(['Aria', 'Bram']);
+        // The ledger the hook saw is the persisted one, portraits and all.
+        expect(rec.npcs.map(n => n.wantsProvenance)).toEqual(['inferred', 'inferred']);
+        expect(rec.npcs.map(n => n.portrait)).toEqual([
+            '/assets/portraits/Aria.png',
+            '/assets/portraits/Bram.png',
+        ]);
+    });
+
+    it('a hook that returns nothing leaves the already-saved ledger alone', async () => {
+        const rec = recordingDeps();
+        rec.deps.beforeHydrate = async () => { rec.calls.push('beforeHydrate'); };
+
+        await createCampaignFromImport(livingPlan(), rec.deps);
+
+        expect(rec.calls.filter(c => c === 'saveNPCLedger')).toHaveLength(1);
+        expect(rec.calls.slice(-2)).toEqual(['beforeHydrate', 'hydrateCampaign']);
+        // Still the mechanical draw the plan wrote — nothing was re-stamped.
+        expect(rec.npcs.map(n => n.wantsProvenance)).toEqual(['pool', 'pool']);
+    });
+
+    it('a hook that throws still hydrates — the import already succeeded', async () => {
+        const rec = recordingDeps();
+        rec.deps.beforeHydrate = async () => { throw new Error('the model went away'); };
+
+        const result = await createCampaignFromImport(livingPlan(), rec.deps);
+
+        expect(result.campaignId).toBe('camp-1');
+        expect(rec.calls).toContain('hydrateCampaign');
+        expect(rec.calls.filter(c => c === 'saveNPCLedger')).toHaveLength(1);
+        expect(warn).toHaveBeenCalled();
+    });
+
+    it('never runs for a direct import, hook or no hook', async () => {
+        const rec = recordingDeps();
+        rec.deps.beforeHydrate = async () => { rec.calls.push('beforeHydrate'); };
+
+        await createCampaignFromImport(seededPlan(), rec.deps);   // defaults to 'direct'
+
+        expect(rec.calls).not.toContain('beforeHydrate');
+        expect(rec.calls).toContain('hydrateCampaign');
+    });
+
+    it('living-world with no hook supplied is just an ordinary import', async () => {
+        const rec = recordingDeps();
+        await createCampaignFromImport(livingPlan(), rec.deps);
+        expect(rec.calls.slice(-2)).toEqual(['saveCampaignState', 'hydrateCampaign']);
     });
 });
