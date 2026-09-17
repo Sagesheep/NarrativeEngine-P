@@ -456,10 +456,15 @@ export function debouncedSaveSettings(settings: AppSettings, activeCampaignId: s
         idbSet('nn_settings', { settings: encryptedSettings, activeCampaignId })
             .catch((e) => { console.error(e); toast.error('Failed to save settings to browser storage'); });
 
+        // The server copy gets the same encrypted providers as browser storage.
+        // It used to receive the plaintext object, and the server's strip only
+        // knew the legacy per-preset shape, so provider keys were written to
+        // data/settings.json in the clear. The server now blanks every apiKey
+        // it sees; sending ciphertext means no key leaves the browser either way.
         fetch(`${API}/settings`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ settings, activeCampaignId }),
+            body: JSON.stringify({ settings: encryptedSettings, activeCampaignId }),
         }).catch((e) => { console.error(e); toast.warning('Settings saved locally but server backup failed'); });
     }, 500);
 }

@@ -28,6 +28,7 @@ import { initDb } from './server/lib/vectorStore.js';
 import { warmup as warmupEmbedder } from './server/lib/embedder.js';
 import { warmupTts } from './server/lib/tts.js';
 import { serverError } from './server/lib/serverError.js';
+import { createHostGuard, createFetchSiteGuard } from './server/lib/requestGuards.js';
 
 const app = express();
 const PORT = 3001;
@@ -53,16 +54,36 @@ if (!vault.isUnlocked()) {
 }
 
 // ─── Middleware ───
-// Restrict CORS to the only two legitimate origins:
-//   - 'null'       → Electron production loads the frontend via file:// (origin "null")
+// The API has no authentication, so "who can reach it" is the whole access
+// control. Three layers, each closing a door the others do not:
+//
+//   1. Host guard — DNS rebinding. A page on attacker.example whose DNS flips
+//      to 127.0.0.1 is same-origin with this server as far as the browser is
+//      concerned; only the Host header still names the attacker. Answer only
+//      requests addressed to loopback, the bound address, or $ALLOWED_HOSTS.
+//   2. CORS allowlist — which origins may READ responses cross-origin.
+//   3. Fetch-site guard (below, /api only) — cross-site requests that CORS
+//      does not stop: an auto-submitted form (the request lands, only the
+//      reply is hidden) or a sandboxed <iframe>, whose origin is "null".
+//
+// Allowed origins:
 //   - Vite dev URL → local development via http://localhost:5173
-// Any other origin (e.g. a malicious website in the user's browser) is rejected,
-// preventing cross-origin reads of /api/vault/keys and other sensitive endpoints.
+//   - 'null', ONLY under Electron: its production build loads the frontend via
+//     file://, which the browser reports as origin "null". Outside Electron
+//     that same "null" is what a sandboxed <iframe> on any website sends, and
+//     allowlisting it unconditionally let every web page read /api/vault/keys.
+//   - $ALLOWED_ORIGINS (comma-separated) for operators hosting the frontend
+//     elsewhere.
 const BIND_HOST = process.env.HOST || '127.0.0.1';
-const ALLOWED_ORIGINS = new Set(['null', 'http://localhost:5173']);
+const ALLOWED_ORIGINS = new Set(['http://localhost:5173']);
+if (process.versions.electron) ALLOWED_ORIGINS.add('null');
 if (process.env.ALLOWED_ORIGINS) {
     process.env.ALLOWED_ORIGINS.split(',').forEach(o => ALLOWED_ORIGINS.add(o.trim()));
 }
+const ALLOWED_HOSTS = process.env.ALLOWED_HOSTS
+    ? process.env.ALLOWED_HOSTS.split(',').map(h => h.trim()).filter(Boolean)
+    : [];
+app.use(createHostGuard({ bindHost: BIND_HOST, allowedHosts: ALLOWED_HOSTS }));
 app.use(cors({
     origin(origin, cb) {
         // Allow same-origin requests (no Origin header) and allowlisted origins.
@@ -71,6 +92,7 @@ app.use(cors({
     },
     credentials: false,
 }));
+app.use('/api', createFetchSiteGuard(ALLOWED_ORIGINS));
 app.use(express.json({ limit: '500mb' }));
 app.use('/assets/portraits', express.static(PUBLIC_ASSETS_DIR));
 app.use('/assets/campaigns', express.static(CAMPAIGNS_DIR));

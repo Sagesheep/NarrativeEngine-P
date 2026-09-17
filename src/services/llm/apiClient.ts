@@ -1,6 +1,7 @@
 import type { AppSettings, ArchiveChapter, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, SceneEvent, ChapterRefitPreview, ChapterRefitResult } from '../../types';
 
 import { API_BASE as API } from '../../lib/apiBase';
+import { encryptSettingsProviders } from '../infrastructure/settingsCrypto';
 
 export const api = {
     archive: {
@@ -315,10 +316,13 @@ export const api = {
             return await res.json();
         },
         async save(settings: AppSettings, activeCampaignId: string | null): Promise<void> {
+            // Never send plaintext provider keys to the server — see
+            // debouncedSaveSettings in settingsHelpers.ts, the live save path.
+            const providers = await encryptSettingsProviders(settings.providers ?? []);
             await fetch(`${API}/settings`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ settings, activeCampaignId }),
+                body: JSON.stringify({ settings: { ...settings, providers }, activeCampaignId }),
             });
         }
     },

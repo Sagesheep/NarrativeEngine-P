@@ -5,6 +5,29 @@ import { PUBLIC_ASSETS_DIR } from '../lib/fileStore.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 import { serverError } from '../lib/serverError.js';
 
+/**
+ * The portraits folder is served statically on the API origin, and
+ * express.static picks the Content-Type from the extension. A file saved as
+ * `x.html` would therefore be served as a page on http://localhost:3001 with
+ * same-origin access to every /api route, whatever bytes the "image" held.
+ * Only raster image extensions are written. SVG is deliberately absent: it
+ * is a document format that can carry script.
+ */
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp']);
+
+/** Returns the safe basename, or null when the name is unusable. */
+export function safeImageFilename(rawFilename) {
+    if (typeof rawFilename !== 'string') return null;
+    const filename = path.basename(rawFilename);
+    if (!filename || filename.startsWith('.')) return null;
+    const dot = filename.lastIndexOf('.');
+    if (dot <= 0) return null;
+    const ext = filename.slice(dot + 1).toLowerCase();
+    return IMAGE_EXTENSIONS.has(ext) ? filename : null;
+}
+
+const BAD_FILENAME = `Filename must end in an image extension (${[...IMAGE_EXTENSIONS].join(', ')})`;
+
 export function createAssetsRouter() {
     const router = Router();
 
@@ -12,9 +35,9 @@ export function createAssetsRouter() {
         const { dataUrl, filename: rawFilename } = req.body;
         if (!dataUrl || !rawFilename) return res.status(400).json({ error: 'Missing dataUrl or filename' });
 
-        const filename = path.basename(rawFilename);
-        if (!filename || filename.startsWith('.')) {
-            return res.status(400).json({ error: 'Invalid filename' });
+        const filename = safeImageFilename(rawFilename);
+        if (!filename) {
+            return res.status(400).json({ error: BAD_FILENAME });
         }
 
         // Validate data URL prefix to avoid writing arbitrary base64 garbage.
@@ -44,9 +67,9 @@ export function createAssetsRouter() {
         const { url, filename: rawFilename } = req.body;
         if (!url || !rawFilename) return res.status(400).json({ error: 'Missing url or filename' });
 
-        const filename = path.basename(rawFilename);
-        if (!filename || filename.startsWith('.')) {
-            return res.status(400).json({ error: 'Invalid filename' });
+        const filename = safeImageFilename(rawFilename);
+        if (!filename) {
+            return res.status(400).json({ error: BAD_FILENAME });
         }
 
         try {

@@ -14,6 +14,20 @@ export function createLLMProxyRouter() {
             res.status(400).json({ error: 'Missing proxy target' });
             return;
         }
+        // A provider endpoint is always an http(s) URL. Anything else (file:,
+        // data:, blob:, a bare path) is not a provider and must not be fetched
+        // on the caller's behalf.
+        let targetUrl;
+        try {
+            targetUrl = new URL(target);
+        } catch {
+            res.status(400).json({ error: 'Invalid proxy target' });
+            return;
+        }
+        if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
+            res.status(400).json({ error: 'Proxy target must be an http(s) URL' });
+            return;
+        }
 
         const controller = new AbortController();
         // Browser aborted the turn → tear down the upstream request too.

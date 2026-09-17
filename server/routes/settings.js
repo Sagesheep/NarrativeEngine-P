@@ -2,19 +2,32 @@ import { Router } from 'express';
 import { SETTINGS_FILE, readJson, writeJson } from '../lib/fileStore.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 
-/** Strip all apiKey values before writing to disk. Keys live in the browser's IndexedDB only. */
-function stripApiKeys(body) {
+/**
+ * Blank every `apiKey` string anywhere in the payload before it reaches disk.
+ *
+ * settings.json is plaintext. Keys belong in the browser (encrypted in
+ * IndexedDB) and in the vault, never here. This used to blank only the three
+ * legacy per-preset sections, so every key on the newer `settings.providers[]`
+ * model was written to disk in the clear. Walking the whole object means a
+ * future settings shape cannot reopen the hole.
+ */
+export function stripApiKeys(body) {
     if (!body || typeof body !== 'object') return body;
     const stripped = JSON.parse(JSON.stringify(body)); // deep clone
-    const settings = stripped.settings;
-    if (settings && Array.isArray(settings.presets)) {
-        for (const preset of settings.presets) {
-            for (const section of ['storyAI', 'imageAI', 'summarizerAI']) {
-                if (preset[section]) preset[section].apiKey = '';
-            }
-        }
-    }
+    blankApiKeys(stripped);
     return stripped;
+}
+
+function blankApiKeys(node) {
+    if (Array.isArray(node)) {
+        for (const item of node) blankApiKeys(item);
+        return;
+    }
+    if (!node || typeof node !== 'object') return;
+    for (const key of Object.keys(node)) {
+        if (key === 'apiKey' && typeof node[key] === 'string') node[key] = '';
+        else blankApiKeys(node[key]);
+    }
 }
 
 export function createSettingsRouter() {

@@ -21,6 +21,18 @@ export default defineConfig({
   base: './',
   server: {
     host: process.env.HOST || '127.0.0.1',
+    // The dev server serves any file under the project root, and `data/` is
+    // under the project root: settings.json, apikeys.vault, embeddings.db and
+    // every campaign were reachable at http://localhost:5173/data/… (with a
+    // directory listing). Harmless on loopback, not under `npm run dev:lan`.
+    // A user-supplied `deny` REPLACES Vite's defaults, so they are restated.
+    // Anchored to the root so `src/data/` (imported by the app) stays served.
+    fs: {
+      deny: [
+        '.env', '.env.*', '*.{crt,pem,key,p12,pfx,cer,der}', '.npmrc', '.yarnrc.yml', '**/.git/**',
+        rootGlob('data'),
+      ],
+    },
     // Non-app folders live inside the project root (planning docs, campaign
     // JSON the server writes at runtime, tool output). Editing anything in
     // them would otherwise trigger a full page reload mid-session. Anchored to
