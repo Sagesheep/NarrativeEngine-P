@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { runTurn } from '../services/turn/turnOrchestrator';
+import { resolveGalleryRecall } from '../services/gallery/galleryIndex';
 import { formatAttachmentBlock } from '../services/vision/describeImage';
 import { commitPendingTurn, findRetryableMessage, persistPendingTurn } from '../services/turn/pendingCommit';
 import { debouncedSaveCampaignState } from '../store/slices/campaignSlice';
@@ -181,7 +182,12 @@ ${textToUse}` : attachmentBlock)
 
         // Image Gallery recall: capture then clear before runTurn, exactly like the
         // one-shot above, so an armed image fires once even if the turn errors.
-        const useArmedGalleryRecall = useAppStore.getState().armedGalleryRecall;
+        const galleryState = useAppStore.getState();
+        // Match only player text, never attachment captions, history, or engine directives.
+        // Keyword settings always live on stored rows, including edited generated images.
+        const useArmedGalleryRecall = resolveGalleryRecall(
+            textToUse, galleryState.context.galleryUploads ?? [], galleryState.armedGalleryRecall,
+        );
         useAppStore.getState().setArmedGalleryRecall(null);
 
         // Absolute Command v1: capture then clear before runTurn, mirroring

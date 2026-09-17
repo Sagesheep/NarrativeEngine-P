@@ -45,6 +45,7 @@ export function GalleryModal() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [draftTitle, setDraftTitle] = useState('');
     const [draftCaption, setDraftCaption] = useState('');
+    const [draftKeyword, setDraftKeyword] = useState('');
 
     const entries = useMemo(
         () => buildGallery(messages, uploads, tab === 'all' ? undefined : tab),
@@ -89,20 +90,23 @@ export function GalleryModal() {
         setEditingId(entry.id);
         setDraftTitle(entry.title);
         setDraftCaption(entry.caption);
+        setDraftKeyword(entry.autoInjectKeyword ?? '');
     };
 
     const saveEdit = (entry: GalleryEntry) => {
-        if (entry.source === 'generated') {
+        if (entry.source === 'generated' && !uploads?.some(e => e.id === entry.id)) {
             // Derived entries have no stored row yet — persist one so the edit sticks.
             useAppStore.getState().addGalleryUpload({
                 ...entry,
                 title: draftTitle.trim() || entry.title,
                 caption: draftCaption.trim(),
+                autoInjectKeyword: draftKeyword.trim(),
             });
         } else {
             updateGalleryEntry(entry.id, {
                 title: draftTitle.trim() || entry.title,
                 caption: draftCaption.trim(),
+                autoInjectKeyword: draftKeyword.trim(),
             });
         }
         setEditingId(null);
@@ -224,6 +228,18 @@ export function GalleryModal() {
                                                         placeholder="What the AI reads"
                                                         className="w-full bg-surface border border-border rounded px-1.5 py-1 text-[10px] text-text-primary resize-none focus:outline-none focus:border-terminal"
                                                     />
+                                                    <label className="block text-[10px] text-text-dim mt-2">
+                                                        Auto-inject keyword
+                                                        <input
+                                                            value={draftKeyword}
+                                                            onChange={e => setDraftKeyword(e.target.value)}
+                                                            placeholder="e.g. dragon or red cloak"
+                                                            className="w-full bg-surface border border-border rounded px-1.5 py-1 text-[11px] text-text-primary mt-1 focus:outline-none focus:border-terminal"
+                                                        />
+                                                    </label>
+                                                    <p className="text-[9px] text-text-dim mt-1">
+                                                        Sends this description when your message contains this word or phrase, ignoring case. No @ needed. Leave blank to disable. Requires a description.
+                                                    </p>
                                                     <div className="flex gap-1 mt-1">
                                                         <button onClick={() => saveEdit(entry)} className="flex-1 text-[9px] uppercase tracking-wider py-1 border border-terminal/50 text-terminal hover:bg-terminal/10 rounded">Save</button>
                                                         <button onClick={() => setEditingId(null)} className="flex-1 text-[9px] uppercase tracking-wider py-1 border border-border text-text-dim hover:text-text-primary rounded">Cancel</button>
@@ -240,6 +256,9 @@ export function GalleryModal() {
                                                         <p className={`text-[9px] line-clamp-2 mt-0.5 ${entry.caption ? 'text-text-dim' : 'text-amber-400/80'}`}>
                                                             {entry.caption || 'No description yet'}
                                                         </p>
+                                                    )}
+                                                    {entry.autoInjectKeyword && (
+                                                        <p className="text-[9px] text-terminal mt-1 break-words">Auto-inject: {entry.autoInjectKeyword}</p>
                                                     )}
                                                     <div className="flex items-center gap-2 mt-1.5">
                                                         <button onClick={() => startEdit(entry)} title="Edit name and description" className="text-text-dim hover:text-terminal transition-colors">

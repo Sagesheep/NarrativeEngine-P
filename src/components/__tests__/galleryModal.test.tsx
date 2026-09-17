@@ -163,3 +163,34 @@ describe('GalleryModal', () => {
         expect(screen.getByText(/Nothing here yet/i)).toBeTruthy();
     });
 });
+
+describe('Gallery auto-inject keyword editor', () => {
+    it('saves a trimmed keyword on an uploaded image', () => {
+        setState({ galleryFilter: 'uploaded' });
+        render(<GalleryModal />);
+        fireEvent.click(screen.getByTitle('Edit name and description'));
+        fireEvent.change(screen.getByLabelText('Auto-inject keyword'), { target: { value: '  red cloak  ' } });
+        fireEvent.click(screen.getByText('Save'));
+        expect(updateGalleryEntry).toHaveBeenCalledWith('u1', expect.objectContaining({ autoInjectKeyword: 'red cloak' }));
+    });
+    it('loads and clears a saved keyword, including previously edited generated images', () => {
+        const generated = { ...UPLOAD, source: 'generated', autoInjectKeyword: 'coat' };
+        setState({ messages: [], context: { galleryUploads: [generated] } });
+        render(<GalleryModal />);
+        expect(screen.getByText('Auto-inject: coat')).toBeTruthy();
+        fireEvent.click(screen.getByTitle('Edit name and description'));
+        expect(screen.getByLabelText('Auto-inject keyword')).toHaveValue('coat');
+        fireEvent.change(screen.getByLabelText('Auto-inject keyword'), { target: { value: '' } });
+        fireEvent.click(screen.getByText('Save'));
+        expect(updateGalleryEntry).toHaveBeenCalledWith('u1', expect.objectContaining({ autoInjectKeyword: '' }));
+        expect(addGalleryUpload).not.toHaveBeenCalled();
+    });
+    it('does not save a cancelled keyword edit', () => {
+        setState({ galleryFilter: 'uploaded' });
+        render(<GalleryModal />);
+        fireEvent.click(screen.getByTitle('Edit name and description'));
+        fireEvent.change(screen.getByLabelText('Auto-inject keyword'), { target: { value: 'coat' } });
+        fireEvent.click(screen.getByText('Cancel'));
+        expect(updateGalleryEntry).not.toHaveBeenCalled();
+    });
+});

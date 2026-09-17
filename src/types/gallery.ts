@@ -26,6 +26,8 @@ export type GalleryEntry = {
     imageUrl: string;
     /** The text the story AI actually receives. User-editable. */
     caption: string;
+    /** Optional whole word or phrase that recalls this caption on matching player input. */
+    autoInjectKeyword?: string;
     createdAt: number;
     /** `generated` only — the message the scene image hangs beneath. */
     sourceMessageId?: string;

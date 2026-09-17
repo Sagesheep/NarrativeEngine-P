@@ -1,4 +1,4 @@
-import type { ChatMessage, GalleryEntry, GallerySource, SceneImageAttachment } from '../../types';
+import type { ArmedGalleryRecall, ChatMessage, GalleryEntry, GallerySource, SceneImageAttachment } from '../../types';
 
 /**
  * Building the gallery list.
@@ -92,4 +92,34 @@ export function titleForUpload(fileName: string | undefined, caption: string): s
     if (!looksGeneric) return trimTitle(base);
     const firstSentence = caption.split(/(?<=[.!?])\s/)[0] ?? caption;
     return trimTitle(firstSentence) || 'Uploaded image';
+}
+
+/** Resolve explicitly configured keywords against player text only, merging manual recalls once. */
+export function resolveGalleryRecall(
+    text: string,
+    entries: GalleryEntry[],
+    armed: ArmedGalleryRecall[] | null | undefined,
+): ArmedGalleryRecall[] | null {
+    const recalls = new Map<string, ArmedGalleryRecall>();
+    for (const entry of armed ?? []) {
+        if (entry.caption.trim()) recalls.set(entry.id, entry);
+    }
+    const body = text.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ');
+    for (const entry of entries) {
+        const keyword = entry.autoInjectKeyword?.normalize('NFKC').trim().toLowerCase().replace(/\s+/gu, ' ');
+        if (!keyword || !entry.caption.trim() || recalls.has(entry.id)) continue;
+        // Literal matching avoids treating player keywords as regular expressions.
+        let start = body.indexOf(keyword);
+        while (start !== -1) {
+            const before = [...body.slice(0, start)].at(-1) ?? '';
+            const after = [...body.slice(start + keyword.length)][0] ?? '';
+            const word = /[\p{L}\p{N}\p{M}_]/u;
+            if (!word.test(before) && !word.test(after)) {
+                recalls.set(entry.id, { id: entry.id, title: entry.title, caption: entry.caption });
+                break;
+            }
+            start = body.indexOf(keyword, start + 1);
+        }
+    }
+    return recalls.size ? [...recalls.values()] : null;
 }

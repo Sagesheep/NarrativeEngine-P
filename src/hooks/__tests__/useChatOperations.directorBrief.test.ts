@@ -305,3 +305,32 @@ describe('useChatOperations — Director Brief UI state (WO-05)', () => {
         await act(async () => { resume(); await sendPromise; });
     });
 });
+// Keyword recall shares the same send lifecycle as manual gallery recalls.
+describe('useChatOperations — gallery keyword recall', () => {
+    it('passes matching typed text to recall but never matches an attachment caption', async () => {
+        const { useAppStore } = await import('../../store/useAppStore');
+        const state = useAppStore.getState();
+        const previous = state.context.galleryUploads;
+        state.context.galleryUploads = [{
+            id: 'cloak', source: 'uploaded', title: 'Cloak', caption: 'A red cloak.',
+            imageUrl: '/cloak.png', createdAt: 1, autoInjectKeyword: 'cloak',
+        }];
+        try {
+            vi.clearAllMocks();
+            wireRunTurnToSettleImmediately();
+            const args = { ...baseArgs(), input: 'I wear my CLOAK.' };
+            const { result, rerender } = renderHook(() => useChatOperations(args));
+            await act(async () => { await result.current.handleSend(); });
+            expect(runTurnMock.mock.calls[0][0].armedGalleryRecall).toEqual([
+                { id: 'cloak', title: 'Cloak', caption: 'A red cloak.' },
+            ]);
+            args.input = 'I look around.';
+            Object.assign(args, { takeAttachment: () => ({ caption: 'A cloak', localPath: '/other.png' }) });
+            rerender();
+            await act(async () => { await result.current.handleSend(); });
+            expect(runTurnMock.mock.calls[1][0].armedGalleryRecall).toBeNull();
+        } finally {
+            state.context.galleryUploads = previous;
+        }
+    });
+});
