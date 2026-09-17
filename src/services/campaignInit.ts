@@ -18,6 +18,7 @@ import {
 import { dedupeNPCLedger } from '../store/slices/campaignSlice';
 import { loadLootTree } from './lore/lootTreeLoader';
 import { buildDefaultDiceSystem } from '../types';
+import { readWorldFile, type WorldImport } from './lore/worldCard';
 
 
 export const DEFAULT_CONTEXT = {
@@ -46,12 +47,14 @@ export async function initializeCampaignState(params: {
     loreFile: File | null;
     rulesFile: File | null;
     lootFile?: File | null;
+    preparedWorld?: WorldImport;
 }): Promise<void> {
     const { campaignId, loreFile, rulesFile, lootFile } = params;
 
     let seeds: ReturnType<typeof extractEngineSeeds> | null = null;
     if (loreFile) {
-        const loreText = await loreFile.text();
+        const importedWorld = params.preparedWorld ?? (/\.(png|json)$/i.test(loreFile.name) ? await readWorldFile(loreFile) : null);
+        const loreText = importedWorld ? '' : await loreFile.text();
         // Character and location chunks are RAG-disabled on import: the parsers below turn
         // the same chunks into ledger entries, and the ledger is the authoritative injection
         // path for both (payload/world.ts drops any ledger NPC whose name collides with a
@@ -60,13 +63,13 @@ export async function initializeCampaignState(params: {
         // `status` tracks that the city was sacked in ch. 12).
         // Filters on category, not disabled, so seeding is unaffected. Re-enable per chunk
         // or in bulk from the Context Bank → World tab.
-        const chunks = chunkLoreFile(loreText).map(c =>
+        const chunks = importedWorld ? importedWorld.card.world.chunks : chunkLoreFile(loreText).map(c =>
             c.category === 'character' || c.category === 'location' ? { ...c, disabled: true } : c
         );
         await saveLoreChunks(campaignId, chunks);
 
-        // Non-blocking LLM keyword enrichment — fire and forget
-        try {
+        // Keep authored world-card keywords unchanged; enrich legacy Markdown only.
+        if (!importedWorld) try {
             const { useAppStore } = await import('../store/useAppStore');
             const utilityEndpointForEnrichment = useAppStore.getState().getActiveUtilityEndpoint();
             if (utilityEndpointForEnrichment?.endpoint) {
@@ -79,30 +82,33 @@ export async function initializeCampaignState(params: {
             console.warn('[LoreEnricher] Failed to queue enrichment:', err);
         }
 
-        const parsedNPCs = parseNPCsFromLore(chunks);
-        if (parsedNPCs.length > 0) {
-            const existingNPCs = await getNPCLedger(campaignId);
-            await saveNPCLedger(campaignId, dedupeNPCLedger([...existingNPCs, ...parsedNPCs]));
-        }
-
-        // Same deal for places. Dedupe against the existing ledger by name+alias
-        // (resolvePlace is the ledger's own matcher) so re-importing a lore file
-        // into a campaign in progress tops up rather than duplicating.
-        // WO 6.3 §3 — use the detailed parse so unresolvable `ConnectedTo:`
-        // names warn (the ledger and the map must agree).
-        const { locations: parsedLocations, warnings: locationWarnings } = parseLocationsFromLoreDetailed(chunks);
-        for (const w of locationWarnings) {
-            console.warn(`[loreLocationParser] ${w}`);
-        }
-        if (parsedLocations.length > 0) {
-            const existingLocations = await loadLocationTable(campaignId);
-            const additions = parsedLocations.filter(loc => !resolvePlace(loc.name, existingLocations));
-            if (additions.length > 0) {
-                await genericSave(locationTableDescriptor as never, campaignId, [...existingLocations, ...additions]);
+        // World cards carry lore only; do not turn imported entries into live NPCs or locations.
+        if (!importedWorld) {
+            const parsedNPCs = parseNPCsFromLore(chunks);
+            if (parsedNPCs.length > 0) {
+                const existingNPCs = await getNPCLedger(campaignId);
+                await saveNPCLedger(campaignId, dedupeNPCLedger([...existingNPCs, ...parsedNPCs]));
             }
-        }
 
-        seeds = extractEngineSeeds(chunks);
+            // Same deal for places. Dedupe against the existing ledger by name+alias
+            // (resolvePlace is the ledger's own matcher) so re-importing a lore file
+            // into a campaign in progress tops up rather than duplicating.
+            // WO 6.3 §3 — use the detailed parse so unresolvable `ConnectedTo:`
+            // names warn (the ledger and the map must agree).
+            const { locations: parsedLocations, warnings: locationWarnings } = parseLocationsFromLoreDetailed(chunks);
+            for (const w of locationWarnings) {
+                console.warn(`[loreLocationParser] ${w}`);
+            }
+            if (parsedLocations.length > 0) {
+                const existingLocations = await loadLocationTable(campaignId);
+                const additions = parsedLocations.filter(loc => !resolvePlace(loc.name, existingLocations));
+                if (additions.length > 0) {
+                    await genericSave(locationTableDescriptor as never, campaignId, [...existingLocations, ...additions]);
+                }
+            }
+
+            seeds = extractEngineSeeds(chunks);
+        }
     }
 
     let lootTree: LootTree | null = null;

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { saveCampaign } from '../../store/campaignStore';
 import { initializeCampaignState } from '../../services/campaignInit';
 import { uid } from '../../utils/uid';
+import { readWorldFile } from '../../services/lore/worldCard';
+import { toast } from '../Toast';
 import type { Campaign } from '../../types';
 
 export function useCampaignForm(params: {
@@ -48,23 +50,28 @@ export function useCampaignForm(params: {
 
     const handleSave = async () => {
         if (!name.trim()) return;
-        const isEdit = !!editingCampaign;
-        const campaign: Campaign = isEdit
-            ? { ...editingCampaign!, name: name.trim(), lastPlayedAt: Date.now() }
-            : {
-                id: uid(),
-                name: name.trim(), coverImage: '',
-                createdAt: Date.now(), lastPlayedAt: Date.now(),
-            };
+        try {
+            // Validate world files before creating or modifying the campaign record.
+            const preparedWorld = loreFile && /\.(png|json)$/i.test(loreFile.name) ? await readWorldFile(loreFile) : undefined;
+            const isEdit = !!editingCampaign;
+            const campaign: Campaign = isEdit
+                ? { ...editingCampaign!, name: name.trim(), lastPlayedAt: Date.now() }
+                : {
+                    id: uid(),
+                    name: name.trim(), coverImage: '',
+                    createdAt: Date.now(), lastPlayedAt: Date.now(),
+                };
 
-        if (coverFile) campaign.coverImage = coverPreview;
-        else if (isEdit) campaign.coverImage = coverPreview;
+            if (coverFile) campaign.coverImage = coverPreview;
+            else if (isEdit) campaign.coverImage = coverPreview;
 
-        await saveCampaign(campaign);
-        await initializeCampaignState({ campaignId: campaign.id, loreFile, rulesFile, lootFile });
+            await saveCampaign(campaign);
+            await initializeCampaignState({ campaignId: campaign.id, loreFile, rulesFile, lootFile, preparedWorld });
 
-        resetForm();
-        onDone();
+            if (preparedWorld?.warnings.length) toast.info(preparedWorld.warnings.join(' '));
+            resetForm();
+            onDone();
+        } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not save campaign.'); }
     };
 
     const clearCover = () => { setCoverFile(null); setCoverPreview(''); };

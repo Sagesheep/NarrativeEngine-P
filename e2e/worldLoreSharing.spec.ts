@@ -1,0 +1,42 @@
+import { test, expect } from '@playwright/test';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import { readWorldPng } from '../src/services/lore/worldCardPng';
+
+// Isolated browser harness: exercises the real builder without opening user saves or the vault.
+test('Persona 3 world PNG exports and imports through the lore builder', async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.route('**/api/**', route => route.fulfill({ contentType: 'application/json', body: '{}' }));
+    await page.goto('/e2e/fixtures/worldLoreSharing.html');
+    await expect(page.getByText('World Lore Builder', { exact: true })).toBeVisible();
+    const input = page.getByLabel('World lore file');
+    await input.setInputFiles(path.resolve('Example_Setup/World_compendium/Franchisee/Persona 3/Persona 3.world.json'));
+    await expect(page.getByRole('heading', { name: 'Persona 3 — World Lore Demo' })).toBeVisible();
+    await page.getByRole('button', { name: 'Import as new world draft' }).click();
+    await expect(page.getByText('Imported lore entries (5)')).toBeVisible();
+    await page.getByRole('button', { name: 'Export world PNG', exact: true }).click();
+    await page.getByLabel('Author (optional)').fill('World sharing test');
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download PNG', exact: true }).click();
+    const download = await downloadPromise;
+    const pngPath = testInfo.outputPath('Persona 3.world.png');
+    await download.saveAs(pngPath);
+    const png = await fs.readFile(pngPath);
+    const payload = readWorldPng(new Uint8Array(png)) as { format: string; world: { chunks: unknown[]; author: string } };
+    expect(payload.format).toBe('narrative-engine-world');
+    expect(payload.world.chunks).toHaveLength(5);
+    expect(payload.world.author).toBe('World sharing test');
+    expect(png.includes(Buffer.from('chara\0'))).toBe(false);
+    expect(png.includes(Buffer.from('ccv3\0'))).toBe(false);
+    await input.setInputFiles(pngPath);
+    await page.getByRole('button', { name: 'Import as new world draft' }).click();
+    await expect(page.getByText('Imported lore entries (5)')).toBeVisible();
+    const drafts = await page.evaluate(() => JSON.parse(localStorage.getItem('nn_world_lore_drafts') ?? '[]'));
+    expect(drafts).toHaveLength(2);
+    expect(drafts[1].importedLoreChunks).toHaveLength(5);
+    expect(drafts[1].importedLoreChunks[4].disabled).toBe(true);
+    expect(drafts[0].id).not.toBe(drafts[1].id);
+    await page.screenshot({ path: testInfo.outputPath('world-builder.png'), fullPage: true });
+    expect(errors).toEqual([]);
+});

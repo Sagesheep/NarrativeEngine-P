@@ -8,6 +8,8 @@ import { LoreTextarea } from './LoreTextarea';
 import { downloadMarkdown } from '../services/lore/worldLoreExport';
 import { LoreImportReviewModal } from './LoreImportReviewModal';
 import { ScreenLightbox } from './ScreenLightbox';
+import { WorldCardPanel } from './WorldCardPanel';
+import { cardFromDraft, draftFromCard } from '../services/lore/worldCard';
 
 const FLAT_SECTIONS: { key: keyof WorldLoreDraft; label: string; placeholder: string }[] = [
     { key: 'background', label: 'World Background', placeholder: 'Describe the world\'s history, core conflict, and tone...' },
@@ -28,7 +30,7 @@ const LIST_SECTIONS: { key: keyof Pick<WorldLoreDraft, 'locations' | 'cultures' 
 ];
 
 export function WorldLoreModal() {
-    const { worldLoreDrafts, worldLoreActiveDraftId, worldLoreModalOpen, toggleWorldLoreModal, createDraft, deleteDraft, updateDraftField, addItem, updateItem, removeItem, setActiveDraft, loadWorldLoreDrafts } = useAppStore();
+    const { worldLoreDrafts, worldLoreActiveDraftId, worldLoreModalOpen, toggleWorldLoreModal, importWorldDraft, createDraft, deleteDraft, updateDraftField, addItem, updateItem, removeItem, setActiveDraft, loadWorldLoreDrafts } = useAppStore();
 
     const [expanded, setExpanded] = useState<Record<string, boolean>>({
         background: true,
@@ -114,6 +116,12 @@ export function WorldLoreModal() {
                     footer is now a real pinned slot on the shell. Capped at the
                     same 120rem design width the other converted screens use. */}
                 <div className="w-full mx-auto max-w-[120rem]">
+                    <div className="mb-4">
+                        <WorldCardPanel key={activeDraft?.id ?? 'empty'}
+                            getExportCard={activeDraft ? () => cardFromDraft(activeDraft) : null}
+                            onImport={result => importWorldDraft(draftFromCard(result.card))}
+                            importLabel="Import as new world draft" />
+                    </div>
                     {/* Draft tabs */}
                     <div className="flex items-center gap-1 border-b border-border mb-6 overflow-x-auto pb-px">
                         {worldLoreDrafts.map((d) => (
@@ -179,6 +187,16 @@ export function WorldLoreModal() {
                                 />
                             </div>
 
+                            {!!activeDraft.importedLoreChunks?.length && <section className="border border-border rounded p-3 space-y-2">
+                                <h3 className="text-sm font-bold text-text-primary">Imported lore entries ({activeDraft.importedLoreChunks.length})</h3>
+                                <p className="text-xs text-text-dim">PNG export preserves these entries and their retrieval settings. Markdown includes enabled text only.</p>
+                                {activeDraft.importedLoreChunks.map(chunk => <details key={chunk.id} className="border-t border-border pt-2 text-xs text-text-dim">
+                                    <summary>{chunk.header}{chunk.disabled ? ' (disabled)' : ''}</summary>
+                                    <label className="block my-2"><input type="checkbox" checked={!chunk.disabled} onChange={e => updateDraftField(activeDraft.id, 'importedLoreChunks', activeDraft.importedLoreChunks!.map(c => c.id === chunk.id ? { ...c, disabled: !e.target.checked } : c))} /> Enabled</label>
+                                    <textarea aria-label={chunk.header + ' lore text'} className="w-full bg-surface border border-border p-2 text-text-primary" rows={5} value={chunk.content}
+                                        onChange={e => updateDraftField(activeDraft.id, 'importedLoreChunks', activeDraft.importedLoreChunks!.map(c => c.id === chunk.id ? { ...c, content: e.target.value } : c))} />
+                                </details>)}
+                            </section>}
                             {/* Flat sections */}
                             {FLAT_SECTIONS.map((sec) => {
                                 const isOpen = expanded[sec.key] ?? false;

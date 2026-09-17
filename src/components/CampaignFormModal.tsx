@@ -104,12 +104,12 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
                 </div>
 
                 <ModalLabel>
-                    World Lore (.md){editingCampaign && <span style={{ color: 'rgba(107,107,107,0.45)', fontWeight: 400, marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}>— re-upload to replace</span>}
+                    World Lore (.png, .json, .md){editingCampaign && <span style={{ color: 'rgba(107,107,107,0.45)', fontWeight: 400, marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}>— re-upload to replace</span>}
                 </ModalLabel>
-                <FilePickerRow icon={<BookOpen size={13} />} label={loreName || 'Choose file…'} accept=".md,.txt"
+                <FilePickerRow icon={<BookOpen size={13} />} label={loreName || 'Choose file…'} accept=".png,.json,.md,.txt"
                     onChange={f => { setLoreFile(f); setLoreName(f.name); }} />
                 <p style={{ color: 'rgba(107,107,107,0.50)', fontSize: 11, fontFamily: "'JetBrains Mono', monospace", marginBottom: 20, marginTop: 6 }}>
-                    Split by ### headers for dynamic RAG retrieval
+                    World PNG, SillyTavern lorebook JSON, or Markdown lore
                 </p>
 
                 <ModalLabel>

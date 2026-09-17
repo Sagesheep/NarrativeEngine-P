@@ -43,6 +43,7 @@ export type WorldLoreSlice = {
     worldLoreModalOpen: boolean;
 
     createDraft: (name?: string) => string;
+    importWorldDraft: (draft: WorldLoreDraft) => void;
     deleteDraft: (id: string) => void;
     updateDraftField: <K extends keyof WorldLoreDraft>(id: string, field: K, value: WorldLoreDraft[K]) => void;
     addItem: (id: string, listKey: 'locations' | 'cultures' | 'factions' | 'threats' | 'npcs', item?: WorldLoreItem) => void;
@@ -73,6 +74,14 @@ export const createWorldLoreSlice: StateCreator<WorldLoreSlice, [], [], WorldLor
             return { worldLoreDrafts: drafts, worldLoreActiveDraftId: draft.id };
         });
         return draft.id;
+    },
+
+    importWorldDraft: (draft) => {
+        const copy = { ...draft, id: uid(), createdAt: Date.now(), updatedAt: Date.now() };
+        const drafts = [...get().worldLoreDrafts, copy];
+        // Import must not report success when the browser storage is full.
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts));
+        set({ worldLoreDrafts: drafts, worldLoreActiveDraftId: copy.id });
     },
 
     deleteDraft: (id) => {

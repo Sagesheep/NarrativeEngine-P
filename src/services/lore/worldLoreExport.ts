@@ -59,6 +59,10 @@ export function exportDraftToMarkdown(draft: WorldLoreDraft): string {
         lines.push('');
     }
 
+    for (const chunk of draft.importedLoreChunks ?? []) {
+        if (chunk.disabled) continue;
+        lines.push(`### ${chunk.header}`, '', chunk.content, '');
+    }
     return lines.join('\n');
 }
 

@@ -1,0 +1,16 @@
+{
+  "format": "narrative-engine-world",
+  "version": 1,
+  "world": {
+    "name": "Persona 3 — World Lore Demo",
+    "author": "Narrative Engine test fixture",
+    "description": "A small, unofficial Persona 3 setting sample for world-file import/export testing. Original summary text; no character identity, opening message, scripted events, or campaign progress.",
+    "chunks": [
+      { "id": "p3-overview", "header": "World overview", "content": "Ordinary school life and supernatural exploration share the same setting. Students attend classes and build relationships by day, then confront Shadows during the Dark Hour.", "tokens": 0, "alwaysInclude": true, "ragMode": "always", "triggerKeywords": ["Persona 3", "Dark Hour"], "scanDepth": 3, "category": "world_overview", "linkedEntities": [], "priority": 10 },
+      { "id": "p3-school", "header": "Gekkoukan High School / 月光館学園", "content": "Gekkoukan High School is a hub for classes, clubs, and everyday student relationships. Use it for ordinary daytime scenes between supernatural expeditions.", "tokens": 0, "alwaysInclude": false, "ragMode": "keyword", "triggerKeywords": ["Gekkoukan", "school", "class", "月光館学園"], "scanDepth": 3, "category": "location", "linkedEntities": [], "priority": 6 },
+      { "id": "p3-tartarus", "header": "Tartarus", "content": "Tartarus is a vast labyrinth encountered during the Dark Hour, the hidden interval between one day and the next. Exploration brings the group into conflict with Shadows.", "tokens": 0, "alwaysInclude": false, "ragMode": "keyword", "triggerKeywords": ["Tartarus"], "secondaryKeywords": ["Dark Hour", "explore"], "scanDepth": 5, "category": "location", "linkedEntities": [], "priority": 7 },
+      { "id": "p3-sees", "header": "S.E.E.S.", "content": "The Specialized Extracurricular Execution Squad, or S.E.E.S., investigates the Dark Hour and fights Shadows. This entry describes an organization; it does not create or assign a player character.", "tokens": 0, "alwaysInclude": false, "ragMode": "keyword", "triggerKeywords": ["SEES", "S.E.E.S.", "squad"], "scanDepth": 3, "category": "faction", "linkedEntities": [], "priority": 7 },
+      { "id": "p3-test-note", "header": "Disabled test note", "content": "This entry exists only to verify that disabled lore remains disabled after sharing. It must not enter narrative retrieval.", "tokens": 0, "alwaysInclude": false, "ragMode": "keyword", "disabled": true, "triggerKeywords": ["test note"], "scanDepth": 3, "category": "misc", "linkedEntities": [], "priority": 1 }
+    ]
+  }
+}

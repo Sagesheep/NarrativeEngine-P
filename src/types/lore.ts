@@ -71,6 +71,9 @@ export type WorldLoreDraft = {
     npcs: WorldLoreItem[];
     characterCreationQuestions: string;
     rawSource?: string;
+    /** Imported world entries retain their retrieval metadata. */
+    importedLoreChunks?: LoreChunk[];
+    worldCardMetadata?: { author: string; description: string };
     createdAt: number;
     updatedAt: number;
 };

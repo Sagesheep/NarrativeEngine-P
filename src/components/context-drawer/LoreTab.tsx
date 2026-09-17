@@ -1,11 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { getCampaign } from '../../store/campaignStore';
 import { ChevronDown, ChevronUp, Database, Search, X } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import type { LoreChunk } from '../../types';
 import { ScreenSection } from '../primitives/ScreenSection';
+import { WorldCardPanel } from '../WorldCardPanel';
+import { createWorldCard } from '../../services/lore/worldCard';
+import { uid } from '../../utils/uid';
 
 export function LoreTab() {
     const loreChunks = useAppStore((s) => s.loreChunks);
+    const campaignId = useAppStore(s => s.activeCampaignId);
+    const [campaignName, setCampaignName] = useState('World');
+    useEffect(() => {
+        let current = true;
+        if (campaignId) void getCampaign(campaignId).then(c => { if (current) setCampaignName(c?.name ?? 'World'); }).catch(() => {});
+        return () => { current = false; };
+    }, [campaignId]);
     const updateLoreChunk = useAppStore((s) => s.updateLoreChunk);
     const [newKeyword, setNewKeyword] = useState<Record<string, string>>({});
     // WO-12.3b — per-chunk content preview (desktop-native nicety).
@@ -295,6 +306,15 @@ export function LoreTab() {
                 )}
             </div>
 
+            {campaignId && <WorldCardPanel key={campaignId}
+                getExportCard={loreChunks.length ? () => createWorldCard(campaignName, loreChunks) : null}
+                importLabel="Add lore to this campaign"
+                onImport={result => {
+                    const state = useAppStore.getState();
+                    if (state.activeCampaignId !== campaignId) throw new Error('The active campaign changed. Import again.');
+                    const additions = result.card.world.chunks.map(c => ({ ...c, id: uid() }));
+                    state.setLoreChunks([...state.loreChunks, ...additions]);
+                }} />}
             {loreChunks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center space-y-3 opacity-40">
                     <Database size={48} strokeWidth={1} />
