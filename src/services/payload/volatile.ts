@@ -1,3 +1,4 @@
+import { buildMovementContract } from '../turn/storyMovement';
 import type { GameContext, InventoryItemCategory, ChatMessage, NPCEntry, SceneEventType, LocationEntry, PlayerCharacter } from '../../types';
 import { CORE_FLOOR_TRAITS } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
@@ -26,7 +27,9 @@ export function buildVolatile(opts: {
     // --- 5. Volatile State (Profile, Inventory) — Smart Injection ---
     // WO-I: capture each module's text so we can emit per-module trace rows with previews
     // (was one lumped 'Profile/Inventory' row). volatileContent/volatileTokens stay byte-identical.
-    const volatileParts: string[] = [];
+    const movementContract = buildMovementContract(context, locationLedger ?? []);
+    const volatileParts: string[] = [movementContract];
+    collector.addTrace({ source: 'Movement contract', classification: 'volatile_state', tokens: countTokens(movementContract), reason: 'Current engine position and same-response movement instructions', included: true, position: 'system_dynamic', preview: movementContract });
     let characterBlock = '';
     let inventoryBlock = '';
     let profileBlock = '';

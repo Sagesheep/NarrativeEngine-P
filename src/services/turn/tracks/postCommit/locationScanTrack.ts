@@ -1,3 +1,4 @@
+import { parseStoryMovement } from '../../storyMovement';
 import { mergeLocationScanLedger, scanLocation } from '../../../locationParser';
 import { backgroundQueue } from '../../../infrastructure/backgroundQueue';
 import { tierAllows } from '../../aiTier';
@@ -35,7 +36,8 @@ export const locationScanTrack: PostTurnTrack<PostCommitTrackContext> = {
             if (after.activeCampaignId !== ctx.activeCampaignId) return;
 
             // A manual/header pointer change made while the LLM was in flight wins.
-            if (after.context.currentPlaceId === baselinePlaceId && (after.context.currentFeature ?? null) === baselineFeature
+            const hasMovementContract = ctx.scanMessages.some(message => message.role === 'assistant' && parseStoryMovement(message.content).present);
+            if (!hasMovementContract && after.context.currentPlaceId === baselinePlaceId && (after.context.currentFeature ?? null) === baselineFeature
                 && (scan.currentPlaceId !== baselinePlaceId || scan.currentFeature !== baselineFeature)) {
                 ctx.guardedUpdateContext({ currentPlaceId: scan.currentPlaceId, currentFeature: scan.currentFeature });
             }

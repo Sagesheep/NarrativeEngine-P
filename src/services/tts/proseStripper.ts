@@ -7,7 +7,7 @@
  * natural prosody.
  */
 export function proseForTTS(input: string): string {
-    let s = input;
+    let s = input.replace(/<!--\s*MOVEMENT\b[\s\S]*?(?:-->|$)/gi, '');
 
     // Strip <think>...</think> blocks (kept in content for display, not speech).
     s = s.replace(/<think[\s\S]*?<\/think>/gi, '');

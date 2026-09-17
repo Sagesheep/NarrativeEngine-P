@@ -421,3 +421,35 @@ recovery runs through the normal mod lifecycle after reloading the app.
   preserved IDs/links, sidebar filtering/pinning, seven-day expiry, protected leads,
   archived notes and restore/reload. Dependency graph refreshed. No live campaign
   files were manually rewritten; the normal lifecycle applies the migration on reload.
+
+
+## Discovery content expansion — 2026-09-13
+
+New discoveries receive deterministic names and physical descriptions from 43 content variants across the existing six placement families, including biome-specific landmarks and technical-setting alternatives. Existing spacing, IDs, saved sites and custom edits are preserved. The selected world profile is passed into discovery generation; nearby descriptions already feed the normal story context. This expands content, retaining the existing family sprites. Existing explored sites are not regenerated. Validation: 270 world-map tests passed, including genre, biome and saved-content regressions; targeted ESLint passed.
+
+
+## Chat → Places → Map, milestone 1 — 2026-09-15
+
+Committed scene headers now register the current containing place before publishing currentPlaceId. Existing Places features hold local districts/rooms, so a bare slum can establish Unknown settlement with a Slum district feature without inventing city size. Existing names/aliases are reused. Unknown containing places with a local feature no longer attach that feature to the previous place. The map continues using its existing location subscription and stable coordinate solver; no coordinate ownership was added to the chat parser. Default story rules describe this location contract.
+
+Scope: commit-time scene headers, not unsent input or streaming replies. Prose-only extraction remains the existing interval-gated suggestion scanner; automatic prose-only anchoring and provisional-place identity reconciliation are future milestones. Custom saved rules need to produce the location header; no campaign rules were overwritten. Validation: 423 unit/integration tests, targeted lint and production build passed.
+
+
+## Chat ↔ Map movement contract — 2026-09-15 COMPLETE
+
+The normal story response carries a hidden MOVEMENT JSON comment (stay/local/depart/continue/arrive/relocate). It is validated and applied only on committed replies, with no additional model request. The live position wins over a pending reply when place, feature, day or journey changed after generation. Malformed updates and impossible movement leave position unchanged and show a short engine message. Comments remain in stored reply content for commit/reload, but are hidden from rendered prose and TTS.
+
+Free-chat departures to known Places use the map's existing terrain pathfinder and saved journey geometry, without opening the map. With the map disabled, an existing ledger connection supplies the fallback; no connection is fabricated. Continue advances one engine checkpoint/day. Early arrival is rejected; local actions and camp conversation spend no travel days. Explicit scene cuts can relocate; the story model still determines whether narration establishes a cut. Initial scenes can establish a containing place and local feature.
+
+Every ordinary story payload now includes the authoritative current position, known destinations, and the movement contract. Existing checkpoint terrain/weather/encounter/discovery context remains scoped to current place/day/leg. Debug traces include the contract. The interval-gated location scanner can still enrich Places, but cannot replace a contract-owned pointer from recent narration.
+
+Validation: 512 tests, 20 Playwright browser scenarios, targeted ESLint and production build passed. The new browser scenario departs through the real map planner using a story update, verifies the reached checkpoint in next-chat context, stays for camp RP without movement, then continues one checkpoint with no routine chat messages. Tests use model-shaped replies, not live paid model calls.
+
+Playtest after reload:
+1. At a known place, type “I set off toward [known destination].” Commit the reply by sending the next message. Confirm one travel checkpoint and day, not instant distant arrival.
+2. Type “I make a fire and ask my companion about their home.” Commit; position/day/leg should stay unchanged and narration should fit the current terrain.
+3. Type “I continue travelling for the day.” Commit; advance exactly one checkpoint.
+4. Move manually on the map before committing an older reply. Send a new chat; the older reply must not move the party back.
+5. Inside a settlement, enter a room or district: only currentFeature should change. Remembering another town must not move the party.
+
+Limits: commit remains the existing next-send/exit lifecycle, not live streaming. Free-chat route departures require a known destination; arbitrary compass-direction exploration is not implemented here. Model compliance and narrative quality require live playtesting; malformed replies fail without moving, and older replies without a contract retain header compatibility. Existing saved custom rules are not overwritten.

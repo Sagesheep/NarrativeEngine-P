@@ -1,3 +1,4 @@
+import { discoveryContent } from './discoveryContent.js';
 import { FIELD_WORLD_SIZE } from './field.js';
 // Seeded slots are independent of view order. Only observed sites are persisted.
 export const SITE_TYPES = Object.freeze({
@@ -31,7 +32,7 @@ function candidate(seed, bx, by) {
     return { x: bx * 4 + h % 4, y: by * 4 + (h >>> 4) % 4,
         type: types[(h >>> 8) % types.length], settlementKind: ['village', 'village', 'village', 'village', 'town', 'town', 'city', 'capital'][(h >>> 16) % 8], priority: hash(`${key}:priority`), roll: hash(`${key}:density`) / 4294967296 };
 }
-export function featureAtBlock(seed, bx, by, store, nearTrail = () => false) {
+export function featureAtBlock(seed, bx, by, store, nearTrail = () => false, profile = 'fantasy') {
     const site = candidate(seed, bx, by);
     if (site.x < 0 || site.y < 0 || site.x >= FIELD_WORLD_SIZE || site.y >= FIELD_WORLD_SIZE) return null;
     const spec = SITE_TYPES[site.type];
@@ -52,7 +53,7 @@ export function featureAtBlock(seed, bx, by, store, nearTrail = () => false) {
     const roadAffinity = ['settlement', 'camp', 'crossing'].includes(site.type) && nearTrail(site.x, site.y) ? 1.35 : 1;
     if (site.roll > spec.density * density * roadAffinity) return null;
     return { id: `site-${hash(seed).toString(16)}-${site.x}-${site.y}`, x: site.x, y: site.y,
-        type: site.type, ...(site.type === 'settlement' ? { settlementKind: site.settlementKind } : {}), biome, name: '', description: terrainDescription(biome, site.type) };
+        type: site.type, ...(site.type === 'settlement' ? { settlementKind: site.settlementKind } : {}), biome, ...discoveryContent(seed, { ...site, biome }, profile) };
 }
 export function readDiscoveries(raw) {
     const sites = new Map();
@@ -65,7 +66,7 @@ export function readDiscoveries(raw) {
 }
 export function serializeDiscoveries(state) { return { sites: [...state.sites.values()], surveyed: [...state.surveyed] }; }
 export function siteLabel(site) { return site.name || (site.settlementKind ? site.settlementKind.charAt(0).toUpperCase() + site.settlementKind.slice(1) : SITE_TYPES[site.type]?.label) || 'Wilderness'; }
-export function surveyDiscoveries(state, seed, store, centre, trails, worldDay, existing = []) {
+export function surveyDiscoveries(state, seed, store, centre, trails, worldDay, existing = [], profile = 'fantasy') {
     let changed = false;
     const nearTrail = (x, y) => [...(trails?.edges.values() ?? [])].some(edge =>
         Math.min(Math.hypot(edge.a.x - x, edge.a.y - y), Math.hypot(edge.b.x - x, edge.b.y - y)) <= 2);
@@ -76,7 +77,7 @@ export function surveyDiscoveries(state, seed, store, centre, trails, worldDay, 
             const key = `${bx},${by}`;
             if (state.surveyed.has(key)) continue;
             state.surveyed.add(key); changed = true;
-            const site = featureAtBlock(seed, bx, by, store, nearTrail);
+            const site = featureAtBlock(seed, bx, by, store, nearTrail, profile);
             if (site && !state.sites.has(site.id) && canPlaceSite(site, [...existing, ...state.sites.values()])) state.sites.set(site.id, { ...site, discoveredOnDay: worldDay });
         }
     }

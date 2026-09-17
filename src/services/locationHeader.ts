@@ -51,6 +51,7 @@ const GENERIC_ROOM_WORDS = new Set([
     'classroom', 'storage', 'storage room', 'storeroom', 'lounge', 'foyer',
     'entrance', 'porch', 'rooftop', 'roof', 'closet', 'pantry', 'dining room',
     'stairs', 'staircase', 'lobby', 'reception', 'workshop', 'shed',
+    'slum', 'slums', 'slum district', 'back alley', 'market district', 'residential district',
 ]);
 
 export type LocationHeaderOutcome =
@@ -162,7 +163,7 @@ export function resolveLocationHeader(
 
     // 3. Feature of the current place?
     const current = currentPlaceId ? ledger.find(l => l.id === currentPlaceId) : undefined;
-    if (current) {
+    if (current && (segments.length === 1 || isLikelyFeatureLabel(segments[0]))) {
         for (const seg of [raw, ...segments]) {
             if (hasFeature(current, seg)) {
                 return { kind: 'feature-only', feature: seg, appendFeature: false };
@@ -188,4 +189,38 @@ export function resolveLocationHeader(
             firstSeen: Date.now(),
         },
     };
+}
+
+/** Commit-time bridge: only the scene header establishes a new current place.
+ * Mentions elsewhere remain suggestions; local features never get world cells.
+ */
+export function anchorSceneLocation(
+    content: string,
+    ledger: LocationEntry[],
+    currentPlaceId: string | null,
+): { outcome: LocationHeaderOutcome; created?: LocationEntry } {
+    const outcome = resolveLocationHeader(content, ledger, currentPlaceId);
+    if (outcome.kind === 'resolved' || outcome.kind === 'feature-only') return { outcome };
+    const raw = parseLocationHeader(content);
+    if (!raw || /^(?:unknown|unclear|somewhere|undetermined|unknown location|unknown place)$/i.test(raw)) return { outcome: { kind: 'none' } };
+    const segments = raw.split(SEGMENT_SPLIT_RE).map(part => part.trim()).filter(Boolean);
+    let name = segments[0];
+    let feature = segments.slice(1).join(' — ') || null;
+    // A slum establishes urban surroundings, but not a named or sized city.
+    if (isLikelyFeatureLabel(name)) {
+        if (!/^(?:slum|slums|slum district|market district|residential district)$/i.test(name)) return { outcome: { kind: 'none' } };
+        feature = segments.join(' — ');
+        name = 'Unknown settlement';
+    }
+    const existing = resolvePlace(name, ledger);
+    if (existing) return { outcome: { kind: 'resolved', placeId: existing.id, feature,
+        appendFeature: feature !== null && canAppendFeature(existing, feature) } };
+    const now = String(Date.now());
+    const created: LocationEntry = {
+        id: `loc_${now}_${crypto.randomUUID().slice(0, 8)}`, name,
+        aliases: '', broadLocation: '', features: feature ? [feature] : [], connections: [],
+        description: '', source: 'llm', kind: 'place', recordKind: 'place',
+        firstSeenScene: now, lastSeenScene: now,
+    };
+    return { created, outcome: { kind: 'resolved', placeId: created.id, feature, appendFeature: false } };
 }

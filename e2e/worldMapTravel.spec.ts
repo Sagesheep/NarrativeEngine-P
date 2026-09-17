@@ -557,3 +557,23 @@ test('old encounters archive while pinned and unresolved leads remain accessible
     expect((await read(page)).encounters.records.find((row: any) => row.key === merchant.key)).toMatchObject({pinned:true,note:'Bought rope.'});
     expect((await read(page)).encounters.records.find((row: any) => row.key === merchant.key).archivedOnDay).toBeUndefined();
 });
+
+
+test('free-chat travel uses map geometry and camp RP keeps the reached scene', async ({ page }) => {
+    await page.evaluate(() => (window as any).worldmapTest.storyMove({ action: 'depart', place: 'b' }));
+    await expect.poll(async () => (await read(page)).context.travel?.leg).toBe(1);
+    const first = await read(page);
+    expect(first.journey).toBeTruthy();
+    await expect.poll(async () => (await read(page)).context.mapEncounter?.worldDay).toBe(first.context.worldDay);
+    const before = await read(page);
+    const scene = await page.evaluate(() => (window as any).worldmapTest.sceneContext());
+    expect(scene).toContain(before.context.currentPlaceId);
+    expect(scene).toContain('CHECKPOINT SITUATION');
+    await page.evaluate(() => (window as any).worldmapTest.storyMove({ action: 'stay' }));
+    expect((await read(page)).context.worldDay).toBe(before.context.worldDay);
+    expect((await read(page)).snapshot.party).toEqual(before.snapshot.party);
+    await page.evaluate(() => (window as any).worldmapTest.storyMove({ action: 'continue' }));
+    await expect.poll(async () => (await read(page)).context.worldDay).toBe(before.context.worldDay + 1);
+    await expect.poll(async () => JSON.stringify((await read(page)).snapshot.party)).not.toBe(JSON.stringify(before.snapshot.party));
+    expect((await read(page)).messages).toHaveLength(0);
+});

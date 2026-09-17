@@ -16,7 +16,7 @@ function looksLikeSystemTag(s: string): boolean {
 }
 
 function inlineNameBrackets(text: string): string {
-    return text.replace(NAME_BRACKET_RE, (full, inner: string) =>
+    return text.replace(/<!--\s*MOVEMENT\b[\s\S]*?(?:-->|$)/gi, '').replace(NAME_BRACKET_RE, (full, inner: string) =>
         looksLikeSystemTag(inner) ? full : `**${inner.trim()}**`
     );
 }

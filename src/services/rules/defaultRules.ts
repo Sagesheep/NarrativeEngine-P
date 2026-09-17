@@ -51,6 +51,8 @@ MANDATORY HEADER (every reply):
 📅 [Time] Day <current day>, <current time> | 📍 [Location] <current place name — optional room/feature> | 👥 [Present] <comma-separated names>
 Replace every angle-bracket placeholder with the actual current value. Never output the placeholders or leave a field blank. The Day <current day>, segment mirrors the engine-owned day from the [LOCATION] block; when no day is tracked, omit it and continue with <current time> directly.
 
+LOCATION CONTINUITY: The location header describes the PC's actual current scene, never a memory, dream, hypothetical destination, or a place merely mentioned. Use the established containing place followed by local features (for example: City name — Slum district — Alley). Rooms and districts belong to that place; moving between them does not create a new world location. If the opening establishes urban surroundings but no settlement name, use Unknown settlement — Slum district; do not infer a capital, exact population, or a name. Preserve the containing place when only the local feature changes.
+
 DIALOGUE FORMAT: All spoken dialogue script-formatted, never embedded in prose.
 [**Name**]: "Dialogue"
 

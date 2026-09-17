@@ -1,3 +1,6 @@
+import { applyStoryMovement } from '../../src/services/turn/applyStoryMovement';
+import { buildMovementContract } from '../../src/services/turn/storyMovement';
+import { buildLocationBlock, buildMapEncounterBlock, buildMapDiscoveriesBlock } from '../../src/services/payload/volatile';
 import { WindowManager } from '../../src/components/WindowManager';
 import { registerWindowDeclaration, openWindow } from '../../src/services/mods/mounts/windowStore';
 import { buildHostFacade } from '../../src/services/turn/hostFacade';
@@ -114,6 +117,8 @@ if (new URLSearchParams(location.search).has('realWindow')) {
     flushSync(() => createRoot(document.getElementById('map')!).render(React.createElement(WindowManager)));
 } else windows.find(w => w.id === 'map-canvas').mount(document.getElementById('map'), makeContext());
 (window as any).worldmapTest = {
+    storyMove: (movement: unknown) => applyStoryMovement(`<!-- MOVEMENT ${JSON.stringify(movement)} -->`, useAppStore.getState().activeCampaignId!),
+    sceneContext: () => { const { context, locationLedger } = useAppStore.getState(); return [buildMovementContract(context, locationLedger), buildLocationBlock(context, locationLedger), buildMapEncounterBlock(context), buildMapDiscoveriesBlock(context)].join('\n'); },
     read: async () => { const live = await ctx.refresh(); return ({ ledger: useAppStore.getState().locationLedger, context: useAppStore.getState().context, messages: useAppStore.getState().messages, composerInjection: useAppStore.getState().composerInjection,
         snapshot: { party: mapSnapshot(live)?.party, locationId: mapSnapshot(live)?.locationId, visible: [...(mapSnapshot(live)?.visible ?? [])] }, journey: validJourney(tables.journey) ? tables.journey : null, trails: tables.trails, discoveries: tables.discoveries, encounters: tables.encounters, exploration: tables.exploration, roads: tables.roads }); },
     retentionScene: () => {

@@ -130,7 +130,7 @@ async function observeTerrain(ctx, centres) {
             settlementKind: /\bcapital\b/i.test(anchor.name ?? '') ? 'capital' : /\bcity\b/i.test(anchor.name ?? '') ? 'city' : 'town' }));
     let changed = false;
     for (const centre of centres) changed = surveyDiscoveries(state, snapshot.settings.worldSeed, snapshot.chunkStore,
-        centre, surfacesFor(campaignId), ctx.data.location.worldDay, authored) || changed;
+        centre, surfacesFor(campaignId), ctx.data.location.worldDay, authored, snapshot.settings.worldProfile) || changed;
     if (changed) {
         await ctx.table.write('discoveries', serializeDiscoveries(state));
         discoveriesByCampaign.set(campaignId, state);
@@ -2105,6 +2105,26 @@ function registerMapWindow(ctx) {
         label: 'World Map',
         tooltip: 'Open the World Map canvas',
         onSelect: () => mapWindow.open(),
+    });
+    ctx.events?.on('mod.worldmap.storyRoute', async payload => {
+        const reply = hops => ctx.events?.emit('storyRouteResult', { requestId: payload?.requestId, hops });
+        const valid = fresh => fresh && fresh.data.campaignId === payload?.campaignId
+            && fresh.data.location.currentPlaceId === payload.fromId && !fresh.data.location.travel
+            && fresh.data.location.worldDay === payload.worldDay && Date.now() < payload.expiresAt;
+        try {
+            let fresh = await freshCampaignContext(ctx);
+            if (!valid(fresh)) { reply(null); return; }
+            await queueSolve(fresh);
+            fresh = await freshCampaignContext(ctx);
+            if (!valid(fresh)) { reply(null); return; }
+            const anchor = reportsByCampaign.get(payload.campaignId)?.anchors.find(a => a.locationId === payload.toId);
+            if (!anchor) { reply(null); return; }
+            const preview = computeRoutePreview(fresh, payload.campaignId, anchor.x, anchor.y, payload.mode, undefined, false, payload.toId);
+            if (preview.blocked) { reply(null); return; }
+            const journey = buildJourneyFromPreview(preview, fresh.data.location.worldDay);
+            if (!journey || !valid(await freshCampaignContext(ctx)) || !await writeJourney(fresh, journey)) { reply(null); return; }
+            reply(valid(await freshCampaignContext(ctx)) ? preview.hops : null);
+        } catch (error) { ctx.log?.('[worldmap] story route failed', error); reply(null); }
     });
     ctx.events?.on('mod.worldmap.planTravel', async payload => {
         const fresh = await freshCampaignContext(ctx);
