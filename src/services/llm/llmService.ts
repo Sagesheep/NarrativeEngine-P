@@ -5,9 +5,9 @@ import { getChatUrl, getModelsUrl, buildChatHeaders, buildChatBody, getApiFormat
 import { recordCacheUsage, type LLMUsage } from './cacheTelemetry';
 import { llmFetch } from './llmFetch';
 import { startUtilityCall } from './utilityCallTracker';
+import { normalizeStoryTimeoutSeconds } from './timeouts';
 
 const STORY_LABEL = 'story-generation';
-const STREAM_IDLE_TIMEOUT_MS = 300_000;
 
 export type OpenAIMessage = {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -42,7 +42,11 @@ export async function sendMessage(
     const controller = abortController || new AbortController();
     const trackingName = (provider as EndpointConfig).modelName || provider.endpoint;
     const label = trackingLabel ?? STORY_LABEL;
-    const trackerHandle = startUtilityCall(label, trackingName, STREAM_IDLE_TIMEOUT_MS);
+    // Load lazily: settings initialization also imports LLM helpers.
+    const { useAppStore } = await import('../../store/useAppStore');
+    // Snapshot the global preference for this request, including every idle reset.
+    const idleTimeoutMs = normalizeStoryTimeoutSeconds(useAppStore.getState().settings.storyTimeoutSeconds) * 1000;
+    const trackerHandle = startUtilityCall(label, trackingName, idleTimeoutMs);
     let streamTimedOut = false;
     let streamSettled = false;
     trackerHandle.deadlinePromise.then(() => {
@@ -104,7 +108,7 @@ export async function sendMessage(
 
                 // Rolling idle timeout: each chunk resets the tracker deadline so a slow-but-
                 // streaming reply isn't killed mid-token. EXTEND from the UI pushes it further.
-                trackerHandle.resetDeadline(STREAM_IDLE_TIMEOUT_MS);
+                trackerHandle.resetDeadline(idleTimeoutMs);
 
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');

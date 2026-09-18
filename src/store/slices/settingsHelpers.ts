@@ -2,6 +2,7 @@ import type { AppSettings, LLMProvider, AIPreset, ApiFormat, AiTier } from '../.
 import { set as idbSet } from 'idb-keyval';
 import { encryptSettingsProviders } from '../../services/infrastructure/settingsCrypto';
 import { uid } from '../../utils/uid';
+import { DEFAULT_STORY_TIMEOUT_SECONDS, normalizeStoryTimeoutSeconds } from '../../services/llm/timeouts';
 import { toast } from '../../components/Toast';
 import { applyLocale, detectLocale, isLocaleCode } from '../../i18n';
 import { getBuiltinTokenCap } from '../../services/payload/contributions/builtins';
@@ -100,6 +101,7 @@ export const defaultSettings: AppSettings = {
     rulesBudgetPct: 0.10,
     autoGenerateRuleKeywords: true,
     utilityTimeoutSeconds: 45,
+    storyTimeoutSeconds: DEFAULT_STORY_TIMEOUT_SECONDS,
     enableArchivePlanner: false,
     retrievalAlgorithm: 'idf-rrf',
     archiveRecallDepth: 'standard',
@@ -405,6 +407,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         rulesBudgetPct: (raw.rulesBudgetPct as number) ?? 0.10,
         autoGenerateRuleKeywords: (raw.autoGenerateRuleKeywords as boolean) ?? true,
         utilityTimeoutSeconds: (raw.utilityTimeoutSeconds as number) ?? 45,
+        storyTimeoutSeconds: normalizeStoryTimeoutSeconds(raw.storyTimeoutSeconds),
         verboseUtilityLogging: raw.verboseUtilityLogging as boolean,
         enableArchivePlanner: (raw.enableArchivePlanner as boolean) ?? false,
         retrievalAlgorithm: (raw.retrievalAlgorithm as 'classic' | 'idf-rrf') ?? 'idf-rrf',

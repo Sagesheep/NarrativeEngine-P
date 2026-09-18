@@ -121,6 +121,7 @@ export type AppSettings = {
     autoArchiveStaleNPCsTurns?: number;
     rulesBudgetPct?: number;               // fraction of context limit for rules RAG, default 0.10
     autoGenerateRuleKeywords?: boolean;    // default true; false = header+bold extraction only
+    storyTimeoutSeconds?: number;          // streaming AI idle deadline, 30-3600 seconds (default 600)
     utilityTimeoutSeconds?: number;        // soft deadline for utility AI calls (default 45)
     verboseUtilityLogging?: boolean;
     enableArchivePlanner?: boolean;

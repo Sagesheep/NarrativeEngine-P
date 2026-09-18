@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { VaultSection } from './VaultSection';
 import { LanguageSection } from './LanguageSection';
 import { BackgroundControl } from '../BackgroundControl';
+import { MAX_STORY_TIMEOUT_SECONDS, MIN_STORY_TIMEOUT_SECONDS, normalizeStoryTimeoutSeconds } from '../../services/llm/timeouts';
 
 /**
  * The six groups this tab divides into, in the order the blocks already appear
@@ -24,6 +25,7 @@ export function GlobalSettingsTab() {
   // below are `display: contents`, so they are invisible to layout) and this
   // state simply has no effect.
   const [activeGroup, setActiveGroup] = useState<string>('interface');
+  const [storyTimeoutDraft, setStoryTimeoutDraft] = useState<string | null>(null);
 
   return (
     <div data-ui="global-root" className="mt-8 pt-6 border-t border-border space-y-4">
@@ -79,6 +81,51 @@ export function GlobalSettingsTab() {
 
       <div data-ui="settings-section" data-group="model" data-active={activeGroup === 'model' ? 'true' : undefined} className="contents">
       <h4 data-ui="settings-group" className="hidden">Model &amp; play</h4>
+
+      <div className="md:col-span-2 bg-void p-3 border border-border rounded space-y-2">
+        <label htmlFor="story-timeout-seconds" className="block text-[11px] text-text-primary uppercase tracking-wider font-bold">
+          Story AI Timeout (Seconds)
+        </label>
+        <p id="story-timeout-help" className="text-[9px] text-text-dim leading-tight">
+          How long to wait for the first response or for more streamed data. Resets whenever data arrives.
+          Applies across all campaigns to story generation and other streamed AI replies. Changes apply to new requests.
+          Default: 600 seconds (10 minutes). Range: 30-3600 seconds. Extend remains available while waiting.
+        </p>
+        <input
+          id="story-timeout-seconds"
+          aria-describedby="story-timeout-help"
+          type="number"
+          min={MIN_STORY_TIMEOUT_SECONDS}
+          max={MAX_STORY_TIMEOUT_SECONDS}
+          step={1}
+          value={storyTimeoutDraft ?? normalizeStoryTimeoutSeconds(settings.storyTimeoutSeconds)}
+          onChange={(e) => {
+            setStoryTimeoutDraft(e.target.value);
+            const value = e.target.valueAsNumber;
+            if (Number.isInteger(value) && value >= MIN_STORY_TIMEOUT_SECONDS && value <= MAX_STORY_TIMEOUT_SECONDS) {
+              updateSettings({ storyTimeoutSeconds: value });
+            }
+          }}
+          onBlur={() => {
+            if (storyTimeoutDraft !== null) {
+              updateSettings({ storyTimeoutSeconds: normalizeStoryTimeoutSeconds(Number(storyTimeoutDraft)) });
+              setStoryTimeoutDraft(null);
+            }
+          }}
+          className="w-full h-7 bg-surface border border-border rounded px-2 text-xs text-text font-mono focus:outline-none focus:border-terminal"
+        />
+        <div className="flex flex-wrap gap-1.5">
+          {[300, 600, 900, 1800].map(seconds => (
+            <button key={seconds} type="button" onClick={() => {
+              setStoryTimeoutDraft(null);
+              updateSettings({ storyTimeoutSeconds: seconds });
+            }}
+              className="px-2 py-1 text-[10px] font-mono border border-border rounded hover:border-terminal">
+              {seconds / 60} min
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Context Limit */}
       <div>
