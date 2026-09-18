@@ -16,7 +16,20 @@ export type LocationConnection = {
     note?: string;                         // "locked at night", "guarded gate"
 };
 
+export type LocationPlacement = {
+    referencePlaceId?: string;
+    distanceBand?: DistanceBand;
+    direction?: 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
+    preferredBiomes?: string[];
+    coordinates?: { x: number; y: number };
+    reason?: string;
+};
+
 export type LocationEntry = {
+    placement?: LocationPlacement;
+    placementPendingUntil?: number;
+    placementIssue?: string;
+    terrainBiome?: string;
     image?: string;                        // Locally stored location illustration.
     id: string;                            // `loc_${Date.now()}_${rand}` (mirror inventory id style)
     name: string;                          // "Ninja Academy"

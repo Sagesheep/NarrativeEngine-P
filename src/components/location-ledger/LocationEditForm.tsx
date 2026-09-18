@@ -55,6 +55,7 @@ export function LocationEditForm({
     const [imageBusy, setImageBusy] = useState(false);
     return (
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {renderedForm.placementIssue && <div role="status" className="text-xs text-warning">{renderedForm.placementIssue}</div>}
             {renderedForm.coordinates && <div className="text-xs text-text-dim">Map coordinates: {renderedForm.coordinates.x}, {renderedForm.coordinates.y}</div>}
             {isEditing && <label className="flex items-center gap-2 text-xs">
                 <input type="checkbox" checked={Boolean(form.pinned)} onChange={event => setForm({ ...form, pinned: event.target.checked })} />

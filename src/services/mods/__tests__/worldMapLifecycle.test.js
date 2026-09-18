@@ -101,3 +101,23 @@ describe('World Map bundled mod — lifecycle', () => {
         expect(Number.isFinite(last[0].y)).toBe(true);
     });
 });
+it('returns placement context through the active mod without revealing the requested destination', async () => {
+    const fixture = makeContext();
+    fixture.ctx.data.location.currentPlaceId = 'frosthold';
+    fixture.ctx.data.location.ledger[0].coordinates = { x: 120, y: 130 };
+    fixture.ctx.events.emit = vi.fn();
+    await onActivate(fixture.ctx);
+    const handler = fixture.ctx.events.on.mock.calls.find(([event]) => event === 'mod.worldmap.placementContext')[1];
+    await handler({ requestId: 'request', campaignId: 'campaign-worldmap' });
+    const [event, response] = fixture.ctx.events.emit.mock.calls.at(-1);
+    expect(event).toBe('placementContextResult');
+    expect(response.requestId).toBe('request');
+    const context = JSON.parse(response.contextJson);
+    expect(context.player).toMatchObject({ x: 120, y: 130, placeId: 'frosthold' });
+    expect(typeof context.player.biome).toBe('string');
+    expect(context.exploredBounds).toEqual({ north: 128, south: 132, west: 118, east: 122 });
+    expect(context.fullyExplored).toBe(false);
+    const writes = fixture.tableWrites.length;
+    await handler({ requestId: 'wrong-campaign', campaignId: 'other' });
+    expect(fixture.tableWrites.length).toBe(writes);
+});

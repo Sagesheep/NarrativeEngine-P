@@ -293,6 +293,7 @@ export function useSelectionActions() {
             firstSeenScene: now,
             lastSeenScene: now,
             source: 'manual' as const,
+            placementPendingUntil: Number(now) + 300_000,
         };
         state.addLocation(loc);
         state.dismissLocationSuggestion(newName);

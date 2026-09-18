@@ -55,3 +55,25 @@ it('terrain requirements survive authored ocean conflicts but preserve already e
     const hardened = new Map([[`${cell.x}\u241f${cell.y}`, 'ocean']]);
     expect(biomeAt(cell.x, cell.y, seed, 0.65, controls, hardened).biome).toBe('ocean');
 });
+it('waits for AI placement before assigning coordinates, then persists the generated biome across reload', async () => {
+    const ctx = context('placement-async', [place('camp', 'Camp', { x: 100, y: 100 }),
+        { ...place('castle', 'Frostmourne Castle'), placementPendingUntil: Date.now() + 300000 }]);
+    await solveAndPersist(ctx);
+    expect(ctx.data.location.ledger[1].coordinates).toBeUndefined();
+    expect(mapSnapshot(ctx).anchors.some(anchor => anchor.locationId === 'castle')).toBe(false);
+    ctx.data.location.ledger[1] = { ...ctx.data.location.ledger[1], placementPendingUntil: undefined,
+        placement: { referencePlaceId: 'camp', distanceBand: 'remote', direction: 'e', preferredBiomes: ['snow'] } };
+    await solveAndPersist(ctx);
+    const placed = ctx.data.location.ledger[1];
+    expect(placed.coordinates.x - 100).toBeGreaterThanOrEqual(61);
+    expect(placed.coordinates.x - 100).toBeLessThanOrEqual(120);
+    expect(placed.terrainBiome).toBe('snow');
+    expect(mapSnapshot(ctx).chunkStore.getCell(placed.coordinates.x, placed.coordinates.y).biome).toBe('snow');
+    const reload = context('placement-async-reloaded', JSON.parse(JSON.stringify(ctx.data.location.ledger)));
+    await solveAndPersist(reload);
+    const snapshot = mapSnapshot(reload);
+    expect(snapshot.chunkStore.getCell(placed.coordinates.x + 3, placed.coordinates.y).biome).toBe('snow');
+    expect(reload.data.location.ledger[1].coordinates).toEqual(placed.coordinates);
+    expect(snapshot.explored.size).toBe(0);
+    expect(reload.data.location.currentPlaceId).toBe('camp');
+});

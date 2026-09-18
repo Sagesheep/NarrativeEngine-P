@@ -19,12 +19,15 @@ import { connectionBand, resolvePlace } from './locationParser';
 import { useAppStore } from '../store/useAppStore';
 import { tierAllows } from './turn/aiTier';
 import { toast } from '../components/Toast';
+import { LOCATION_BIOMES, requestPlacementContext, sanitizePlacement } from './location/placement';
+import { DISTANCE_BANDS } from './location/distance';
 
 const MAX_FEATURES = 20;
 const MAX_CONNECTIONS = 8;
 const MAX_DESCRIPTION = 400;
 
 type RawEnrich = {
+    placement?: unknown;
     description?: unknown;
     broadLocation?: unknown;
     aliases?: unknown;
@@ -50,6 +53,8 @@ export function sanitizeEnrichPatch(
     ledger: LocationEntry[],
 ): Partial<LocationEntry> {
     const patch: Partial<LocationEntry> = {};
+    const placement = sanitizePlacement(raw.placement, entry, ledger);
+    if (placement) patch.placement = placement;
 
     const description = asTrimmedString(raw.description, MAX_DESCRIPTION);
     if (description && !entry.description) patch.description = description;
@@ -79,13 +84,15 @@ export function sanitizeEnrichPatch(
 
     if (Array.isArray(raw.connections)) {
         const conns = entry.connections.map(c => ({ ...c }));
-        for (const name of raw.connections) {
+        for (const connection of raw.connections) {
+            const name = typeof connection === 'string' ? connection : connection?.place;
             if (typeof name !== 'string') continue;
-            const other = resolvePlace(name, ledger);
+            const other = ledger.find(place => place.id === name) ?? resolvePlace(name, ledger);
             if (!other || other.id === entry.id) continue;
             if (conns.some(c => c.toId === other.id)) continue;
             if (conns.length >= MAX_CONNECTIONS) break;
-            conns.push({ toId: other.id, band: 'local' });
+            const band = typeof connection === 'object' ? DISTANCE_BANDS.find(band => band.id === connection?.band)?.id : undefined;
+            conns.push({ toId: other.id, band: band ?? 'local' });
         }
         if (conns.length > entry.connections.length) patch.connections = conns;
     }
@@ -98,19 +105,23 @@ async function fetchEnrichment(
     messages: ChatMessage[],
     entry: LocationEntry,
     ledger: LocationEntry[],
+    mapContext: string | null,
 ): Promise<RawEnrich | null> {
     const recent = messages.slice(-10)
         .map(m => `[${m.role.toUpperCase()}]: ${m.content}`)
         .join('\n\n');
     const knownNames = ledger
         .filter(l => l.id !== entry.id)
-        .map(l => l.name)
+        .map(l => JSON.stringify({ id: l.id, name: l.name, coordinates: l.coordinates }))
         .join(', ') || '(none)';
 
     const prompt = `You are filling in a location ledger entry for a text RPG. Based on the recent chat, write structured data for the place "${entry.name}".
 
 === OTHER KNOWN PLACES ===
 ${knownNames}
+
+=== MAP CONTEXT ===
+${mapContext ?? 'Map unavailable. Do not invent player coordinates or explored terrain.'}
 
 === RECENT CHAT ===
 ${recent}
@@ -122,12 +133,21 @@ Return ONLY a JSON object, no prose, no markdown:
   "broadLocation": "parent region/city/district, or empty string if unknown",
   "aliases": "comma-separated alternative names actually used in the chat, or empty string",
   "features": ["rooms or sub-areas of this place mentioned or clearly implied"],
-  "connections": ["names from OTHER KNOWN PLACES this place directly connects to"]
+  "connections": [{"place":"known place id", "band":"local"}],
+  "placement": {"referencePlaceId":null, "distanceBand":null, "direction":null, "preferredBiomes":[], "coordinates":null, "reason":"brief geographic justification"}
 }
 
 Rules:
 - Only state what the chat supports or strongly implies. Empty string / empty array when unsure.
-- connections: ONLY names from the OTHER KNOWN PLACES list. Never invent places here.
+- connections: ONLY ids or names from OTHER KNOWN PLACES. Supply the supported distance band; never infer a direct road merely because a destination was mentioned.
+- placement describes this destination, NEVER movement or arrival. Use player XY and biome plus the explored extents, terrain samples and known places in MAP CONTEXT.
+- Distance bands (map cells): ${DISTANCE_BANDS.map(band => band.id + '=' + band.minGrids + '..' + band.maxGrids).join(', ')}. Directions n/ne/e/se/s/sw/w/nw use north = decreasing y and east = increasing x.
+- First choose compatible known terrain at a narratively appropriate distance. Otherwise propose uncharted space where the engine can generate the needed biome around the point of interest. A frozen Frostmourne Castle requires snow/glacier/tundra, not savanna. Use setting and description, not just names, when available.
+- preferredBiomes must use these exact ids: ${LOCATION_BIOMES.join(', ')}. Choose a short list of suitable alternatives, or [] if no special requirement.
+- Explored directional extents are bounding limits, NOT proof that the enclosed rectangle is explored. Terrain samples are illustrative, NOT exhaustive. The engine checks exact explored cells.
+- If fully explored, use suitable existing terrain; never request terrain replacement. If nothing fits, retain the biome requirement so the engine can report a conflict.
+- coordinates is optional {"x":integer,"y":integer} within 0..999. Only supply an evidence-backed coordinate or a candidate supported by map context; the engine validates distance, occupancy and terrain. Otherwise null and let the engine choose.
+- Existing saved coordinates are immutable. Omit placement for an already placed location. Return only the structured decision and a brief reason.
 - Keep description under 2 sentences.`;
 
     try {
@@ -170,14 +190,24 @@ export function queueLocationEnrichment(entryId: string): void {
     const s = useAppStore.getState();
     const campaignId = s.activeCampaignId;
     if (!campaignId) return;
-    if (!tierAllows(s.settings.aiTier, 'locationEnrich')) return;
+    const release = () => {
+        const live = useAppStore.getState();
+        if (live.activeCampaignId !== campaignId) return;
+        const location = live.locationLedger.find(entry => entry.id === entryId);
+        if (!location) return;
+        live.updateLocation(entryId, { placementPendingUntil: undefined,
+            ...(!location.coordinates && !location.placement ? { placement: { preferredBiomes: [] } } : {}) });
+    };
+    if (!tierAllows(s.settings.aiTier, 'locationEnrich')) { release(); return; }
     const provider = s.getActiveSummarizerEndpoint() ?? s.getActiveUtilityEndpoint() ?? s.getActiveStoryEndpoint();
-    if (!provider) return;
+    if (!provider) { release(); return; }
     const entry = s.locationLedger.find(l => l.id === entryId);
     if (!entry) return;
 
     void (async () => {
-        const raw = await fetchEnrichment(provider, s.messages, entry, s.locationLedger);
+        const mapContext = await requestPlacementContext(campaignId);
+        if (useAppStore.getState().activeCampaignId !== campaignId) return;
+        const raw = await fetchEnrichment(provider, s.messages, entry, s.locationLedger, mapContext);
         if (!raw) return;
         const now = useAppStore.getState();
         if (now.activeCampaignId !== campaignId) {
@@ -203,5 +233,5 @@ export function queueLocationEnrichment(entryId: string): void {
             }
         }
         toast.success(`Filled in "${fresh.name}".`);
-    })();
+    })().catch(error => console.warn('[LocationEnrich]', error)).finally(release);
 }

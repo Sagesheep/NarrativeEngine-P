@@ -53,6 +53,7 @@ export function LocationSuggestionsPanel({ suggestions }: Props) {
             firstSeenScene: sceneId,
             lastSeenScene: sceneId,
             source: 'llm',
+            placementPendingUntil: Number(sceneId) + 300_000,
         };
         // Pre-fill a connection to `connectedTo` when it resolves to an existing entry
         if (sug.connectedTo) {

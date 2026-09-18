@@ -570,6 +570,8 @@ function sanitizeLocations(input, warnings) {
             connections: Array.isArray(raw.connections) ? raw.connections : [],
             kind: raw.kind === 'transit' ? 'transit' : 'place',
             recordKind: raw.recordKind,
+            terrainBiome: raw.terrainBiome,
+            placement: raw.placement,
             coordinates: Number.isSafeInteger(raw.coordinates?.x) && Number.isSafeInteger(raw.coordinates?.y)
                 && raw.coordinates.x >= 0 && raw.coordinates.y >= 0 && raw.coordinates.x < WORLD_SIZE && raw.coordinates.y < WORLD_SIZE
                 ? { x: raw.coordinates.x, y: raw.coordinates.y } : undefined,
@@ -1657,7 +1659,7 @@ export function solveWorldMap(input = {}) {
     ];
     fieldClauses = fieldClauses.filter(clause => !clause.implicit);
     for (const place of places) {
-        if (place.recordKind === 'position') continue;
+        if (place.recordKind === 'position' || place.terrainBiome === 'ocean' || (Array.isArray(place.placement?.preferredBiomes) && place.placement.preferredBiomes.includes('ocean'))) continue;
         const clause = implicitTerrainClause(place, terrainRequirementForKind(place.kind), graph.positions);
         if (clause) fieldClauses.push(clause);
     }

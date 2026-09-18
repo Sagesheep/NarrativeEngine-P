@@ -6,7 +6,8 @@ import { checkpointKey, readEncounters, serializeEncounters, recordCheckpoint, h
 import { fixedSiteAnchors, promoteSite, preferSiteStops } from './siteTravel.js';
 import { readDiscoveries, serializeDiscoveries, surveyDiscoveries, nearbyDiscoveries, nameDiscovery, siteLabel } from './discoveries.js';
 import { readTrails, serializeTrails, recordTrailProgress } from './trails.js';
-import { solveWorldMap } from './solver.js';
+import { solveWorldMap, DISTANCE_BANDS } from './solver.js';
+import { buildPlacementContext, pendingPlacement, placementFor, resolvePlacements, terrainTransects } from './placement.js';
 import { mountMapRenderer, normaliseLayerSettings } from './renderer.js';
 import { findRoute, BASE_GRIDS_PER_DAY } from './pathfinder.js';
 import {
@@ -21,6 +22,7 @@ import {
 const DEFAULT_CLIMATE_GRADIENT = 0.65;
 const DEFAULT_LAYERS = Object.freeze({ grid: false, roads: true, labels: true });
 const reportsByCampaign = new Map();
+const placementTimers = new Map();
 const reportListeners = new Set();
 const mapPaintListeners = new Set();
 const hardenedByCampaign = new Map();
@@ -1047,7 +1049,7 @@ export async function solveAndPersist(ctx) {
     // and bend the field on the *next* solve — the standard iterative
     // refinement, and exactly what "the field bends to accommodate the
     // place" calls for.
-    const previousTransects = reportsByCampaign.get(campaignId)?.transects ?? [];
+    const previousTransects = reportsByCampaign.get(campaignId)?.transects ?? terrainTransects(fresh.data.location?.ledger ?? []);
     const previousControls = buildWarpField(previousTransects);
     const terrainChunkStore = ensureChunkStore(campaignId, settings, previousControls, hardened);
     // WO 4.4 — the anchors table is a pure output cache; the ledger and the
@@ -1056,22 +1058,33 @@ export async function solveAndPersist(ctx) {
     const sourceLedger = fresh.data.location?.ledger ?? [];
     const excluded = new Set([...sites.keys(), ...sourceLedger.filter(entry => entry.kind === 'transit'
         && entry.connections.some(edge => sites.has(edge.toId))).map(entry => entry.id)]);
-    const result = solveWorldMap({
-        locations: sourceLedger.filter(entry => !excluded.has(entry.id))
-            .map(entry => ({ ...entry, connections: entry.connections.filter(edge => !excluded.has(edge.toId)) })),
-        loreChunks: fresh.data.loreChunks ?? [],
-        worldSeed: settings.worldSeed,
-        hardenedCells: hardened,
-        chunkStore: terrainChunkStore,
-    });
+    const eligible = entry => !excluded.has(entry.id) && !pendingPlacement(entry)
+        && (validCell(entry.coordinates) || !placementFor(entry));
+    const solve = ledger => {
+        const entries = ledger.filter(eligible);
+        const ids = new Set(entries.map(entry => entry.id));
+        return solveWorldMap({ locations: entries.map(entry => ({ ...entry, connections: entry.connections.filter(edge => ids.has(edge.toId)) })),
+            loreChunks: fresh.data.loreChunks ?? [], worldSeed: settings.worldSeed, hardenedCells: hardened, chunkStore: terrainChunkStore });
+    };
+    const baseline = solve(sourceLedger);
+    const player = partyCellForJourney(journeyByCampaign.get(campaignId), fresh.data.location?.travel)
+        ?? stoppedCell(positionByCampaign.get(campaignId), fresh.data.location)
+        ?? baseline.anchors.find(anchor => anchor.locationId === fresh.data.location?.currentPlaceId);
+    const placedLedger = resolvePlacements(sourceLedger, { anchors: baseline.anchors, player, store: terrainChunkStore,
+        explored: explorationByCampaign.get(campaignId), generated: generatedByCampaign.get(campaignId), hardened, bands: DISTANCE_BANDS });
+    const result = solve(placedLedger);
+    result.transects.push(...terrainTransects(placedLedger));
+    for (const entry of placedLedger) if (entry.placementIssue) result.report.warnings.push({
+        kind: 'placement-conflict', locationId: entry.id, locationName: entry.name, message: entry.placementIssue });
 
     // A campaign can change while table I/O is in flight. Confirm the lease
     // before writing so an old campaign's solve never lands in the new file.
     const confirm = await freshCampaignContext(fresh);
     if (!confirm || confirm.data.campaignId !== campaignId) return null;
     const liveLedger = confirm.data.location?.ledger ?? [];
-    result.anchors = fixedSiteAnchors(result, sites.values(), liveLedger);
-    const records = reconcilePlaceRecords(liveLedger, result.anchors, sites.values());
+    if (JSON.stringify(liveLedger) !== JSON.stringify(sourceLedger)) return null;
+    result.anchors = fixedSiteAnchors(result, sites.values(), placedLedger);
+    const records = reconcilePlaceRecords(placedLedger, result.anchors, sites.values());
     if (records !== liveLedger && confirm.write?.setLocationLedger) await confirm.write.setLocationLedger(records);
     await confirm.table.write('anchors', result.anchors);
     publishResult(campaignId, result, settings);
@@ -1082,6 +1095,15 @@ export async function solveAndPersist(ctx) {
             destinationStore.getCell(x, y);
         }
     }
+    clearTimeout(placementTimers.get(campaignId));
+    placementTimers.delete(campaignId);
+    const deadlines = records.filter(entry => pendingPlacement(entry)).map(entry => entry.placementPendingUntil);
+    if (deadlines.length) placementTimers.set(campaignId, setTimeout(() => {
+        placementTimers.delete(campaignId);
+        void freshCampaignContext(ctx).then(live => {
+            if (live?.data.campaignId === campaignId) return queueSolve(live);
+        }).catch(error => ctx.log?.('[worldmap] pending placement recovery failed', error));
+    }, Math.max(1, Math.min(...deadlines) - Date.now() + 1)));
     return result;
 }
 
@@ -2115,6 +2137,18 @@ function registerMapWindow(ctx) {
         label: 'World Map',
         tooltip: 'Open the World Map canvas',
         onSelect: () => mapWindow.open(),
+    });
+    ctx.events?.on('mod.worldmap.placementContext', async payload => {
+        try {
+            let fresh = await freshCampaignContext(ctx);
+            if (!fresh || fresh.data.campaignId !== payload?.campaignId) return;
+            await queueSolve(fresh);
+            fresh = await freshCampaignContext(ctx);
+            if (!fresh || fresh.data.campaignId !== payload.campaignId) return;
+            const snapshot = mapSnapshot(fresh);
+            ctx.events?.emit('placementContextResult', { requestId: payload.requestId, campaignId: payload.campaignId,
+                contextJson: snapshot ? JSON.stringify(buildPlacementContext(snapshot)) : null });
+        } catch (error) { ctx.log?.('[worldmap] placement context failed', error); }
     });
     ctx.events?.on('mod.worldmap.storyRoute', async payload => {
         const reply = hops => ctx.events?.emit('storyRouteResult', { requestId: payload?.requestId, hops });

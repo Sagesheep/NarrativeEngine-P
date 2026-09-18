@@ -141,6 +141,7 @@ export function LocationLedgerModal() {
             .map(s => s.trim())
             .filter(Boolean)
             .slice(0, 20);
+        const spatial = locationLedger.find(entry => entry.id === selectedId) ?? form;
         const payload: LocationEntry = {
             id: selectedId || form.id || newLocationId(),
             name: form.name!.trim(),
@@ -154,7 +155,9 @@ export function LocationLedgerModal() {
             firstSeenScene: form.firstSeenScene || String(Date.now()),
             lastSeenScene: form.lastSeenScene || String(Date.now()),
             source: form.source ?? 'manual',
-            coordinates: form.coordinates, recordKind: form.recordKind, pinned: form.pinned,
+            coordinates: spatial.coordinates, recordKind: form.recordKind, pinned: form.pinned,
+            placement: spatial.placement, placementIssue: spatial.placementIssue, terrainBiome: spatial.terrainBiome,
+            placementPendingUntil: spatial.placementPendingUntil,
             kind: form.kind === 'transit' ? 'transit' : 'place',
         };
         if (selectedId) {

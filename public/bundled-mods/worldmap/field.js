@@ -301,6 +301,7 @@ export function buildWarpField(transects = []) {
                 x: point.x,
                 y: point.y,
                 radius,
+                coreRadius: Math.max(0, Math.min(radius - 1, Number(transect.coreRadius) || 0)),
                 target: {
                     elev: Number.isFinite(target.elev) ? target.elev : null,
                     minElev: Number.isFinite(target.minElev) ? target.minElev : null,
@@ -322,7 +323,8 @@ function warpDimension(rawValue, dimension, x, y, controls) {
         if (!Number.isFinite(target)) continue;
         const distance = Math.hypot(x - control.x, y - control.y);
         if (distance >= control.radius) continue;
-        const weight = smoothstep(1 - (distance / control.radius));
+        const core = control.coreRadius ?? 0;
+        const weight = smoothstep(1 - Math.max(0, distance - core) / (control.radius - core));
         weightedSum += weight * target;
         weightTotal += weight;
     }
