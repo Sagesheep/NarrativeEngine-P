@@ -181,7 +181,7 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
                         {fromPlace ? (
                             <>Departing from <span className="text-terminal">{fromPlace.name}</span>.</>
                         ) : (
-                            <>No current place set. Set one in the Places panel to start travel.</>
+                            <>No current place set. Set one in the Locations panel to start travel.</>
                         )}
                     </div>
 
@@ -195,7 +195,7 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
                             </p>
                             <p className="text-text-dim/70 text-[10px] max-w-[280px] leading-relaxed normal-case tracking-normal">
                                 {noCurrentPlace
-                                    ? 'Set a current place in the Places panel — the picker lists every place you can travel to from there.'
+                                    ? 'Set a current place in the Locations panel — the picker lists every place you can travel to from there.'
                                     : 'Every other place in the ledger is either the current place or a transit node. Add or discover more places to open new routes.'}
                             </p>
                         </div>

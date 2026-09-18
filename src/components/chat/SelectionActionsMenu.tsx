@@ -3,7 +3,7 @@ import { useSelectionActions, stripMarkdown } from './useSelectionActions';
 
 /**
  * Floating toolbar over text selected in a message bubble: Lore Check,
- * Pin Memory, Rename, Add NPC, Add Place, Generate Scene Image.
+ * Pin Memory, Rename, Add NPC, Add Location, Generate Scene Image.
  */
 export function SelectionActionsMenu() {
     const {
@@ -74,7 +74,7 @@ export function SelectionActionsMenu() {
                     onTouchStart={handleAddPlace}
                     className="flex items-center gap-1.5 rounded-sm border border-terminal/60 bg-void-lighter/95 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-terminal transition-colors hover:border-terminal hover:bg-terminal/15 hover:text-text-primary"
                 >
-                    <MapPin size={13} /> Add Place
+                    <MapPin size={13} /> Add Location
                 </button>
             </div>
         </div>

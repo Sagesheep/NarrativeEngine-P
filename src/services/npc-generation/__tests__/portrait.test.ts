@@ -26,6 +26,12 @@ describe('generateNPCPortrait — OpenRouter', () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
+    it('requests landscape layout for locations', async () => {
+        mockLlmFetch.mockResolvedValue(jsonResponse({ data: [{ b64_json: 'AAAA' }] }));
+        await generateNPCPortrait({ endpoint: 'https://openrouter.ai/api/v1', apiKey: '', modelName: 'image-model' }, 'a harbor', 'landscape');
+        expect(lastCall().body.aspect_ratio).toBe('16:9');
+    });
+
     it('posts to /api/v1/images instead of doubling the path', async () => {
         mockLlmFetch.mockResolvedValue(jsonResponse({ data: [{ b64_json: 'AAAA', media_type: 'image/png' }] }));
 
@@ -78,6 +84,12 @@ describe('generateNPCPortrait — OpenAI-compatible providers', () => {
         mockLlmFetch.mockReset();
         vi.spyOn(console, 'log').mockImplementation(() => {});
         vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    it('requests a wide image for locations', async () => {
+        mockLlmFetch.mockResolvedValue(jsonResponse({ data: [{ url: 'https://cdn.test/harbor.png' }] }));
+        await generateNPCPortrait({ endpoint: 'https://images.test/v1', apiKey: '', modelName: 'image-model' }, 'a harbor', 'landscape');
+        expect(lastCall().body.size).toBe('1536x1024');
     });
 
     it('still uses /images/generations and the OpenAI payload', async () => {

@@ -40,7 +40,7 @@ export function BetaCommandPalette() {
         const s = () => useAppStore.getState();
         return [
             { id: 'npc', group: 'Go to', label: 'Characters', run: () => s().toggleNPCLedger() },
-            { id: 'places', group: 'Go to', label: 'Places', run: () => s().toggleLocationLedger() },
+            { id: 'places', group: 'Go to', label: 'Locations', run: () => s().toggleLocationLedger() },
             { id: 'pc', group: 'Go to', label: 'Your character', run: () => s().togglePCPanel() },
             { id: 'pinned', group: 'Go to', label: 'Pinned memories', run: () => s().togglePinnedMemories() },
             { id: 'gallery-gen', group: 'Go to', label: 'Gallery — AI generated', run: () => s().openGallery('generated') },

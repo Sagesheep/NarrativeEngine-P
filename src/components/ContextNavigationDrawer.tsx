@@ -117,7 +117,7 @@ export function ContextNavigationDrawer() {
         ],
         world: [
             { id: 'npcs', label: 'NPCs', icon: Users, badge: npcCount, onSelect: () => useAppStore.getState().toggleNPCLedger() },
-            { id: 'places', label: 'Places', icon: MapPin, badge: placesCount, onSelect: () => useAppStore.getState().toggleLocationLedger() },
+            { id: 'places', label: 'Locations', icon: MapPin, badge: placesCount, onSelect: () => useAppStore.getState().toggleLocationLedger() },
             { ...CONTEXT_LEAVES.world, onSelect: () => openContextScreen('world') },
         ],
         play: [

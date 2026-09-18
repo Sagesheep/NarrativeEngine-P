@@ -1,9 +1,15 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocationLedgerModal } from '../LocationLedgerModal';
 import { normalizeLocationIds } from '../../utils/locationIds';
 import { useAppStore } from '../../store/useAppStore';
 import type { LocationEntry } from '../../types';
+
+vi.mock('../../services/infrastructure/assetService', () => ({
+    uploadImageToLocal: vi.fn(),
+    downloadImageToLocal: vi.fn(),
+}));
+import { uploadImageToLocal } from '../../services/infrastructure/assetService';
 
 function makeLocation(id: string, name: string): LocationEntry {
     return {
@@ -21,12 +27,46 @@ function makeLocation(id: string, name: string): LocationEntry {
 }
 
 function saveNewLocation(name: string) {
-    fireEvent.click(screen.getByRole('button', { name: 'New Place' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New Location' }));
     fireEvent.change(screen.getByPlaceholderText('Ninja Academy'), { target: { value: name } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 }
 
 describe('LocationLedgerModal', () => {
+    it('saves uploaded pictures, preserves them through edits, and removes them', async () => {
+        vi.mocked(uploadImageToLocal).mockResolvedValue('/assets/portraits/harbor.png');
+        render(<LocationLedgerModal />);
+        fireEvent.click(screen.getByRole('button', { name: 'New Location' }));
+        fireEvent.change(screen.getByPlaceholderText('Ninja Academy'), { target: { value: 'Harbor' } });
+        fireEvent.change(screen.getByLabelText('Upload location picture'), { target: { files: [new File(['image'], 'harbor.png', { type: 'image/png' })] } });
+        await screen.findByAltText('Harbor picture');
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        expect(useAppStore.getState().locationLedger[0].image).toBe('/assets/portraits/harbor.png');
+        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.change(screen.getByPlaceholderText('1-2 sentences of texture.'), { target: { value: 'Busy docks' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        expect(useAppStore.getState().locationLedger[0].image).toBe('/assets/portraits/harbor.png');
+        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Remove Picture' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        expect(useAppStore.getState().locationLedger[0].image).toBeUndefined();
+    });
+
+    it('discards a late upload after switching to another location', async () => {
+        let finish!: (value: string) => void;
+        vi.mocked(uploadImageToLocal).mockReturnValue(new Promise(resolve => { finish = resolve; }));
+        useAppStore.setState({ locationLedger: [makeLocation('a', 'Harbor'), makeLocation('b', 'Forest')] });
+        render(<LocationLedgerModal />);
+        fireEvent.click(screen.getByText('Harbor'));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.change(screen.getByLabelText('Upload location picture'), { target: { files: [new File(['image'], 'harbor.png', { type: 'image/png' })] } });
+        expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+        fireEvent.click(screen.getByText('Forest', { selector: 'p' }));
+        await act(async () => finish('/assets/portraits/harbor.png'));
+        await waitFor(() => expect(screen.queryByAltText('Forest picture')).not.toBeInTheDocument());
+        expect(useAppStore.getState().locationLedger.every(location => !location.image)).toBe(true);
+    });
+
     beforeEach(() => {
         useAppStore.setState({
             locationLedgerOpen: true,
@@ -48,18 +88,18 @@ describe('LocationLedgerModal', () => {
         saveNewLocation('Point A');
 
         expect(screen.getByText('No connections recorded.')).toBeInTheDocument();
-        expect(screen.getByRole('heading', { name: 'Place Details' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Location Details' })).toBeInTheDocument();
 
         saveNewLocation('Point B');
-        expect(screen.getByRole('heading', { name: 'Place Details' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Location Details' })).toBeInTheDocument();
 
         fireEvent.click(screen.getByText('Point A'));
         fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-        fireEvent.change(screen.getByDisplayValue('Select place...'), { target: { value: useAppStore.getState().locationLedger.find(location => location.name === 'Point B')?.id } });
+        fireEvent.change(screen.getByDisplayValue('Select location...'), { target: { value: useAppStore.getState().locationLedger.find(location => location.name === 'Point B')?.id } });
         fireEvent.click(screen.getByRole('button', { name: 'Add' }));
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-        expect(screen.getByRole('heading', { name: 'Place Details' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Location Details' })).toBeInTheDocument();
         expect(screen.getAllByText('Point B')).toHaveLength(2);
 
         const pointA = useAppStore.getState().locationLedger.find(location => location.name === 'Point A');
@@ -123,7 +163,7 @@ describe('LocationLedgerModal', () => {
         const pointB = useAppStore.getState().locationLedger.find(location => location.name === 'Point B')!;
         fireEvent.click(screen.getByText('Point A'));
         fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-        fireEvent.change(screen.getByDisplayValue('Select place...'), { target: { value: pointB.id } });
+        fireEvent.change(screen.getByDisplayValue('Select location...'), { target: { value: pointB.id } });
         fireEvent.click(screen.getByRole('button', { name: 'Add' }));
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -144,7 +184,7 @@ describe('LocationLedgerModal', () => {
         expect(new Set(locations.map(location => location.id)).size).toBe(2);
 
         fireEvent.click(screen.getAllByText('Point A')[0]);
-        expect(screen.getByRole('heading', { name: 'Place Details' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Location Details' })).toBeInTheDocument();
     });
 
     // WO 3.1 — Travel discoverability. The travel control on each row must be
@@ -215,7 +255,7 @@ it('keeps travel records accessible without filling the default sidebar', () => 
     fireEvent.click(screen.getByText(point.name));
     expect(screen.getByText('Map coordinates: 5, 7')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'Edit',exact:true}));
-    fireEvent.click(screen.getByLabelText('Pin in places'));
+    fireEvent.click(screen.getByLabelText('Pin in locations'));
     fireEvent.click(screen.getByRole('button',{name:'Save',exact:true}));
     fireEvent.click(screen.getByLabelText('Show travel records'));
     expect(screen.getByText(point.name)).toBeInTheDocument();

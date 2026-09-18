@@ -80,7 +80,7 @@ export function LocationSuggestionsPanel({ suggestions }: Props) {
                 className="w-full flex items-center gap-2 px-2.5 py-2 text-[10px] uppercase tracking-wider text-ice"
             >
                 {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                Place Suggestions ({suggestions.length})
+                Location Suggestions ({suggestions.length})
             </button>
 
             {expanded && (

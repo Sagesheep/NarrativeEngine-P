@@ -17,6 +17,7 @@ export type LocationConnection = {
 };
 
 export type LocationEntry = {
+    image?: string;                        // Locally stored location illustration.
     id: string;                            // `loc_${Date.now()}_${rand}` (mirror inventory id style)
     name: string;                          // "Ninja Academy"
     aliases: string;                       // comma-separated, same convention as NPCEntry.aliases

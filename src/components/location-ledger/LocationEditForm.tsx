@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { LocationImageSection } from './LocationImageSection';
 import { Link2, Trash2, X } from 'lucide-react';
 import type { LocationEntry, LocationConnection } from '../../types';
 import { connectionBand } from '../../services/locationParser';
@@ -50,16 +52,17 @@ export function LocationEditForm({
     onStartEditing, onSetAsCurrent, onCancel, onSave,
     onAddConnection, onRemoveConnection, onDelete,
 }: Props) {
+    const [imageBusy, setImageBusy] = useState(false);
     return (
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
             {renderedForm.coordinates && <div className="text-xs text-text-dim">Map coordinates: {renderedForm.coordinates.x}, {renderedForm.coordinates.y}</div>}
             {isEditing && <label className="flex items-center gap-2 text-xs">
                 <input type="checkbox" checked={Boolean(form.pinned)} onChange={event => setForm({ ...form, pinned: event.target.checked })} />
-                Pin in places
+                Pin in locations
             </label>}
             <div className="flex items-center justify-between gap-2 pr-8">
                 <h2 className="text-terminal text-base font-bold tracking-widest uppercase">
-                    {isEditing ? (selectedId ? 'Edit Place' : 'New Place') : 'Place Details'}
+                    {isEditing ? (selectedId ? 'Edit Location' : 'New Location') : 'Location Details'}
                 </h2>
                 <div className="flex gap-2">
                     {!isEditing && selectedId && (
@@ -89,7 +92,8 @@ export function LocationEditForm({
                             </button>
                             <button
                                 onClick={onSave}
-                                className="px-3 py-1.5 border border-terminal bg-terminal/10 rounded text-[10px] uppercase tracking-wider text-terminal hover:bg-terminal/20 transition-colors"
+                                disabled={imageBusy}
+                                className="px-3 py-1.5 border border-terminal bg-terminal/10 rounded text-[10px] uppercase tracking-wider text-terminal hover:bg-terminal/20 transition-colors disabled:opacity-40"
                             >
                                 Save
                             </button>
@@ -97,6 +101,13 @@ export function LocationEditForm({
                     )}
                 </div>
             </div>
+
+            <LocationImageSection
+                location={{ ...renderedForm, features: isEditing ? featuresDraft.split(',').map(s => s.trim()).filter(Boolean) : renderedForm.features }}
+                isEditing={isEditing}
+                onChange={image => setForm(prev => ({ ...prev, image }))}
+                onBusyChange={setImageBusy}
+            />
 
             {/* Name */}
             <Field label="Name">
@@ -145,8 +156,8 @@ export function LocationEditForm({
                     disabled={!isEditing}
                     className={inputClass(isEditing)}
                 >
-                    <option value="place">Place (a destination)</option>
-                    <option value="transit">Transit (road / route between two places)</option>
+                    <option value="place">Location (a destination)</option>
+                    <option value="transit">Transit (road / route between two locations)</option>
                 </select>
             </Field>
 
@@ -235,7 +246,7 @@ export function LocationEditForm({
                                 onChange={e => setNewConnectionTo(e.target.value)}
                                 className="flex-1 bg-void border border-border rounded px-2 py-1.5 text-xs text-text-primary"
                             >
-                                <option value="">Select place...</option>
+                                <option value="">Select location...</option>
                                 {locationLedger
                                     .filter(l => l.id !== selectedId)
                                     .map(l => (

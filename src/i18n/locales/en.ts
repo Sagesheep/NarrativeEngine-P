@@ -42,7 +42,7 @@ export const en = {
     'header.npcLedger.label': 'NPC Ledger',
     'header.places.tooltip': 'Location Ledger',
     'header.places.aria': 'Open Location Ledger',
-    'header.places.label': 'Places',
+    'header.places.label': 'Locations',
     'header.blockView.tooltip': 'Block View — one turn as a chain of blocks',
     'header.blockView.aria': 'Open Block View',
     'header.blockView.label': 'Blocks',

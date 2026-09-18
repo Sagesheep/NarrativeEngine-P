@@ -18,8 +18,9 @@ import {
 const PORTRAIT_NEGATIVE = 'multiple people, group, crowd, split screen, twins, double, text, words, writing, letters, font, typography, calligraphy, handwriting, captions, subtitles, nameplate, seal stamp, watermark, logo, signature';
 
 /** Returns either a hosted image URL or a `data:` URI — both are accepted by
- *  downloadImageToLocal(), which hands the value to the server to fetch and store. */
-export async function generateNPCPortrait(config: EndpointConfig, prompt: string): Promise<string> {
+ *  downloadImageToLocal(), which hands the value to the server to fetch and store.
+ *  Landscape layout shares this provider path with location illustrations. */
+export async function generateNPCPortrait(config: EndpointConfig, prompt: string, layout: 'portrait' | 'landscape' = 'portrait'): Promise<string> {
     if (!config.endpoint) {
         throw new Error('Image AI not configured');
     }
@@ -32,12 +33,12 @@ export async function generateNPCPortrait(config: EndpointConfig, prompt: string
 
     // OpenRouter's native image API vs. the OpenAI-compatible /images/generations shape.
     const payload = openRouter
-        ? buildOpenRouterImageBody(config.modelName, prompt, '3:4', '3:4')
+        ? buildOpenRouterImageBody(config.modelName, prompt, layout === 'landscape' ? '16:9' : '3:4', layout === 'landscape' ? '16:9' : '3:4')
         : {
             model: config.modelName || 'nano-banana',
             prompt,
             negative_prompt: PORTRAIT_NEGATIVE,
-            size: '896x1152',
+            size: layout === 'landscape' ? '1536x1024' : '896x1152',
             response_format: 'url',
         };
 

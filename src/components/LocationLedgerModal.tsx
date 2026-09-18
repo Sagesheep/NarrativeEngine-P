@@ -81,7 +81,7 @@ export function LocationLedgerModal() {
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [locationLedgerOpen, toggleLocationLedger]);
 
-    // World Map context-menu details uses the same Places panel and selection
+    // World Map context-menu details uses the same Locations panel and selection
     // state as the ledger button, so the map never grows a second place-detail
     // surface.
     useEffect(() => {
@@ -126,7 +126,7 @@ export function LocationLedgerModal() {
     };
     const handleCreateNew = () => {
         setSelectedId(null);
-        setForm({ ...EMPTY_ENTRY });
+        setForm({ ...EMPTY_ENTRY, id: newLocationId() });
         setFeaturesDraft('');
         setNewConnectionTo('');
         setNewConnectionBand('local');
@@ -148,6 +148,7 @@ export function LocationLedgerModal() {
             broadLocation: (form.broadLocation ?? '').trim(),
             features,
             connections: form.connections ?? [],
+            image: form.image,
             description: (form.description ?? '').trim(),
             status: (form.status ?? '').trim() || undefined,
             firstSeenScene: form.firstSeenScene || String(Date.now()),
@@ -199,7 +200,7 @@ export function LocationLedgerModal() {
 
         setLocationLedger([...locationLedger, ...additions]);
         const w = warnings.length > 0 ? `\n\n${warnings.length} unresolvable connection(s):\n${warnings.join('\n')}` : '';
-        alert(`Seeded ${additions.length} place(s) from lore.${w}`);
+        alert(`Seeded ${additions.length} location(s) from lore.${w}`);
     };
 
     const handleSetAsCurrent = (loc: LocationEntry) => {
@@ -391,11 +392,11 @@ export function LocationLedgerModal() {
                             onClick={handleCreateNew}
                             className={`w-full flex items-center justify-center gap-2 py-2 px-4 border border-dashed rounded text-xs uppercase tracking-wider transition-colors ${!selectedId && isEditing ? 'border-terminal text-terminal bg-terminal/10' : 'border-border text-text-dim hover:text-terminal hover:border-terminal'}`}
                         >
-                            <Plus size={14} /> New Place
+                            <Plus size={14} /> New Location
                         </button>
                         <button
                             onClick={handleSeedFromLore}
-                            title="Add every place in the world lore's LOCATIONS section that isn't already here"
+                            title="Add every location in the world lore's LOCATIONS section that isn't already here"
                             className="w-full flex items-center justify-center gap-2 py-2 px-4 border border-dashed border-border rounded text-xs uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors"
                         >
                             <BookOpen size={14} /> Seed From Lore
@@ -432,20 +433,20 @@ export function LocationLedgerModal() {
                     <div className="flex-1 overflow-y-auto p-2 space-y-1">
                         {displayed.length === 0 && (
                             // WO-screen-modernization §2c — empty state. The
-                            // previous "No places recorded yet." was a single
+                            // previous "No locations recorded yet." was a single
                             // italic line; the live campaign reads 0 here. Match
                             // the PinnedMemoriesPanel pattern: icon + heading +
-                            // one-line instruction. The "New Place" button above
+                            // one-line instruction. The "New Location" button above
                             // is the actual affordance, so this just confirms to
                             // the user what an empty ledger means.
                             <div className="flex flex-col items-center justify-center py-10 px-4 text-center space-y-2 opacity-60">
                                 <MapPin size={32} strokeWidth={1} className="opacity-50" />
                                 <p className="text-text-dim text-xs uppercase tracking-widest font-bold">
-                                    {searchQuery.trim() ? `No matches for "${searchQuery.trim()}".` : 'No places recorded yet.'}
+                                    {searchQuery.trim() ? `No matches for "${searchQuery.trim()}".` : 'No locations recorded yet.'}
                                 </p>
                                 {!searchQuery.trim() && (
                                     <p className="text-text-dim/60 text-[10px] max-w-[260px] leading-relaxed normal-case tracking-normal">
-                                        Use "New Place" above, or mention a location in a message and the engine will suggest it.
+                                        Use "New Location" above, or mention a location in a message and the engine will suggest it.
                                     </p>
                                 )}
                             </div>
@@ -461,6 +462,7 @@ export function LocationLedgerModal() {
                                     className={`flex items-center justify-between p-3 cursor-pointer border-l-2 transition-all group ${isActive ? 'border-terminal bg-terminal/5' : 'border-transparent hover:bg-surface'}`}
                                 >
                                     <div className="flex items-center gap-2 truncate flex-1 min-w-0">
+                                        {loc.image && <img src={loc.image} alt="" className="w-16 h-10 object-cover rounded shrink-0" />}
                                         <MapPin size={14} className={`shrink-0 ${isActive ? 'text-terminal' : 'text-text-dim'}`} />
                                         <div className="truncate min-w-0">
                                             <p className={`text-sm font-bold truncate ${isActive ? 'text-terminal glow-green-sm' : 'text-text-primary'}`}>
@@ -492,7 +494,7 @@ export function LocationLedgerModal() {
                                     )}
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleSetAsCurrent(loc); }}
-                                        title="Set as current place"
+                                        title="Set as current location"
                                         className="p-1.5 text-text-dim hover:text-terminal hover:bg-terminal/10 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
                                     >
                                         <Navigation size={12} />
@@ -607,13 +609,14 @@ export function LocationLedgerModal() {
                         <div className="flex-1 flex items-center justify-center p-8 text-text-dim text-sm">
                             <div className="text-center space-y-2">
                                 <MapPin size={32} className="mx-auto opacity-30" />
-                                <p>Select a place or create a new one.</p>
+                                <p>Select a location or create a new one.</p>
                             </div>
                         </div>
                     )}
 
                     {(selectedId || isEditing) && (
                         <LocationEditForm
+                            key={`${useAppStore.getState().activeCampaignId}:${form.id}:${isEditing}`}
                             form={form}
                             setForm={setForm}
                             renderedForm={renderedForm}
