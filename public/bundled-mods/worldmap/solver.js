@@ -569,6 +569,7 @@ function sanitizeLocations(input, warnings) {
             aliases: String(raw.aliases ?? ''),
             connections: Array.isArray(raw.connections) ? raw.connections : [],
             kind: raw.kind === 'transit' ? 'transit' : 'place',
+            recordKind: raw.recordKind,
             coordinates: Number.isSafeInteger(raw.coordinates?.x) && Number.isSafeInteger(raw.coordinates?.y)
                 && raw.coordinates.x >= 0 && raw.coordinates.y >= 0 && raw.coordinates.x < WORLD_SIZE && raw.coordinates.y < WORLD_SIZE
                 ? { x: raw.coordinates.x, y: raw.coordinates.y } : undefined,
@@ -1414,9 +1415,7 @@ function spiralSearchRequirement(centerX, centerY, requirement, chunkStore) {
 function implicitTerrainClause(location, requirement, positions) {
     const pos = positions.get(location.id);
     if (!pos) return null;
-    const target = requirement.id === 'notOcean'
-        ? { elev: FIELD_SEA_LEVEL_EPS, temp: null, moist: null }
-        : { elev: FIELD_SEA_LEVEL_EPS, temp: null, moist: null };
+    const target = { minElev: FIELD_SEA_LEVEL_EPS, temp: null, moist: null };
     return {
         kind: 'transect',
         direction: 'center',
@@ -1434,7 +1433,7 @@ function implicitTerrainClause(location, requirement, positions) {
             dy: 0,
         }],
         noiseResumeDistance: 5,
-        source: `terrain: ${requirement.id} (implicit — no land within ${TERRAIN_SNAP_CAP} cells)`,
+        source: `terrain: ${requirement.id} (implicit persistent location requirement)`,
         locationId: location.id,
         locationName: location.name,
         implicit: true,
@@ -1656,6 +1655,12 @@ export function solveWorldMap(input = {}) {
             source: 'derived',
         })),
     ];
+    fieldClauses = fieldClauses.filter(clause => !clause.implicit);
+    for (const place of places) {
+        if (place.recordKind === 'position') continue;
+        const clause = implicitTerrainClause(place, terrainRequirementForKind(place.kind), graph.positions);
+        if (clause) fieldClauses.push(clause);
+    }
     const transects = buildTransects(fieldClauses, graph.positions);
     const connections = graph.active.map(constraint => ({
         fromId: constraint.fromId,

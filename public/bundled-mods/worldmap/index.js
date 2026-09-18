@@ -1069,9 +1069,19 @@ export async function solveAndPersist(ctx) {
     // before writing so an old campaign's solve never lands in the new file.
     const confirm = await freshCampaignContext(fresh);
     if (!confirm || confirm.data.campaignId !== campaignId) return null;
-    result.anchors = fixedSiteAnchors(result, sites.values(), sourceLedger);
+    const liveLedger = confirm.data.location?.ledger ?? [];
+    result.anchors = fixedSiteAnchors(result, sites.values(), liveLedger);
+    const records = reconcilePlaceRecords(liveLedger, result.anchors, sites.values());
+    if (records !== liveLedger && confirm.write?.setLocationLedger) await confirm.write.setLocationLedger(records);
     await confirm.table.write('anchors', result.anchors);
     publishResult(campaignId, result, settings);
+    const destinationStore = ensureChunkStore(campaignId, settings, buildWarpField(result.transects), hardened);
+    for (const anchor of result.anchors) {
+        for (const key of visibleCells(anchor)) {
+            const [x, y] = key.split(',').map(Number);
+            destinationStore.getCell(x, y);
+        }
+    }
     return result;
 }
 

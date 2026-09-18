@@ -118,7 +118,8 @@ Return ONLY a JSON object, no prose, no markdown:
 Rules:
 - Prefer a KNOWN place over declaring a new one. Match loosely against names and aliases.
 - "unclear" if the text does not establish where the PC is. When in doubt, "unclear" — the last known place then stands.
-- newPlaces: only places the PC is AT or that are concretely established as adjacent scenery. Never places merely mentioned in dialogue, memories, or stories.
+- current: only the established scene location. A mentioned place, quest destination, future plan, memory or dialogue is NEVER evidence of arrival. Keep the last known place unless the scene establishes actual movement or arrival.
+- newPlaces: concrete named destinations (including distant quest destinations), places the PC is AT, or established adjacent scenery. These are suggestions only and NEVER change current. Do not invent places from hypothetical stories.
 - updates: only rooms/features and connections the text actually establishes for known places.
 - If nothing changed: {"current":{"place":"unclear","feature":null},"newPlaces":[],"updates":[]}`;
 

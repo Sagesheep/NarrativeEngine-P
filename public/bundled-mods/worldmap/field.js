@@ -303,6 +303,7 @@ export function buildWarpField(transects = []) {
                 radius,
                 target: {
                     elev: Number.isFinite(target.elev) ? target.elev : null,
+                    minElev: Number.isFinite(target.minElev) ? target.minElev : null,
                     temp: Number.isFinite(target.temp) ? target.temp : null,
                     moist: Number.isFinite(target.moist) ? target.moist : null,
                     geology: Number.isFinite(target.geology) ? target.geology : null,
@@ -356,7 +357,12 @@ export function sampleField(x, y, worldSeed, climateGradient, controls = [], sal
     if (!controls || controls.length === 0) {
         return { ...raw, biome: classifyBiome(raw), warped: false };
     }
-    const elev = warpDimension(raw.elev, 'elev', x, y, controls);
+    let elev = warpDimension(raw.elev, 'elev', x, y, controls);
+    for (const control of controls) {
+        if (!Number.isFinite(control.target.minElev)) continue;
+        const weight = smoothstep(1 - Math.min(1, Math.hypot(x - control.x, y - control.y) / control.radius));
+        elev = Math.max(elev, elev + (control.target.minElev - elev) * weight);
+    }
     const temp = warpDimension(raw.temp, 'temp', x, y, controls);
     const moist = warpDimension(raw.moist, 'moist', x, y, controls);
     const geology = warpDimension(raw.geology, 'geology', x, y, controls);

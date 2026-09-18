@@ -257,10 +257,9 @@ export function useSelectionActions() {
                     lastSeenScene: now,
                 });
             }
-            state.updateContext({ currentPlaceId: place.id, currentFeature: outcome.feature });
             toast.success(outcome.feature
-                ? `Current place: ${place.name} — ${outcome.feature}`
-                : `Current place set: ${place.name}`);
+                ? `Saved place: ${place.name} — ${outcome.feature}`
+                : `Place already saved: ${place.name}`);
             return;
         }
 
@@ -273,7 +272,6 @@ export function useSelectionActions() {
                     lastSeenScene: now,
                 });
             }
-            state.updateContext({ currentPlaceId: place.id, currentFeature: outcome.feature });
             toast.success(`${outcome.appendFeature ? 'Added' : 'Selected'} feature "${outcome.feature}" in ${place.name}.`);
             return;
         }
@@ -297,11 +295,10 @@ export function useSelectionActions() {
             source: 'manual' as const,
         };
         state.addLocation(loc);
-        state.updateContext({ currentPlaceId: loc.id, currentFeature: initialFeature });
         state.dismissLocationSuggestion(newName);
         toast.success(initialFeature
-            ? `Added "${newName}" with feature "${initialFeature}" and set it current.`
-            : `Added "${newName}" and set as current place.`);
+            ? `Added "${newName}" with feature "${initialFeature}" in Places.`
+            : `Added "${newName}" to Places.`);
         queueLocationEnrichment(loc.id);
 
         // WO 6.3 §2 — offer a connection from the previous current place.

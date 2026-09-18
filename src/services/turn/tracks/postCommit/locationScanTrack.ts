@@ -1,4 +1,5 @@
 import { parseStoryMovement } from '../../storyMovement';
+import { resolveLocationHeader } from '../../../locationHeader';
 import { mergeLocationScanLedger, scanLocation } from '../../../locationParser';
 import { backgroundQueue } from '../../../infrastructure/backgroundQueue';
 import { tierAllows } from '../../aiTier';
@@ -37,7 +38,11 @@ export const locationScanTrack: PostTurnTrack<PostCommitTrackContext> = {
 
             // A manual/header pointer change made while the LLM was in flight wins.
             const hasMovementContract = ctx.scanMessages.some(message => message.role === 'assistant' && parseStoryMovement(message.content).present);
-            if (!hasMovementContract && after.context.currentPlaceId === baselinePlaceId && (after.context.currentFeature ?? null) === baselineFeature
+            const latestAssistant = [...ctx.scanMessages].reverse().find(message => message.role === 'assistant');
+            const header = resolveLocationHeader(latestAssistant?.content ?? '', baselineLedger, baselinePlaceId);
+            const matchesHeader = header.kind === 'resolved' && header.placeId === scan.currentPlaceId
+                && header.feature === scan.currentFeature;
+            if (!hasMovementContract && matchesHeader && after.context.currentPlaceId === baselinePlaceId && (after.context.currentFeature ?? null) === baselineFeature
                 && (scan.currentPlaceId !== baselinePlaceId || scan.currentFeature !== baselineFeature)) {
                 ctx.guardedUpdateContext({ currentPlaceId: scan.currentPlaceId, currentFeature: scan.currentFeature });
             }
