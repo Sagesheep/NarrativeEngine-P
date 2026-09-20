@@ -30,6 +30,7 @@ export function CampaignHub() {
     const [isExporting, setIsExporting] = useState<string | null>(null);
     const [isImporting, setIsImporting] = useState(false);
     const importInputRef = useRef<HTMLInputElement>(null);
+    const worldBuilderOpen = useAppStore(s => s.worldLoreModalOpen);
     const [modalOpen, setModalOpen] = useState(false);
     const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
     // WO-C §10.5 — the SillyTavern card import wizard. On success it hydrates the
@@ -323,7 +324,13 @@ export function CampaignHub() {
 
             {/* ── Create / Edit Modal ── */}
             {modalOpen && (
-                <CampaignFormModal
+                <div hidden={worldBuilderOpen}><CampaignFormModal
+                    roster={form.roster}
+                    setRoster={form.setRoster}
+                    preparedWorld={form.preparedWorld}
+                    setPreparedWorld={form.setPreparedWorld}
+                    saving={form.saving}
+                    onOpenBuilder={() => useAppStore.getState().toggleWorldLoreModal()}
                     editingCampaign={form.editingCampaign}
                     name={form.name}
                     setName={form.setName}
@@ -342,7 +349,7 @@ export function CampaignHub() {
                     handleSave={form.handleSave}
                     resetForm={form.resetForm}
                     onClose={() => setModalOpen(false)}
-                />
+                /></div>
             )}
 
             {/* ── SillyTavern Card Import ── */}

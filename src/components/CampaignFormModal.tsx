@@ -1,9 +1,20 @@
+import { useState } from 'react';
+import { CampaignWorldSetup } from './CampaignWorldSetup';
+import { CampaignRoster } from './CampaignRoster';
+import type { CampaignRosterEntry } from '../services/import/campaignRoster';
+import type { WorldImport } from '../services/lore/worldCard';
 import { Trash2, BookOpen } from 'lucide-react';
 import type { Campaign } from '../types';
 import { Backdrop } from './primitives/Backdrop';
 import { GhostBtn, PrimaryBtn } from './primitives/Buttons';
 
 export interface CampaignFormModalProps {
+    roster: CampaignRosterEntry[];
+    setRoster: (entries: CampaignRosterEntry[]) => void;
+    preparedWorld?: WorldImport;
+    setPreparedWorld: (world?: WorldImport) => void;
+    saving: boolean;
+    onOpenBuilder: () => void;
     editingCampaign: Campaign | null;
     name: string;
     setName: (v: string) => void;
@@ -11,7 +22,7 @@ export interface CampaignFormModalProps {
     handleCoverChange: (file: File) => void;
     clearCover: () => void;
     loreName: string;
-    setLoreFile: (f: File) => void;
+    setLoreFile: (f: File | null) => void;
     setLoreName: (v: string) => void;
     rulesName: string;
     setRulesFile: (f: File) => void;
@@ -34,18 +45,22 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
         handleSave, resetForm, onClose,
     } = props;
 
-    const close = () => { onClose(); resetForm(); };
+    const [worldBusy, setWorldBusy] = useState(false);
+    const [rosterBusy, setRosterBusy] = useState(false);
+    const busy = props.saving || worldBusy || rosterBusy;
+    const close = () => { if (!busy) { onClose(); resetForm(); } };
 
     return (
         <Backdrop onClick={close}>
             <div
                 style={{
                     background: 'var(--color-surface)', border: '1px solid color-mix(in srgb, var(--color-terminal) 20%, transparent)',
-                    borderRadius: 6, padding: '28px', width: '100%', maxWidth: 420,
+                    borderRadius: 6, padding: '28px', width: '100%', maxWidth: 760,
                     maxHeight: '90vh', overflowY: 'auto',
                 }}
                 onClick={e => e.stopPropagation()}
             >
+                <fieldset disabled={props.saving} className="min-w-0 border-0 p-0 m-0">
                 <h2 style={{
                     fontFamily: "'Cinzel', serif", fontSize: 13,
                     letterSpacing: '0.2em', textTransform: 'uppercase',
@@ -54,6 +69,8 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
                     {editingCampaign ? 'Edit Campaign' : 'New Campaign'}
                 </h2>
 
+                {!editingCampaign && <CampaignWorldSetup world={props.preparedWorld} onBusyChange={setWorldBusy} onOpenBuilder={props.onOpenBuilder}
+                    onChange={(file, world) => { setLoreFile(file); setLoreName(file?.name ?? ''); props.setPreparedWorld(world); }} />}
                 <ModalLabel>Campaign Name</ModalLabel>
                 <input
                     type="text" value={name}
@@ -71,7 +88,7 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
                     }}
                 />
 
-                <ModalLabel>Cover Image</ModalLabel>
+                <details className="mb-4" open={coverPreview ? true : undefined}><summary className="text-xs text-text-dim cursor-pointer mb-3">Campaign cover (optional)</summary>
                 <div style={{ marginBottom: 20 }}>
                     {coverPreview ? (
                         <div style={{ position: 'relative', height: 110, borderRadius: 4, overflow: 'hidden', border: '1px solid color-mix(in srgb, var(--color-terminal) 20%, transparent)' }}>
@@ -103,6 +120,8 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
                     )}
                 </div>
 
+                </details>
+                {editingCampaign && <>
                 <ModalLabel>
                     World Lore (.png, .json, .md){editingCampaign && <span style={{ color: 'rgba(107,107,107,0.45)', fontWeight: 400, marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}>— re-upload to replace</span>}
                 </ModalLabel>
@@ -112,6 +131,9 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
                     World PNG, SillyTavern lorebook JSON, or Markdown lore
                 </p>
 
+                </>}
+                {!editingCampaign && <CampaignRoster entries={props.roster} onChange={props.setRoster} onBusyChange={setRosterBusy} />}
+                <details className="mt-4"><summary className="text-xs text-text-dim cursor-pointer mb-4">Rules & loot (optional)</summary>
                 <ModalLabel>
                     Rules (.md){editingCampaign && <span style={{ color: 'rgba(107,107,107,0.45)', fontWeight: 400, marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}>— re-upload to replace</span>}
                 </ModalLabel>
@@ -126,12 +148,14 @@ export function CampaignFormModal(props: CampaignFormModalProps) {
                 <FilePickerRow icon={<BookOpen size={13} />} label={lootName || 'Choose file…'} accept=".json"
                     onChange={f => { setLootFile(f); setLootName(f.name); }} />
 
+                </details>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 28 }}>
                     <GhostBtn onClick={close}>Cancel</GhostBtn>
-                    <PrimaryBtn onClick={handleSave} disabled={!name.trim()}>
-                        {editingCampaign ? 'Save Changes' : 'Create & Enter'}
+                    <PrimaryBtn onClick={handleSave} disabled={!name.trim() || busy}>
+                        {props.saving ? 'Saving…' : editingCampaign ? 'Save Changes' : 'Create & Enter'}
                     </PrimaryBtn>
                 </div>
+                </fieldset>
             </div>
         </Backdrop>
     );

@@ -77,7 +77,7 @@ export function NPCLedgerModal() {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
 
-    const [viewMode, setViewMode] = useState<'list' | 'gallery'>('list');
+    const [viewMode, setViewMode] = useState<'list' | 'gallery'>('gallery');
     const [isAIUpdating, setIsAIUpdating] = useState(false);
 
     const [selectMode, setSelectMode] = useState(false);
@@ -655,7 +655,7 @@ export function NPCLedgerModal() {
                     {/* Header */}
                     <div className="p-4 border-b border-border flex justify-between items-center bg-void">
                         <div className="flex items-center gap-2 text-terminal font-bold uppercase tracking-widest text-sm">
-                            <Users size={16} /> NPC Ledger
+                            <Users size={16} /> NPC Roster
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="flex bg-surface border border-border rounded overflow-hidden">
@@ -673,6 +673,12 @@ export function NPCLedgerModal() {
                         </div>
                     </div>
 
+                    <div className="p-3 border-b border-border">
+                        <button onClick={() => importRef.current?.click()} className="w-full min-h-24 rounded-lg border border-dashed border-terminal/40 bg-terminal/5 hover:bg-terminal/10 text-terminal flex flex-col items-center justify-center gap-2 p-3">
+                            <Plus size={24} /><strong className="text-sm">Add NPC cards</strong>
+                            <span className="text-xs text-text-dim">Upload SillyTavern PNG / JSON characters</span>
+                        </button>
+                    </div>
                     {/* Search Bar */}
                     <div className="px-3 py-2 border-b border-border bg-void-lighter shrink-0">
                         <div className="relative">
@@ -696,7 +702,7 @@ export function NPCLedgerModal() {
                     <div className="p-3 border-b border-border bg-void-lighter shrink-0 space-y-2">
                         <div className="flex gap-1.5">
                             <button onClick={handleCreateNew} className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 border border-dashed rounded text-xs uppercase tracking-wider transition-colors ${!selectedId && isEditing ? 'border-terminal text-terminal bg-terminal/10' : 'border-border text-text-dim hover:text-terminal hover:border-terminal'}`}>
-                                <Plus size={14} /> New Record
+                                <Plus size={14} /> Create NPC
                             </button>
                             <button
                                 onClick={review.startReview}
@@ -709,7 +715,7 @@ export function NPCLedgerModal() {
                         </div>
                         <div className="flex items-center gap-1.5">
                             <button onClick={() => importRef.current?.click()} title="Import NPCs (JSON) or SillyTavern cards (PNG/JSON)" className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors">
-                                <Upload size={11} /> Import
+                                <Upload size={11} /> Upload NPC
                             </button>
                             <button onClick={handleSeedFromLore} title="Seed from Lore" className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors">
                                 <BookOpen size={11} /> Seed
