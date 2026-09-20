@@ -126,16 +126,37 @@ export function depart(params: {
     agency?: 'free' | 'constrained';
     ledger: LocationEntry[];
     currentWorldDay?: number;
+    currentTravelMinutes?: number;
     /** Exact route duration from the map; bands are fallback only. */
     days?: number;
+    durationMinutes?: number;
 }): TransitionResult {
-    const { fromId, toId, band, mode, agency = 'free', ledger, currentWorldDay } = params;
+    const { fromId, toId, band, agency = 'free', ledger, currentWorldDay } = params;
+    const mode = ledger.find(place => place.id === fromId)?.connections.find(edge => edge.toId === toId)?.passage === 'ferry' ? 'boat' : params.mode;
     if (fromId === toId) return EMPTY;
 
-    const connectionUpserts = ensureDirectConnection(fromId, toId, band, ledger);
+    const connection = ledger.find(place => place.id === fromId)?.connections.find(edge => edge.toId === toId);
+    if (connection?.passage === 'tunnel' && (!Number.isSafeInteger(connection.durationMinutes) || connection.durationMinutes! <= 0 || connection.durationMinutes! > 480 * 365)) throw new Error('Tunnel duration must be 1–175200 minutes');
+    const minutes = connection?.passage === 'portal' ? 0 : params.durationMinutes
+        ?? (connection?.passage === 'tunnel' ? connection.durationMinutes : undefined);
+    if (minutes !== undefined && Number.isSafeInteger(minutes) && minutes >= 0 && minutes < 480 && (minutes > 0 || connection?.passage === 'portal')) {
+        const spent = (Number.isSafeInteger(params.currentTravelMinutes) && params.currentTravelMinutes! >= 0 ? params.currentTravelMinutes! % 480 : 0) + minutes;
+        return { travel: null, contextPatch: { currentPlaceId: toId, currentFeature: null, travel: null, travelMode: mode,
+            worldDay: (currentWorldDay ?? 0) + Math.floor(spent / 480), travelMinutesToday: spent % 480 } };
+    }
+    const connectionUpserts = connection?.passage ? [] : ensureDirectConnection(fromId, toId, band, ledger);
     const ledgerWithConnections = mergeUpserts(ledger, connectionUpserts);
-    const { transitId, upsert: transitUpserts } = ensureTransitNode(fromId, toId, band, ledgerWithConnections);
-    const totalLegs = params.days ?? legsFor(band, mode);
+    const tunnelNode = connection?.passage === 'tunnel'
+        ? ledger.find(entry => entry.kind === 'transit' && entry.connections.some(edge => edge.toId === fromId && edge.passage === 'tunnel') && entry.connections.some(edge => edge.toId === toId && edge.passage === 'tunnel'))
+        : undefined;
+    const transit = ensureTransitNode(fromId, toId, band, connection?.passage === 'tunnel' ? ledgerWithConnections.filter(entry => entry.kind !== 'transit' || entry.id === tunnelNode?.id) : ledgerWithConnections);
+    const transitId = transit.transitId;
+    const transitUpserts = connection?.passage === 'tunnel' ? transit.upsert.map(entry => ({ ...entry,
+        name: 'Tunnel between ' + (ledger.find(place => place.id === fromId)?.name ?? fromId) + ' and ' + (ledger.find(place => place.id === toId)?.name ?? toId),
+        coordinates: ledger.find(place => place.id === fromId)?.coordinates,
+        connections: entry.connections.map(edge => ({ ...edge, passage: 'tunnel' as const, durationMinutes: connection.durationMinutes })),
+    })) : transit.upsert;
+    const totalLegs = params.days ?? (connection?.passage === 'tunnel' && Number.isSafeInteger(minutes) && minutes! > 0 ? Math.ceil(minutes! / 480) : legsFor(band, mode));
     if (!Number.isSafeInteger(totalLegs) || totalLegs < 1) throw new Error('Travel duration must be a positive integer');
     const nextDay = (currentWorldDay ?? 0) + 1;
 
@@ -162,7 +183,7 @@ export function depart(params: {
         travelMode: mode,
         currentPlaceId: transitId,
         currentFeature: null,
-        worldDay: nextDay,
+        worldDay: nextDay, travelMinutesToday: 0,
     };
     return { travel, contextPatch, ledgerUpsert: ledgerPatch };
 }
@@ -191,7 +212,7 @@ export function departMultiHop(params: {
     agency?: 'free' | 'constrained';
     ledger: LocationEntry[];
     currentWorldDay?: number;
-}): TransitionResult {
+    currentTravelMinutes?: number;}): TransitionResult {
     const { fromId, toId, mode, hops, agency = 'free', ledger, currentWorldDay } = params;
     if (fromId === toId) return EMPTY;
     if (hops.length === 0) return EMPTY;
@@ -203,7 +224,7 @@ export function departMultiHop(params: {
         // through a band. Estimate a band only for a missing connection.
         const existing = ledger.find(place => place.id === fromId)?.connections.find(c => c.toId === toId);
         const band = existing ? connectionBand(existing) : bandFromLegs(hops[0].legs, mode);
-        return depart({ fromId, toId, band, mode, agency, ledger, currentWorldDay, days: hops[0].legs });
+        return depart({ fromId, toId, band, mode, agency, ledger, currentWorldDay, days: hops[0].legs, durationMinutes: hops[0].durationMinutes, currentTravelMinutes: params.currentTravelMinutes });
     }
 
     // Ensure connections and transit nodes for every hop without overwriting
@@ -251,7 +272,7 @@ export function departMultiHop(params: {
         travelMode: mode,
         currentPlaceId: firstHop.legs === 1 ? firstHop.toId : firstHop.transitId,
         currentFeature: null,
-        worldDay: nextDay,
+        worldDay: nextDay, travelMinutesToday: 0,
     };
     return { travel, contextPatch, ledgerUpsert: allUpserts.length > 0 ? allUpserts : undefined };
 }
@@ -293,12 +314,12 @@ export function advance(state: TravelState, currentWorldDay: number | undefined)
                     hopIndex: i,
                     transitId: nextHop.transitId,
                 };
-                return { travel, contextPatch: { travel, worldDay: nextDay, currentPlaceId: nextLeg === cumulative ? nextHop.toId : nextHop.transitId, currentFeature: null } };
+                return { travel, contextPatch: { travel, worldDay: nextDay, travelMinutesToday: 0, currentPlaceId: nextLeg === cumulative ? nextHop.toId : nextHop.transitId, currentFeature: null } };
             }
         }
     }
     const travel: TravelState = { ...state, leg: nextLeg };
-    return { travel, contextPatch: { travel, worldDay: nextDay } };
+    return { travel, contextPatch: { travel, worldDay: nextDay, travelMinutesToday: 0 } };
 }
 
 /**
@@ -313,7 +334,7 @@ export function arrive(state: TravelState, nextDay: number): TransitionResult {
             travel: null,
             currentPlaceId: state.toId,
             currentFeature: null,
-            worldDay: nextDay,
+            worldDay: nextDay, travelMinutesToday: 0,
         },
     };
 }

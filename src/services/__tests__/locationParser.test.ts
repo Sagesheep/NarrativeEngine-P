@@ -609,3 +609,12 @@ describe('buildTravelBlock (WO3 §8)', () => {
         expect(buildTravelBlock(ctx, [a])).toBe('');
     });
 });
+it('upgrades rumours only with direction evidence and preserves concurrent knowledge edits', () => {
+    const rumour = makeEntry({ id: 'castle', name: 'Lost Castle', knowledge: 'rumoured' });
+    const raw = baseRaw({ updates: [{ place: 'Lost Castle', knowledge: 'known', knowledgeEvidence: 'The guide marked its exact position on your map.' }] });
+    const scanned = applyLocationOps(raw, [rumour], null, null).ledger;
+    expect(scanned[0].knowledge).toBe('known');
+    expect(mergeLocationScanLedger([rumour], scanned, [rumour])[0].knowledge).toBe('known');
+    expect(mergeLocationScanLedger([rumour], scanned, [{ ...rumour, knowledge: 'secret' }])[0].knowledge).toBe('secret');
+    expect(applyLocationOps(baseRaw({ updates: [{ place: 'Lost Castle', knowledge: 'known' }] }), [rumour], null, null).ledger[0].knowledge).toBe('rumoured');
+});

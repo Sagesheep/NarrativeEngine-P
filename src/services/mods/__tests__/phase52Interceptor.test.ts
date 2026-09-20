@@ -191,8 +191,19 @@ describe('done-when 1 — the fixture adds a block and suppresses a permitted bu
         );
         const interception = await runPromptInterceptors(TURN_INPUT);
         const content = finalUserContent(build(interception).messages);
-        // 20 tokens of "word " is far short of 4000 repetitions.
-        expect(content.length).toBeLessThan(USER_MESSAGE.length + 500);
+
+        // Measure the greedy contribution itself, not the length of the whole
+        // user message. Built-ins legitimately grow (the movement contract
+        // added ~1.7k characters), and a bound on the total would then fail
+        // for a reason that has nothing to do with the budget this test names.
+        const longestWall = (content.match(/(?:word ?)+/g) ?? [])
+            .sort((a, b) => b.length - a.length)[0] ?? '';
+        const wallWords = longestWall.trim().split(/\s+/).filter(Boolean).length;
+
+        // 20 tokens of "word " is far short of 4000 repetitions...
+        expect(wallWords).toBeLessThanOrEqual(20);
+        // ...but the contribution is trimmed, not dropped.
+        expect(wallWords).toBeGreaterThan(0);
         expect(content).toContain(USER_MESSAGE);
     });
 });

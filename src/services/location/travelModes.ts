@@ -1,7 +1,7 @@
 import type { DistanceBand } from './distance';
 import { DISTANCE_BANDS } from './distance';
 
-export type TravelMode = 'foot' | 'cart' | 'horseback' | 'flying';
+export type TravelMode = 'foot' | 'cart' | 'horseback' | 'flying' | 'boat';
 
 export const TRAVEL_MODES: ReadonlyArray<{
     id: TravelMode;
@@ -11,6 +11,7 @@ export const TRAVEL_MODES: ReadonlyArray<{
     { id: 'foot',      label: 'On foot',   gridsPerDay: 3 },
     { id: 'cart',      label: 'Cart',      gridsPerDay: 5 },
     { id: 'horseback', label: 'Horseback', gridsPerDay: 8 },
+    { id: 'boat', label: 'Boat', gridsPerDay: 10 },
     { id: 'flying',    label: 'Flying',    gridsPerDay: 20 },
 ];
 

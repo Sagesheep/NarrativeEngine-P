@@ -141,6 +141,7 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
             ledger: locationLedger,
             deps: { updateLocation, updateContext },
             currentWorldDay,
+            currentTravelMinutes: state.context.travelMinutesToday,
         });
         if (!result) return;
 

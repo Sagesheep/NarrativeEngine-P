@@ -1,7 +1,8 @@
+import { hasKnownPosition } from '../services/location/knowledge';
 import { isTemporaryLocation } from '../utils/locationRecords';
 import { openMapTravelPreview } from '../services/turn/mapTravelPreview';
 import { useState, useEffect, useMemo } from 'react';
-import { X, Plus, MapPin, Trash2, Search, Navigation, BookOpen, Compass } from 'lucide-react';
+import { X, Plus, MapPin, Trash2, Search, BookOpen, Compass } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { modEventBus } from '../services/mods/events';
 import type { LocationEntry } from '../types';
@@ -49,6 +50,7 @@ export function LocationLedgerModal() {
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
+    const [showSecrets, setShowSecrets] = useState(false);
     const [showTravelRecords, setShowTravelRecords] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [form, setForm] = useState<Partial<LocationEntry>>({ ...EMPTY_ENTRY });
@@ -65,7 +67,7 @@ export function LocationLedgerModal() {
     const [travelBand, setTravelBand] = useState<DistanceBand>('regional');
     const [travelMode, setTravelMode] = useState<TravelMode>('foot');
 
-    const displayed = useMemo(() => filterLocations(showTravelRecords ? locationLedger : locationLedger.filter(entry => !isTemporaryLocation(entry)), searchQuery), [locationLedger, searchQuery, showTravelRecords]);
+    const displayed = useMemo(() => filterLocations(locationLedger.filter(entry => (showSecrets || entry.knowledge !== 'secret') && (showTravelRecords || !isTemporaryLocation(entry))), searchQuery), [locationLedger, searchQuery, showTravelRecords, showSecrets]);
 
     useEffect(() => {
         if (!locationLedgerOpen) return;
@@ -90,6 +92,7 @@ export function LocationLedgerModal() {
             if (!id) return;
             const latest = useAppStore.getState().locationLedger.find(location => location.id === id);
             if (!latest) return;
+            if (latest.knowledge === 'secret') return;
             setSelectedId(latest.id);
             setForm({ ...latest });
             setFeaturesDraft(latest.features.join(', '));
@@ -150,13 +153,14 @@ export function LocationLedgerModal() {
             features,
             connections: form.connections ?? [],
             image: form.image,
+            knowledge: form.knowledge, knowledgeNote: form.knowledgeNote,
             description: (form.description ?? '').trim(),
             status: (form.status ?? '').trim() || undefined,
             firstSeenScene: form.firstSeenScene || String(Date.now()),
             lastSeenScene: form.lastSeenScene || String(Date.now()),
             source: form.source ?? 'manual',
             coordinates: spatial.coordinates, recordKind: form.recordKind, pinned: form.pinned,
-            placement: spatial.placement, placementIssue: spatial.placementIssue, terrainBiome: spatial.terrainBiome,
+            placement: spatial.placement, placementIssue: spatial.placementIssue, terrainBiome: spatial.terrainBiome, terrainRadius: spatial.terrainRadius,
             placementPendingUntil: spatial.placementPendingUntil,
             kind: form.kind === 'transit' ? 'transit' : 'place',
         };
@@ -207,7 +211,7 @@ export function LocationLedgerModal() {
     };
 
     const handleSetAsCurrent = (loc: LocationEntry) => {
-        updateContext({ currentPlaceId: loc.id, currentFeature: null });
+        updateContext({ currentPlaceId: loc.id, currentFeature: null, travel: null });
     };
 
     // ── WO 6.5 — TRAVEL HERE departure flow ────────────────────────────────
@@ -218,7 +222,7 @@ export function LocationLedgerModal() {
     // and posts a checkpoint system message. No LLM call.
     const handleTravelHere = (loc: LocationEntry) => {
         if (loc.id === context.currentPlaceId) return;
-        if (loc.kind === 'transit') return;
+        if (loc.kind === 'transit' || !hasKnownPosition(loc)) return;
         setTravelTargetId(loc.id);
         const hasConnection = locationLedger.some(
             l => l.id === context.currentPlaceId && l.connections.some(c => c.toId === loc.id),
@@ -254,6 +258,7 @@ export function LocationLedgerModal() {
             ledger: locationLedger,
             deps: { updateLocation, updateContext },
             currentWorldDay,
+            currentTravelMinutes: state.context.travelMinutesToday,
         });
         if (!result) return;
 
@@ -426,6 +431,10 @@ export function LocationLedgerModal() {
                         <input type="checkbox" checked={showTravelRecords} onChange={event => setShowTravelRecords(event.target.checked)} />
                         Show travel records
                     </label>
+                    <label className="flex items-center gap-2 text-xs text-text-dim">
+                        <input type="checkbox" checked={showSecrets} onChange={event => { setShowSecrets(event.target.checked); setSelectedId(null); }} />
+                        Edit secret world locations
+                    </label>
                     {!searchQuery.trim() && locationSuggestions && locationSuggestions.length > 0 && (
                         <div className="px-3 pt-2 shrink-0">
                             <LocationSuggestionsPanel suggestions={locationSuggestions} />
@@ -457,7 +466,7 @@ export function LocationLedgerModal() {
                         {displayed.length > 0 && displayed.map(loc => {
                             const isActive = selectedId === loc.id && !isEditing;
                             const isCurrent = context.currentPlaceId === loc.id;
-                            const canTravelHere = context.currentPlaceId && loc.id !== context.currentPlaceId && loc.kind !== 'transit';
+                            const canTravelHere = hasKnownPosition(loc) && context.currentPlaceId && loc.id !== context.currentPlaceId && loc.kind !== 'transit';
                             return (
                                 <div
                                     key={loc.id}
@@ -471,6 +480,7 @@ export function LocationLedgerModal() {
                                             <p className={`text-sm font-bold truncate ${isActive ? 'text-terminal glow-green-sm' : 'text-text-primary'}`}>
                                                 {loc.name}
                                                 {isCurrent && <span className="text-[9px] text-terminal ml-1">●</span>}
+                                                {loc.knowledge && <span className="text-[9px] text-text-dim ml-1">{loc.knowledge}</span>}
                                                 {loc.kind === 'transit' && <span className="text-[9px] text-text-dim ml-1">road</span>}
                                             </p>
                                             <div className="flex items-center gap-1 text-[10px] mt-0.5 text-text-dim truncate">
@@ -495,13 +505,7 @@ export function LocationLedgerModal() {
                                             <span>Travel</span>
                                         </button>
                                     )}
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); handleSetAsCurrent(loc); }}
-                                        title="Set as current location"
-                                        className="p-1.5 text-text-dim hover:text-terminal hover:bg-terminal/10 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
-                                    >
-                                        <Navigation size={12} />
-                                    </button>
+
                                     <button
                                         onClick={(e) => handleDelete(loc.id, e)}
                                         className="p-1.5 text-text-dim hover:text-danger hover:bg-danger/10 rounded transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
@@ -633,7 +637,7 @@ export function LocationLedgerModal() {
                             setNewConnectionBand={setNewConnectionBand}
                             newConnectionNote={newConnectionNote}
                             setNewConnectionNote={setNewConnectionNote}
-                            locationLedger={locationLedger}
+                            locationLedger={locationLedger.filter(place => showSecrets || place.knowledge !== 'secret')}
                             onStartEditing={handleStartEditing}
                             onSetAsCurrent={handleSetAsCurrent}
                             onCancel={handleCancelEdit}

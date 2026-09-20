@@ -167,6 +167,7 @@ export type NotebookNote = {
  *  journeys (the original WO 3 case) leave `hops`/`hopIndex` undefined — they
  *  are byte-identical to pre-6.1 state. */
 export type TravelHop = {
+    durationMinutes?: number;
     fromId: string;
     toId: string;
     transitId: string;
@@ -290,6 +291,7 @@ export type GameContext = {
      * travel or deadlines simply never set it, and every consumer treats
      * `undefined` as "this campaign does not track time". */
     worldDay?: number;
+    travelMinutesToday?: number;
     /** Remembers the player's last travel-mode choice. Defaults to `'foot'`. */
     travelMode?: TravelMode;
     /** Active journey, or null/undefined when settled. */

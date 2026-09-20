@@ -11,6 +11,8 @@ import type { TravelMode } from '../services/location/travelModes';
 export type { TravelMode };
 
 export type LocationConnection = {
+    passage?: 'ferry' | 'portal' | 'tunnel';
+    durationMinutes?: number;
     toId: string;                          // id of another LocationEntry
     band?: DistanceBand;
     note?: string;                         // "locked at night", "guarded gate"
@@ -21,15 +23,20 @@ export type LocationPlacement = {
     distanceBand?: DistanceBand;
     direction?: 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
     preferredBiomes?: string[];
+    biomePolicy?: 'required' | 'preferred' | 'exception';
+    biomeRadius?: number;
     coordinates?: { x: number; y: number };
     reason?: string;
 };
 
 export type LocationEntry = {
+    knowledge?: 'rumoured' | 'known' | 'visited' | 'secret';
+    knowledgeNote?: string;
     placement?: LocationPlacement;
     placementPendingUntil?: number;
     placementIssue?: string;
     terrainBiome?: string;
+    terrainRadius?: number;
     image?: string;                        // Locally stored location illustration.
     id: string;                            // `loc_${Date.now()}_${rand}` (mirror inventory id style)
     name: string;                          // "Ninja Academy"

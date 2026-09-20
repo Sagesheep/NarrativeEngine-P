@@ -1,3 +1,6 @@
+import { waterRoute } from './waterTravel.js';
+import { routeKnowledge } from './routeKnowledge.js';
+import { hasKnownPosition, rumourArea, markCurrentVisited } from './knowledge.js';
 import { reconcilePlaceRecords, isTemporaryPlace } from './placeRecords.js';
 import { readRoads, serializeRoads, roadEdges, travelSurfaces, planRoad, roadCandidates, roadConnectedLedger } from './roads.js';
 import { readExploration, readGeneratedCells, serializeExploration, revealCells, visibleCells, explorationPoint, validCell } from './exploration.js';
@@ -188,7 +191,7 @@ async function updateDiscoveries(ctx) {
     }
     const summary = { placeId: location.currentPlaceId, worldDay: location.worldDay,
         leg: location.travel?.leg ?? null,
-        sites: nearbyDiscoveries(state, centre).map(site => ({ id: site.id, name: siteLabel(site),
+        sites: nearbyDiscoveries(state, centre).filter(site => hasKnownPosition((location.ledger ?? []).find(place => place.id === site.id))).map(site => ({ id: site.id, name: siteLabel(site),
             description: site.description, type: site.type, distance: site.distance })) };
     const digest = JSON.stringify(summary);
     const live = await freshCampaignContext(ctx);
@@ -204,11 +207,11 @@ async function updateDiscoveries(ctx) {
 }
 
 async function rememberTrails(ctx, journey) {
-    if (!journey) return;
+    if (!journey || journey.surfaceTravel === false) return;
     const location = ctx.data.location;
     const cell = partyCellForJourney(journey, location?.travel);
     const arrived = !location?.travel && location?.currentPlaceId === journey.toId
-        && location?.worldDay >= journey.startedOnDay + journey.totalLegs;
+        && location?.worldDay >= journey.startedOnDay + (journey.sameDay ? 0 : journey.totalLegs);
     const endIndex = arrived ? journey.cells.length - 1
         : cell ? journey.cells.findIndex(c => c.x === cell.x && c.y === cell.y) : -1;
     if (endIndex >= 0) await observeTerrain(ctx, journey.cells.slice(0, endIndex + 1));
@@ -250,6 +253,7 @@ const MAP_TRAVEL_MODES = Object.freeze([
     { id: 'foot', label: 'On foot' },
     { id: 'cart', label: 'Cart' },
     { id: 'horseback', label: 'Horseback' },
+    { id: 'boat', label: 'Boat' },
     { id: 'flying', label: 'Flying' },
 ]);
 // Empty grid cells are provisional destinations; they become fixed points only on commit.
@@ -365,6 +369,7 @@ function ensureChunkStore(campaignId, settings, controls, hardened) {
 function modeToPathfinder(mode) {
     if (mode === 'foot') return 'foot';
     if (mode === 'cart') return 'cart';
+    if (mode === 'boat') return 'boat';
     if (mode === 'horseback') return 'mount';
     return null; // flying — handled as a straight-line route
 }
@@ -432,6 +437,7 @@ function findLedgerPath(ledger, fromId, toId) {
         const node = byId.get(path[path.length - 1]);
         if (!node) continue;
         for (const conn of node.connections) {
+            if (conn.passage) continue;
             const next = byId.get(conn.toId);
             if (!next) continue;
             if (next.kind === 'transit') continue;
@@ -459,8 +465,13 @@ function findLedgerPath(ledger, fromId, toId) {
 export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference = routePreferenceByCampaign.get(campaignId) ?? 'fastest', compare = true, targetId = null) {
     const result = reportsByCampaign.get(campaignId);
     if (!result) return { blocked: true, reason: 'no-solve', label: 'No map solve yet' };
-    const ledger = ctx.data?.location?.ledger ?? [];
-    const anchors = fixedSiteAnchors(result, discoveriesByCampaign.get(campaignId)?.sites.values() ?? [], ledger);
+    const allPlaces = ctx.data?.location?.ledger ?? [];
+    if (targetId && allPlaces.some(place => place.id === targetId && !hasKnownPosition(place))) {
+        return { blocked: true, reason: 'unknown-position', label: 'Exact location unknown. Investigate the rumour or obtain directions first.' };
+    }
+    const ledger = allPlaces.filter(place => hasKnownPosition(place) || place.id === ctx.data?.location?.currentPlaceId);
+    const anchors = fixedSiteAnchors(result, discoveriesByCampaign.get(campaignId)?.sites.values() ?? [], ledger)
+        .filter(anchor => !allPlaces.some(place => place.id === anchor.locationId && !hasKnownPosition(place) && place.id !== ctx.data?.location?.currentPlaceId));
 
     // AT MOST ONE ROUTE IS ACTIVE AT A TIME.
     //
@@ -506,7 +517,7 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
 
     // Exact-cell selection: adjacent wilderness must remain independently reachable.
     if (!validCell({ x: toX, y: toY })) return { blocked: true, reason: 'outside-world', label: 'Choose a cell inside the map' };
-    if (fromAnchor.x === toX && fromAnchor.y === toY) return { blocked: true, reason: 'same-place', label: 'Already here' };
+    if (fromAnchor.x === toX && fromAnchor.y === toY && (!targetId || targetId === fromId)) return { blocked: true, reason: 'same-place', label: 'Already here' };
     let destinationSite = null;
     let toAnchor = targetId ? anchors.find(anchor => anchor.locationId === targetId) : nearestAnchor(anchors.filter(anchor => !ledger.some(entry => entry.id === anchor.locationId && entry.kind === 'transit')), toX, toY, 0);
     if (!toAnchor && !targetId) {
@@ -520,6 +531,21 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
         return { blocked: true, reason: 'same-place', label: 'Already here' };
     }
 
+    const passage = ledger.find(place => place.id === fromId)?.connections.find(edge => edge.toId === toAnchor.locationId);
+    if (passage?.passage === 'ferry') mode = 'boat';
+    if (passage?.passage === 'portal' || passage?.passage === 'tunnel') {
+        const minutes = passage.passage === 'portal' ? 0 : passage.durationMinutes;
+        if (!Number.isSafeInteger(minutes) || minutes < 0 || minutes > 480 * 365 || (passage.passage === 'tunnel' && minutes === 0)) {
+            return { blocked: true, reason: 'passage-duration', label: 'Set a valid duration for this passage in Edit world.' };
+        }
+        const days = Math.max(1, Math.ceil(minutes / 480));
+        return { passage: passage.passage, surfaceTravel: false, durationMinutes: minutes < 480 ? minutes : undefined,
+            fromAnchor: { ...fromAnchor, name: ledger.find(place => place.id === fromId)?.name }, toAnchor: { ...toAnchor, name: ledger.find(place => place.id === toAnchor.locationId)?.name },
+            mode: 'foot', cells: [{ x: fromAnchor.x, y: fromAnchor.y, cost: 0 }, { x: toAnchor.x, y: toAnchor.y, cost: days }],
+            cost: days, days, cellCount: 0, knowledge: { uncertain: false, minDays: days, maxDays: days },
+            checkpoints: Array.from({ length: days - 1 }, (_, i) => ({ x: fromAnchor.x, y: fromAnchor.y, day: i + 1, kind: 'camp' })),
+            hops: [{ fromId, toId: toAnchor.locationId, transitId: '', legs: days, ...(minutes < 480 ? { durationMinutes: minutes } : {}) }] };
+    }
     const settings = result.settings;
     const controls = buildWarpField(result.transects || []);
     const hardened = hardenedByCampaign.get(campaignId) ?? new Map();
@@ -528,28 +554,9 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
     // Find the ledger path (A→B→C). Single-hop if directly connected.
     const isSiteRoute = Boolean(destinationSite) || discoveriesByCampaign.get(campaignId)?.sites.has(toAnchor.locationId)
         || discoveriesByCampaign.get(campaignId)?.sites.has(fromId);
-    const ledgerPath = isSiteRoute ? [fromId, toAnchor.locationId] : findLedgerPath(roadConnectedLedger(ledger, roadsByCampaign.get(campaignId) ?? []), fromId, toAnchor.locationId);
-    if (!ledgerPath || ledgerPath.length < 2) {
-        // No ledger path — the destination is not reachable through known
-        // connections. This is a blocked result, not an error: the player
-        // clicked a place they have no road to.
-        //
-        // WO 6.3 §1 — the refusal is an offer, not a dead end. Carry the
-        // anchors and a default band (from the straight-line grid distance)
-        // so the renderer can show a band selector + "Create and travel".
-        // The player commits the connection; the map only proposes it.
-        const fromName = ledger.find(l => l.id === fromId)?.name ?? fromId;
-        const toName = ledger.find(l => l.id === toAnchor.locationId)?.name ?? toAnchor.name ?? toAnchor.locationId;
-        const defaultBand = bandFromGridDistance(fromAnchor, toAnchor);
-        return {
-            blocked: true,
-            reason: 'no-ledger-path',
-            label: `No road to ${toName}`,
-            fromAnchor: { locationId: fromAnchor.locationId, name: fromName },
-            toAnchor: { locationId: toAnchor.locationId, name: toName },
-            defaultBand,
-        };
-    }
+    const recordedPath = isSiteRoute ? null : findLedgerPath(roadConnectedLedger(ledger, roadsByCampaign.get(campaignId) ?? []), fromId, toAnchor.locationId);
+    const overland = !isSiteRoute && !recordedPath;
+    const ledgerPath = recordedPath ?? [fromId, toAnchor.locationId];
 
     // Route each hop through the pathfinder. Each hop's cells are concatenated
     // (skipping the first cell of hops after the first, since it's the
@@ -576,6 +583,8 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
                 { x: Math.round(hopFromAnchor.x), y: Math.round(hopFromAnchor.y) },
                 { x: Math.round(hopToAnchor.x), y: Math.round(hopToAnchor.y) },
             );
+        } else if (pfMode === 'boat') {
+            route = waterRoute(chunkStore, hopFromAnchor, hopToAnchor, { preference });
         } else {
             route = findRoute(
                 chunkStore,
@@ -585,7 +594,7 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
                 { trails: surfacesFor(campaignId), preference },
             );
         }
-        if (isSiteRoute && route.snapped) route = { blocked: true, reason: 'endpoint-impassable' };
+        if ((isSiteRoute || overland) && route.snapped) route = { blocked: true, reason: 'endpoint-impassable' };
         if (route.blocked) {
             // WO 6.1 §1 — a blocked route is a real answer. Surface the
             // reason and the mode(s) that would work.
@@ -618,9 +627,12 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
     }
 
     if (blockedByPathfinder) {
+        const knowledge = routeKnowledge([fromAnchor, ...allCells, toAnchor], totalDays, mode, explorationByCampaign.get(campaignId), roadsByCampaign.get(campaignId));
+        if (knowledge.uncertain) blockedByPathfinder.label = 'No confirmed route with this travel mode. Unexplored terrain prevents a reliable route estimate.';
         const toName = ledger.find(l => l.id === toAnchor.locationId)?.name ?? toAnchor.name ?? toAnchor.locationId;
         return {
-            cells: allCells,
+            knowledge,
+            cells: knowledge.uncertain ? [] : allCells,
             cost: totalCost,
             days: totalDays,
             mode,
@@ -636,14 +648,21 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
     // `hops` is the per-hop breakdown for the host's intent. Only the hops
     // after the first leg matter to the host (the first hop is the depart);
     // but the host needs all hops to create transit nodes per hop.
+    const shortMinutes = Math.ceil(totalCost / (pfMode !== null ? pathfinderMultiplier(pfMode) : 1) / gridsPerDayForMode(mode) * 480);
+    const durationMinutes = shortMinutes > 0 && shortMinutes < 480 ? shortMinutes : undefined;
     const hops = hopResults.map(h => ({ fromId: h.fromId, toId: h.toId, transitId: '', legs: h.legs }));
+    if (hops.length === 1 && durationMinutes !== undefined) hops[0].durationMinutes = durationMinutes;
     const alternative = compare && pfMode !== null
         ? computeRoutePreview(ctx, campaignId, toX, toY, mode, preference === 'fastest' ? 'shortest' : 'fastest', false, targetId)
         : null;
     const hasRouteChoice = alternative && !alternative.blocked
         && Math.abs(alternative.cost - totalCost) > 0.001;
 
+    const knowledge = routeKnowledge(allCells, totalDays, mode, explorationByCampaign.get(campaignId), roadsByCampaign.get(campaignId));
     return {
+        knowledge,
+        durationMinutes: hops.length === 1 ? durationMinutes : undefined,
+        passage: passage?.passage,
         destinationSite,
         cells: allCells,
         cost: totalCost,
@@ -653,7 +672,7 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
         toAnchor: { locationId: toAnchor.locationId, name: toName },
         cellCount: Math.max(0, allCells.length - 1),
         preference,
-        hasRouteChoice: Boolean(hasRouteChoice),
+        hasRouteChoice: Boolean(hasRouteChoice) && !knowledge.uncertain,
         checkpoints: buildCheckpoints(
             hopResults,
             gridsPerDayForMode(mode),
@@ -668,6 +687,7 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
 function gridsPerDayForMode(mode) {
     if (mode === 'foot') return 3;
     if (mode === 'cart') return 5;
+    if (mode === 'boat') return 10;
     if (mode === 'horseback') return 8;
     if (mode === 'flying') return 20;
     return 3;
@@ -999,6 +1019,9 @@ function buildJourneyFromPreview(preview, worldDay) {
         cells: cells.map(c => ({ x: c.x, y: c.y, cost: c.cost })),
         checkpoints: checkpoints.map(c => ({ x: c.x, y: c.y, day: c.day, kind: c.kind, ...(c.siteId ? { siteId: c.siteId, siteName: c.siteName } : {}) })),
         totalLegs,
+        sameDay: preview.durationMinutes !== undefined,
+        surfaceTravel: preview.surfaceTravel !== false,
+        passage: preview.passage,
         startedOnDay: Number.isFinite(worldDay) ? worldDay : 1,
     };
 }
@@ -1063,7 +1086,7 @@ export async function solveAndPersist(ctx) {
     const solve = ledger => {
         const entries = ledger.filter(eligible);
         const ids = new Set(entries.map(entry => entry.id));
-        return solveWorldMap({ locations: entries.map(entry => ({ ...entry, connections: entry.connections.filter(edge => ids.has(edge.toId)) })),
+        return solveWorldMap({ locations: entries.map(entry => ({ ...entry, connections: entry.connections.filter(edge => ids.has(edge.toId) && !edge.passage) })),
             loreChunks: fresh.data.loreChunks ?? [], worldSeed: settings.worldSeed, hardenedCells: hardened, chunkStore: terrainChunkStore });
     };
     const baseline = solve(sourceLedger);
@@ -1084,7 +1107,7 @@ export async function solveAndPersist(ctx) {
     const liveLedger = confirm.data.location?.ledger ?? [];
     if (JSON.stringify(liveLedger) !== JSON.stringify(sourceLedger)) return null;
     result.anchors = fixedSiteAnchors(result, sites.values(), placedLedger);
-    const records = reconcilePlaceRecords(placedLedger, result.anchors, sites.values());
+    const records = markCurrentVisited(reconcilePlaceRecords(placedLedger, result.anchors, sites.values()), fresh.data.location?.currentPlaceId, player);
     if (records !== liveLedger && confirm.write?.setLocationLedger) await confirm.write.setLocationLedger(records);
     await confirm.table.write('anchors', result.anchors);
     publishResult(campaignId, result, settings);
@@ -1494,6 +1517,8 @@ export function mapSnapshot(ctx) {
         const location = ledgerById.get(anchor.locationId);
         return { ...anchor, hidden: isTemporaryPlace(location), name: location?.name ?? anchor.locationId, ...(location?.kind === 'transit' ? { kind: 'transit' } : {}) };
     });
+    const publicAnchors = anchors.filter(anchor => hasKnownPosition(ledgerById.get(anchor.locationId)) || anchor.locationId === ctx.data?.location?.currentPlaceId);
+    const publicIds = new Set(publicAnchors.map(anchor => anchor.locationId));
     const controls = buildWarpField(result.transects || []);
     const chunkStore = ensureChunkStore(campaignId, result.settings, controls, hardened);
 
@@ -1538,13 +1563,14 @@ export function mapSnapshot(ctx) {
         encounter,
         encounterJournal: [...encounterRecords.values()].filter(row => row.archivedOnDay == null && (!row.quiet || row.note || row.pinned || row.unresolved)).reverse(),
         encounterArchive: [...encounterRecords.values()].filter(row => row.archivedOnDay != null).reverse(),
-        anchors,
+        anchors: publicAnchors,
+        rumours: ledger.filter(place => place.id !== ctx.data?.location?.currentPlaceId).map(rumourArea).filter(Boolean),
         transects: result.transects || [],
-        connections: result.connections || [],
+        connections: (result.connections || []).filter(edge => publicIds.has(edge.fromId) && publicIds.has(edge.toId)),
         trails: serializeTrails(trailsByCampaign.get(campaignId) ?? readTrails(null)).edges,
-        discoveries: [...(discoveriesByCampaign.get(campaignId)?.sites.values() ?? [])].map(site => site.type === 'wilderness' && isTemporaryPlace(ledgerById.get(site.id) ?? { ...site, recordKind: 'position' }) ? { ...site, hidden: true } : site),
+        discoveries: [...(discoveriesByCampaign.get(campaignId)?.sites.values() ?? [])].filter(site => hasKnownPosition(ledgerById.get(site.id))).map(site => site.type === 'wilderness' && isTemporaryPlace(ledgerById.get(site.id) ?? { ...site, recordKind: 'position' }) ? { ...site, hidden: true } : site),
         nearbyDiscoveries: nearbyDiscoveries(discoveriesByCampaign.get(campaignId) ?? readDiscoveries(null),
-            party ?? anchors.find(anchor => anchor.locationId === ctx.data?.location?.currentPlaceId)),
+            party ?? anchors.find(anchor => anchor.locationId === ctx.data?.location?.currentPlaceId)).filter(site => hasKnownPosition(ledgerById.get(site.id))),
         waypoints: result.waypoints || [],
         settings: result.settings,
         hardened,
@@ -1576,7 +1602,10 @@ function mountMap(node, ctx) {
     // cold start. `liveCtx` is swapped for a freshly-read context on mount, which
     // is what makes place names and the current place resolve at all.
     let liveCtx = ctx;
+    let worldEditing = false;
     let currentCampaignId = ctx.data.campaignId;
+    roadEditorsByCampaign.delete(currentCampaignId);
+    snapshotCacheByCampaign.delete(currentCampaignId);
     // WO 6.2 §3 — the camera rule: "a repaint must not move the camera, but the
     // party actually advancing a leg should recentre." A repaint restores
     // `lastView` (the camera is panel state, not renderer state); a leg advance
@@ -1710,6 +1739,15 @@ function mountMap(node, ctx) {
     }
 
     const handleRouteAction = (action, payload) => {
+        if (action === 'worldEditing') {
+            worldEditing = payload === true;
+            if (!worldEditing) {
+                roadEditorsByCampaign.delete(currentCampaignId);
+                snapshotCacheByCampaign.delete(currentCampaignId);
+            }
+            refreshPreview(); return;
+        }
+        if ((action.startsWith('road') || action === 'setWorldProfile' || action === 'createConnection') && !worldEditing) return;
         if (action.startsWith('road')) {
             void handleRoadAction(action, payload).catch(error => {
                 showRoadEditor({ ...(roadEditorsByCampaign.get(currentCampaignId) ?? {}), busy: false, message: 'Could not save or build the path. Please try again.' });
@@ -1877,7 +1915,7 @@ function mountMap(node, ctx) {
 
     const handleClickCell = (x, y) => {
         const editor = roadEditorsByCampaign.get(currentCampaignId);
-        if (editor?.mode === 'manual') {
+        if (worldEditing && editor?.mode === 'manual') {
             if (editor.busy || !validCell({ x, y }) || editor.points.length >= 12) return;
             rebuildRoadDraft({ ...editor, points: [...editor.points, { x, y }] }); return;
         }
@@ -1908,9 +1946,9 @@ function mountMap(node, ctx) {
             handleClickCell(payload.x, payload.y);
             return;
         }
-        if (action === 'current' && locationId) {
+        if (action === 'current' && locationId && worldEditing) {
             if (liveCtx.write?.updateContext) {
-                liveCtx.write.updateContext({ currentPlaceId: locationId, currentFeature: null });
+                liveCtx.write.updateContext({ currentPlaceId: locationId, currentFeature: null, travel: null });
             } else {
                 ctx.events?.emit('setCurrentPlace', { locationId });
             }
@@ -1980,6 +2018,7 @@ function mountMap(node, ctx) {
             onContextAction: handleContextAction,
             getRoutePreview,
             getTravelMode,
+            getWorldEditing: () => worldEditing,
             travelModes: MAP_TRAVEL_MODES,
             log: (...args) => ctx?.log?.('[worldmap:map]', ...args),
         });
@@ -1997,6 +2036,8 @@ function mountMap(node, ctx) {
     };
     mapPaintListeners.add(repaint);
     const unsubscribeCampaign = ctx.subscribe('campaignId', async campaignId => {
+        worldEditing = false;
+        roadEditorsByCampaign.delete(currentCampaignId);
         currentCampaignId = campaignId;
         // WO 6.2 §4 — campaign switch: clear from memory (the record is
         // per-campaign on disk), reset the travel-watch flag, and hydrate

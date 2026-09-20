@@ -26,8 +26,8 @@ export function buildTravelFacts(context: GameContext, ledger: LocationEntry[]):
             band: connectionBand(connection),
             destination: ledger.find(place => place.id === connection.toId),
         }))
-        .filter(({ band, destination }) =>
-            destination !== undefined
+        .filter(({ band, destination, connection }) =>
+            destination !== undefined && !connection.passage
             && band !== 'adjacent',
         )
         .sort((a, b) => (

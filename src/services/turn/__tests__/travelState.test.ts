@@ -352,3 +352,33 @@ describe('bandFromLegs', () => {
         expect(bandFromLegs(100, 'foot')).toBe('farthest');
     });
 });
+
+describe('local and special travel', () => {
+    const a = makePlace({ id: 'a' }); const b = makePlace({ id: 'b' });
+    const base = { fromId: 'a', toId: 'b', band: 'far' as const, mode: 'foot' as const, ledger: [a,b], currentWorldDay: 7 };
+    it('accumulates short trips and carries a full travel day', () => {
+        const first = depart({ ...base, durationMinutes: 160 });
+        expect(first.contextPatch).toMatchObject({ currentPlaceId: 'b', worldDay: 7, travelMinutesToday: 160, travel: null });
+        const last = depart({ ...base, durationMinutes: 160, currentTravelMinutes: 400 });
+        expect(last.contextPatch).toMatchObject({ worldDay: 8, travelMinutesToday: 80 });
+        expect(first.ledgerUpsert).toBeUndefined();
+    });
+    it('uses explicit portals instantly without writing a return connection', () => {
+        const ledger = [{ ...a, connections: [{ toId: 'b', passage: 'portal' as const }] }, b];
+        const result = depart({ ...base, ledger, currentTravelMinutes: 120 });
+        expect(result.contextPatch).toMatchObject({ currentPlaceId: 'b', worldDay: 7, travelMinutesToday: 120 });
+        expect(result.ledgerUpsert).toBeUndefined();
+        expect(ledger[1].connections).toEqual([]);
+    });
+    it('uses tunnel duration and preserves legacy day travel', () => {
+        const ledger = [{ ...a, connections: [{ toId: 'b', passage: 'tunnel' as const, durationMinutes: 960 }] }, b];
+        const result = depart({ ...base, ledger, currentTravelMinutes: 400 });
+        expect(result.travel?.totalLegs).toBe(2);
+        expect(result.contextPatch).toMatchObject({ worldDay: 8, travelMinutesToday: 0 });
+        expect(advance(result.travel!, 8).contextPatch).toMatchObject({ worldDay: 9, currentPlaceId: 'b' });
+        expect(depart(base).travel?.totalLegs).toBe(8);
+    });
+    it('rejects malformed tunnel durations', () => {
+        expect(() => depart({ ...base, ledger: [{ ...a, connections: [{ toId: 'b', passage: 'tunnel', durationMinutes: -1 }] }, b] })).toThrow('Tunnel duration');
+    });
+});

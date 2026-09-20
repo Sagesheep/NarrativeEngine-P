@@ -23,7 +23,7 @@ export function trailMultiplier(trails, a, b) {
 // Record only the traversed prefix. The persisted cursor prevents repaint and
 // reload from wearing a trail a second time. Future route cells earn nothing.
 export function recordTrailProgress(trails, journey, endIndex) {
-    if (!journey || journey.mode === 'flying' || journey.mode === 'boat') return false;
+    if (!journey || journey.surfaceTravel === false || journey.mode === 'flying' || journey.mode === 'boat') return false;
     const key = journey.id ?? `${journey.fromId}:${journey.toId}:${journey.startedOnDay}`;
     const previous = trails.progress?.key === key ? trails.progress.index : 0;
     const end = Math.min(journey.cells.length - 1, endIndex);

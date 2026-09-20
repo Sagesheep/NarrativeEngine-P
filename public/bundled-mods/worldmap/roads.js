@@ -51,7 +51,7 @@ export function roadCandidates(anchors, ledger, sites, roads) {
         if (Math.hypot(a.x-b.x, a.y-b.y) > 160) return;
         used.add(key(a.locationId, b.locationId)); pairs.push([a, b]);
     };
-    for (const entry of ledger) if (entry.kind !== 'transit') for (const edge of entry.connections ?? []) add(places.get(entry.id), places.get(edge.toId));
+    for (const entry of ledger) if (entry.kind !== 'transit') for (const edge of entry.connections ?? []) if (!edge.passage) add(places.get(entry.id), places.get(edge.toId));
     const settlements = sites.filter(site => site.type === 'settlement');
     for (const site of settlements) {
         const from = places.get(site.id);

@@ -1,3 +1,4 @@
+import { hasKnownPosition } from '../location/knowledge';
 import type { GameContext, LocationEntry, TravelHop, TravelMode } from '../../types';
 import { modEventBus } from '../mods/events';
 
@@ -16,7 +17,7 @@ export function parseStoryMovement(text: string): { present: boolean; movement: 
 }
 export function movementPositionKey(context: GameContext): string {
     return JSON.stringify([context.currentPlaceId ?? null, context.currentFeature ?? null, context.worldDay ?? null,
-        context.travel ?? null]);
+        context.travel ?? null, context.travelMinutesToday ?? 0]);
 }
 export function exactMovementPlace(value: string | undefined, ledger: LocationEntry[]): LocationEntry | undefined {
     if (!value) return undefined;
@@ -27,12 +28,14 @@ export function exactMovementPlace(value: string | undefined, ledger: LocationEn
 }
 export function buildMovementContract(context: GameContext, ledger: LocationEntry[]): string {
     const current = ledger.find(place => place.id === context.currentPlaceId);
-    const destinations = ledger.filter(place => place.kind !== 'transit' && place.id !== current?.id).slice(0, 24)
+    const destinations = ledger.filter(place => place.kind !== 'transit' && hasKnownPosition(place) && place.id !== current?.id).slice(0, 24)
         .map(place => ({ id: place.id, name: place.name }));
     return `[MOVEMENT CONTRACT]
 The engine position below supersedes older chat locations. Play the player's new message HERE unless their action actually changes location. Camp, conversation, looking around, memories, wishes and plans do not advance travel or time. Nearby discoveries are not reached automatically.
 Current: ${JSON.stringify({ id: context.currentPlaceId ?? null, name: current?.name ?? null, feature: context.currentFeature ?? null, day: context.worldDay ?? null, travel: context.travel ?? null })}
 Known destinations: ${JSON.stringify(destinations)}
+Rumoured leads (not exact destinations; investigate or obtain directions before travelling to the place): ${JSON.stringify(ledger.filter(place => place.knowledge === 'rumoured' && place.id !== current?.id).slice(0, 24).map(place => ({ name: place.name, clue: place.knowledgeNote ?? '' })))}
+Secret places are not character knowledge. Do not reveal them or infer exact coordinates from a rumour.
 End this same reply with one hidden HTML comment: <!-- MOVEMENT {"action":"stay"} -->
 Actions: stay = no movement (default); local = actually enter a room/district of the current place, include feature; depart = player starts travelling to a known place, include its exact id as place; continue = player spends one travel day advancing the active journey; arrive = completed arrival, include place; relocate = explicit established teleport/scene cut, include place. Depart/continue advance at most ONE engine checkpoint on commit; do not narrate reaching a distant destination. Arrive during travel is accepted only at its final remaining checkpoint. Ordinary cross-place travel must use depart, not relocate. Initial scene with no current place may use arrive with the containing place name and feature (Unknown settlement / Slum district if unnamed). New destinations require established scene/lore, never infer them from memories. Keep the visible location header consistent. If nothing changes use stay. Do not output coordinates or invent elapsed days. No additional tool or model call is required.`;
 }

@@ -74,3 +74,15 @@ it('the ordinary next-chat payload includes the authoritative position and quiet
     expect(block).toContain('supersedes older chat');
     expect(block).toContain('do not advance travel');
 });
+
+it('does not expose secret destinations or let a rumour start a journey', async () => {
+    state.locationLedger[1].knowledge = 'rumoured';
+    state.locationLedger[1].knowledgeNote = 'Somewhere beyond the northern hills';
+    state.locationLedger.push({ ...place('Hidden Vault'), knowledge: 'secret' });
+    const contract = buildMovementContract(state.context, state.locationLedger);
+    expect(contract).not.toContain('Hidden Vault');
+    expect(contract).toContain('Somewhere beyond the northern hills');
+    await applyStoryMovement(tag({ action: 'depart', place: 'b' }), 'c');
+    expect(state.updateContext).not.toHaveBeenCalled();
+    expect(state.addMessage).toHaveBeenCalled();
+});

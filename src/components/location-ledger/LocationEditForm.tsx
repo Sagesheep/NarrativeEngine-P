@@ -55,8 +55,24 @@ export function LocationEditForm({
     const [imageBusy, setImageBusy] = useState(false);
     return (
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {isEditing && <p role="status" className="text-xs text-text-dim">Editing world facts. Position correction ends the current journey without spending a day.</p>}
             {renderedForm.placementIssue && <div role="status" className="text-xs text-warning">{renderedForm.placementIssue}</div>}
-            {renderedForm.coordinates && <div className="text-xs text-text-dim">Map coordinates: {renderedForm.coordinates.x}, {renderedForm.coordinates.y}</div>}
+            {renderedForm.coordinates && (isEditing || (renderedForm.knowledge !== 'rumoured' && renderedForm.knowledge !== 'secret')) && <div className="text-xs text-text-dim">Map coordinates: {renderedForm.coordinates.x}, {renderedForm.coordinates.y}</div>}
+            <Field label="Character knowledge">
+                <select aria-label="Character knowledge" className={inputClass(isEditing)} disabled={!isEditing}
+                    value={renderedForm.knowledge ?? 'known'} onChange={event => setForm(previous => ({ ...previous, knowledge: event.target.value as LocationEntry['knowledge'] }))}>
+                    <option value="rumoured">Rumoured — approximate whereabouts</option>
+                    <option value="known">Known — reliable location</option>
+                    <option value="visited">Visited</option>
+                    <option value="secret">Secret — hidden from character</option>
+                </select>
+            </Field>
+            <Field label="What the character knows">
+                <input aria-label="What the character knows" className={inputClass(isEditing)} disabled={!isEditing}
+                    value={renderedForm.knowledgeNote ?? ''} maxLength={240}
+                    onChange={event => setForm(previous => ({ ...previous, knowledgeNote: event.target.value }))} />
+            </Field>
+            {renderedForm.knowledge === 'rumoured' && <p className="text-xs text-text-dim">Exact whereabouts unknown. Investigate the marked area or obtain reliable directions, then change knowledge to Known.</p>}
             {isEditing && <label className="flex items-center gap-2 text-xs">
                 <input type="checkbox" checked={Boolean(form.pinned)} onChange={event => setForm({ ...form, pinned: event.target.checked })} />
                 Pin in locations
@@ -72,17 +88,19 @@ export function LocationEditForm({
                                 onClick={onStartEditing}
                                 className="px-3 py-1.5 border border-border rounded text-[10px] uppercase tracking-wider text-text-dim hover:text-terminal hover:border-terminal transition-colors"
                             >
-                                Edit
+                                Edit world
                             </button>
-                            <button
+
+                        </>
+                    )}
+                    {isEditing && selectedId && (<button
                                 onClick={() => onSetAsCurrent(form as LocationEntry)}
+                                title="Correct the current position without travelling or spending a day. Ends any active journey."
                                 disabled={!form.id}
                                 className="px-3 py-1.5 border border-terminal/30 rounded text-[10px] uppercase tracking-wider text-terminal hover:bg-terminal/10 transition-colors disabled:opacity-30"
                             >
-                                Set as Current
-                            </button>
-                        </>
-                    )}
+                                Correct player position here
+                            </button>)}
                     {isEditing && (
                         <>
                             <button
@@ -209,6 +227,7 @@ export function LocationEditForm({
 
             {/* Connections */}
             <Field label="Connections">
+                {isEditing && <p className="text-xs text-text-dim">Passages apply outbound from this place. Edit the destination separately for a return passage. Tunnel duration is in minutes; portals are instant.</p>}
                 <div className="space-y-2">
                     {(renderedForm.connections ?? []).length > 0 ? (
                         <div className="space-y-1">
@@ -222,6 +241,15 @@ export function LocationEditForm({
                                             <span className="text-text-dim text-[10px] ml-1">({connectionBand(c)})</span>
                                             {c.note && <span className="text-text-dim text-[10px] ml-1">— {c.note}</span>}
                                         </span>
+                                        {isEditing && <>
+                                            <select aria-label={`Outbound passage to ${other?.name ?? c.toId}`} className={inputClass(true)} value={c.passage ?? ''}
+                                                onChange={event => setForm(prev => ({ ...prev, connections: (prev.connections ?? []).map(edge => edge.toId === c.toId ? { ...edge, passage: (event.target.value || undefined) as LocationConnection['passage'], durationMinutes: event.target.value === 'tunnel' ? (edge.durationMinutes ?? 60) : undefined } : edge) }))}>
+                                                <option value="">Overland</option><option value="ferry">Ferry</option><option value="portal">Portal</option><option value="tunnel">Tunnel</option>
+                                            </select>
+                                            {c.passage === 'tunnel' && <input type="number" min={1} max={175200} aria-label={`Tunnel minutes to ${other?.name ?? c.toId}`} value={c.durationMinutes ?? 60}
+                                                onChange={event => setForm(prev => ({ ...prev, connections: (prev.connections ?? []).map(edge => edge.toId === c.toId ? { ...edge, durationMinutes: Math.min(175200, Math.max(1, Math.round(Number(event.target.value) || 1))) } : edge) }))} className={inputClass(true)} />}
+                                        </>}
+                                        {!isEditing && c.passage && <span>{c.passage}{c.passage === 'tunnel' ? ` · ${c.durationMinutes} min` : ''}</span>}
                                         {isEditing && (
                                             <button
                                                 onClick={() => onRemoveConnection(c.toId)}

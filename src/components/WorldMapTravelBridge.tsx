@@ -62,6 +62,7 @@ export function WorldMapTravelBridge() {
                 hops: data.hops && data.hops.length > 0 ? data.hops : undefined,
                 deps: { updateLocation, updateContext },
                 currentWorldDay,
+                currentTravelMinutes: state.context.travelMinutesToday,
             });
             if (!result) return;
 
@@ -97,7 +98,7 @@ export function WorldMapTravelBridge() {
         const unsubscribeCurrent = modEventBus.on('mod.worldmap.setCurrentPlace', (payload) => {
             const locationId = typeof payload?.locationId === 'string' ? payload.locationId : null;
             if (!locationId) return;
-            updateContext({ currentPlaceId: locationId, currentFeature: null });
+            updateContext({ currentPlaceId: locationId, currentFeature: null, travel: null });
         });
         return () => {
             unsubscribe();

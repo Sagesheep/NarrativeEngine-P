@@ -4,8 +4,8 @@ import type { DistanceBand } from '../distance';
 import { DISTANCE_BANDS } from '../distance';
 
 describe('TRAVEL_MODES', () => {
-    it('exports the four modes in order', () => {
-        expect(TRAVEL_MODES.map(m => m.id)).toEqual(['foot', 'cart', 'horseback', 'flying']);
+    it('exports the five modes in order', () => {
+        expect(TRAVEL_MODES.map(m => m.id)).toEqual(['foot', 'cart', 'horseback', 'boat', 'flying']);
     });
 
     it('gridsPerDay values match the work-order table', () => {
@@ -29,14 +29,14 @@ describe('legsFor', () => {
     // round(min*1.25) for farthest; legs = max(1, ceil(effective / gridsPerDay)).
     // (JS Math.round rounds .5 up, so round(4.5)=5, round(45.5)=46, round(90.5)=91.)
     const expected: Record<DistanceBand, Record<string, number>> = {
-        adjacent:  { foot: 1, cart: 1, horseback: 1, flying: 1 },
-        nearby:    { foot: 1, cart: 1, horseback: 1, flying: 1 },
-        local:     { foot: 2, cart: 1, horseback: 1, flying: 1 },
-        regional:  { foot: 4, cart: 3, horseback: 2, flying: 1 },
-        far:       { foot: 8, cart: 5, horseback: 3, flying: 2 },
-        distant:   { foot: 16, cart: 10, horseback: 6, flying: 3 },
-        remote:    { foot: 31, cart: 19, horseback: 12, flying: 5 },
-        farthest:  { foot: 51, cart: 31, horseback: 19, flying: 8 },
+        adjacent:  { foot: 1, cart: 1, horseback: 1, boat: 1, flying: 1 },
+        nearby:    { foot: 1, cart: 1, horseback: 1, boat: 1, flying: 1 },
+        local:     { foot: 2, cart: 1, horseback: 1, boat: 1, flying: 1 },
+        regional:  { foot: 4, cart: 3, horseback: 2, boat: 2, flying: 1 },
+        far:       { foot: 8, cart: 5, horseback: 3, boat: 3, flying: 2 },
+        distant:   { foot: 16, cart: 10, horseback: 6, boat: 5, flying: 3 },
+        remote:    { foot: 31, cart: 19, horseback: 12, boat: 10, flying: 5 },
+        farthest:  { foot: 51, cart: 31, horseback: 19, boat: 16, flying: 8 },
     };
 
     it.each(

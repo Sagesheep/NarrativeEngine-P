@@ -12,11 +12,14 @@ export function sanitizePlacement(raw: unknown, entry: LocationEntry, ledger: Lo
     const direction = directions.find(direction => direction === String(value.direction).toLowerCase());
     const preferredBiomes = Array.isArray(value.preferredBiomes)
         ? [...new Set(value.preferredBiomes.filter((biome): biome is typeof LOCATION_BIOMES[number] => LOCATION_BIOMES.includes(biome)))].slice(0, 4) : [];
+    const biomePolicy = value.biomePolicy === 'preferred' || value.biomePolicy === 'exception' ? value.biomePolicy : 'required';
+    const biomeRadius = typeof value.biomeRadius === 'number' && Number.isFinite(value.biomeRadius)
+        ? Math.max(3, Math.min(24, Math.round(value.biomeRadius))) : undefined;
     const cell = value.coordinates as { x?: number; y?: number } | undefined;
     const coordinates = cell && Number.isSafeInteger(cell.x) && Number.isSafeInteger(cell.y)
         && cell.x! >= 0 && cell.y! >= 0 && cell.x! < 1000 && cell.y! < 1000 ? { x: cell.x!, y: cell.y! } : undefined;
     if (!preferredBiomes.length && !distanceBand && !coordinates) return undefined;
-    return { referencePlaceId: reference?.id, distanceBand, direction, preferredBiomes, coordinates,
+    return { referencePlaceId: reference?.id, distanceBand, direction, preferredBiomes, biomePolicy, biomeRadius, coordinates,
         reason: typeof value.reason === 'string' ? value.reason.trim().slice(0, 240) : undefined };
 }
 export function requestPlacementContext(campaignId: string): Promise<string | null> {

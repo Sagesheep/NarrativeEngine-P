@@ -1,3 +1,4 @@
+import { hasKnownPosition } from '../location/knowledge';
 import { buildMovementContract } from '../turn/storyMovement';
 import type { GameContext, InventoryItemCategory, ChatMessage, NPCEntry, SceneEventType, LocationEntry, PlayerCharacter } from '../../types';
 import { CORE_FLOOR_TRAITS } from '../../types';
@@ -224,7 +225,7 @@ const LOCATION_BLOCK_CHAR_CAP = 400;
 
 export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]): string {
     const hasDay = context.worldDay !== undefined && Number.isFinite(context.worldDay);
-    const dayLine = hasDay ? `Day: ${context.worldDay}` : '';
+    const dayLine = hasDay ? `Day: ${context.worldDay}${context.travelMinutesToday ? ' · travel time spent today: ' + context.travelMinutesToday + ' minutes' : ''}` : '';
 
     const placeId = context.currentPlaceId;
     const place = placeId ? ledger.find(l => l.id === placeId) : undefined;
@@ -243,7 +244,11 @@ export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]
     for (const conn of place.connections) {
         const other = ledger.find(l => l.id === conn.toId);
         if (!other) continue;
-        if (other.kind === 'transit') continue;
+        if (other.kind === 'transit' || !hasKnownPosition(other)) continue;
+        if (conn.passage) {
+            nearbyParts.push(`${other.name} (${conn.passage}${conn.passage === 'portal' ? ', instant' : conn.passage === 'tunnel' ? ', ' + conn.durationMinutes + ' minutes' : ', requires a water route'})`);
+            continue;
+        }
         const band = connectionBand(conn);
         nearbyParts.push(band === 'local'
             ? other.name

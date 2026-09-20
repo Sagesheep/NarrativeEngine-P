@@ -72,3 +72,12 @@ it('times out a missing context reply and removes its listener', async () => {
         expect(modEventBus.getListenerCount('mod.worldmap.placementContextResult')).toBe(0);
     } finally { vi.useRealTimers(); }
 });
+
+it('validates biome intent and bounds the region without changing legacy requirements', () => {
+    expect(sanitizePlacement({ preferredBiomes: ['forest'], biomePolicy: 'preferred', biomeRadius: 100 }, ledger[1], ledger))
+        .toMatchObject({ biomePolicy: 'preferred', biomeRadius: 24 });
+    expect(sanitizePlacement({ preferredBiomes: ['desert'], biomePolicy: 'exception', biomeRadius: -2 }, ledger[1], ledger))
+        .toMatchObject({ biomePolicy: 'exception', biomeRadius: 3 });
+    expect(sanitizePlacement({ preferredBiomes: ['snow'], biomePolicy: 'invalid' }, ledger[1], ledger))
+        .toMatchObject({ biomePolicy: 'required' });
+});

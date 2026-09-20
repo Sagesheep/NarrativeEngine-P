@@ -305,7 +305,7 @@ export interface LocationSuggestion {
 
 /** WO 3 / WO 6.2 — a travel mode. The pathfinder accepts foot/cart/mount/boat;
  *  `horseback` maps to `mount` and `flying` routes as a straight line. */
-export type TravelMode = 'foot' | 'cart' | 'horseback' | 'flying';
+export type TravelMode = 'foot' | 'cart' | 'horseback' | 'flying' | 'boat';
 
 /** WO 6.1 §2 — one hop of a multi-hop route. `legs` is terrain-real when the
  *  route came from the pathfinder. */
@@ -314,6 +314,7 @@ export interface TravelHop {
     toId: string;
     transitId: string;
     legs: number;
+    durationMinutes?: number;
 }
 
 /** WO 3 / WO 6.2 — the active journey. The host owns `leg`, `totalLegs`, and

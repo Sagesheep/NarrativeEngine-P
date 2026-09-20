@@ -1,3 +1,4 @@
+import { hasKnownPosition } from '../location/knowledge';
 import type { GameContext, TravelMode } from '../../types';
 import { useAppStore } from '../../store/useAppStore';
 import { anchorSceneLocation } from '../locationHeader';
@@ -39,7 +40,7 @@ export async function applyStoryMovement(content: string, campaignId: string): P
         return true;
     }
     if (movement.action === 'depart') {
-        if (!current || !target || target.id === current.id || target.kind === 'transit' || context.travel) {
+        if (!current || !target || !hasKnownPosition(target) || target.id === current.id || target.kind === 'transit' || context.travel) {
             reject('choose a known destination from your current stop, with no other journey active.'); return true;
         }
         const mode: TravelMode = context.travelMode ?? 'foot';
@@ -50,8 +51,8 @@ export async function applyStoryMovement(content: string, campaignId: string): P
         if (fresh.activeCampaignId !== campaignId || movementPositionKey(fresh.context) !== key) return true;
         const connection = current.connections.find(edge => edge.toId === target.id);
         if ((hasMap && !hops) || (!hasMap && !connection)) { reject('no usable route was found. Check the destination and travel mode on the map.'); return true; }
-        const result = hops ? departMultiHop({ fromId: current.id, toId: target.id, mode, hops, ledger: fresh.locationLedger, currentWorldDay: context.worldDay })
-            : depart({ fromId: current.id, toId: target.id, mode, band: connectionBand(connection!), ledger: fresh.locationLedger, currentWorldDay: context.worldDay });
+        const result = hops ? departMultiHop({ fromId: current.id, toId: target.id, mode, hops, ledger: fresh.locationLedger, currentWorldDay: context.worldDay, currentTravelMinutes: context.travelMinutesToday })
+            : depart({ fromId: current.id, toId: target.id, mode, band: connectionBand(connection!), ledger: fresh.locationLedger, currentWorldDay: context.worldDay, currentTravelMinutes: context.travelMinutesToday });
         if (result.ledgerUpsert) fresh.setLocationLedger(mergeUpserts(fresh.locationLedger, result.ledgerUpsert));
         fresh.updateContext(result.contextPatch);
         return true;

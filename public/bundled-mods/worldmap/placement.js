@@ -24,18 +24,22 @@ const vectors = { n: [0, -1], ne: [Math.SQRT1_2, -Math.SQRT1_2], e: [1, 0], se: 
     s: [0, 1], sw: [-Math.SQRT1_2, Math.SQRT1_2], w: [-1, 0], nw: [-Math.SQRT1_2, -Math.SQRT1_2] };
 const REGION_RADIUS = 8;
 export function placementFor(entry) {
-    if (!entry.coordinates && !entry.placement?.preferredBiomes?.length && /frostmourne|\b(?:frozen|icy|ice|snowy|glacial)\b/i.test(`${entry.name} ${entry.description ?? ''}`)) {
-        return { ...entry.placement, preferredBiomes: ['snow', 'glacier', 'tundra'] };
-    }
     return entry.placement ?? (Number.isFinite(entry.placementPendingUntil) ? { preferredBiomes: [] } : null);
 }
 export function pendingPlacement(entry, now = Date.now()) {
     return !validCell(entry.coordinates) && Number.isFinite(entry.placementPendingUntil) && entry.placementPendingUntil > now;
 }
+function regionRadius(value) { return Number.isFinite(value) ? Math.max(3, Math.min(24, Math.round(value))) : REGION_RADIUS; }
+function bearing(id) {
+    let hash = 2166136261;
+    for (const char of String(id)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+    const angle = (hash >>> 0) / 4294967296 * Math.PI * 2;
+    return [Math.cos(angle), Math.sin(angle)];
+}
 export function terrainTransects(ledger) {
     return ledger.filter(entry => validCell(entry.coordinates) && Object.hasOwn(BIOME_TARGETS, entry.terrainBiome)).map(entry => ({
-        locationId: entry.id, source: 'Point of interest biome', noiseResumeDistance: REGION_RADIUS,
-        coreRadius: 3, controlPoints: [{ kind: 'terrain', ...entry.coordinates, target: BIOME_TARGETS[entry.terrainBiome] }],
+        locationId: entry.id, source: 'Point of interest biome', noiseResumeDistance: regionRadius(entry.terrainRadius),
+        coreRadius: Math.min(3, regionRadius(entry.terrainRadius) / 2), controlPoints: [{ kind: 'terrain', ...entry.coordinates, target: BIOME_TARGETS[entry.terrainBiome] }],
     }));
 }
 function knownCells(explored, generated, hardened) {
@@ -87,7 +91,10 @@ export function resolvePlacements(ledger, { anchors = [], player, store, explore
         const request = placementFor(entry);
         if (!request || validCell(entry.coordinates) || pendingPlacement(entry) || entry.kind === 'transit') continue;
         const preferred = (Array.isArray(request.preferredBiomes) ? request.preferredBiomes : []).filter(biome => Object.hasOwn(BIOME_TARGETS, biome)).slice(0, 4);
-        const acceptable = biome => preferred.length ? preferred.includes(biome) : BIOME_IDS.includes(biome) && biome !== 'ocean';
+        const soft = request.biomePolicy === 'preferred';
+        const radiusOfRegion = regionRadius(request.biomeRadius);
+        const acceptable = biome => preferred.length && !soft ? preferred.includes(biome) : BIOME_IDS.includes(biome) && (biome !== 'ocean' || preferred.includes('ocean'));
+        const matchesPreference = cell => preferred.includes(biomeAtCell(store, hardened, cell.x, cell.y));
         const reference = occupied.get(request.referencePlaceId) ?? player;
         const origin = inWorld(reference) ? reference : { x: Math.floor(worldSize / 2), y: Math.floor(worldSize / 2) };
         const band = bands.find(band => band.id === request.distanceBand);
@@ -100,10 +107,11 @@ export function resolvePlacements(ledger, { anchors = [], player, store, explore
         };
         const free = cell => [...occupied.values()].every(other => other.x !== cell.x || other.y !== cell.y);
         const middle = band ? (min + Math.min(max, min + 60)) / 2 : Math.min(20, worldSize / 3);
+        const heading = direction ?? bearing(entry.id);
         const desired = inWorld(request.coordinates) ? request.coordinates : {
-            x: Math.max(0, Math.min(worldSize - 1, Math.round(origin.x + (direction?.[0] ?? 1) * middle))),
-            y: Math.max(0, Math.min(worldSize - 1, Math.round(origin.y + (direction?.[1] ?? 0) * middle))) };
-        const score = cell => Math.hypot(cell.x - desired.x, cell.y - desired.y);
+            x: Math.max(0, Math.min(worldSize - 1, Math.round(origin.x + heading[0] * middle))),
+            y: Math.max(0, Math.min(worldSize - 1, Math.round(origin.y + heading[1] * middle))) };
+        const score = cell => Math.hypot(cell.x - desired.x, cell.y - desired.y) + (soft && preferred.length && !matchesPreference(cell) ? worldSize * 3 : 0);
         let chosen = null, relaxed = null;
         for (const key of known) {
             const [x, y] = key.split(',').map(Number), cell = { x, y };
@@ -113,10 +121,13 @@ export function resolvePlacements(ledger, { anchors = [], player, store, explore
         }
         let terrainBiome;
         const canGenerate = cell => {
-            if (!within(cell) || !free(cell) || cell.x < REGION_RADIUS || cell.y < REGION_RADIUS
-                || cell.x + REGION_RADIUS >= worldSize || cell.y + REGION_RADIUS >= worldSize) return false;
-            if ([...occupied.values()].some(other => Math.hypot(other.x - cell.x, other.y - cell.y) <= REGION_RADIUS * 2)) return false;
-            for (const key of visibleCells(cell, REGION_RADIUS)) {
+            if (!within(cell) || !free(cell) || cell.x < radiusOfRegion || cell.y < radiusOfRegion
+                || cell.x + radiusOfRegion >= worldSize || cell.y + radiusOfRegion >= worldSize) return false;
+            if ([...occupied].some(([id, other]) => {
+                const existing = updates.get(id) ?? ledger.find(place => place.id === id);
+                return Math.hypot(other.x - cell.x, other.y - cell.y) <= radiusOfRegion + regionRadius(existing?.terrainRadius);
+            })) return false;
+            for (const key of visibleCells(cell, radiusOfRegion)) {
                 if (explored.has(key) || hardened.has(key.replace(',', '\u241f'))) return false;
             }
             return true;
@@ -134,7 +145,7 @@ export function resolvePlacements(ledger, { anchors = [], player, store, explore
                                 return acceptable(biomeAtCell(store, hardened, x, y));
                             });
                         if (compatible) { chosen = cell; break; }
-                        if (canGenerate(cell)) { chosen = cell; terrainBiome = preferred[0] ?? 'plains'; break; }
+                        if (!soft && canGenerate(cell)) { chosen = cell; terrainBiome = preferred[0] ?? 'plains'; break; }
                     }
                 }
             }
@@ -144,7 +155,7 @@ export function resolvePlacements(ledger, { anchors = [], player, store, explore
             chosen = relaxed; issue = 'Map fully explored: used compatible terrain outside the requested distance or direction.';
         }
         if (!chosen) issue = 'No compatible site fits this placement without changing explored terrain or existing places.';
-        const next = chosen ? { ...entry, placement: request, coordinates: chosen, terrainBiome, placementIssue: issue }
+        const next = chosen ? { ...entry, placement: request, coordinates: chosen, terrainBiome, terrainRadius: terrainBiome ? radiusOfRegion : undefined, placementIssue: issue }
             : { ...entry, placement: request, placementIssue: issue };
         if (chosen) occupied.set(entry.id, chosen);
         if (chosen || entry.placementIssue !== issue || !entry.placement) { changed = true; updates.set(entry.id, next); }

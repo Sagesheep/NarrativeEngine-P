@@ -1,3 +1,4 @@
+import { hasKnownPosition } from '../location/knowledge';
 /**
  * WO 6.5 — shared departure-flow helper. Travel is now an engine action: the
  * first press departs (creating the journey state and landing on camp 1), and
@@ -43,7 +44,7 @@ export function travellableFrom(
 ): TravelCandidate[] {
     if (!fromId) return [];
     return ledger
-        .filter(loc => loc.id !== fromId && loc.kind !== 'transit')
+        .filter(loc => loc.id !== fromId && loc.kind !== 'transit' && hasKnownPosition(loc))
         .map(loc => {
             const from = ledger.find(l => l.id === fromId);
             const conn = from?.connections.find(c => c.toId === loc.id);
@@ -109,22 +110,25 @@ export function composeDeparture(args: {
     hops?: TravelHop[];
     deps: DepartureDeps;
     currentWorldDay?: number;
+    currentTravelMinutes?: number;
 }): TransitionResult | null {
     const { fromId, toId, mode, band, ledger, hops, deps, currentWorldDay } = args;
     const target = ledger.find(l => l.id === toId);
+    if (target && !hasKnownPosition(target)) return null;
     if (!target) throw new Error(`composeDeparture: destination ${toId} not in ledger`);
 
     // A multi-hop route must not invent a direct shortcut between its endpoints.
-    const usedBand = hops?.length ? band : ensureConnection(fromId, toId, band, ledger, deps.updateLocation);
+    const passage = ledger.find(place => place.id === fromId)?.connections.find(edge => edge.toId === toId)?.passage;
+    const usedBand = hops?.length || passage ? band : ensureConnection(fromId, toId, band, ledger, deps.updateLocation);
 
     deps.updateContext({ travelMode: mode });
 
     const workingLedger = [...ledger];
     let result: TransitionResult;
     if (hops && hops.length > 0) {
-        result = departMultiHop({ fromId, toId, mode, hops, ledger: workingLedger, currentWorldDay });
+        result = departMultiHop({ fromId, toId, mode, hops, ledger: workingLedger, currentWorldDay, currentTravelMinutes: args.currentTravelMinutes });
     } else {
-        result = depart({ fromId, toId, band: usedBand, mode, ledger: workingLedger, currentWorldDay });
+        result = depart({ fromId, toId, band: usedBand, mode, ledger: workingLedger, currentWorldDay, currentTravelMinutes: args.currentTravelMinutes });
     }
 
     return result;

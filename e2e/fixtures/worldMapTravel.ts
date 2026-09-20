@@ -117,6 +117,20 @@ if (new URLSearchParams(location.search).has('realWindow')) {
     flushSync(() => createRoot(document.getElementById('map')!).render(React.createElement(WindowManager)));
 } else windows.find(w => w.id === 'map-canvas').mount(document.getElementById('map'), makeContext());
 (window as any).worldmapTest = {
+    passageScene: (passage: string) => {
+        const a = { ...place('a', 'Alder', 'b'), coordinates: { x: 500, y: 500 }, connections: [{ toId: 'b', passage: passage === 'long-tunnel' ? 'tunnel' : passage, durationMinutes: passage === 'long-tunnel' ? 960 : 120 }] };
+        const b = { ...place('b', 'Birch', 'a'), coordinates: { x: passage === 'ferry' ? 505 : 600, y: 500 }, connections: [] };
+        tables.visited = [];
+        for (let y = 496; y <= 504; y++) for (let x = 496; x <= 509; x++) tables.visited.push({ x, y, biome: y === 500 && x > 500 && x < 505 ? 'ocean' : 'plains' });
+        tables.exploration = { version: 2, cells: [], generatedCells: [] };
+        tables.journey = null; tables.position = null; tables.trails = { edges: [], progress: [] };
+        const storedState = JSON.parse(sessionStorage.getItem('worldmap-fixture')!);
+        storedState.tables = tables;
+        storedState.state.locationLedger = [a, b];
+        storedState.state.context = { currentPlaceId: 'a', worldDay: 10, travelMinutesToday: 0, travel: null, travelMode: 'foot' };
+        sessionStorage.setItem('worldmap-fixture', JSON.stringify(storedState));
+    },
+    previewDestination: () => openMapTravelPreview('b', 'foot'),
     storyMove: (movement: unknown) => applyStoryMovement(`<!-- MOVEMENT ${JSON.stringify(movement)} -->`, useAppStore.getState().activeCampaignId!),
     sceneContext: () => { const { context, locationLedger } = useAppStore.getState(); return [buildMovementContract(context, locationLedger), buildLocationBlock(context, locationLedger), buildMapEncounterBlock(context), buildMapDiscoveriesBlock(context)].join('\n'); },
     read: async () => { const live = await ctx.refresh(); return ({ ledger: useAppStore.getState().locationLedger, context: useAppStore.getState().context, messages: useAppStore.getState().messages, composerInjection: useAppStore.getState().composerInjection,
@@ -180,6 +194,15 @@ if (new URLSearchParams(location.search).has('realWindow')) {
         useAppStore.getState().updateContext({ travel: data.travel, currentPlaceId: data.travel.transitId, worldDay: data.worldDay });
         save();
     },
+    knowledge: (value: 'rumoured' | 'known' | 'secret') => {
+        useAppStore.getState().updateLocation('b', { knowledge: value, knowledgeNote: 'A traveller mentioned a settlement in this region.' });
+        save();
+    },
+    disconnectPlaces: () => {
+        const state = useAppStore.getState();
+        state.setLocationLedger(state.locationLedger.map(place => ({ ...place, connections: [] })));
+        save();
+    },
     ground: () => {
         const anchors = mapSnapshot(makeContext()).anchors;
         const xs = anchors.map((a: any) => a.x), ys = anchors.map((a: any) => a.y);
@@ -193,6 +216,6 @@ if (new URLSearchParams(location.search).has('realWindow')) {
         save();
     },
     anchors: () => mapSnapshot(makeContext()).anchors,
-    plan: () => openMapTravelPreview('b', 'flying'),
+    plan: (mode: 'foot' | 'flying' = 'flying') => openMapTravelPreview('b', mode),
     renamePlace: (id: string, name: string) => useAppStore.getState().updateLocation(id, { name }),
 };

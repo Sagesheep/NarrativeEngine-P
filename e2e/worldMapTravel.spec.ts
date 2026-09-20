@@ -20,14 +20,15 @@ async function depart(page: Page) {
             y: rect.top + rect.height/2 + (b.y - (minY+maxY)/2)*cell };
     });
     await page.mouse.click(target.x, target.y);
-    const estimate = page.getByText(/\d+ cells · \d+ days?/);
+    const estimate = page.getByText(/\d+ cells · \d+ days?|Estimated \d+–\d+ days/);
     await expect(estimate).toBeVisible();
-    const days = Number((await estimate.innerText()).match(/· (\d+) days/)![1]);
-    expect(days).toBeGreaterThan(2);
+    const preciseDays = (await estimate.innerText()).match(/· (\d+) days/);
     await page.getByRole('button', { name: 'Travel', exact: true }).click();
     await expect.poll(async () => (await read(page)).context.travel?.leg).toBe(1);
     const journey = (await read(page)).journey;
-    expect(journey.totalLegs).toBe(days);
+    const days = journey.totalLegs;
+    expect(days).toBeGreaterThan(2);
+    if (preciseDays) expect(days).toBe(Number(preciseDays[1]));
     return { ...journey, days };
 }
 
@@ -86,7 +87,7 @@ test('Abandon clears the route without arriving or spending another day', async 
 
 test('external departure picker uses the map preview before moving', async ({ page }) => {
     await page.evaluate(() => (window as any).worldmapTest.plan());
-    await expect(page.getByText(/\d+ cells · \d+ days?/)).toBeVisible();
+    await expect(page.getByText(/\d+ cells · \d+ days?|minutes.*local travel/)).toBeVisible();
     expect((await read(page)).context.worldDay).toBe(10);
     expect((await read(page)).context.travel).toBeNull();
     await page.getByRole('button', { name: 'Travel', exact: true }).click();
@@ -164,7 +165,7 @@ test('a discovered site becomes a fixed ledger destination and survives identity
     if (await enter.isVisible()) await enter.click();
     else {
         await page.getByRole('button', { name: 'Visit site', exact: true }).click();
-        await expect(page.getByText(/\d+ cells · \d+ days?/)).toBeVisible();
+        await expect(page.getByText(/\d+ cells · \d+ days?|minutes.*local travel/)).toBeVisible();
         await page.getByRole('button', { name: 'Travel', exact: true }).click();
         for (let i = 0; i < 40; i++) {
             const state = await read(page);
@@ -182,7 +183,7 @@ test('a discovered site becomes a fixed ledger destination and survives identity
     expect(anchor).toMatchObject({ x: site.x, y: site.y, name: 'Quiet Bell Abbey' });
     expect((await read(page)).ledger.filter((entry: any) => entry.id === id)).toHaveLength(1);
     const finishPreview = async (destination: string) => {
-        const estimate = page.getByText(/\d+ cells · \d+ days?/);
+        const estimate = page.getByText(/\d+ cells · \d+ days?|minutes.*local travel/);
         await expect(estimate).toBeVisible();
         const days = Number((await estimate.innerText()).match(/· (\d+) days?/)![1]);
         const day = (await read(page)).context.worldDay;
@@ -338,6 +339,7 @@ test('world setting persists, reaches story context and applies only to newly ob
     await page.reload();
     await page.waitForFunction(() => !!(window as any).worldmapTest);
     const before = await read(page);
+    await page.getByRole('button', { name: 'Edit world', exact: true }).click();
     await page.getByLabel('World setting', { exact: true }).selectOption('cyberpunk');
     await expect.poll(async () => (await read(page)).context.mapWorldSetting?.id).toBe('cyberpunk');
     await expect(page.getByText(/Setting changed. The previous encounter/)).toBeVisible();
@@ -346,6 +348,8 @@ test('world setting persists, reaches story context and applies only to newly ob
     await page.getByLabel('Grid layer').check();
     await page.reload();
     await page.waitForFunction(() => !!(window as any).worldmapTest);
+    await expect(page.getByLabel('World setting', { exact: true })).toBeHidden();
+    await page.getByRole('button', { name: 'Edit world', exact: true }).click();
     await expect(page.getByLabel('World setting', { exact: true })).toHaveValue('cyberpunk');
     await expect(page.getByLabel('Grid layer')).toBeChecked();
     await page.evaluate(() => (window as any).worldmapTest.plan());
@@ -388,7 +392,9 @@ test('an unexplored empty cell can be previewed, travelled to and revisited with
     const remembered = before.exploration.generatedCells.find((key: string) => !arrived.snapshot.visible.includes(key));
     expect(remembered).toBeTruthy();
     expect(arrived.exploration.generatedCells).toContain(remembered);
-    expect(arrived.context.worldDay).toBe(before.context.worldDay + 1);
+    expect(arrived.context.worldDay).toBe(before.context.worldDay);
+    expect(arrived.context.travelMinutesToday).toBeGreaterThan(0);
+    expect(arrived.context.travelMinutesToday).toBeLessThan(480);
     expect(arrived.messages).toEqual(before.messages);
     expect(arrived.discoveries.sites.find((site: any) => site.id === id)).toMatchObject({ x: target.x, y: target.y, type: 'wilderness' });
     await page.evaluate(id => (window as any).worldmapTest.renamePlace(id, 'North lookout'), id);
@@ -442,6 +448,7 @@ test('manual waypoint paths save and reload without moving or revealing terrain'
             sy: rect.top + rect.height/2 + (point.y - (minY+maxY)/2)*size }));
     });
     const before = await read(page);
+    await page.getByRole('button', { name: 'Edit world', exact: true }).click();
     await page.getByText('Roads and paths', { exact: true }).click();
     await page.getByRole('button', { name: 'Draw path', exact: true }).click();
     await expect(page.getByText('0/12 waypoints · click the map to add')).toBeVisible();
@@ -460,6 +467,7 @@ test('manual waypoint paths save and reload without moving or revealing terrain'
     expect(saved.messages).toEqual(before.messages);
     await page.reload(); await page.waitForFunction(() => !!(window as any).worldmapTest);
     expect((await read(page)).roads).toEqual(saved.roads);
+    await page.getByRole('button', { name: 'Edit world', exact: true }).click();
     await page.getByText('Roads and paths', { exact: true }).click();
     await page.getByRole('button', { name: 'Remove selected path', exact: true }).click();
     await expect.poll(async () => (await read(page)).roads?.routes).toEqual([]);
@@ -469,6 +477,7 @@ test('generated road proposals can be reviewed and saved once without exploring'
     await page.evaluate(() => (window as any).worldmapTest.ground());
     await page.reload(); await page.waitForFunction(() => !!(window as any).worldmapTest);
     const before = await read(page);
+    await page.getByRole('button', { name: 'Edit world', exact: true }).click();
     await page.getByText('Roads and paths', { exact: true }).click();
     await page.getByRole('button', { name: 'Generate roads', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Save roads', exact: true })).toBeEnabled();
@@ -576,4 +585,135 @@ test('free-chat travel uses map geometry and camp RP keeps the reached scene', a
     await expect.poll(async () => (await read(page)).context.worldDay).toBe(before.context.worldDay + 1);
     await expect.poll(async () => JSON.stringify((await read(page)).snapshot.party)).not.toBe(JSON.stringify(before.snapshot.party));
     expect((await read(page)).messages).toHaveLength(0);
+});
+
+test('unconnected known destination supports overland departure and arrival without creating a road', async ({ page }) => {
+    await page.evaluate(() => {
+        (window as any).worldmapTest.ground();
+        (window as any).worldmapTest.disconnectPlaces();
+    });
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).worldmapTest);
+    const before = await read(page);
+    expect(before.ledger.every((place: any) => place.connections.length === 0)).toBe(true);
+    const journey = await depart(page);
+    expect(journey).toMatchObject({ fromId: 'a', toId: 'b', mode: 'foot' });
+    for (let day = 1; day < journey.days; day++) {
+        await page.getByRole('button', { name: day === journey.days - 1 ? 'Arrive at Birch' : 'Continue →', exact: true }).click();
+        await expect.poll(async () => (await read(page)).context.worldDay).toBe(11 + day);
+    }
+    const arrived = await read(page);
+    expect(arrived.context.currentPlaceId).toBe('b');
+    expect(arrived.context.travel).toBeNull();
+    expect(arrived.roads).toEqual(before.roads);
+    expect(arrived.messages).toHaveLength(0);
+});
+
+test('rumoured areas hide exact pins and become navigable only after learning the location', async ({ page }, testInfo) => {
+    const before = await read(page);
+    const coordinates = before.ledger.find((place: any) => place.id === 'b').coordinates;
+    await page.evaluate(() => (window as any).worldmapTest.knowledge('rumoured'));
+    await expect.poll(async () => page.evaluate(() => (window as any).worldmapTest.anchors().some((anchor: any) => anchor.locationId === 'b'))).toBe(false);
+    await expect(page.locator('canvas')).toHaveAttribute('data-worldmap-rumours', '1');
+    await page.getByRole('button', { name: 'Fit map to content', exact: true }).click();
+    await page.screenshot({ path: testInfo.outputPath('rumoured-area.png') });
+    await page.evaluate(() => (window as any).worldmapTest.plan());
+    await expect(page.getByText(/Exact location unknown/)).toBeVisible();
+    expect((await read(page)).context.travel).toBeNull();
+    expect((await read(page)).exploration).toEqual(before.exploration);
+    await page.evaluate(() => (window as any).worldmapTest.knowledge('secret'));
+    await expect(page.locator('canvas')).toHaveAttribute('data-worldmap-rumours', '0');
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).worldmapTest);
+    expect(await page.evaluate(() => (window as any).worldmapTest.anchors().some((anchor: any) => anchor.locationId === 'b'))).toBe(false);
+    await page.evaluate(() => (window as any).worldmapTest.knowledge('known'));
+    await expect.poll(async () => page.evaluate(() => (window as any).worldmapTest.anchors().some((anchor: any) => anchor.locationId === 'b'))).toBe(true);
+    expect((await read(page)).ledger.find((place: any) => place.id === 'b').coordinates).toEqual(coordinates);
+    await page.evaluate(() => (window as any).worldmapTest.plan());
+    await expect(page.getByRole('button', { name: 'Travel', exact: true })).toBeVisible();
+});
+
+test('unexplored ground routes show estimates without revealing the future path or camps', async ({ page }, testInfo) => {
+    await page.evaluate(() => (window as any).worldmapTest.ground());
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).worldmapTest);
+    const before = await read(page);
+    await page.evaluate(() => (window as any).worldmapTest.plan('foot'));
+    await expect(page.getByText(/Estimated .*route uncertain/)).toBeVisible();
+    await expect(page.getByText(/Dashed line shows direction only/)).toBeVisible();
+    await expect(page.locator('canvas')).toHaveAttribute('data-worldmap-route-certainty', 'estimated');
+    expect((await read(page)).exploration).toEqual(before.exploration);
+    expect((await read(page)).context.worldDay).toBe(before.context.worldDay);
+    await page.screenshot({ path: testInfo.outputPath('uncertain-preview.png') });
+    await page.getByRole('button', { name: 'Travel', exact: true }).click();
+    await expect.poll(async () => (await read(page)).context.travel?.leg).toBe(1);
+    await expect(page.getByText(/route uncertain remaining/)).toBeVisible();
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).worldmapTest);
+    await expect(page.getByText(/route uncertain remaining/)).toBeVisible();
+    expect((await read(page)).context.worldDay).toBe(before.context.worldDay + 1);
+});
+
+test('world authoring is opt-in and leaving it discards the unsaved road draft', async ({ page }, testInfo) => {
+    const before = await read(page);
+    await expect(page.getByLabel('World setting', { exact: true })).toBeHidden();
+    await expect(page.getByText('Roads and paths', { exact: true })).toBeHidden();
+    await page.getByRole('button', { name: 'Edit world', exact: true }).click();
+    await expect(page.getByLabel('World setting', { exact: true })).toBeVisible();
+    await page.getByText('Roads and paths', { exact: true }).click();
+    await page.getByRole('button', { name: 'Draw path', exact: true }).click();
+    await expect(page.getByText('0/12 waypoints · click the map to add')).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('world-edit-mode.png') });
+    await page.getByRole('button', { name: 'Done editing', exact: true }).click();
+    await expect(page.getByLabel('World setting', { exact: true })).toBeHidden();
+    expect((await read(page)).context.worldDay).toBe(before.context.worldDay);
+    expect((await read(page)).context.currentPlaceId).toBe(before.context.currentPlaceId);
+    expect((await read(page)).roads).toEqual(before.roads);
+    await page.getByRole('button', { name: 'Edit world', exact: true }).click();
+    await page.getByText('Roads and paths', { exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Draw path', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save path', exact: true })).toHaveCount(0);
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).worldmapTest);
+    await expect(page.getByRole('button', { name: 'Edit world', exact: true })).toHaveAttribute('aria-pressed', 'false');
+});
+
+for (const passage of ['portal', 'tunnel', 'ferry']) {
+    test(passage + ' travels through the real map bridge without a forced full day', async ({ page }) => {
+        await page.evaluate(p => (window as any).worldmapTest.passageScene(p), passage);
+        await page.reload();
+        await page.waitForFunction(() => !!(window as any).worldmapTest);
+        await page.evaluate(() => (window as any).worldmapTest.previewDestination());
+        await expect(page.getByText(/local travel/)).toBeVisible();
+        if (passage === 'portal') await expect(page.getByText(/portal · Instant/)).toBeVisible();
+        await page.getByRole('button', { name: 'Travel', exact: true }).click();
+        await expect.poll(async () => (await read(page)).context.currentPlaceId).toBe('b');
+        await expect.poll(async () => (await read(page)).journey).toBeNull();
+        const result = await read(page);
+        expect(result.context.worldDay).toBe(10);
+        expect(result.context.travel).toBeNull();
+        expect(result.context.travelMinutesToday).toBe(passage === 'portal' ? 0 : passage === 'tunnel' ? 120 : 240);
+        if (passage === 'ferry') expect(result.context.travelMode).toBe('boat');
+        else expect(result.exploration.cells).not.toContain('550,500');
+        await page.reload();
+        await page.waitForFunction(() => !!(window as any).worldmapTest);
+        expect((await read(page)).context.travelMinutesToday).toBe(result.context.travelMinutesToday);
+    });
+}
+
+test('multi-day tunnel survives reload without revealing surface terrain or creating roads', async ({ page }) => {
+    await page.evaluate(() => (window as any).worldmapTest.passageScene('long-tunnel'));
+    await page.reload(); await page.waitForFunction(() => !!(window as any).worldmapTest);
+    await page.evaluate(() => (window as any).worldmapTest.previewDestination());
+    await expect(page.getByText(/tunnel · 2 travel days/)).toBeVisible();
+    await page.getByRole('button', { name: 'Travel', exact: true }).click();
+    await expect.poll(async () => (await read(page)).context.travel?.leg).toBe(1);
+    await expect(page.getByText(/Underground/)).toBeVisible();
+    expect((await read(page)).exploration.cells).not.toContain('550,500');
+    await page.reload(); await page.waitForFunction(() => !!(window as any).worldmapTest);
+    await page.getByRole('button', { name: 'Arrive at Birch', exact: true }).click();
+    await expect.poll(async () => (await read(page)).context.currentPlaceId).toBe('b');
+    expect((await read(page)).context.worldDay).toBe(12);
+    expect((await read(page)).exploration.cells).not.toContain('550,500');
+    expect((await read(page)).trails?.edges ?? []).toHaveLength(0);
 });

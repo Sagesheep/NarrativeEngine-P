@@ -31,7 +31,7 @@ export type LocationScanResult = {
 // ── Model output shape (parsed, then validated by applyLocationOps) ────────
 type RawCurrent = { place: string; feature: string | null };
 type RawNewPlace = { name: string; broadLocation?: string; connectedTo?: string; context?: string };
-type RawUpdate = { place: string; addFeatures?: string[]; addConnections?: string[] };
+type RawUpdate = { knowledge?: string; knowledgeEvidence?: string; place: string; addFeatures?: string[]; addConnections?: string[] };
 type RawScan = {
     current: RawCurrent;
     newPlaces?: RawNewPlace[];
@@ -45,14 +45,14 @@ const MAX_CONNECTIONS = 8;
 /** Build the "KNOWN PLACES" block for the estimator prompt. */
 function buildKnownPlaces(ledger: LocationEntry[]): string {
     if (ledger.length === 0) return '(none yet)';
-    return ledger.map(e => {
+    return ledger.filter(e => e.knowledge !== 'secret').map(e => {
         const connected = e.connections
             .map(c => {
                 const tgt = ledger.find(x => x.id === c.toId);
-                return tgt ? tgt.name : '';
+                return tgt && tgt.knowledge !== 'secret' ? tgt.name : '';
             })
             .filter(Boolean);
-        return `{"id":"${e.id}","name":"${e.name}","aliases":"${e.aliases}","features":[${e.features.map(f => `"${f}"`).join(',')}],"connectedTo":[${connected.map(n => `"${n}"`).join(',')}]}`;
+        return `{"id":"${e.id}","name":"${e.name}","aliases":"${e.aliases}","knowledge":"${e.knowledge ?? 'known'}","features":[${e.features.map(f => `"${f}"`).join(',')}],"connectedTo":[${connected.map(n => `"${n}"`).join(',')}]}`;
     }).join('\n');
 }
 
@@ -112,7 +112,7 @@ Return ONLY a JSON object, no prose, no markdown:
 {
   "current": {"place": "<known place name/alias | NEW place name | unclear>", "feature": "<feature name within that place, or null>"},
   "newPlaces": [{"name": "", "broadLocation": "", "connectedTo": "<known place name>", "context": "<5-10 word quote>"}],
-  "updates": [{"place": "<known place name>", "addFeatures": [], "addConnections": ["<known place name>"]}]
+  "updates": [{"place": "<known place name>", "addFeatures": [], "addConnections": ["<known place name>"], "knowledge":"unchanged", "knowledgeEvidence":""}]
 }
 
 Rules:
@@ -120,6 +120,7 @@ Rules:
 - "unclear" if the text does not establish where the PC is. When in doubt, "unclear" — the last known place then stands.
 - current: only the established scene location. A mentioned place, quest destination, future plan, memory or dialogue is NEVER evidence of arrival. Keep the last known place unless the scene establishes actual movement or arrival.
 - newPlaces: concrete named destinations (including distant quest destinations), places the PC is AT, or established adjacent scenery. These are suggestions only and NEVER change current. Do not invent places from hypothetical stories.
+- A rumoured place becomes known ONLY when this scene gives the character reliable directions, an exact map, or direct observation. Set updates.knowledge to known and knowledgeEvidence to a brief supporting quote. Mere mentions, plans and quests do not qualify. Otherwise unchanged. Never mark visited or reveal secret places.
 - updates: only rooms/features and connections the text actually establishes for known places.
 - If nothing changed: {"current":{"place":"unclear","feature":null},"newPlaces":[],"updates":[]}`;
 
@@ -218,6 +219,10 @@ export function applyLocationOps(
         if (!upd || typeof upd !== 'object' || typeof upd.place !== 'string') continue;
         const target = resolvePlace(upd.place, next);
         if (!target) continue; // may only target existing entries
+        if (target.knowledge === 'rumoured' && upd.knowledge === 'known' && typeof upd.knowledgeEvidence === 'string' && upd.knowledgeEvidence.trim()) {
+            target.knowledge = 'known';
+            target.knowledgeNote = upd.knowledgeEvidence.trim().slice(0, 240);
+        }
         // Features
         if (Array.isArray(upd.addFeatures)) {
             for (const f of upd.addFeatures) {
@@ -315,12 +320,14 @@ export function mergeLocationScanLedger(
             liveConnections.add(connection.toId);
         }
 
+        const learned = before.knowledge === 'rumoured' && after.knowledge === 'known'
+            && entry.knowledge === before.knowledge && entry.knowledgeNote === before.knowledgeNote;
         const lastSeenScene = after.lastSeenScene !== before.lastSeenScene
             ? after.lastSeenScene
             : entry.lastSeenScene;
-        if (features.length === entry.features.length && connections.length === entry.connections.length && lastSeenScene === entry.lastSeenScene) return entry;
+        if (features.length === entry.features.length && connections.length === entry.connections.length && lastSeenScene === entry.lastSeenScene && !learned) return entry;
         changed = true;
-        return { ...entry, features, connections, lastSeenScene };
+        return { ...entry, features, connections, lastSeenScene, ...(learned ? { knowledge: 'known' as const, knowledgeNote: after.knowledgeNote } : {}) };
     });
 
     return changed ? merged : live;

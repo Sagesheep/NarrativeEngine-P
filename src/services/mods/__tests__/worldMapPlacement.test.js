@@ -81,9 +81,10 @@ describe('point of interest geography', () => {
         const expired = { ...pending, placementPendingUntil: Date.now() - 1 };
         expect(resolvePlacements([camp, expired], options())[1].coordinates).toBeDefined();
     });
-    it('gives Frostmourne an icy default even without an AI response', () => {
-        const result = resolvePlacements([camp, { id: 'castle', name: 'Frostmourne Castle' }], options());
-        expect(result[1].terrainBiome).toBe('snow');
+    it('does not infer terrain from evocative names without geographic evidence', () => {
+        const result = resolvePlacements([camp, { id: 'castle', name: 'Frostmourne Castle', placement: { preferredBiomes: [] } }], options());
+        expect(result[1].terrainBiome).toBeUndefined();
+        expect(result[1].coordinates).toBeDefined();
     });
     it('all biome targets classify to their declared biome', () => {
         for (const [biome, target] of Object.entries(BIOME_TARGETS)) expect(classifyBiome(target), biome).toBe(biome);
@@ -111,4 +112,46 @@ it('tolerates malformed persisted hints without allowing prototype properties as
     const result = resolvePlacements([camp, request], options());
     expect(result[1].coordinates).toBeDefined();
     expect(result[1].coordinates.x).toBeGreaterThanOrEqual(0);
+});
+
+it('treats a biome preference as optional on a fully explored map', () => {
+    const lodge = { id: 'lodge', placement: { preferredBiomes: ['forest'], biomePolicy: 'preferred' } };
+    const result = resolvePlacements([camp, lodge], options({ worldSize: 32, explored: fullMap(32) }));
+    expect(result[1].coordinates).toBeDefined();
+    expect(result[1].terrainBiome).toBeUndefined();
+    expect(terrainTransects(result)).toEqual([]);
+});
+it('ranks existing preferred terrain ahead of other suitable land', () => {
+    const lodge = { id: 'lodge', placement: { preferredBiomes: ['forest'], biomePolicy: 'preferred', coordinates: { x: 20, y: 20 } } };
+    const result = resolvePlacements([camp, lodge], options({ explored: new Set(['20,20', '30,30']),
+        store: { getCell: (x, y) => ({ biome: x === 30 && y === 30 ? 'forest' : 'savanna' }) } }));
+    expect(result[1].coordinates).toEqual({ x: 30, y: 30 });
+});
+it('honors explicit surrounding terrain for an exceptional building instead of its name', () => {
+    const entry = { id: 'ice', name: 'Frozen Castle', description: 'Magical ice walls stand in a desert.',
+        placement: { preferredBiomes: ['desert'], biomePolicy: 'exception', coordinates: { x: 60, y: 60 }, biomeRadius: 5 } };
+    const result = resolvePlacements([camp, entry], options());
+    expect(result[1].terrainBiome).toBe('desert');
+    expect(result[1].terrainRadius).toBe(5);
+    const reloaded = JSON.parse(JSON.stringify(result));
+    const controls = terrainTransects(reloaded);
+    expect(controls[0].noiseResumeDistance).toBe(5);
+    expect(resolvePlacements(reloaded, options())).toBe(reloaded);
+});
+it('keeps the entire requested region away from explored ground', () => {
+    const entry = { ...castle, placement: { ...castle.placement, biomeRadius: 20, coordinates: { x: 70, y: 70 } } };
+    const result = resolvePlacements([camp, entry], options({ explored: new Set(['72,70']) }));
+    expect(result[1].terrainRadius).toBe(20);
+    expect(Math.hypot(result[1].coordinates.x - 72, result[1].coordinates.y - 70)).toBeGreaterThan(20);
+});
+it('uses stable varied bearings when no direction is supplied', () => {
+    const quadrants = new Set();
+    for (let i = 0; i < 40; i++) {
+        const entry = { id: 'destination-' + i, placement: { preferredBiomes: [] } };
+        const opts = options({ player: { x: 50, y: 50 } });
+        const first = resolvePlacements([entry], opts)[0].coordinates;
+        expect(resolvePlacements([entry], opts)[0].coordinates).toEqual(first);
+        quadrants.add((first.x >= 50 ? 'e' : 'w') + (first.y >= 50 ? 's' : 'n'));
+    }
+    expect(quadrants.size).toBeGreaterThan(1);
 });

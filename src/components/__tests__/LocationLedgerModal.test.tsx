@@ -42,11 +42,11 @@ describe('LocationLedgerModal', () => {
         await screen.findByAltText('Harbor picture');
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
         expect(useAppStore.getState().locationLedger[0].image).toBe('/assets/portraits/harbor.png');
-        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
         fireEvent.change(screen.getByPlaceholderText('1-2 sentences of texture.'), { target: { value: 'Busy docks' } });
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
         expect(useAppStore.getState().locationLedger[0].image).toBe('/assets/portraits/harbor.png');
-        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
         fireEvent.click(screen.getByRole('button', { name: 'Remove Picture' }));
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
         expect(useAppStore.getState().locationLedger[0].image).toBeUndefined();
@@ -58,7 +58,7 @@ describe('LocationLedgerModal', () => {
         useAppStore.setState({ locationLedger: [makeLocation('a', 'Harbor'), makeLocation('b', 'Forest')] });
         render(<LocationLedgerModal />);
         fireEvent.click(screen.getByText('Harbor'));
-        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
         fireEvent.change(screen.getByLabelText('Upload location picture'), { target: { files: [new File(['image'], 'harbor.png', { type: 'image/png' })] } });
         expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
         fireEvent.click(screen.getByText('Forest', { selector: 'p' }));
@@ -94,7 +94,7 @@ describe('LocationLedgerModal', () => {
         expect(screen.getByRole('heading', { name: 'Location Details' })).toBeInTheDocument();
 
         fireEvent.click(screen.getByText('Point A'));
-        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
         fireEvent.change(screen.getByDisplayValue('Select location...'), { target: { value: useAppStore.getState().locationLedger.find(location => location.name === 'Point B')?.id } });
         fireEvent.click(screen.getByRole('button', { name: 'Add' }));
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -130,7 +130,7 @@ describe('LocationLedgerModal', () => {
         });
 
         fireEvent.click(screen.getByText('Point A'));
-        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
         // The form has multiple selects (Kind, connection place, connection
         // band, ...). Locate the connection selects by the options they
         // present rather than by positional index, so adding a new select
@@ -162,12 +162,12 @@ describe('LocationLedgerModal', () => {
 
         const pointB = useAppStore.getState().locationLedger.find(location => location.name === 'Point B')!;
         fireEvent.click(screen.getByText('Point A'));
-        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
         fireEvent.change(screen.getByDisplayValue('Select location...'), { target: { value: pointB.id } });
         fireEvent.click(screen.getByRole('button', { name: 'Add' }));
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
         fireEvent.click(screen.getByRole('button', { name: 'Remove connection to Point B' }));
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -254,7 +254,7 @@ it('keeps travel records accessible without filling the default sidebar', () => 
     fireEvent.click(screen.getByLabelText('Show travel records'));
     fireEvent.click(screen.getByText(point.name));
     expect(screen.getByText('Map coordinates: 5, 7')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button',{name:'Edit',exact:true}));
+    fireEvent.click(screen.getByRole('button',{name:'Edit world',exact:true}));
     fireEvent.click(screen.getByLabelText('Pin in locations'));
     fireEvent.click(screen.getByRole('button',{name:'Save',exact:true}));
     fireEvent.click(screen.getByLabelText('Show travel records'));
@@ -262,4 +262,36 @@ it('keeps travel records accessible without filling the default sidebar', () => 
     expect(useAppStore.getState().locationLedger).toHaveLength(4);
     expect(useAppStore.getState().locationLedger.find(row=>row.id==='point')?.coordinates).toEqual({x:5,y:7});
     cleanup(); useAppStore.setState({locationLedgerOpen:false,locationLedger:[]});
+});
+
+it('requires world editing for position correction without spending time', () => {
+    useAppStore.setState({ locationLedgerOpen: true, locationLedger: [makeLocation('a', 'Alder'), makeLocation('b', 'Birch')],
+        context: { currentPlaceId: 'a', worldDay: 8, travel: null } });
+    render(<LocationLedgerModal />);
+    fireEvent.click(screen.getByText('Birch'));
+    expect(screen.queryByRole('button', { name: 'Correct player position here' })).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Set as current location')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Correct player position here' }));
+    expect(useAppStore.getState().context).toMatchObject({ currentPlaceId: 'b', worldDay: 8, travel: null });
+});
+
+it('saves outbound tunnel and portal authoring without moving the player', () => {
+    const a = makeLocation('a', 'Entrance'); const b = makeLocation('b', 'Exit');
+    a.connections = [{ toId: 'b', band: 'remote' }];
+    useAppStore.setState({ locationLedgerOpen: true, locationLedger: [a,b], context: { currentPlaceId: 'a', worldDay: 8 } });
+    render(<LocationLedgerModal />);
+    fireEvent.click(screen.getByText('Entrance', { selector: 'p' }));
+    expect(screen.queryByLabelText('Outbound passage to Exit')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
+    fireEvent.change(screen.getByLabelText('Outbound passage to Exit'), { target: { value: 'tunnel' } });
+    fireEvent.change(screen.getByLabelText('Tunnel minutes to Exit'), { target: { value: '120' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(useAppStore.getState().locationLedger[0].connections[0]).toMatchObject({ passage: 'tunnel', durationMinutes: 120 });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
+    fireEvent.change(screen.getByLabelText('Outbound passage to Exit'), { target: { value: 'portal' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(useAppStore.getState().locationLedger[0].connections[0]).toMatchObject({ passage: 'portal' });
+    expect(useAppStore.getState().locationLedger[1].connections).toEqual([]);
+    expect(useAppStore.getState().context).toMatchObject({ currentPlaceId: 'a', worldDay: 8 });
 });

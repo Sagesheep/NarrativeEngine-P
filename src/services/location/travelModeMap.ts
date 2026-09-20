@@ -4,15 +4,14 @@
  *
  * The two systems disagree on purpose:
  * - WO 3 (`travelModes.ts`) owns the travel loop, the departure sentence, and
- *   the leg-count formula. Its modes are `foot | cart | horseback | flying`.
+ *   the leg-count formula. Its modes are `foot | cart | horseback | boat | flying`.
  * - WO 6.0 (`pathfinder.js`) owns terrain routing. Its modes are
  *   `foot | mount | cart | boat`, each with a multiplier and an impassable
  *   biome set.
  *
  * The intersection is `foot` and `cart`. `horseback` maps to the pathfinder's
  * `mount`; `flying` has no pathfinder entry because flying ignores terrain;
- * `boat` is a pathfinder-only mode with no WO 3 counterpart and is not surfaced
- * as a travel option (WO 3 has no concept of water travel).
+ * `boat` routes across water with coastal embarkation and disembarkation.
  *
  * `flying` routes are computed as a straight-line octile path with cost equal
  * to the cell count — no terrain awareness, no impassable cells. This matches
@@ -49,6 +48,7 @@ export function toPathfinderMode(mode: TravelMode): PathfinderMode | null {
     switch (mode) {
         case 'foot': return 'foot';
         case 'cart': return 'cart';
+        case 'boat': return 'boat';
         case 'horseback': return 'mount';
         case 'flying': return null;
     }
