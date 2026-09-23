@@ -11,6 +11,8 @@
 
 No cloud. No subscription. Your campaigns stay on your machine.
 
+![A campaign in play: the story on the right, the campaign drawer on the left](docs/screenshots/chat.png)
+
 > 📱 **Android client available:** [NarrativeEngine-M](https://github.com/Sagesheep/NarrativeEngine-M/releases/tag/v1.6.20)
 >
 > 💬 **Join our community:** [Discord Server](https://discord.gg/gf3Ntw6pUY)
@@ -55,6 +57,8 @@ No cloud. No subscription. Your campaigns stay on your machine.
 ## Setting Up Your First Campaign
 
 You do **not** paste lore into a text box. The **New Campaign** form takes files directly, and the engine chunks and indexes them for you.
+
+![The campaign hub](docs/screenshots/hub.png)
 
 The `Example_Setup/` folder that ships with the repo contains everything you need:
 
@@ -189,6 +193,8 @@ Narrative Engine was built from the ground up to solve this. Every piece of your
 
 Every turn — every dice roll, every line of dialogue, every narrative beat — is archived verbatim. Nothing is summarised away. Nothing is discarded.
 
+![Chapters screen: sealed chapters and the world-state table](docs/screenshots/chapters.png)
+
 ### Two-Phase Deep Archive Search
 
 When the GM needs to recall something from a sealed chapter, it runs a two-stage retrieval pipeline:
@@ -218,6 +224,8 @@ Select any passage from the chat and pin it. Pinned excerpts are injected into e
 
 A structured fact-sheet the GM maintains throughout your campaign:
 
+![Memory screen: established facts grouped by chapter and category, each with who knows it](docs/screenshots/memory-facts.png)
+
 - Automatically extracts world-state facts after each turn: who is where, who holds what, alliances, deaths, promises, debts
 - Organised into categories: locations, NPC events, promises & debts, world state, party facts, lore & rules
 - Pin high-priority facts so they are always in context regardless of token budget
@@ -235,6 +243,8 @@ A structured fact-sheet the GM maintains throughout your campaign:
 ## NPC Agency
 
 NPCs are not static text snippets. They are simulated characters with their own psychology, goals, and relationships — all managed automatically in the background.
+
+![NPC ledger: roster on the left, full profile and portrait on the right](docs/screenshots/npc-ledger.png)
 
 ### Auto-Detection & Profiling
 
@@ -293,6 +303,8 @@ Generate NPC portraits on the fly in 5 art styles: Realistic, Anime Realistic, A
 
 A dedicated player-character panel, separate from the NPC ledger:
 
+![Character sheet](docs/screenshots/character.png)
+
 - **PC Creation Wizard** — three steps (questions → stats → review) with point-buy, archetype presets, an OP/Normal budget toggle, derived-stat previews, and AI suggestions per field
 - **Character sheet** — stats, narrative traits, inventory, and your own signature kit
 - **Inventory staging** — when the GM proposes an item grant, equip or removal, it appears as a staged change you confirm or reject. The GM never silently edits your gear
@@ -321,6 +333,8 @@ Three probability engines create emergent storytelling:
 
 The longer nothing happens, the more likely something will. All thresholds, decay rates, and event tables are fully configurable.
 
+![Engine Tuning: the surprise, encounter and world event engines, and dice fairness](docs/screenshots/engine-tuning.png)
+
 ### Timeskip Simulation
 
 Type *"three weeks later"* and the engine handles the gap. It detects the narrative jump, runs background ticks to advance NPC goals, resolves faction conflicts, and updates the world state — so the world has believably moved forward when the player re-engages.
@@ -336,6 +350,8 @@ The engine programmatically prevents NPC metagaming:
 
 Places get the same treatment NPCs do. The engine detects locations as they appear, records them, and tracks how they connect — each connection carrying a **distance band** and a note rather than an invented number of miles. Locations can be seeded from your world lore before play, exactly the way NPCs are, and the GM is told where the party actually is at the top of every turn.
 
+![Location ledger with a place open for editing](docs/screenshots/location-ledger.png)
+
 ---
 
 ## Dice & Combat Fairness
@@ -349,6 +365,8 @@ The GM can also call the `roll_dice` tool mid-response for specific checks, rece
 ## Steering the GM
 
 Tools for when the GM's output isn't what you wanted — none of which corrupt the archive:
+
+![The composer toolbar: Deep Search, Dice, Inject Event, Absolute Command, Travel, Ask GM, Inject Arc](docs/screenshots/composer-toolbar.png)
 
 - **Swipe** — regenerate the last GM reply with a temperature offset and optional written guidance. Variants are generated lazily, one at a time; nothing is committed to the archive until you move on
 - **Continue** — extend the last GM reply *in place* instead of replacing it. For when the answer was good but stopped short
@@ -377,6 +395,8 @@ A consistency QA tool you can run on any message:
 
 Every picture in a campaign carries text with it, which is what makes an image usable at turn 700 instead of only at turn 7.
 
+![Campaign gallery with captioned images](docs/screenshots/gallery.png)
+
 - **Paste an image into chat** — a vision-capable model captions it, and the caption becomes part of the turn
 - **Campaign gallery** — every generated scene image and every upload in one place, filterable, bulk-importable
 - **@mention an image** — pull a picture back into the GM's context by name. Its caption is injected for that turn only, so recalling the same costume fifty times doesn't stack fifty copies in your history
@@ -402,6 +422,8 @@ Works with OpenAI function calling and DeepSeek models (with DSML fallback parsi
 ## Extensions (Mods)
 
 Version 2.0 moved whole features out of the core app and behind a **frozen mod API**. Open **Settings → Extensions** to see what's installed, toggle anything off, or press **Rescan** after dropping in something new.
+
+![Settings → Extensions](docs/screenshots/extensions.png)
 
 ### Installing a mod
 
@@ -449,6 +471,8 @@ The API surface is frozen at **generation 1** and is additive-only until the gen
 
 A pixel-art overworld that reads the Location Ledger rather than replacing it. It ships **enabled but unfinished** — version 0.6.0-wip — because a half-built map that draws real terrain and walks a real journey is more useful than a hidden one. [`public/bundled-mods/worldmap/STATUS.md`](public/bundled-mods/worldmap/STATUS.md) is an honest account of what is and isn't done.
 
+![World Map: terrain, places from the ledger, fog of war and a road event](docs/screenshots/world-map.png)
+
 What works today:
 
 - **Terrain** — twelve biomes, eight textured variants each, hillshade, contour lines, coastal shading
@@ -458,8 +482,6 @@ What works today:
 - **Discoveries and encounters** — spaced, setting-aware events on the road
 
 Travel can be started from the map, the Places panel, or the composer — all through the same code path.
-
-> The older PixiJS overworld generator (Perlin/Voronoi terrain, tilesets, map pins) is still in the tree but is **not wired into the app**. The World Map extension is the live one.
 
 ### World Lore Builder
 
@@ -478,6 +500,8 @@ Your ruleset is automatically chunked and indexed. Each rule chunk gets AI-gener
 ---
 
 ## Backups & Rollback
+
+![Backup manager](docs/screenshots/backups.png)
 
 - **Automatic backups** before any risky operation
 - **Manual labelled backups** at any time
