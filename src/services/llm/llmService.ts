@@ -226,7 +226,11 @@ export async function sendMessage(
                 }
             }
 
-            recordCacheUsage(STORY_LABEL, streamUsage);
+            // `label` is the caller's tracking label (swipe, scene-continue,
+            // ask-GM), falling back to the story label. Recording against the
+            // hardcoded story label booked every one of those as a story call,
+            // so cache hit rates were wrong for four of the five call kinds.
+            recordCacheUsage(label, streamUsage);
 
             streamSettled = true;
             if (tcName) {

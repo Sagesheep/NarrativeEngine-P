@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, RotateCcw, Trash2, Save, Clock, Loader2, CheckSquare, Square, Pencil, Check } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { listBackups, createBackup, restoreBackup, deleteBackup, updateBackup } from '../store/campaignStore';
 import { hydrateCampaign } from '../store/campaignHydrator';
@@ -8,7 +9,11 @@ import type { BackupMeta } from '../types';
 import { toast } from './Toast';
 
 export function BackupModal() {
-    const { backupModalOpen, toggleBackupModal, activeCampaignId } = useAppStore();
+    const { backupModalOpen, toggleBackupModal, activeCampaignId } = useAppStore(useShallow(s => ({
+        backupModalOpen: s.backupModalOpen,
+        toggleBackupModal: s.toggleBackupModal,
+        activeCampaignId: s.activeCampaignId,
+    })));
     const [backups, setBackups] = useState<BackupMeta[]>([]);
     const [loading, setLoading] = useState(false);
     const [creating, setCreating] = useState(false);

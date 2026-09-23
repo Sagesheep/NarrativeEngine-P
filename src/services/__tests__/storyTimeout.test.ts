@@ -101,3 +101,43 @@ describe('global story timeout', () => {
         expect(getCallHistory()[0].status).toBe('aborted');
     });
 });
+
+describe('cache telemetry attribution', () => {
+    async function completeStreamWithLabel(trackingLabel?: string) {
+        onError = vi.fn();
+        onDone = vi.fn();
+        controller = new AbortController();
+        const encoder = new TextEncoder();
+        vi.mocked(llmFetch).mockImplementation(async () => {
+            const body = new ReadableStream<Uint8Array>({
+                start(c) {
+                    c.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'));
+                    c.enqueue(encoder.encode('data: [DONE]\n\n'));
+                    c.close();
+                },
+            });
+            return { ok: true, body } as Response;
+        });
+        pending = sendMessage(provider, [], vi.fn(), onDone, onError, undefined, controller,
+            undefined, undefined, trackingLabel);
+        await vi.advanceTimersByTimeAsync(0);
+        await pending;
+    }
+
+    it('records cache usage against the caller\'s tracking label', async () => {
+        // Swipes, scene-continue and ask-GM all pass a label. They were booked
+        // as story calls, so the cache hit rate shown for each was wrong.
+        const { recordCacheUsage } = await import('../llm/cacheTelemetry');
+        await completeStreamWithLabel('swipe-generation');
+        expect(onDone).toHaveBeenCalled();
+        // The usage argument is undefined here (no usage chunk in the stream);
+        // only the attribution is under test.
+        expect(vi.mocked(recordCacheUsage).mock.calls.map(c => c[0])).toEqual(['swipe-generation']);
+    });
+
+    it('falls back to the story label when no label is given', async () => {
+        const { recordCacheUsage } = await import('../llm/cacheTelemetry');
+        await completeStreamWithLabel(undefined);
+        expect(vi.mocked(recordCacheUsage).mock.calls.map(c => c[0])).toEqual(['story-generation']);
+    });
+});

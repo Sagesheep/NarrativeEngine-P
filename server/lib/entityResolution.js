@@ -29,7 +29,11 @@ export function normalizeEntityName(name, knownEntities) {
 
     const exactMatch = knownEntities.find(
         e => e.name.toLowerCase() === lower ||
-             e.aliases.some(a => a.toLowerCase() === lower)
+             // `aliases` is optional on an entity record: imported bundles,
+             // hand-edited files and older campaigns all omit it. The client
+             // twin below guards it; this copy had drifted and threw instead,
+             // inside the archive append path.
+             (e.aliases ?? []).some(a => a.toLowerCase() === lower)
     );
     if (exactMatch) return exactMatch.name;
 

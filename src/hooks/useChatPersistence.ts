@@ -1,32 +1,36 @@
 import { useState } from 'react';
-import { set } from 'idb-keyval';
 import { useAppStore } from '../store/useAppStore';
+import { flushAllPendingSaves } from '../store/slices/campaignSlice';
 import { toast } from '../components/Toast';
 import { openArchive as openArchiveFn } from '../services/archive-memory/archiveManager';
 
 /**
- * Manual campaign persistence, extracted from ChatArea: the force-save button
- * (direct IndexedDB write) and the archive viewer opener.
+ * Manual campaign persistence, extracted from ChatArea: the save-now button
+ * and the archive viewer opener.
+ *
+ * "Save campaign" means "fire every pending debounced save at the server now",
+ * which is the only durable store. It previously wrote three IndexedDB keys
+ * instead: two that nothing ever read, and `nn_settings` with the provider
+ * list in PLAINTEXT — overwriting the encrypted record that `loadSettings`
+ * reads back at launch, so the button leaked API keys to disk and reported
+ * success without persisting anything.
  */
 export function useChatPersistence() {
     const activeCampaignId = useAppStore(s => s.activeCampaignId);
     const [isSaving, setIsSaving] = useState(false);
 
-    const handleForceSave = () => {
+    const handleForceSave = async () => {
+        if (!useAppStore.getState().activeCampaignId) return;
         setIsSaving(true);
-        const state = useAppStore.getState();
-        if (state.activeCampaignId) {
-            try {
-                set(`nn_settings`, { settings: state.settings, activeCampaignId: state.activeCampaignId });
-                set(`nn_campaign_${state.activeCampaignId}_state`, { context: state.context, messages: state.messages, condenser: state.condenser });
-                set(`nn_campaign_${state.activeCampaignId}_npcs`, state.npcLedger);
-                toast.success('Campaign saved');
-            } catch (e) {
-                console.error("[Save] Failed to force save to IndexedDB:", e);
-                toast.error('Force save failed');
-            }
+        try {
+            await flushAllPendingSaves();
+            toast.success('Campaign saved');
+        } catch (e) {
+            console.error('[Save] Failed to flush pending campaign saves:', e);
+            toast.error('Save failed');
+        } finally {
+            setIsSaving(false);
         }
-        setTimeout(() => setIsSaving(false), 2000);
     };
 
     const handleOpenArchive = () => {

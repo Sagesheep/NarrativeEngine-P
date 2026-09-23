@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
+import type { SemanticFact } from '../types';
 import { findPendingCommitMessage } from '../services/turn/pendingCommit';
 import { LootRollModal } from './chat/LootRollModal';
 import { DiceRollModal } from './chat/DiceRollModal';
@@ -34,6 +35,13 @@ import { BetaArmedRow } from './beta/BetaArmedRow';
 import { BetaCommandPalette } from './beta/BetaCommandPalette';
 import { ArmedAskGmNote } from './ooc/ArmedAskGmNote';
 
+/**
+ * A selector must not allocate: a fresh `[]` makes the store snapshot compare
+ * unequal on every notification, so the component re-renders on every store
+ * write including each streamed token.
+ */
+const EMPTY_FACTS: SemanticFact[] = [];
+
 export function ChatArea() {
     const messages = useAppStore(s => s.messages);
     const condenser = useAppStore(s => s.condenser);
@@ -41,7 +49,7 @@ export function ChatArea() {
     const activeCampaignId = useAppStore(s => s.activeCampaignId);
     const activeProvider = useAppStore(s => s.getActiveStoryEndpoint?.());
     const activeUtilityProvider = useAppStore(s => s.getActiveUtilityEndpoint?.());
-    const semanticFacts = useAppStore(s => s.semanticFacts ?? []);
+    const semanticFacts = useAppStore(s => s.semanticFacts ?? EMPTY_FACTS);
     const relationshipMemoriesNpcToMc = useAppStore(s => s.relationshipMemoriesNpcToMc);
     const relationshipMemoriesNpcToNpc = useAppStore(s => s.relationshipMemoriesNpcToNpc);
     const relationshipMemoryFaults = useAppStore(s => s.relationshipMemoryFaults);
@@ -220,7 +228,7 @@ export function ChatArea() {
 
     const { handleKeyDown } = useChatKeyboard(() => sendWithGallery());
 
-    const archiveDeps = {
+    const archiveDeps = useMemo(() => ({
         setArchiveIndex,
         setTimeline,
         setChapters,
@@ -231,7 +239,10 @@ export function ChatArea() {
         getChapters: () => useAppStore.getState().chapters,
         getCondenser: () => useAppStore.getState().condenser,
         getMessages: () => useAppStore.getState().messages,
-    };
+        // Store actions are stable references and every getter reads live state
+        // through `getState()`, so this object never needs to be rebuilt.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }), []);
 
     const editor = useMessageEditor({
         messages,

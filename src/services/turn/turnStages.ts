@@ -602,6 +602,13 @@ export async function runGenerationStage(
     // failure path never commits, and success re-captures with the complete bus.
     capturePendingTurnSnapshot(state, payload, state.displayInput, ctx);
 
+    // Turn-loop timings. The two retry values are real backoff after an LLM
+    // error; the tool continuation is a trampoline, not a wait.
+    const TOOL_CONTINUATION_MS = 0;
+    const CHECKING_NOTES_DWELL_MS = 400;
+    const API_RETRY_1_BACKOFF_MS = 2000;
+    const API_RETRY_2_BACKOFF_MS = 4000;
+
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const abortListener = () => {
         if (retryTimer) {
@@ -725,15 +732,28 @@ export async function runGenerationStage(
                         tool_call_id: toolCall.id
                     } as unknown as import('../chatEngine').OpenAIMessage);
 
+                    // The tool handler above runs synchronously, so nothing is
+                    // in flight here. The timer is a trampoline that breaks the
+                    // recursion out of this call stack; it does not need to be
+                    // a delay.
+                    //
+                    // The one exception is the lore tool, whose "checking notes"
+                    // indicator is raised immediately before that synchronous
+                    // call and cleared here. With no dwell it would appear and
+                    // vanish inside a single frame, so it alone keeps one — and
+                    // it costs nothing for the other tools, which previously
+                    // paid the same 800 ms for no visible reason. At up to five
+                    // tool calls that was four seconds of dead wait per turn.
+                    const isLoreTool = toolName === 'query_campaign_lore';
                     retryTimer = setTimeout(() => {
                         retryTimer = null;
                         if (abortController.signal.aborted) return;
-                        if (toolName === 'query_campaign_lore') {
+                        if (isLoreTool) {
                             callbacks.onCheckingNotes(false);
                             callbacks.setPipelinePhase?.('generating');
                         }
                         executeTurn(currentPayload, toolCallCount + 1, 0, assistantMsgId);
-                    }, 800);
+                    }, isLoreTool ? CHECKING_NOTES_DWELL_MS : TOOL_CONTINUATION_MS);
                     return;
                 }
 
@@ -878,7 +898,7 @@ export async function runGenerationStage(
                         retryTimer = null;
                         if (abortController.signal.aborted) return;
                         executeTurn(currentPayload, toolCallCount, 1, assistantMsgId);
-                    }, 2000);
+                    }, API_RETRY_1_BACKOFF_MS);
                 } else if (apiRetryCount === 1) {
                     if (!currentAssistantContent) {
                         callbacks.updateLastAssistant(`⚠️ Error: ${err}. Retrying without tools...`);
@@ -888,7 +908,7 @@ export async function runGenerationStage(
                         retryTimer = null;
                         if (abortController.signal.aborted) return;
                         executeTurn(currentPayload, 999, 2, assistantMsgId);
-                    }, 4000);
+                    }, API_RETRY_2_BACKOFF_MS);
                 } else {
                     if (!currentAssistantContent) {
                         callbacks.updateLastAssistant(`⚠️ Error: ${err}`);

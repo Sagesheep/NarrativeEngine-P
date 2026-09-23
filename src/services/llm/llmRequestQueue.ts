@@ -132,8 +132,20 @@ export class LLMRequestQueue {
         if (this.scheduled) return;
         if (this.queue.length === 0 || this.inflight >= this.maxConcurrent) return;
 
+        // Stagger only while a rate limit is actually in force.
+        //
+        // The gap exists so a burst of enqueues does not hit a provider in the
+        // same millisecond. But it was applied unconditionally, including on a
+        // queue with no cap at all — so the context gather, which fires five or
+        // six utility calls at once through one endpoint queue, had them
+        // granted 500 ms apart. Measured at ~2.5 s of dead wait per turn,
+        // protecting against nothing: no provider had asked us to slow down.
+        //
+        // Once `onRateLimitHit` lowers the cap, the provider HAS asked, and the
+        // stagger applies until recovery restores the initial cap.
+        const throttled = this.maxConcurrent !== this.initialMaxConcurrent;
         const sinceLastFire = Date.now() - this.lastFireTime;
-        const delay = Math.max(0, this.staggerMs - sinceLastFire);
+        const delay = throttled ? Math.max(0, this.staggerMs - sinceLastFire) : 0;
 
         this.scheduled = true;
         setTimeout(() => {

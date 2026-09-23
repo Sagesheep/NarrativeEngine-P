@@ -31,13 +31,26 @@ const locks = new Map();
  */
 export function withCampaignLock(campaignId, fn) {
     const prev = locks.get(campaignId) || Promise.resolve();
-    const next = prev.then(() => fn()).catch(err => {
+
+    // The caller gets the real outcome and is responsible for handling it.
+    const result = prev.then(() => fn());
+
+    // The promise stored as the lock must NEVER reject. Two separate failures
+    // follow if it does:
+    //   1. Nothing handles the rejection of the tail promise created here, so
+    //      Node raises unhandledRejection and terminates the process — even
+    //      when the route itself caught the error correctly.
+    //   2. A rejected lock short-circuits the `prev.then(() => fn())` above on
+    //      the next call, so every operation queued behind one failed write is
+    //      skipped instead of run. For appendScene that leaves prose on disk
+    //      with no index entry.
+    const tail = result.catch(err => {
         console.error(`[WriteLock] Error for campaign ${campaignId}:`, err);
-        throw err;
     });
-    locks.set(campaignId, next);
-    next.finally(() => {
-        if (locks.get(campaignId) === next) locks.delete(campaignId);
+    locks.set(campaignId, tail);
+    tail.then(() => {
+        if (locks.get(campaignId) === tail) locks.delete(campaignId);
     });
-    return next;
+
+    return result;
 }

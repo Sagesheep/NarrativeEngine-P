@@ -13,14 +13,14 @@ beforeEach(() => {
         headers: new Headers({ 'content-type': 'application/json' }),
         body: null,
     }));
-    vi.stubGlobal('fetch', fetchMock);
     const app = express();
     app.use(express.json());
-    app.use(createLLMProxyRouter());
+    // The router takes its fetch by injection; it no longer calls the global.
+    app.use(createLLMProxyRouter({ fetchImpl: fetchMock }));
     request = supertest(app);
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => vi.restoreAllMocks());
 
 describe('proxy target validation', () => {
     it('relays an https provider URL', async () => {

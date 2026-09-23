@@ -17,8 +17,11 @@ registerNlpPipeline();
 
 /** Run a sync service call; route thrown AppError-shaped errors via serverError. */
 function syncRoute(label, fn) {
-    return wrapAsync((req, res) => {
-        try { res.json(fn(req)); }
+    return wrapAsync(async (req, res) => {
+        // `await` so a service function that takes the campaign write lock
+        // (and is therefore async) serializes its result rather than being
+        // JSON-encoded as a pending Promise.
+        try { res.json(await fn(req)); }
         catch (err) { serverError(res, err, label); }
     });
 }
@@ -79,8 +82,8 @@ export function createArchiveRouter() {
     router.post('/api/campaigns/:id/archive/rename', syncRoute('Archive Rename', (req) =>
         svc.renameAcrossArchive(req.params.id, req.body?.from, req.body?.to)));
 
-    router.delete('/api/campaigns/:id/archive/scenes-from/:sceneId', wrapAsync((req, res) => {
-        res.json(svc.rollbackScenesFrom(req.params.id, req.params.sceneId));
+    router.delete('/api/campaigns/:id/archive/scenes-from/:sceneId', wrapAsync(async (req, res) => {
+        res.json(await svc.rollbackScenesFrom(req.params.id, req.params.sceneId));
     }));
 
     router.delete('/api/campaigns/:id/archive/scenes/:sceneId', syncRoute('Archive Delete', (req) =>

@@ -150,6 +150,8 @@ export interface DebouncedSave<T> {
     (value: T): void;
     cancel(): void;
     flush(): Promise<void>;
+    /** True while a save is scheduled but has not fired yet. */
+    pending(): boolean;
 }
 
 export function createDebouncedSave<T>(
@@ -173,6 +175,7 @@ export function createDebouncedSave<T>(
         if (timer) clearTimeout(timer);
         timer = null;
     };
+    save.pending = () => timer !== null;
     save.flush = async () => {
         if (!timer) return;
         save.cancel();

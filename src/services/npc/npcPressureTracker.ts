@@ -11,13 +11,16 @@ function npcNamePatterns(npc: NPCEntry): string[] {
     return npcIdentityKeys(npc);
 }
 
-function mentionsName(text: string, patterns: string[]): boolean {
-    const lower = text.toLowerCase();
+// These take text that is ALREADY lower-cased. Each used to lower-case its own
+// argument, so one `scanPressure` pass lower-cased the player input five times
+// and the GM reply three times — per NPC. On a twenty-NPC ledger that is 160
+// full copies of multi-kilobyte strings per turn, on the post-turn path.
+
+function mentionsName(lower: string, patterns: string[]): boolean {
     return patterns.some(p => lower.includes(p));
 }
 
-function pronounNearName(text: string, patterns: string[]): boolean {
-    const lower = text.toLowerCase();
+function pronounNearName(lower: string, patterns: string[]): boolean {
     for (const p of patterns) {
         const idx = lower.indexOf(p);
         if (idx === -1) continue;
@@ -27,8 +30,7 @@ function pronounNearName(text: string, patterns: string[]): boolean {
     return false;
 }
 
-function directsActionAt(text: string, patterns: string[]): boolean {
-    const lower = text.toLowerCase();
+function directsActionAt(lower: string, patterns: string[]): boolean {
     return patterns.some(p => {
         return lower.includes(`ask ${p}`) || lower.includes(`tell ${p}`) ||
                lower.includes(`talk to ${p}`) || lower.includes(`speak to ${p}`) ||
@@ -37,15 +39,13 @@ function directsActionAt(text: string, patterns: string[]): boolean {
     });
 }
 
-function crossesSoftBoundary(text: string, boundaries: string[] | undefined): boolean {
+function crossesSoftBoundary(lower: string, boundaries: string[] | undefined): boolean {
     if (!boundaries || boundaries.length === 0) return false;
-    const lower = text.toLowerCase();
     return boundaries.some(b => lower.includes(b.toLowerCase()));
 }
 
-function triggersKeyword(text: string, triggers: NPCEntry['behavioralTriggers']): string | null {
+function triggersKeyword(lower: string, triggers: NPCEntry['behavioralTriggers']): string | null {
     if (!triggers || triggers.length === 0) return null;
-    const lower = text.toLowerCase();
     for (const t of triggers) {
         if (lower.includes(t.keyword.toLowerCase())) return t.keyword;
     }
@@ -66,6 +66,10 @@ export function scanPressure(
 ): PressureUpdate[] {
     const updates: PressureUpdate[] = [];
 
+    // Lower-cased once for the whole pass rather than once per helper per NPC.
+    const lowerInput = playerInput.toLowerCase();
+    const lowerGm = gmResponse ? gmResponse.toLowerCase() : '';
+
     for (const npc of activeNPCs) {
         if (!npc.drives && !npc.behavioralTriggers && !npc.hardBoundaries && !npc.softBoundaries) continue;
 
@@ -74,44 +78,44 @@ export function scanPressure(
         let engagedDelta = 0;
         const reasons: string[] = [];
 
-        if (mentionsName(playerInput, patterns)) {
+        if (mentionsName(lowerInput, patterns)) {
             engagedDelta += 1;
             reasons.push('name mentioned');
         }
 
-        if (pronounNearName(playerInput, patterns)) {
+        if (pronounNearName(lowerInput, patterns)) {
             engagedDelta += 0.5;
             reasons.push('pronoun near name');
         }
 
-        if (directsActionAt(playerInput, patterns)) {
+        if (directsActionAt(lowerInput, patterns)) {
             engagedDelta += 2;
             reasons.push('directed action at NPC');
         }
 
-        const matchedTrigger = triggersKeyword(playerInput, npc.behavioralTriggers);
+        const matchedTrigger = triggersKeyword(lowerInput, npc.behavioralTriggers);
         if (matchedTrigger) {
             ignoredDelta += 1;
             reasons.push(`trigger keyword: "${matchedTrigger}"`);
         }
 
-        if (crossesSoftBoundary(playerInput, npc.softBoundaries)) {
+        if (crossesSoftBoundary(lowerInput, npc.softBoundaries)) {
             ignoredDelta += 1;
             reasons.push('soft boundary crossed');
         }
 
         if (gmResponse) {
-            if (mentionsName(gmResponse, patterns)) {
+            if (mentionsName(lowerGm, patterns)) {
                 engagedDelta += 0.8;
                 reasons.push('GM mentioned NPC');
             }
 
-            if (pronounNearName(gmResponse, patterns)) {
+            if (pronounNearName(lowerGm, patterns)) {
                 engagedDelta += 0.3;
                 reasons.push('GM pronoun near NPC name');
             }
 
-            const gmTrigger = triggersKeyword(gmResponse, npc.behavioralTriggers);
+            const gmTrigger = triggersKeyword(lowerGm, npc.behavioralTriggers);
             if (gmTrigger) {
                 engagedDelta += 0.5;
                 reasons.push(`GM trigger: "${gmTrigger}"`);

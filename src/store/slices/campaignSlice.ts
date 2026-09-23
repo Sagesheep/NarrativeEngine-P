@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion, RelationshipMemoryFault, RelationshipMemoryRecord, GalleryEntry } from '../../types';
+import type { ArchiveChapter, ChatMessage, CondenserState, DivergenceRegister, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion, RelationshipMemoryFault, RelationshipMemoryRecord, GalleryEntry } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { emitCoreEvent } from '../../services/mods/events';
 import { normalizeRelations } from '../../services/npc/relationDedupe';
@@ -54,21 +54,85 @@ export function getActiveCampaignIdForEvents(): string {
 
 let stateTimer: ReturnType<typeof setTimeout> | null = null;
 
+// ── Established facts (the divergence register) ────────────────────────
+//
+// The register has its own route and file. Its edit actions used to call
+// `debouncedSaveCampaignState`, which writes context, messages, condenser and
+// pins — never the register — so a manual edit to an established fact
+// survived only if a turn committed or the user pressed Exit before closing.
+// Each of those edits also paid for a full campaign-state write.
+//
+// Pending saves are keyed by campaign and capture the register when
+// scheduled, like the lore and NPC saves, so one still lands on the right
+// campaign if the user switches before it fires, and a quick edit in a
+// second campaign cannot overwrite the first campaign's pending save.
+const divergenceSaves = new Map<string, { timer: ReturnType<typeof setTimeout>; register: DivergenceRegister }>();
+
+function putDivergenceRegister(campaignId: string, register: DivergenceRegister): Promise<void> {
+    return fetch(`${API}/campaigns/${campaignId}/divergence`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(register),
+    }).then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    }).catch((e) => {
+        console.error('[DivergenceSave] failed:', e);
+        toast.error('Failed to save established facts');
+    });
+}
+
+/** Debounced save of the established-facts register for the active campaign. */
+export function debouncedSaveDivergenceRegister(register: DivergenceRegister) {
+    const campaignId = _getStateForSave?.().activeCampaignId;
+    if (!campaignId) return;
+    const pending = divergenceSaves.get(campaignId);
+    if (pending) clearTimeout(pending.timer);
+    const timer = setTimeout(() => {
+        divergenceSaves.delete(campaignId);
+        void putDivergenceRegister(campaignId, register);
+    }, 1000);
+    divergenceSaves.set(campaignId, { timer, register });
+}
+
+/** Fire every pending established-facts save now, for whichever campaign it belongs to. */
+function flushDivergenceSaves(): Promise<void>[] {
+    const flushes = [...divergenceSaves.entries()].map(([campaignId, { timer, register }]) => {
+        clearTimeout(timer);
+        return putDivergenceRegister(campaignId, register);
+    });
+    divergenceSaves.clear();
+    return flushes;
+}
+
 export function cancelPendingSaves() {
     if (stateTimer) { clearTimeout(stateTimer); stateTimer = null; }
     if (loreTimer)  { clearTimeout(loreTimer);  loreTimer  = null; }
     if (npcTimer)   { clearTimeout(npcTimer);   npcTimer   = null; }
     locationLedgerSave.cancel();
+    for (const { timer } of divergenceSaves.values()) clearTimeout(timer);
+    divergenceSaves.clear();
+}
+
+/**
+ * True while any campaign save is scheduled but has not fired. The window
+ * uses this to warn before closing: the debounce means the last second of
+ * edits exists only in memory.
+ */
+export function hasPendingSaves(): boolean {
+    return stateTimer !== null || loreTimer !== null || npcTimer !== null
+        || divergenceSaves.size > 0 || locationLedgerSave.pending();
 }
 
 /** Immediately fires any pending debounced saves so the latest in-memory state is on
  *  disk before a backup is created. Awaiting this guarantees the backup reads current data. */
 export async function flushAllPendingSaves(): Promise<void> {
-    if (!_getStateForSave) return;
-    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, pinnedExcerpts } = _getStateForSave();
-    if (!activeCampaignId) return;
+    // Established-facts saves carry their own campaign id, so they flush even
+    // when no campaign is active (for example right after Exit).
+    const saves: Promise<unknown>[] = flushDivergenceSaves();
 
-    const saves: Promise<unknown>[] = [];
+    if (!_getStateForSave) { await Promise.all(saves); return; }
+    const { activeCampaignId, context, messages, condenser, loreChunks, npcLedger, pinnedExcerpts } = _getStateForSave();
+    if (!activeCampaignId) { await Promise.all(saves); return; }
 
     if (stateTimer) {
         clearTimeout(stateTimer);

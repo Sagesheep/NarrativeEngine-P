@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { ArchiveIndexEntry, ChatMessage, CondenserState, GameContext, DivergenceRegister, DivergenceEntry, DivergenceCategory, TopicClusters, PinnedExcerpt } from '../../types';
-import { debouncedSaveCampaignState, getActiveCampaignIdForEvents } from './campaignSlice';
+import { debouncedSaveCampaignState, debouncedSaveDivergenceRegister, getActiveCampaignIdForEvents } from './campaignSlice';
 import { emitCoreEvent } from '../../services/mods/events';
 import { uid } from '../../utils/uid';
 import { countTokens } from '../../services/infrastructure/tokenizer';
@@ -186,14 +186,16 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
     divergenceRegister: { entries: [], chapterToggles: {}, categoryToggles: {}, lastUpdatedSceneId: '', lastUpdatedAt: 0, version: 2 },
     setDivergenceRegister: (register) =>
         set(() => {
-            debouncedSaveCampaignState();
-            return { divergenceRegister: register };
+            const divergenceRegister: DivergenceRegister = register;
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     toggleDivergenceChapter: (chapterId, on) =>
         set((s) => {
             const chapterToggles = { ...s.divergenceRegister.chapterToggles, [chapterId]: on };
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, chapterToggles, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, chapterToggles, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     toggleDivergenceCategory: (chapterId, category, on) => {
         set((s) => {
@@ -202,8 +204,9 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
                 ...s.divergenceRegister.categoryToggles,
                 [chapterId]: { ...existing, [category]: on },
             };
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, categoryToggles, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, categoryToggles, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         });
     },
     pinDivergenceFact: (entryId) =>
@@ -211,24 +214,27 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
             const entries = s.divergenceRegister.entries.map(e =>
                 e.id === entryId ? { ...e, pinned: !e.pinned } : e
             );
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     editDivergenceFact: (entryId, text) =>
         set((s) => {
             const entries = s.divergenceRegister.entries.map(e =>
                 e.id === entryId ? { ...e, text, source: 'manual' as const } : e
             );
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     editDivergenceKnownBy: (entryId, knownBy) =>
         set((s) => {
             const entries = s.divergenceRegister.entries.map(e =>
                 e.id === entryId ? { ...e, knownBy } : e
             );
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     applySubjectTokens: (updates) =>
         set((s) => {
@@ -238,8 +244,9 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
                 const tok = updateMap.get(e.id);
                 return tok !== undefined ? { ...e, subjectToken: tok } : e;
             });
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     deleteDivergenceFact: (entryId) =>
         set((s) => {
@@ -252,38 +259,43 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
                 })).filter(g => g.factIds.length > 0);
                 topicClusters = { ...topicClusters, groups };
             }
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, topicClusters, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, topicClusters, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     addDivergenceEntry: (entry) =>
         set((s) => {
             const entries = [...s.divergenceRegister.entries, entry];
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     dismissDivergenceReviewFlag: (entryId) =>
         set((s) => {
             const entries = s.divergenceRegister.entries.map(e =>
                 e.id === entryId ? { ...e, reviewFlag: undefined, unrecognizedNpcNames: undefined } : e
             );
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     confirmReviewEntry: (id) =>
         set((s) => {
             const entries = s.divergenceRegister.entries.map(e =>
                 e.id === id ? { ...e, reviewFlag: undefined, unrecognizedNpcNames: undefined } : e
             );
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     toggleDivergenceFact: (factId) =>
         set((s) => {
             const entries = s.divergenceRegister.entries.map(e =>
                 e.id === factId ? { ...e, enabled: !(e.enabled !== false) } : e
             );
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     deleteDivergenceChapter: (sceneId) =>
         set((s) => {
@@ -292,13 +304,15 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
             );
             const chapterToggles = { ...s.divergenceRegister.chapterToggles };
             delete chapterToggles[sceneId];
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, chapterToggles, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, chapterToggles, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     resetDivergenceRegister: () =>
         set(() => {
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { entries: [], chapterToggles: {}, categoryToggles: {}, prunedLog: [], lastUpdatedSceneId: '', lastUpdatedAt: Date.now(), version: 2 } };
+            const divergenceRegister: DivergenceRegister = { entries: [], chapterToggles: {}, categoryToggles: {}, prunedLog: [], lastUpdatedSceneId: '', lastUpdatedAt: Date.now(), version: 2 };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     updateMessageDivergence: (messageId, divergenceIds) =>
         set((s) => {
@@ -312,13 +326,15 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
         set((s) => {
             const entries = s.divergenceRegister.entries.filter(e => e.id !== id);
             const prunedLog = (s.divergenceRegister.prunedLog ?? []).filter(e => e.id !== id);
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, prunedLog, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, prunedLog, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     setTopicClusters: (clusters) =>
         set((s) => {
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, topicClusters: clusters, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, topicClusters: clusters, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
     setManyFactsEnabled: (updates) =>
         set((s) => {
@@ -327,8 +343,9 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
                 const enabled = updateMap.get(e.id);
                 return enabled !== undefined ? { ...e, enabled } : e;
             });
-            debouncedSaveCampaignState();
-            return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+            const divergenceRegister: DivergenceRegister = { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() };
+            debouncedSaveDivergenceRegister(divergenceRegister);
+            return { divergenceRegister };
         }),
 
     // Chat defaults

@@ -100,6 +100,25 @@ export function writeJson(filePath, data) {
     }
 }
 
+/**
+ * Atomic whole-file text write — the `writeJson` guarantee for non-JSON files.
+ *
+ * `.archive.md` is the campaign's lossless record and has no second copy, yet
+ * it was the one file rewritten with a bare `writeFileSync`: a crash or a full
+ * disk mid-write truncated it, while every derived JSON file around it was
+ * already protected.
+ */
+export function writeTextAtomic(filePath, text) {
+    try {
+        const tmp = filePath + '.tmp';
+        fs.writeFileSync(tmp, text, 'utf-8');
+        fs.renameSync(tmp, filePath);
+    } catch (err) {
+        console.error(`[writeTextAtomic] Failed to write ${filePath}: ${err.message}`);
+        throw err;
+    }
+}
+
 export function archivePath(id) {
     validateCampaignId(id);
     return path.join(CAMPAIGNS_DIR, `${id}.archive.md`);

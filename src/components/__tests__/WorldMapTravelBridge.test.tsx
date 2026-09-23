@@ -222,6 +222,7 @@ describe('map roleplay handoff', () => {
     const request = { campaignId: 'camp-rp', key: scene.key, placeId: 'a', worldDay: 1, leg: null, kind: 'reply', text: 'I observe the bear.' };
     beforeEach(() => {
         modEventBus.reset(); useAppStore.setState({ activeCampaignId: 'camp-rp', composerInjection: null, isStreaming: false,
+            pipelinePhase: 'idle',
             messages: [], context: { currentPlaceId: 'a', worldDay: 1, travel: null, mapEncounter: scene } });
     });
     afterEach(() => { cleanup(); modEventBus.reset(); useAppStore.setState({ activeCampaignId: null, composerInjection: null }); });
@@ -247,5 +248,18 @@ describe('map roleplay handoff', () => {
         act(() => modEventBus.emit('mod.worldmap.roleplayRequest', { ...request, kind: 'camp', text: 'I make camp here.' }));
         expect(useAppStore.getState().composerInjection).toBe('I make camp here.');
         expect(useAppStore.getState().context.worldDay).toBe(1);
+    });
+    it('holds a roleplay draft while a turn is in progress', () => {
+        // The guard used to read only the store's `isStreaming`, which nothing
+        // sets, so a map action could overwrite the composer mid-generation.
+        render(<WorldMapTravelBridge />);
+        for (const phase of ['gathering-context', 'generating', 'post-processing'] as const) {
+            useAppStore.setState({ pipelinePhase: phase });
+            act(() => modEventBus.emit('mod.worldmap.roleplayRequest', request));
+            expect(useAppStore.getState().composerInjection, phase).toBeNull();
+        }
+        useAppStore.setState({ pipelinePhase: 'idle' });
+        act(() => modEventBus.emit('mod.worldmap.roleplayRequest', request));
+        expect(useAppStore.getState().composerInjection).toBe(request.text);
     });
 });

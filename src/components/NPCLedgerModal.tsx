@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { X, Plus, Users, LayoutGrid, List, CheckSquare, Upload, Download, BookOpen, Trash2, Search, ArrowDownAZ, ArrowUpZA, Sparkles, Images } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { updateExistingNPCs } from '../services/chatEngine';
 import { parseNPCsFromLore } from '../services/lore/loreNPCParser';
@@ -73,7 +74,19 @@ function readFile(file: File, as: 'buffer' | 'text'): Promise<ArrayBuffer | stri
 }
 
 export function NPCLedgerModal() {
-    const { npcLedger, npcLedgerOpen, toggleNPCLedger, addNPC, updateNPC, removeNPC, setNPCLedger, addNPCs, restoreNPC, npcSuggestions, setLoreChunks } = useAppStore();
+    const { npcLedger, npcLedgerOpen, toggleNPCLedger, addNPC, updateNPC, removeNPC, setNPCLedger, addNPCs, restoreNPC, npcSuggestions, setLoreChunks } = useAppStore(useShallow(s => ({
+        npcLedger: s.npcLedger,
+        npcLedgerOpen: s.npcLedgerOpen,
+        toggleNPCLedger: s.toggleNPCLedger,
+        addNPC: s.addNPC,
+        updateNPC: s.updateNPC,
+        removeNPC: s.removeNPC,
+        setNPCLedger: s.setNPCLedger,
+        addNPCs: s.addNPCs,
+        restoreNPC: s.restoreNPC,
+        npcSuggestions: s.npcSuggestions,
+        setLoreChunks: s.setLoreChunks,
+    })));
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
 

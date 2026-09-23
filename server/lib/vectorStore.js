@@ -98,6 +98,57 @@ function blobToFloat32(blob) {
 let db = null;
 let currentDims = null;
 
+/**
+ * Embeddings whose vectors were dropped by a schema rebuild are marked with
+ * this version in `embedding_meta`. It is below every real `EMBEDDING_VERSION`,
+ * so re-index picks them up through its ordinary stale path, and it is never
+ * written by a store — so a row at this version means exactly "needs rebuild".
+ */
+const REBUILD_PENDING_VERSION = 0;
+
+/** Set when `initDb` throws; the reason is shown to the user. */
+let unavailableReason = null;
+
+/**
+ * Whether semantic recall is actually working, for the client's status banner.
+ *
+ * Both failure modes used to be a console line and nothing else: recall
+ * quietly fell back to keyword search and the user had no way to know.
+ *   - 'unavailable'     — the database failed to open. Vector calls are no-ops
+ *                          for the life of the process.
+ *   - 'reindex-needed'  — the embedding size changed, so the vector tables
+ *                          were recreated empty, and `count` of this campaign's
+ *                          embeddings are still waiting to be rebuilt.
+ *
+ * Derived from the database rather than held in memory, so it survives a
+ * restart and clears itself as re-index rebuilds each vector.
+ *
+ * @param {string | undefined} campaignId — scope the count to one campaign.
+ * @returns {{ status: 'ok' } | { status: 'unavailable', detail: string } | { status: 'reindex-needed', count: number }}
+ */
+export function getVectorHealth(campaignId) {
+    if (unavailableReason !== null) return { status: 'unavailable', detail: unavailableReason };
+    if (!db) return { status: 'ok' };
+    const row = campaignId
+        ? db.prepare('SELECT COUNT(*) AS n FROM embedding_meta WHERE campaign_id = ? AND version = ?')
+            .get(campaignId, REBUILD_PENDING_VERSION)
+        : db.prepare('SELECT COUNT(*) AS n FROM embedding_meta WHERE version = ?')
+            .get(REBUILD_PENDING_VERSION);
+    return row.n > 0 ? { status: 'reindex-needed', count: row.n } : { status: 'ok' };
+}
+
+/**
+ * Called by the server when `initDb` throws. Also drops any half-opened
+ * handle: every vector function guards on `db`, so nulling it is what makes
+ * them the no-ops the fallback relies on, rather than SQL errors against a
+ * database whose vector extension never loaded.
+ */
+export function markVectorStoreUnavailable(detail) {
+    unavailableReason = String(detail);
+    try { db?.close(); } catch { /* already unusable */ }
+    db = null;
+}
+
 function resolveDims() {
     const settings = readJson(SETTINGS_FILE, {});
     const dims = settings?.settings?.[VEC_DIMS_KEY];
@@ -122,8 +173,31 @@ export function initDb() {
     const dir = path.dirname(DB_PATH);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
+    // A second `initDb` in one process must not leak the first connection.
+    // Closing it also means anything still holding statements prepared on it
+    // fails loudly instead of quietly writing through a stale handle — which
+    // is why the store functions re-prepare when the handle changes.
+    if (db) {
+        try { db.close(); } catch { /* already closed */ }
+    }
+
     db = new Database(DB_PATH);
     sqliteVec.load(db);
+
+    // Durability settings, not schema — no table, column or query changes.
+    //
+    // The default journal mode is `delete`, which fsyncs on every statement.
+    // Storing one scene embedding is three statements (delete, insert, stamp),
+    // so a single turn's embed paid three full fsyncs on the write path.
+    // WAL plus `synchronous = NORMAL` is the standard local-application
+    // setting: an OS crash can lose the last commits, a process crash cannot
+    // corrupt the file, and embeddings are derived data that can be rebuilt
+    // with `migrateEmbeddings.js` anyway.
+    //
+    // WAL writes `embeddings.db-wal` and `-shm` siblings. `data/` is gitignored
+    // and `backup.js` enumerates campaign files by name, so neither sees them.
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
 
     const version = db.prepare("select vec_version() as v").get();
     console.log(`[VectorStore] sqlite-vec v${version.v} loaded`);
@@ -131,12 +205,13 @@ export function initDb() {
     currentDims = resolveDims();
     const storedDims = getStoredSchemaDims();
 
+    let rebuilt = false;
     if (storedDims !== null && storedDims !== currentDims) {
         console.warn(`[VectorStore] Dimension mismatch: schema=${storedDims}, active=${currentDims}. Rebuilding tables.`);
         db.exec("DROP TABLE IF EXISTS archive_vss");
         db.exec("DROP TABLE IF EXISTS lore_vss");
         db.exec("DROP TABLE IF EXISTS rules_vss");
-        console.warn('[VectorStore] Tables dropped — run migrateEmbeddings.js to re-index');
+        rebuilt = true;
     }
 
     db.exec(`
@@ -173,6 +248,21 @@ export function initDb() {
         )
     `);
 
+    if (rebuilt) {
+        // The vectors are gone, but `embedding_meta` still recorded every item
+        // as embedded at the current version. Status reads only this table, so
+        // it reported everything current; and re-index only re-embeds rows
+        // below the current version, so it found nothing to do. Changing the
+        // embedding model therefore left recall permanently empty with no way
+        // back through the UI.
+        //
+        // Marking the rows stale — rather than deleting them — keeps the record
+        // of WHAT was embedded, which is exactly the list re-index needs. The
+        // existing stale-version path then rebuilds every vector.
+        const { changes } = db.prepare('UPDATE embedding_meta SET version = ?').run(REBUILD_PENDING_VERSION);
+        console.warn(`[VectorStore] Tables rebuilt for ${currentDims} dims; marked ${changes} embeddings stale for re-index.`);
+    }
+
     const settings = readJson(SETTINGS_FILE, {});
     if (settings?.settings && !settings.settings[VEC_DIMS_KEY]) {
         settings.settings[VEC_DIMS_KEY] = currentDims;
@@ -183,13 +273,34 @@ export function initDb() {
 }
 
 function createStoreFn(table, idCol, itemType) {
+    // Prepared once per table and reused, rather than re-compiled on every
+    // call, and run as ONE transaction instead of three implicit ones. Same
+    // three statements, same order, same SQL — only the commit boundary and
+    // the statement lifetime change.
+    let stmts = null;
+    let runTx = null;
+    // The handle the cached statements belong to. A statement is bound to the
+    // connection that prepared it, so if `initDb` ever opens a new one the
+    // cache must be rebuilt rather than reused against the old handle.
+    let preparedFor = null;
+
     return (campaignId, itemId, embedding) => {
         if (!db) return;
-        db.prepare(`DELETE FROM ${table} WHERE campaign_id = ? AND ${idCol} = ?`).run(campaignId, itemId);
-        db.prepare(`INSERT INTO ${table}(campaign_id, ${idCol}, embedding) VALUES (?, ?, ?)`).run(campaignId, itemId, embedding);
-        // Stamp version metadata
-        db.prepare(`INSERT OR REPLACE INTO embedding_meta (campaign_id, item_type, item_id, version, updated_at) VALUES (?, ?, ?, ?, ?)`)
-            .run(campaignId, itemType, itemId, EMBEDDING_VERSION, Date.now());
+        if (preparedFor !== db) {
+            preparedFor = db;
+            stmts = {
+                del: db.prepare(`DELETE FROM ${table} WHERE campaign_id = ? AND ${idCol} = ?`),
+                ins: db.prepare(`INSERT INTO ${table}(campaign_id, ${idCol}, embedding) VALUES (?, ?, ?)`),
+                meta: db.prepare(`INSERT OR REPLACE INTO embedding_meta (campaign_id, item_type, item_id, version, updated_at) VALUES (?, ?, ?, ?, ?)`),
+            };
+            runTx = db.transaction((cId, iId, emb) => {
+                stmts.del.run(cId, iId);
+                stmts.ins.run(cId, iId, emb);
+                // Stamp version metadata
+                stmts.meta.run(cId, itemType, iId, EMBEDDING_VERSION, Date.now());
+            });
+        }
+        runTx(campaignId, itemId, embedding);
     };
 }
 export const storeArchiveEmbedding = createStoreFn('archive_vss', 'scene_id', 'scene');

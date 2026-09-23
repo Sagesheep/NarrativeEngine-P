@@ -97,20 +97,14 @@ function buildExtendedDirective(
     return parts.length > 0 ? parts.join(' | ') : '';
 }
 
-function renderSceneEvents(events: SceneEvent[]): string {
-    if (!events || events.length === 0) return '';
-    return events
-        .slice()
-        .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0))
-        .map(e => {
-            const parts = [`[${e.eventType}] ${e.text}`];
-            if (e.cause && e.result) parts.push(`(${e.cause} → ${e.result})`);
-            else if (e.cause) parts.push(`(cause: ${e.cause})`);
-            else if (e.result) parts.push(`(result: ${e.result})`);
-            return parts.join(' ');
-        })
-        .join('\n');
+function renderSceneEventLine(e: SceneEvent): string {
+    const parts = [`[${e.eventType}] ${e.text}`];
+    if (e.cause && e.result) parts.push(`(${e.cause} → ${e.result})`);
+    else if (e.cause) parts.push(`(cause: ${e.cause})`);
+    else if (e.result) parts.push(`(result: ${e.result})`);
+    return parts.join(' ');
 }
+
 
 
 export function buildWorld(opts: {
@@ -262,18 +256,33 @@ export function buildWorld(opts: {
                 .slice()
                 .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0));
 
+            // Accumulate the rendered text rather than rebuilding it for every
+            // candidate. The previous form passed the whole accumulated list to
+            // `renderSceneEvents` each iteration, which re-sorted a list that
+            // `sortedEvents` had already sorted by the same key and re-rendered
+            // every line it had already rendered.
+            //
+            // The output is byte-identical: sort is stable, so re-sorting an
+            // already-sorted array cannot reorder it, and the lines come from
+            // the same function. Token counts stay exact — counted on the real
+            // accumulated string rather than summed per line, because BPE is
+            // not additive across a line boundary and the golden gates pin
+            // these bytes.
             const includedEvents: SceneEvent[] = [];
+            let accumulatedText = '';
             for (const event of sortedEvents) {
-                const tempText = renderSceneEvents([...includedEvents, event]);
-                if (countTokens(tempText) <= SCENE_EVENTS_TOKEN_BUDGET) {
+                const line = renderSceneEventLine(event);
+                const candidate = accumulatedText ? `${accumulatedText}\n${line}` : line;
+                if (countTokens(candidate) <= SCENE_EVENTS_TOKEN_BUDGET) {
                     includedEvents.push(event);
+                    accumulatedText = candidate;
                 } else {
                     break;
                 }
             }
 
             if (includedEvents.length > 0) {
-                const eventsText = renderSceneEvents(includedEvents);
+                const eventsText = accumulatedText;
                 worldBlocks.push({
                     source: 'Recent Scene Events',
                     content: eventsText,
@@ -455,7 +464,10 @@ export function buildWorld(opts: {
         if (activeNPCs.length > 0) {
             const plannerTags = plannerEventTypes.length > 0 ? new Set(plannerEventTypes) : null;
             const onStageSet = new Set(onStageNpcIds ?? []);
-            const npcSegments: { npcId: string; content: string; tokens: number }[] = [];
+            // Only the rendered line is ever read. This used to carry an id and
+            // a token count as well, and the count meant a BPE encode per active
+            // NPC per turn whose result was discarded.
+            const npcSegments: string[] = [];
 
             for (const npc of activeNPCs) {
                 // Core tier — always injected.
@@ -486,7 +498,7 @@ export function buildWorld(opts: {
                 }
                 const extLine = extParts.length > 0 ? extParts.join(' | ') : '';
                 const fullLine = extLine ? `${coreLine} | ${extLine}` : coreLine;
-                npcSegments.push({ npcId: npc.id, content: fullLine, tokens: countTokens(fullLine) });
+                npcSegments.push(fullLine);
             }
 
             // On-stage NPC↔NPC relations (sparse, directed). Routed through the canonical
@@ -510,7 +522,7 @@ export function buildWorld(opts: {
                 : '';
             relationsBlock = relationBlock;
 
-            const npcText = `[ACTIVE NPC CONTEXT]\n${npcSegments.map(s => s.content).join('\n')}\n[END NPC CONTEXT]`;
+            const npcText = `[ACTIVE NPC CONTEXT]\n${npcSegments.join('\n')}\n[END NPC CONTEXT]`;
             worldBlocks.push({
                 source: 'Active NPCs',
                 content: npcText,

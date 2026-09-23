@@ -1,9 +1,13 @@
 import React from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { StickyNote, Trash2 } from 'lucide-react';
 
 export const SceneNoteEditor: React.FC = () => {
-    const { context, updateContext } = useAppStore();
+    const { context, updateContext } = useAppStore(useShallow(s => ({
+        context: s.context,
+        updateContext: s.updateContext,
+    })));
 
     const handleClear = () => {
         updateContext({

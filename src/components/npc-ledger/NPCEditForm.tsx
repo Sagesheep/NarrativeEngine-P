@@ -30,6 +30,13 @@ export function NPCEditForm({
     form, setForm, selectedId, isEditing, isAIUpdating, isGeneratingImage,
     onEdit, onSave, onCancel, onDelete, onAIUpdate, onGeneratePortrait, onUploadPortrait, onRemovePortrait,
 }: Props) {
+    // Subscribed, not read through `getState()` in the render body: the
+    // Events panel below is built from these two, and an imperative read
+    // registers no dependency, so the list went stale the moment a
+    // divergence entry or a chapter title changed while the form was open.
+    const divergenceRegister = useAppStore(s => s.divergenceRegister ?? EMPTY_REGISTER);
+    const storeChapters = useAppStore(s => s.chapters);
+
     const handleVisualProfileChange = (field: keyof NPCVisualProfile, value: string) => {
         setForm(prev => ({
             ...prev,
@@ -869,10 +876,10 @@ export function NPCEditForm({
 
             {/* Established Facts for this NPC */}
             {selectedId && (() => {
-                const reg = useAppStore.getState().divergenceRegister ?? EMPTY_REGISTER;
+                const reg = divergenceRegister;
                 const npcEntries = getEntriesForNpc(reg, selectedId);
                 if (npcEntries.length === 0) return null;
-                const chapters = useAppStore.getState().chapters ?? [];
+                const chapters = storeChapters ?? [];
                 const chapterTitleMap = new Map(chapters.map(c => [c.chapterId, c.title]));
                 const CATEGORY_COLORS: Record<DivergenceCategory, string> = {
                     locations: 'text-blue-400',

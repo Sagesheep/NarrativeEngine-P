@@ -13,6 +13,9 @@ vi.mock('../../store/useAppStore', () => {
     const state = {
         settings: { ttsEnabled: true, ttsVoice: 'af_heart' },
         npcLedger: [],
+        // MessageMarkdown reads both ledgers to build its hover-chip lookup.
+        // The real store always initialises this to an array.
+        locationLedger: [],
     };
     const getState = vi.fn(() => state);
     const subscribe = vi.fn(() => vi.fn());

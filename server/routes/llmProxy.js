@@ -1,9 +1,39 @@
 import { Router } from 'express';
 import { Readable } from 'stream';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { wrapAsync } from '../lib/asyncHandler.js';
 
-export function createLLMProxyRouter() {
+/**
+ * Upper bound on how long the proxy waits on a provider — for the first byte
+ * of the response, and between chunks of a streamed one.
+ *
+ * Node's built-in `fetch` gives up after five minutes of either, measured at
+ * 307 s against a provider that never answers. That silently overrode the
+ * app's own story timeout, which defaults to ten minutes and can be set to
+ * an hour: a slow local model still processing a long prompt was cut off at
+ * five minutes with "fetch failed", whatever the user had configured.
+ *
+ * The client owns the real deadline. When it gives up it aborts, the
+ * connection closes, and the `res` 'close' handler below tears the upstream
+ * request down. This ceiling only has to stay above the longest deadline the
+ * client can set, `MAX_STORY_TIMEOUT_SECONDS` in `src/services/llm/timeouts.ts`
+ * (one hour), so the proxy is never the one that ends a request early. It
+ * still bounds a request whose client never times out.
+ */
+export const UPSTREAM_TIMEOUT_MS = 65 * 60 * 1000;
+
+/**
+ * @param {{ upstreamTimeoutMs?: number, fetchImpl?: typeof undiciFetch }} [options]
+ *   Tests shorten the ceiling or inject a fetch; production uses the defaults.
+ */
+export function createLLMProxyRouter({ upstreamTimeoutMs = UPSTREAM_TIMEOUT_MS, fetchImpl = undiciFetch } = {}) {
     const router = Router();
+    // undici's own fetch with undici's own dispatcher. Handing an installed
+    // Agent to Node's built-in fetch is fragile across versions.
+    const dispatcher = new Agent({
+        headersTimeout: upstreamTimeoutMs,
+        bodyTimeout: upstreamTimeoutMs,
+    });
 
     // Transparent relay so the browser never calls AI providers directly.
     // Fixes CORS for providers (e.g. NVIDIA) that don't send Access-Control-Allow-Origin.
@@ -41,15 +71,22 @@ export function createLLMProxyRouter() {
 
         let upstream;
         try {
-            upstream = await fetch(target, {
+            upstream = await fetchImpl(target, {
                 method,
                 headers,
                 body: method === 'GET' || method === 'HEAD' ? undefined : body,
                 signal: controller.signal,
+                dispatcher,
             });
         } catch (err) {
             if (controller.signal.aborted) return; // client went away; nothing to send
-            res.status(502).json({ error: `Upstream fetch failed: ${err.message}` });
+            // Name the timeout: the bare message is only "fetch failed".
+            const code = err?.cause?.code;
+            if (code === 'UND_ERR_HEADERS_TIMEOUT') {
+                res.status(504).json({ error: 'Upstream provider did not respond before the proxy timeout' });
+                return;
+            }
+            res.status(502).json({ error: `Upstream fetch failed: ${err.message}${code ? ` (${code})` : ''}` });
             return;
         }
 

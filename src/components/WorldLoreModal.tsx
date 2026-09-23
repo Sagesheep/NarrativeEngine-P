@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ChevronDown, ChevronRight, Plus, Download, FileText } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import type { WorldLoreDraft } from '../types';
 import { uid } from '../utils/uid';
@@ -30,7 +31,21 @@ const LIST_SECTIONS: { key: keyof Pick<WorldLoreDraft, 'locations' | 'cultures' 
 ];
 
 export function WorldLoreModal() {
-    const { worldLoreDrafts, worldLoreActiveDraftId, worldLoreModalOpen, toggleWorldLoreModal, importWorldDraft, createDraft, deleteDraft, updateDraftField, addItem, updateItem, removeItem, setActiveDraft, loadWorldLoreDrafts } = useAppStore();
+    const { worldLoreDrafts, worldLoreActiveDraftId, worldLoreModalOpen, toggleWorldLoreModal, importWorldDraft, createDraft, deleteDraft, updateDraftField, addItem, updateItem, removeItem, setActiveDraft, loadWorldLoreDrafts } = useAppStore(useShallow(s => ({
+        worldLoreDrafts: s.worldLoreDrafts,
+        worldLoreActiveDraftId: s.worldLoreActiveDraftId,
+        worldLoreModalOpen: s.worldLoreModalOpen,
+        toggleWorldLoreModal: s.toggleWorldLoreModal,
+        importWorldDraft: s.importWorldDraft,
+        createDraft: s.createDraft,
+        deleteDraft: s.deleteDraft,
+        updateDraftField: s.updateDraftField,
+        addItem: s.addItem,
+        updateItem: s.updateItem,
+        removeItem: s.removeItem,
+        setActiveDraft: s.setActiveDraft,
+        loadWorldLoreDrafts: s.loadWorldLoreDrafts,
+    })));
 
     const [expanded, setExpanded] = useState<Record<string, boolean>>({
         background: true,

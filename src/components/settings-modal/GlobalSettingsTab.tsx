@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store/useAppStore';
 import { VaultSection } from './VaultSection';
 import { LanguageSection } from './LanguageSection';
@@ -20,7 +21,10 @@ const GLOBAL_GROUPS = [
 ] as const;
 
 export function GlobalSettingsTab() {
-  const { settings, updateSettings } = useAppStore();
+  const { settings, updateSettings } = useAppStore(useShallow(s => ({
+      settings: s.settings,
+      updateSettings: s.updateSettings,
+  })));
   // Beta UI only. In the classic UI every section renders at once (the wrappers
   // below are `display: contents`, so they are invisible to layout) and this
   // state simply has no effect.

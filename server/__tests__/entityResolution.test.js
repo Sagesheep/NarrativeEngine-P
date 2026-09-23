@@ -66,6 +66,17 @@ describe('normalizeEntityName', () => {
         expect(normalizeEntityName('Completely Unknown', entities)).toBe('Completely Unknown');
     });
 
+    // `aliases` is optional on an entity record — imported bundles, hand-edited
+    // files and older campaigns omit it. Every case above supplies it, which is
+    // why this copy could drift away from the client twin's `?? []` guard and
+    // throw inside the archive append path without any test noticing.
+    it('tolerates an entity with no aliases field', () => {
+        const withoutAliases = [{ name: 'Brannoc' }, { name: 'Aldric', aliases: ['the Warrior'] }];
+        expect(() => normalizeEntityName('anything', withoutAliases)).not.toThrow();
+        expect(normalizeEntityName('brannoc', withoutAliases)).toBe('Brannoc');
+        expect(normalizeEntityName('the Warrior', withoutAliases)).toBe('Aldric');
+    });
+
     it('returns original name for empty entity list', () => {
         expect(normalizeEntityName('Aldric', [])).toBe('Aldric');
     });

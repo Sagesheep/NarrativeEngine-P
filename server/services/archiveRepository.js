@@ -12,7 +12,7 @@
 
 import fs from 'fs';
 import {
-    readJson, writeJson,
+    readJson, writeJson, writeTextAtomic,
     archivePath, archiveIndexPath, chaptersPath, entitiesPath, timelinePath, factsPath,
     getNextSceneNumber, createDefaultChapter,
 } from '../lib/fileStore.js';
@@ -31,9 +31,15 @@ export function readArchiveMd(campaignId) {
     return fs.readFileSync(fp, 'utf-8');
 }
 
-/** Overwrite the full archive markdown with `text`. */
+/**
+ * Overwrite the full archive markdown with `text`, atomically.
+ *
+ * This is the campaign's lossless record and it has no second copy, so a
+ * partial write is unrecoverable. Every derived JSON file already went
+ * through `writeJson`'s tmp+rename; this one did not.
+ */
 export function writeArchiveMd(campaignId, text) {
-    fs.writeFileSync(archivePath(campaignId), text, 'utf-8');
+    writeTextAtomic(archivePath(campaignId), text);
 }
 
 /** Does the archive markdown file exist on disk? */

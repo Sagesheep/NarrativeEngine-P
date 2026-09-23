@@ -87,8 +87,12 @@ export async function loadCampaignState(campaignId: string): Promise<CampaignSta
     const res = await fetch(`${API}/campaigns/${campaignId}/state`);
     if (!res.ok) return null;
     const record = await res.json();
-    const { context, messages, condenser } = record;
-    return { context, messages, condenser };
+    // pinnedExcerpts must be read back here. Every save path sends the field
+    // explicitly, so the server's omitted-field preserve-guard never fires for
+    // them — dropping the field on load means the next save writes [] over the
+    // user's pinned memories.
+    const { context, messages, condenser, pinnedExcerpts } = record;
+    return { context, messages, condenser, pinnedExcerpts: pinnedExcerpts ?? [] };
 }
 
 // ─── Lore Chunks ───

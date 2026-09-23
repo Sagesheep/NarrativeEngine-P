@@ -2,6 +2,7 @@ import os from 'os';
 import { Router } from 'express';
 import { isModelReady } from '../lib/embedder.js';
 import { getActiveJobs } from '../lib/embedJobs.js';
+import { getVectorHealth } from '../lib/vectorStore.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 
 /**
@@ -24,6 +25,7 @@ export function createEmbeddingRouter() {
         res.json({
             modelReady: isModelReady(),
             jobs: getActiveJobs(req.query.campaignId),
+            vectorHealth: getVectorHealth(req.query.campaignId),
         });
     }));
 

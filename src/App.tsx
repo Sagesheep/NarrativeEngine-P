@@ -25,15 +25,16 @@ import { ToastContainer } from './components/Toast';
 import { IndexingSpeedPrompt } from './components/IndexingSpeedPrompt';
 import { VaultUnlockModal } from './components/VaultUnlockModal';
 import { WorldMapTravelBridge } from './components/WorldMapTravelBridge';
-// import { MapPanel } from './components/map/MapPanel';
 import { hydrateCampaign } from './store/campaignHydrator';
 import { useRulesIndexer } from './hooks/useRulesIndexer';
+import { useFlushSavesOnExit } from './hooks/useFlushSavesOnExit';
 import { loadBackground } from './services/background/backgroundManager';
 import { refreshMods } from './services/mods/modBootstrap';
 
 export default function App() {
   const activeCampaignId = useAppStore((s) => s.activeCampaignId);
   useRulesIndexer();
+  useFlushSavesOnExit();
   const settingsLoaded = useAppStore((s) => s.settingsLoaded);
   const loadSettings = useAppStore((s) => s.loadSettings);
   const vaultStatus = useAppStore((s) => s.vaultStatus);
@@ -201,7 +202,6 @@ export default function App() {
           shared `composeDeparture` flow, so a click-to-travel commit produces
           a byte-identical departure sentence. Side-effect-only; renders null. */}
       <WorldMapTravelBridge />
-      {/* <MapPanel /> */}
       <SettingsModal />
       <NPCLedgerModal />
       <CharacterLedgerModal />

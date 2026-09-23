@@ -1,5 +1,5 @@
-import { Loader2 } from 'lucide-react';
-import { useEmbeddingStatus, type EmbedJobKind } from '../hooks/useEmbeddingStatus';
+import { AlertTriangle, Loader2 } from 'lucide-react';
+import { useEmbeddingStatus, type EmbedJobKind, type VectorHealth } from '../hooks/useEmbeddingStatus';
 
 const KIND_LABEL: Record<EmbedJobKind, string> = {
     lore: 'world lore',
@@ -13,10 +13,40 @@ const KIND_LABEL: Record<EmbedJobKind, string> = {
  * retrieval falls back to keyword search until indexing finishes — so it's purely
  * informational. Renders nothing once the model is warm and no jobs are in flight.
  */
+/**
+ * Text for a degraded vector store, or null when recall is healthy.
+ *
+ * Both states used to be a line in the server console and nothing else, so a
+ * user whose semantic memory had stopped working had no way to find out.
+ */
+function degradedLabel(health: VectorHealth | undefined): string | null {
+    if (!health || health.status === 'ok') return null;
+    if (health.status === 'unavailable') {
+        return 'Semantic memory is off: the vector database failed to open.';
+    }
+    return `Embedding model changed — ${health.count} memories need re-indexing (Settings → Advanced → Re-index Now).`;
+}
+
 export function IndexingBanner({ campaignId }: { campaignId: string | null }) {
-    const { modelReady, jobs } = useEmbeddingStatus(campaignId);
+    const { modelReady, jobs, vectorHealth } = useEmbeddingStatus(campaignId);
 
     const job = jobs[0];
+    const degraded = degradedLabel(vectorHealth);
+
+    // An in-progress job outranks the notice: it is usually the re-index
+    // that will clear it.
+    if (!job && degraded) {
+        return (
+            <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-1.5 flex items-center gap-2.5">
+                <AlertTriangle size={12} className="text-amber-400 shrink-0" />
+                <span className="text-amber-300 text-[11px] font-mono">{degraded}</span>
+                <span className="ml-auto text-text-dim text-[10px] uppercase tracking-wider hidden sm:inline">
+                    Keyword search active
+                </span>
+            </div>
+        );
+    }
+
     if (!job && modelReady) return null;
 
     let label: string;

@@ -43,6 +43,15 @@ const STRUCTURAL_WORDS = new Set([
     // (intentionally empty — all structural location words live in NPC_NAME_BLOCKLIST above)
 ]);
 
+/**
+ * Escape a string for literal use inside a RegExp.
+ *
+ * NPC names come from the model's prose, so they can contain `.`, `(`, `+`
+ * or `[`. Built into a pattern unescaped, a name like `C++ Bot` throws
+ * ("Nothing to repeat") and `Mr. Vale` also matches `Mrx Vale`.
+ */
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const SPEECH_VERBS = 'said|asked|whispered|shouted|replied|muttered|growled|spoke|called|answered|continued|added|cried|yelled|barked|snapped|hissed|murmured|breathed|intoned|declared|announced|exclaimed|demanded|ordered|commanded|pleaded|begged|insisted|admitted|confessed|offered|suggested|noted|observed|remarked|commented|explained|stated';
 
 function isValidCandidate(raw, genericPattern, blocklist, excludeSet) {
@@ -244,9 +253,13 @@ export function extractNPCStrengths(text, npcNames) {
 
     for (const name of npcNames) {
         const nameLower = name.toLowerCase();
+        // Escaped for the patterns below. The file already escaped names in
+        // `extractTimelineEventsRegex`; this function did not, so a name with a
+        // regex metacharacter threw inside the scene append path.
+        const namePat = escapeRegex(nameLower);
         let strength = 0;
-        const deathPattern = new RegExp(nameLower + '\\s+(was\\s+)?(killed|slain|died|defeated|destroyed)', 'i');
-        const reverseDeath = new RegExp('(killed|slain|defeated|destroyed|murdered)\\s+' + nameLower, 'i');
+        const deathPattern = new RegExp(namePat + '\\s+(was\\s+)?(killed|slain|died|defeated|destroyed)', 'i');
+        const reverseDeath = new RegExp('(killed|slain|defeated|destroyed|murdered)\\s+' + namePat, 'i');
         if (deathPattern.test(lower) || reverseDeath.test(lower)) {
             strength = 1.0;
         } else {
@@ -256,7 +269,7 @@ export function extractNPCStrengths(text, npcNames) {
             if (count >= 3) strength = 0.7;
             else if (count >= 2) strength = 0.5;
             else if (count >= 1) strength = 0.3;
-            const dialoguePattern = new RegExp(nameLower + '\\s+(said|replied|shouted|whispered|asked|told|exclaimed)', 'i');
+            const dialoguePattern = new RegExp(namePat + '\\s+(said|replied|shouted|whispered|asked|told|exclaimed)', 'i');
             if (dialoguePattern.test(lower)) strength = Math.max(strength, 0.7);
         }
         strengths[name] = Math.min(1.0, strength);
@@ -292,7 +305,6 @@ export function extractWitnessesHeuristic(npcNames, userContent, assistantConten
 
 export function extractTimelineEventsRegex(npcNames, text, sceneId, chapterId) {
     const events = [];
-    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     for (const name of npcNames) {
         const pat = escapeRegex(name);

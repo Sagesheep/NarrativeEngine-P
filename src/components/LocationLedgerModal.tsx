@@ -3,6 +3,7 @@ import { isTemporaryLocation } from '../utils/locationRecords';
 import { openMapTravelPreview } from '../services/turn/mapTravelPreview';
 import { useState, useEffect, useMemo } from 'react';
 import { X, Plus, MapPin, Trash2, Search, BookOpen, Compass } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { modEventBus } from '../services/mods/events';
 import type { LocationEntry } from '../types';
@@ -46,7 +47,18 @@ export function LocationLedgerModal() {
         setLocationLedger,
         context,
         updateContext,
-    } = useAppStore();
+    } = useAppStore(useShallow(s => ({
+        locationLedger: s.locationLedger,
+        locationLedgerOpen: s.locationLedgerOpen,
+        toggleLocationLedger: s.toggleLocationLedger,
+        addLocation: s.addLocation,
+        updateLocation: s.updateLocation,
+        removeLocation: s.removeLocation,
+        locationSuggestions: s.locationSuggestions,
+        setLocationLedger: s.setLocationLedger,
+        context: s.context,
+        updateContext: s.updateContext,
+    })));
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);

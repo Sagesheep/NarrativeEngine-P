@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { BookOpen, Plus, Loader2, Sparkles, Scale, Search, X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store/useAppStore';
 import { api } from '../../services/llm/apiClient';
 import { ChapterCard } from './ChapterCard';
@@ -13,12 +14,34 @@ import { CHAPTER_SCENE_SOFT_CAP } from '../../types';
 
 export const ChapterTab: React.FC = () => {
     const {
-        chapters, setChapters, activeCampaignId,
+        chapters,
+        setChapters,
+        activeCampaignId,
         getActiveSummarizerEndpoint,
-        timeline, setTimeline, removeTimelineEvent,
-        pinnedChapterIds, pinChapter,
-        messages, archiveIndex, loreChunks, npcLedger,
-    } = useAppStore();
+        timeline,
+        setTimeline,
+        removeTimelineEvent,
+        pinnedChapterIds,
+        pinChapter,
+        messages,
+        archiveIndex,
+        loreChunks,
+        npcLedger,
+    } = useAppStore(useShallow(s => ({
+        chapters: s.chapters,
+        setChapters: s.setChapters,
+        activeCampaignId: s.activeCampaignId,
+        getActiveSummarizerEndpoint: s.getActiveSummarizerEndpoint,
+        timeline: s.timeline,
+        setTimeline: s.setTimeline,
+        removeTimelineEvent: s.removeTimelineEvent,
+        pinnedChapterIds: s.pinnedChapterIds,
+        pinChapter: s.pinChapter,
+        messages: s.messages,
+        archiveIndex: s.archiveIndex,
+        loreChunks: s.loreChunks,
+        npcLedger: s.npcLedger,
+    })));
     
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [isRegenerating, setIsRegenerating] = useState<string | null>(null);

@@ -29,6 +29,10 @@ import { reactiveFaultStore } from '../../services/mods/reactiveFaults';
 import { eventFaultStore } from '../../services/mods/events';
 import { macroFaultStore } from '../../services/mods/macros/macroFaults';
 import { interceptorFaultStore } from '../../services/mods/interceptors';
+import { mountFaultStore } from '../../services/mods/mounts/mountFaults';
+import { factFaultStore } from '../../services/mods/facts/factFaults';
+import { budgetFaultStore } from '../../services/mods/budgets/budgetFaults';
+import { oocSectionFaultStore } from '../../services/ooc/oocSectionRegistry';
 import { roleFaultStore, serviceRoles, setRoleModuleEnabled } from '../../services/roles';
 import { ModPanels } from './ModPanels';
 import { ModScreens } from './ModScreens';
@@ -153,6 +157,15 @@ const collectRuntimeFaults = (): ModFault[] => [
     // block. "Rejected with a reason" means the reason is on this screen.
     ...interceptorFaultStore.getFaults(),
     ...roleFaultStore.getFaults(),
+    // These four built the same store and the same `getFaults()` projection
+    // but were never connected here, so 45 report sites across mounts, facts,
+    // budgets and OOC sections recorded a user-visible failure into a list
+    // nothing rendered — the exact bug the macro note above describes, four
+    // more times. `RUNTIME_FAULT_STORES` below must stay in step with this.
+    ...mountFaultStore.getFaults(),
+    ...factFaultStore.getFaults(),
+    ...budgetFaultStore.getFaults(),
+    ...oocSectionFaultStore.getFaults(),
 ];
 
 /** The stores whose changes should refresh the list above. */
@@ -165,6 +178,10 @@ const RUNTIME_FAULT_STORES = [
     macroFaultStore,
     interceptorFaultStore,
     roleFaultStore,
+    mountFaultStore,
+    factFaultStore,
+    budgetFaultStore,
+    oocSectionFaultStore,
 ] as const;
 
 /**

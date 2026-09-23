@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { KeyVault } from './server/vault.js';
-import { DATA_DIR, CAMPAIGNS_DIR, PUBLIC_ASSETS_DIR, MODS_DIR, BUNDLED_MODS_DIR, APP_VERSION, ensureDirs } from './server/lib/fileStore.js';
+import { DATA_DIR, PUBLIC_ASSETS_DIR, MODS_DIR, BUNDLED_MODS_DIR, APP_VERSION, ensureDirs } from './server/lib/fileStore.js';
 import { createVaultRouter } from './server/routes/vault.js';
 import { createSettingsRouter } from './server/routes/settings.js';
 import { createCampaignsRouter } from './server/routes/campaigns.js';
@@ -20,11 +20,12 @@ import { createEmbeddingRouter } from './server/routes/embedding.js';
 import { createTtsRouter } from './server/routes/tts.js';
 import { createSceneImagesRouter } from './server/routes/sceneImages.js';
 import { createModsRouter } from './server/routes/mods.js';
+import { createCampaignAssetsRouter } from './server/routes/campaignAssets.js';
 import { loadMods } from './server/lib/modLoader.js';
 import { registerModTables } from './server/lib/modTableRegistry.js';
 import { mountGenericTableRoutes, mountModTableRoutes, serverTableRegistry } from './server/lib/tableRegistry.js';
 import { registerLocationTable } from './server/lib/locationTable.js';
-import { initDb } from './server/lib/vectorStore.js';
+import { initDb, markVectorStoreUnavailable } from './server/lib/vectorStore.js';
 import { warmup as warmupEmbedder } from './server/lib/embedder.js';
 import { warmupTts } from './server/lib/tts.js';
 import { serverError } from './server/lib/serverError.js';
@@ -93,15 +94,35 @@ app.use(cors({
     credentials: false,
 }));
 app.use('/api', createFetchSiteGuard(ALLOWED_ORIGINS));
-app.use(express.json({ limit: '500mb' }));
+// Body limits. A single 500 MB JSON parse blocks the one event loop for
+// seconds and can take the process out of memory, and it applied to every
+// route — including ones whose bodies are a few hundred bytes.
+//
+// Two routes genuinely carry bulk: a campaign import bundle (which contains
+// the whole archive) and a base64 image upload. They get their own parser,
+// mounted first — body-parser marks the request as parsed, so the general
+// parser below skips it rather than re-reading it.
+//
+// The general limit still has to be generous: `PUT /campaigns/:id/state`
+// sends the entire message array on every save, measured at 4.4 MB for a
+// 1,465-message campaign, so it grows with the campaign.
+const bulkJson = express.json({ limit: '512mb' });
+app.use('/api/campaigns/import', bulkJson);
+app.use('/api/assets/upload', bulkJson);
+app.use(express.json({ limit: '64mb' }));
 app.use('/assets/portraits', express.static(PUBLIC_ASSETS_DIR));
-app.use('/assets/campaigns', express.static(CAMPAIGNS_DIR));
+// Scene images only. This was express.static over the whole campaign data
+// directory, which served every state, archive and ledger file as well.
+app.use(createCampaignAssetsRouter());
 
 // ─── Vector Search Init ───
 try {
     initDb();
 } catch (err) {
     console.error('[VectorStore] Init failed:', err.message);
+    // The server still starts — keyword recall works without vectors — but
+    // the user must be told semantic memory is off, not left to guess.
+    markVectorStoreUnavailable(err.message);
 }
 registerLocationTable(serverTableRegistry);
 warmupEmbedder().catch(err => console.error('[Embedder] Warmup failed:', err.message));

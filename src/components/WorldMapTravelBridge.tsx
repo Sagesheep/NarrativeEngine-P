@@ -83,7 +83,12 @@ export function WorldMapTravelBridge() {
             const payload = rawPayload as Record<string, unknown> | undefined;
             const state = useAppStore.getState();
             const scene = state.context.mapEncounter;
-            if (!payload || payload.campaignId !== state.activeCampaignId || !scene || state.isStreaming
+            // The store's `isStreaming` is never set — the turn streams through
+            // local state in useChatOperations — so on its own this guard never
+            // fired. `pipelinePhase` is live for the whole turn; the selection
+            // menu and the chat's busy flag check the same pair.
+            const storyBusy = state.isStreaming || state.pipelinePhase !== 'idle';
+            if (!payload || payload.campaignId !== state.activeCampaignId || !scene || storyBusy
                 || payload.key !== scene.key || payload.placeId !== state.context.currentPlaceId
                 || payload.worldDay !== state.context.worldDay || payload.leg !== (state.context.travel?.leg ?? null)
                 || scene.placeId !== state.context.currentPlaceId || scene.worldDay !== state.context.worldDay

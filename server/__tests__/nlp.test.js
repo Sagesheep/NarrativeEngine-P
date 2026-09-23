@@ -381,6 +381,28 @@ describe('extractNPCStrengths', () => {
         const s = extractNPCStrengths(text, ['Roderick Vaul']);
         expect(s['Roderick Vaul']).toBeGreaterThanOrEqual(0.7);
     });
+
+    // Names come from the model's prose, so they can hold regex metacharacters.
+    // Built into a pattern unescaped, these threw inside the scene append path
+    // (leaving prose on disk with no index entry) or matched the wrong text.
+    it('does not throw on names containing regex metacharacters', () => {
+        const text = 'The crowd parted. Nobody moved.';
+        for (const name of ['C++ Bot', 'Smith (the Elder', 'Who?', '[Redacted]', 'A*Star', 'Ven|ra']) {
+            expect(() => extractNPCStrengths(text, [name]), name).not.toThrow();
+        }
+    });
+
+    it('matches a name with metacharacters literally', () => {
+        const s = extractNPCStrengths('Smith (the Elder) was killed at dawn', ['Smith (the Elder)']);
+        expect(s['Smith (the Elder)']).toBe(1.0);
+    });
+
+    it('does not treat a dot in a name as a wildcard', () => {
+        // Unescaped, the dot in "mr. vale" matches any character, so a
+        // different person, "mrx vale", was scored as Mr. Vale's death.
+        const s = extractNPCStrengths('mrx vale was killed', ['Mr. Vale']);
+        expect(s['Mr. Vale']).toBe(0);
+    });
 });
 
 // ─── extractWitnessesHeuristic ──────────────────────────────────────────────

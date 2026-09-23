@@ -310,7 +310,15 @@ export function fetchScenesByIds(campaignId, idsParam) {
 // 6. Whole-word rename across archive prose + index
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function renameAcrossArchive(campaignId, from, to) {
+/**
+ * Whole-word rename rewrites the archive prose and the index together, so the whole read-modify-write must be atomic against a
+ * concurrent append. It previously ran with no lock at all.
+ */
+export async function renameAcrossArchive(campaignId, from, to) {
+    return withCampaignLock(campaignId, () => renameAcrossArchiveUnlocked(campaignId, from, to));
+}
+
+function renameAcrossArchiveUnlocked(campaignId, from, to) {
     const fromTrim = typeof from === 'string' ? from.trim() : '';
     const toTrim = typeof to === 'string' ? to.trim() : '';
     if (!fromTrim || !toTrim) {
@@ -359,7 +367,15 @@ export function renameAcrossArchive(campaignId, from, to) {
 // 7. Rollback: remove all scenes >= sceneId
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function rollbackScenesFrom(campaignId, sceneIdParam) {
+/**
+ * Rollback rewrites the archive prose, the index and the chapters together, so the whole read-modify-write must be atomic against a
+ * concurrent append. It previously ran with no lock at all.
+ */
+export async function rollbackScenesFrom(campaignId, sceneIdParam) {
+    return withCampaignLock(campaignId, () => rollbackScenesFromUnlocked(campaignId, sceneIdParam));
+}
+
+function rollbackScenesFromUnlocked(campaignId, sceneIdParam) {
     const fromId = sceneIdParam.padStart(3, '0');
     const fromNum = parseInt(fromId, 10);
 
@@ -457,7 +473,15 @@ export function rollbackScenesFrom(campaignId, sceneIdParam) {
 // 8. Surgical scene delete
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function deleteScene(campaignId, sceneIdParam) {
+/**
+ * Surgical delete rewrites the archive prose, the index and the chapters together, so the whole read-modify-write must be atomic against a
+ * concurrent append. It previously ran with no lock at all.
+ */
+export async function deleteScene(campaignId, sceneIdParam) {
+    return withCampaignLock(campaignId, () => deleteSceneUnlocked(campaignId, sceneIdParam));
+}
+
+function deleteSceneUnlocked(campaignId, sceneIdParam) {
     validateCampaignId(campaignId);
     ensureDirs();
     const targetId = sceneIdParam.padStart(3, '0');
@@ -682,72 +706,79 @@ export async function updateSceneAssistant(campaignId, sceneIdParam, assistantCo
         throw err;
     }
 
-    // Rewrite this scene's GM block. Parse the scene block, extract the existing
-    // userContent, and rebuild the block with the new assistant content.
-    const raw = readArchiveMd(campaignId);
-    const sceneBlocks = raw.split(/^(?=## SCENE )/m);
-    let found = false;
-    let userContent = '';
-    const nextBlocks = sceneBlocks.map(block => {
-        const match = block.match(/^## SCENE (\d+)/);
-        if (!match) return block;
-        if (parseInt(match[1], 10) !== targetNum) return block;
-        found = true;
-        const userMatch = block.match(/\*\*\[USER\]\*\*\n([\s\S]*?)\n\n\*\*\[GM\]\*\*/);
-        userContent = (userMatch ? userMatch[1] : '').trim();
-        const lines = block.split('\n');
-        const headerLines = [];
-        let i = 0;
-        while (i < lines.length && headerLines.length < 2) {
-            if (lines[i].trim()) headerLines.push(lines[i]);
-            i++;
+    // Both the prose rewrite and the index rewrite are a read-modify-write of
+    // files a concurrent append also writes. Unlocked, an append that lands
+    // between the index read and the index write below has its entry dropped.
+    // The region is synchronous; the re-embed stays outside the lock.
+    const { userContent, newIndexEntry } = await withCampaignLock(campaignId, () => {
+        // Rewrite this scene's GM block. Parse the scene block, extract the existing
+        // userContent, and rebuild the block with the new assistant content.
+        const raw = readArchiveMd(campaignId);
+        const sceneBlocks = raw.split(/^(?=## SCENE )/m);
+        let found = false;
+        let userContent = '';
+        const nextBlocks = sceneBlocks.map(block => {
+            const match = block.match(/^## SCENE (\d+)/);
+            if (!match) return block;
+            if (parseInt(match[1], 10) !== targetNum) return block;
+            found = true;
+            const userMatch = block.match(/\*\*\[USER\]\*\*\n([\s\S]*?)\n\n\*\*\[GM\]\*\*/);
+            userContent = (userMatch ? userMatch[1] : '').trim();
+            const lines = block.split('\n');
+            const headerLines = [];
+            let i = 0;
+            while (i < lines.length && headerLines.length < 2) {
+                if (lines[i].trim()) headerLines.push(lines[i]);
+                i++;
+            }
+            const timestampLine = headerLines[1] || '';
+            return [
+                `## SCENE ${targetId}`,
+                timestampLine,
+                '',
+                `**[USER]**`,
+                userContent,
+                '',
+                `**[GM]**`,
+                assistantContent,
+                '',
+                '---',
+                '',
+            ].join('\n');
+        });
+        if (!found) {
+            const err = new Error('Scene not found');
+            err.statusCode = 404;
+            throw err;
         }
-        const timestampLine = headerLines[1] || '';
-        return [
-            `## SCENE ${targetId}`,
-            timestampLine,
-            '',
-            `**[USER]**`,
-            userContent,
-            '',
-            `**[GM]**`,
-            assistantContent,
-            '',
-            '---',
-            '',
-        ].join('\n');
-    });
-    if (!found) {
-        const err = new Error('Scene not found');
-        err.statusCode = 404;
-        throw err;
-    }
-    writeArchiveMd(campaignId, nextBlocks.join(''));
+        writeArchiveMd(campaignId, nextBlocks.join(''));
 
-    // Rebuild the index entry (mirrors appendScene's index construction) and re-embed.
-    const idxp = archiveIndexPath(campaignId);
-    const combinedText = `${userContent}\n${assistantContent}`;
-    const keywords = extractIndexKeywords(combinedText);
-    const npcNames = extractNPCNames(assistantContent);
-    const { witnesses, mentioned: npcOnlyMentioned } = extractWitnessesHeuristic(npcNames, userContent, assistantContent);
-    const entries = readIndexAt(idxp, []);
-    const existing = entries.find(e => parseInt(e.sceneId, 10) === targetNum);
-    const timestamp = existing?.timestamp ?? Date.now();
-    const clientImportance = existing?.importance;
-    const newIndexEntry = {
-        sceneId: targetId,
-        timestamp,
-        keywords,
-        keywordStrengths: extractKeywordStrengths(combinedText, keywords),
-        npcsMentioned: npcOnlyMentioned,
-        witnesses,
-        npcStrengths: extractNPCStrengths(assistantContent, [...npcOnlyMentioned, ...witnesses]),
-        importance: (typeof clientImportance === 'number' && clientImportance >= 1 && clientImportance <= 10)
-            ? clientImportance
-            : estimateImportance(combinedText),
-        userSnippet: userContent.slice(0, 120),
-    };
-    writeIndexAt(idxp, entries.map(e => parseInt(e.sceneId, 10) === targetNum ? newIndexEntry : e));
+        // Rebuild the index entry (mirrors appendScene's index construction) and re-embed.
+        const idxp = archiveIndexPath(campaignId);
+        const combinedText = `${userContent}\n${assistantContent}`;
+        const keywords = extractIndexKeywords(combinedText);
+        const npcNames = extractNPCNames(assistantContent);
+        const { witnesses, mentioned: npcOnlyMentioned } = extractWitnessesHeuristic(npcNames, userContent, assistantContent);
+        const entries = readIndexAt(idxp, []);
+        const existing = entries.find(e => parseInt(e.sceneId, 10) === targetNum);
+        const timestamp = existing?.timestamp ?? Date.now();
+        const clientImportance = existing?.importance;
+        const newIndexEntry = {
+            sceneId: targetId,
+            timestamp,
+            keywords,
+            keywordStrengths: extractKeywordStrengths(combinedText, keywords),
+            npcsMentioned: npcOnlyMentioned,
+            witnesses,
+            npcStrengths: extractNPCStrengths(assistantContent, [...npcOnlyMentioned, ...witnesses]),
+            importance: (typeof clientImportance === 'number' && clientImportance >= 1 && clientImportance <= 10)
+                ? clientImportance
+                : estimateImportance(combinedText),
+            userSnippet: userContent.slice(0, 120),
+        };
+        writeIndexAt(idxp, entries.map(e => parseInt(e.sceneId, 10) === targetNum ? newIndexEntry : e));
+        return { userContent, newIndexEntry };
+    });
 
     // Re-embed — awaited here (different from appendScene's fire-and-forget).
     try {

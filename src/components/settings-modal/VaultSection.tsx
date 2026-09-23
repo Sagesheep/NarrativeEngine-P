@@ -1,10 +1,16 @@
 import { useState, useRef } from 'react';
 import { Loader2, Lock, Download, Upload } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store/useAppStore';
 import { toast } from '../Toast';
 
 export function VaultSection() {
-  const { vaultStatus, exportVault, importVault, saveVaultKeys } = useAppStore();
+  const { vaultStatus, exportVault, importVault, saveVaultKeys } = useAppStore(useShallow(s => ({
+      vaultStatus: s.vaultStatus,
+      exportVault: s.exportVault,
+      importVault: s.importVault,
+      saveVaultKeys: s.saveVaultKeys,
+  })));
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [exportPassword, setExportPassword] = useState('');

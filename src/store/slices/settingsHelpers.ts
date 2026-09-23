@@ -226,6 +226,30 @@ function migrateModuleTokens(raw: unknown): Record<string, number> | undefined {
  *     extract unique configs into providers[] and rewrite presets to reference by id.
  *  3. Pre-preset legacy (providers?/endpoint/apiKey/modelName) — synthesize one provider + preset.
  */
+/**
+ * Settings keys that exist only so old saves can be migrated into `presets`
+ * and `providers`. They are read from `raw` above and deliberately not
+ * returned.
+ */
+type LegacyMigrationOnlySettingsKey =
+    | 'activeProviderId' | 'endpoint' | 'apiKey' | 'modelName'
+    | 'imageApiEndpoint' | 'imageApiKey' | 'imageApiModel';
+
+/**
+ * Every other `AppSettings` key must appear in the literal `migrateSettings`
+ * returns, even when its value is `undefined`.
+ *
+ * This function rebuilds settings field by field, so a key with no line here
+ * is silently dropped on every load: the user's choice survives until the next
+ * launch and then reverts. That has happened twice — `moduleEnabled` and
+ * `modLoadOrder` in Phase 8.5, then `stImportAdaptation` — and each time the
+ * only symptom was a toggle that would not stay on. With this constraint a new
+ * field without a line here fails `tsc -b` instead.
+ */
+type MigratedSettingsShape = {
+    [K in Exclude<keyof AppSettings, LegacyMigrationOnlySettingsKey>]-?: unknown;
+};
+
 export function migrateSettings(data: Record<string, unknown>): AppSettings {
     const raw = (data.settings || data) as Record<string, unknown>;
 
@@ -428,6 +452,9 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         lodImportanceBonus: (raw.lodImportanceBonus as number) ?? 2,
         lodElevateScenes: (raw.lodElevateScenes as number) ?? 2,
         lodSlottedMaxPerScene: (raw.lodSlottedMaxPerScene as number) ?? 2,
+        // Written by the Global Settings toggle and read by the import wizard,
+        // but it had no line here, so it switched itself off on every launch.
+        stImportAdaptation: (raw.stImportAdaptation as boolean) ?? false,
 
         // ── Mod state (Phase 8.5) ──────────────────────────────────────────
         //
@@ -445,7 +472,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         modLoadOrder: Array.isArray(raw.modLoadOrder)
             ? (raw.modLoadOrder as unknown[]).filter((id): id is string => typeof id === 'string')
             : undefined,
-    };
+    } satisfies MigratedSettingsShape;
 }
 
 // Debounced save to avoid hammering the API on rapid changes

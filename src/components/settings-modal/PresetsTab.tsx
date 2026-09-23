@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import { Plus, Trash2, Copy } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store/useAppStore';
 import type { AIPreset, SamplingConfig } from '../../types';
 import { uid } from '../../utils/uid';
 import { SamplingPanel } from '../SamplingPanel';
 
 export function PresetsTab() {
-  const { settings, addPreset, updatePreset, removePreset } = useAppStore();
+  const { settings, addPreset, updatePreset, removePreset } = useAppStore(useShallow(s => ({
+      settings: s.settings,
+      addPreset: s.addPreset,
+      updatePreset: s.updatePreset,
+      removePreset: s.removePreset,
+  })));
   const [activeTab, setActiveTab] = useState(settings.presets[0]?.id || '');
 
   const activePreset = settings.presets.find((p) => p.id === activeTab) || settings.presets[0];

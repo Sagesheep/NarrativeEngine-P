@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Cpu } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { TokenGauge } from './TokenGauge';
 import { saveCampaignState } from '../store/campaignStore';
@@ -32,24 +33,34 @@ function useHeaderActions(): readonly RegisteredChromeEntry[] {
 }
 
 export function Header() {
+    // The header is mounted for the whole campaign, so anything it subscribes
+    // to re-renders it. `context`, `messages`, `condenser`, `divergenceRegister`
+    // and `pinnedExcerpts` are read only inside `handleExit`, and `messages`
+    // changes on every streamed token — subscribing to them re-rendered the
+    // header and its action rail once per token. They are read imperatively in
+    // the handler instead, which is also the fresher value.
     const {
         toggleSettings,
         toggleDrawer,
         drawerOpen,
         activeCampaignId,
         setActiveCampaign,
-        context,
-        messages,
-        condenser,
-        divergenceRegister,
         settings,
         updateSettings,
-    } = useAppStore();
+    } = useAppStore(useShallow(s => ({
+        toggleSettings: s.toggleSettings,
+        toggleDrawer: s.toggleDrawer,
+        drawerOpen: s.drawerOpen,
+        activeCampaignId: s.activeCampaignId,
+        setActiveCampaign: s.setActiveCampaign,
+        settings: s.settings,
+        updateSettings: s.updateSettings,
+    })));
 
-    const pinnedExcerpts = useAppStore(s => s.pinnedExcerpts);
     const aiTier = (settings?.aiTier ?? 'pro') as AiTier;
     const { t } = useTranslation();
     const handleExit = async () => {
+        const { context, messages, condenser, divergenceRegister, pinnedExcerpts } = useAppStore.getState();
         if (activeCampaignId) {
             await saveCampaignState(activeCampaignId, { context, messages, condenser, pinnedExcerpts });
             if (divergenceRegister && (divergenceRegister.entries.length > 0 || (divergenceRegister.prunedLog ?? []).length > 0)) {

@@ -37,6 +37,9 @@ vi.mock('../../store/useAppStore', () => {
         } as unknown as AppSettings,
         loreChunks: [],
         npcLedger: [],
+        // MessageMarkdown reads both ledgers to build its hover-chip lookup.
+        // The real store always initialises this to an array.
+        locationLedger: [],
         archiveIndex: [],
         chapters: [],
         timeline: [],

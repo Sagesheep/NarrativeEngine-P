@@ -1,9 +1,13 @@
 import React from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { Activity, Info } from 'lucide-react';
 
 export const PayloadTraceView: React.FC = () => {
-    const { lastPayloadTrace, settings } = useAppStore();
+    const { lastPayloadTrace, settings } = useAppStore(useShallow(s => ({
+        lastPayloadTrace: s.lastPayloadTrace,
+        settings: s.settings,
+    })));
 
     if (!settings.debugMode || !lastPayloadTrace || lastPayloadTrace.length === 0) {
         return null;
