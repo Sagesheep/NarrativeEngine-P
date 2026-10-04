@@ -23,11 +23,17 @@ export type AiTier = 'lite' | 'pro' | 'max';
 
 export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high' | 'max';
 
+/** Preset slots that carry their own thinking level. Image generation has no thinking. */
+export type ThinkingSlot = 'story' | 'summarizer' | 'utility' | 'auxiliary' | 'vision';
+
 export type EndpointConfig = {
     endpoint: string;
     apiKey: string;
     modelName: string;
     apiFormat?: ApiFormat;
+    /** Effective thinking level for a request. On a config returned by the role getters
+     *  (`getActive*Endpoint`) this is the preset slot's level; on a stored provider it is
+     *  the deprecated provider-wide value (see `LLMProvider.thinkingEffort`). */
     thinkingEffort?: ThinkingEffort;
     /** The endpoint's maximum output tokens per response. Optional — unset means unknown,
      * and the thinking reserve stays conservative (see WORKORDER-thinking-token-floor §3.2).
@@ -65,6 +71,9 @@ export type LLMProvider = {
     modelName: string;
     streamingEnabled?: boolean;
     apiFormat?: ApiFormat;
+    /** @deprecated Thinking is set per preset slot (`AIPreset.slotThinking`). Kept so stored
+     *  values survive and seed the story slot on migration; it is still the last fallback
+     *  when a slot has no level of its own. The role getters overwrite it on the copy they return. */
     thinkingEffort?: ThinkingEffort;
     /** The endpoint's maximum output tokens per response. Optional — unset means unknown,
      * and the thinking reserve stays conservative (see WORKORDER-thinking-token-floor §3.2).
@@ -102,6 +111,9 @@ export type AIPreset = {
      *  + appearance prose). Optional: unset means the "Read Image" action is unavailable.
      *  Must point at a multimodal model; see services/vision/describeImage.ts. */
     visionAIProviderId?: string;
+    /** Thinking level per slot. Unset for a slot means the provider's legacy level.
+     *  A per-call `thinkingEffort` (e.g. `'off'` on short JSON calls) still wins. */
+    slotThinking?: Partial<Record<ThinkingSlot, ThinkingEffort>>;
     sampling?: SamplingConfig;
     // Legacy inline endpoint configs — kept ONLY for one-time migration; ignored after migration runs.
     storyAI?: EndpointConfig;

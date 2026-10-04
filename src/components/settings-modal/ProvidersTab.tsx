@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { testConnection } from '../../services/chatEngine';
-import type { LLMProvider, ApiFormat, ThinkingEffort, ComfyUiSettings } from '../../types';
+import type { LLMProvider, ApiFormat, ComfyUiSettings } from '../../types';
 import { detectFormatFromEndpoint } from '../../utils/llmApiHelper';
 import { toast } from '../Toast';
 import { uid } from '../../utils/uid';
@@ -198,7 +198,7 @@ export function ProvidersTab() {
                             /* Two columns once there is room for them. DOM order
                                already pairs up the way the layout wants —
                                Label|Endpoint, then Format full-width, then
-                               Model|Key, then Streaming|Thinking — so nothing
+                               Model|Key, then Streaming|thinking note — so nothing
                                is reordered here; the fields that need the full
                                row just declare `xl:col-span-2`. Without this a
                                full-stretch pane turns the API key into a
@@ -297,26 +297,9 @@ export function ProvidersTab() {
                                     </div>
                                 )}
                                 {!isComfy && (
-                                    <div>
-                                        <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1" title="Requests reasoning from the model when supported. 'Max' maps to xhigh on OpenAI, max on DeepSeek V4, HIGH on Gemini.">
-                                            Thinking effort
-                                        </label>
-                                        <div data-ui="seg" className="flex border border-border overflow-hidden rounded">
-                                            {(['off', 'low', 'medium', 'high', 'max'] as ThinkingEffort[]).map(level => (
-                                                <button
-                                                    key={level}
-                                                    onClick={() => handleFieldChange('thinkingEffort', level === 'off' ? undefined : level)}
-                                                    className={`flex-1 px-2 py-1.5 text-[9px] uppercase tracking-wider transition-colors focus:outline-none ${(config.thinkingEffort === level) || (!config.thinkingEffort && level === 'off')
-                                                        ? 'bg-terminal text-void font-bold'
-                                                        : 'bg-void text-text-dim hover:text-text-primary'
-                                                    }`}
-                                                    title={level === 'max' ? 'OpenAI & DeepSeek cap at High — Max sends High.' : undefined}
-                                                >
-                                                    {level.charAt(0).toUpperCase() + level.slice(1)}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
+                                    <p className="text-[10px] text-text-dim py-2">
+                                        Thinking effort is set per slot in the Presets tab.
+                                    </p>
                                 )}
                                 {!isComfy && (
                                     <div>

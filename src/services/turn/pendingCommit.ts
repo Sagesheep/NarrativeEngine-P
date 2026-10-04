@@ -9,6 +9,7 @@ import { isBlockEnabled } from './blockEnablement';
 import { shouldCondense, computeTrimIndex, getCondenseBudgetRatio } from '../archive-memory/condenser';
 import { toast } from '../../components/Toast';
 import { useAppStore } from '../../store/useAppStore';
+import { applyActiveSlotThinking } from '../../store/slices/slotThinking';
 import { saveCampaignState } from '../../store/campaignStore';
 import { API_BASE } from '../../lib/apiBase';
 import { buildHostFacade, hasHostModelRole } from './hostFacade';
@@ -575,7 +576,8 @@ export function rebuildStateFromLiveStore(
         getUtilityEndpoint: () => store.getActiveUtilityEndpoint(),
         getFreshAuxiliaryProvider: () => {
             const aux = store.getActiveAuxiliaryEndpoint?.();
-            return aux?.modelName ? aux : store.getActiveStoryEndpoint();
+            // A story fallback is still doing the auxiliary job, so it takes the auxiliary slot's thinking.
+            return aux?.modelName ? aux : applyActiveSlotThinking(store.settings, 'auxiliary', store.getActiveStoryEndpoint());
         },
         getRawAuxiliaryProvider: () => store.getActiveAuxiliaryEndpoint(),
         getRawSummariserProvider: () => store.getActiveSummarizerEndpoint(),

@@ -17,6 +17,7 @@ import type { TurnState, TurnCallbacks } from '../../turn/turnOrchestrator';
 import { hasHostModelRole, type HostFacade } from '../../turn/hostFacade';
 import { uid } from '../../../utils/uid';
 import { llmCall } from '../../../utils/llmCall';
+import { applyActiveSlotThinking } from '../../../store/slices/slotThinking';
 import { backgroundQueue } from '../../infrastructure/backgroundQueue';
 
 import { HEARTBEAT_DC, GOAL_BASE_DC, COLLISION_TANGLE_PROB, type Band } from './agencyConstants';
@@ -299,7 +300,7 @@ function runTimeskipPath(
     });
 
     // Desktop has no dedicated summarizer slot; utility is preferred, then story.
-    const provider = facade ? undefined : state.getUtilityEndpoint?.() ?? state.getFreshProvider();
+    const provider = facade ? undefined : state.getUtilityEndpoint?.() ?? applyActiveSlotThinking(state.settings, 'utility', state.getFreshProvider());
     const modelRole = facade && hasHostModelRole(facade, 'utility')
         ? 'utility' as const
         : facade && hasHostModelRole(facade, 'story')

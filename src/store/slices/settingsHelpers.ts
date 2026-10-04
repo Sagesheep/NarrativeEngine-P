@@ -6,6 +6,7 @@ import { DEFAULT_STORY_TIMEOUT_SECONDS, normalizeStoryTimeoutSeconds } from '../
 import { toast } from '../../components/Toast';
 import { applyLocale, detectLocale, isLocaleCode } from '../../i18n';
 import { getBuiltinTokenCap } from '../../services/payload/contributions/builtins';
+import { migratePresetSlotThinking } from './slotThinking';
 
 import { API_BASE as API } from '../../lib/apiBase';
 
@@ -409,6 +410,9 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
             preset.storyAIProviderId = providers[0].id;
         }
     }
+
+    // Thinking moved from the provider to the preset slot; seed slots that predate it.
+    presets = presets.map(preset => migratePresetSlotThinking(preset, providers));
 
     return {
         presets,

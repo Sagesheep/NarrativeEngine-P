@@ -21,6 +21,7 @@ import type {
     TravelState,
 } from '../../types';
 import { llmCall, type LLMCallPriority } from '../../utils/llmCall';
+import { applyActiveSlotThinking } from '../../store/slices/slotThinking';
 import { extractJson } from '../infrastructure/jsonExtract';
 import type { TurnCallbacks, TurnState } from './turnOrchestrator';
 import { createReactiveReadHub, disposeCampaignSubscriptions, type ReactiveReadHub, type ReactiveStoreLike } from '../mods/reactiveReads';
@@ -308,9 +309,9 @@ function resolveEndpoint(state: TurnState, role: ModelRole): EndpointConfig | Pr
         case 'utility':
             return state.getUtilityEndpoint?.();
         case 'auxiliary':
-            return state.getFreshAuxiliaryProvider?.() ?? story();
+            return state.getFreshAuxiliaryProvider?.() ?? applyActiveSlotThinking(state.settings, 'auxiliary', story());
         case 'summariser':
-            return state.getRawSummariserProvider?.() ?? story();
+            return state.getRawSummariserProvider?.() ?? applyActiveSlotThinking(state.settings, 'summarizer', story());
         case 'raw-auxiliary':
             return state.getRawAuxiliaryProvider?.();
         case 'raw-summariser':

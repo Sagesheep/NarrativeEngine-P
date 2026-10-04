@@ -5,6 +5,7 @@ import { get as idbGet } from 'idb-keyval';
 import { decryptSettingsProviders, decryptSettingsPresets } from '../../services/infrastructure/settingsCrypto';
 import { toast } from '../../components/Toast';
 import { api } from '../../services/llm/apiClient';
+import { applySlotThinking } from './slotThinking';
 
 import { API_BASE as API } from '../../lib/apiBase';
 
@@ -223,7 +224,7 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
         const s = get();
         const preset = s.getActivePreset();
         if (!preset) return undefined;
-        return s.settings.providers.find(p => p.id === preset.storyAIProviderId);
+        return applySlotThinking(s.settings.providers.find(p => p.id === preset.storyAIProviderId), preset, 'story');
     },
 
     getActiveImageEndpoint: () => {
@@ -237,28 +238,28 @@ export const createSettingsSlice: StateCreator<SettingsSlice & { activeCampaignI
         const s = get();
         const preset = s.getActivePreset();
         if (!preset || !preset.summarizerAIProviderId) return undefined;
-        return s.settings.providers.find(p => p.id === preset.summarizerAIProviderId);
+        return applySlotThinking(s.settings.providers.find(p => p.id === preset.summarizerAIProviderId), preset, 'summarizer');
     },
 
     getActiveUtilityEndpoint: () => {
         const s = get();
         const preset = s.getActivePreset();
         if (!preset || !preset.utilityAIProviderId) return undefined;
-        return s.settings.providers.find(p => p.id === preset.utilityAIProviderId);
+        return applySlotThinking(s.settings.providers.find(p => p.id === preset.utilityAIProviderId), preset, 'utility');
     },
 
     getActiveAuxiliaryEndpoint: () => {
         const s = get();
         const preset = s.getActivePreset();
         if (!preset || !preset.auxiliaryAIProviderId) return undefined;
-        return s.settings.providers.find(p => p.id === preset.auxiliaryAIProviderId);
+        return applySlotThinking(s.settings.providers.find(p => p.id === preset.auxiliaryAIProviderId), preset, 'auxiliary');
     },
 
     getActiveVisionEndpoint: () => {
         const s = get();
         const preset = s.getActivePreset();
         if (!preset || !preset.visionAIProviderId) return undefined;
-        return s.settings.providers.find(p => p.id === preset.visionAIProviderId);
+        return applySlotThinking(s.settings.providers.find(p => p.id === preset.visionAIProviderId), preset, 'vision');
     },
 
     addProvider: (provider) => {

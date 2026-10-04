@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
+import { applyActiveSlotThinking } from '../store/slices/slotThinking';
 import { runTurn } from '../services/turn/turnOrchestrator';
 import { resolveGalleryRecall } from '../services/gallery/galleryIndex';
 import { formatAttachmentBlock } from '../services/vision/describeImage';
@@ -284,8 +285,10 @@ ${textToUse}` : attachmentBlock)
             armedOneShot: useArmedOneShot,
             absoluteCommand: useAbsoluteCommand,
             getFreshAuxiliaryProvider: () => {
-                const aux = useAppStore.getState().getActiveAuxiliaryEndpoint();
-                return aux?.modelName ? aux : useAppStore.getState().getActiveStoryEndpoint();
+                const live = useAppStore.getState();
+                const aux = live.getActiveAuxiliaryEndpoint();
+                // A story fallback is still doing the auxiliary job, so it takes the auxiliary slot's thinking.
+                return aux?.modelName ? aux : applyActiveSlotThinking(live.settings, 'auxiliary', live.getActiveStoryEndpoint());
             },
             nextTurnOocBrief: useAskGmBrief,
             directorSkipController: directorAbortRef.current,
