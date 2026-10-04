@@ -2,9 +2,43 @@ import { useState } from 'react';
 import { Plus, Trash2, Copy } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store/useAppStore';
-import type { AIPreset, SamplingConfig } from '../../types';
+import type { AIPreset, SamplingConfig, ThinkingEffort, ThinkingSlot } from '../../types';
+import { THINKING_EFFORTS, migratePresetSlotThinking } from '../../store/slices/slotThinking';
 import { uid } from '../../utils/uid';
 import { SamplingPanel } from '../SamplingPanel';
+
+/** Compact Off…Max picker for one preset slot's thinking level. */
+function SlotThinkingPicker({ preset, slot, onChange }: {
+  preset: AIPreset;
+  slot: ThinkingSlot;
+  onChange: (slotThinking: NonNullable<AIPreset['slotThinking']>) => void;
+}) {
+  const current = preset.slotThinking?.[slot];
+  return (
+    <div className="mt-1 flex items-center gap-2">
+      <span className="text-[9px] text-text-dim uppercase tracking-wider shrink-0" title="How much this slot's model reasons before answering. Short utility calls force Off regardless.">
+        Thinking
+      </span>
+      <div data-ui="seg" data-testid={`slot-thinking-${slot}`} className="flex flex-1 border border-border overflow-hidden rounded">
+        {THINKING_EFFORTS.map((level: ThinkingEffort) => (
+          <button
+            key={level}
+            type="button"
+            aria-pressed={current === level}
+            onClick={() => onChange({ ...preset.slotThinking, [slot]: level })}
+            className={`flex-1 px-2 py-1 text-[9px] uppercase tracking-wider transition-colors focus:outline-none ${current === level
+              ? 'bg-terminal text-void font-bold'
+              : 'bg-void text-text-dim hover:text-text-primary'
+            }`}
+            title={!current ? 'Not set — the provider default applies' : level === 'max' ? 'OpenAI & DeepSeek cap at High — Max sends High.' : undefined}
+          >
+            {level.charAt(0).toUpperCase() + level.slice(1)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function PresetsTab() {
   const { settings, addPreset, updatePreset, removePreset } = useAppStore(useShallow(s => ({
@@ -29,7 +63,7 @@ export function PresetsTab() {
       imageAIProviderId: '',
       visionAIProviderId: '',
     };
-    addPreset(newPreset);
+    addPreset(migratePresetSlotThinking(newPreset, settings.providers));
     setActiveTab(newPreset.id);
   };
 
@@ -134,6 +168,7 @@ export function PresetsTab() {
                   <option key={p.id} value={p.id}>{p.label || p.modelName || p.endpoint}</option>
                 ))}
               </select>
+              <SlotThinkingPicker preset={activePreset} slot="story" onChange={(slotThinking) => updatePreset(activePreset.id, { slotThinking })} />
             </div>
 
             <div>
@@ -148,6 +183,7 @@ export function PresetsTab() {
                   <option key={p.id} value={p.id}>{p.label || p.modelName || p.endpoint}</option>
                 ))}
               </select>
+              <SlotThinkingPicker preset={activePreset} slot="summarizer" onChange={(slotThinking) => updatePreset(activePreset.id, { slotThinking })} />
             </div>
 
             <div>
@@ -176,6 +212,7 @@ export function PresetsTab() {
                   <option key={p.id} value={p.id}>{p.label || p.modelName || p.endpoint}</option>
                 ))}
               </select>
+              <SlotThinkingPicker preset={activePreset} slot="vision" onChange={(slotThinking) => updatePreset(activePreset.id, { slotThinking })} />
               <p className="mt-1 text-[10px] text-text-dim">
                 Must be a multimodal model (e.g. a vision-capable GPT, Claude, Gemini or llava/qwen-vl on Ollama).
                 Used by &quot;Read Image&quot; to turn a portrait into character-sheet text.
@@ -194,6 +231,7 @@ export function PresetsTab() {
                   <option key={p.id} value={p.id}>{p.label || p.modelName || p.endpoint}</option>
                 ))}
               </select>
+              <SlotThinkingPicker preset={activePreset} slot="utility" onChange={(slotThinking) => updatePreset(activePreset.id, { slotThinking })} />
             </div>
 
             <div>
@@ -208,6 +246,7 @@ export function PresetsTab() {
                   <option key={p.id} value={p.id}>{p.label || p.modelName || p.endpoint}</option>
                 ))}
               </select>
+              <SlotThinkingPicker preset={activePreset} slot="auxiliary" onChange={(slotThinking) => updatePreset(activePreset.id, { slotThinking })} />
             </div>
           </div>
 

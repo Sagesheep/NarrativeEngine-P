@@ -126,6 +126,34 @@ describe('HostFacade', () => {
         expect(Object.keys(facade)).not.toContain('settings');
     });
 
+    it('a story fallback for the summariser role carries the summarizer slot thinking level', async () => {
+        const efforts: Array<string | undefined> = [];
+        const story = { ...endpoint('story'), thinkingEffort: 'high' as const };
+        const state: TurnState = {
+            ...makeState(),
+            settings: {
+                ...makeState().settings,
+                activePresetId: 'pr',
+                presets: [{ id: 'pr', name: 'P', storyAIProviderId: 's', slotThinking: { story: 'high', summarizer: 'off' } }],
+            } as AppSettings,
+            provider: story,
+            getFreshProvider: () => story,
+            getRawSummariserProvider: () => undefined,
+        };
+        const facade = buildHostFacade(state, makeCallbacks(), {
+            modelCall: async (_role, _request, resolved) => {
+                efforts.push((resolved as EndpointConfig | undefined)?.thinkingEffort);
+                return { content: '' };
+            },
+        });
+
+        await facade.model.call('summariser', { prompt: 'x' });
+        await facade.model.call('story', { prompt: 'x' });
+
+        expect(efforts).toEqual(['off', 'high']);
+        expect(story.thinkingEffort).toBe('high');
+    });
+
 
     it('runs the host-side JSON retry once and exposes role availability without credentials', async () => {
         const prompts: string[] = [];

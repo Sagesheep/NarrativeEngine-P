@@ -1,5 +1,6 @@
 import type { TurnState } from '../../services/turn/turnOrchestrator';
 import { useAppStore } from '../../store/useAppStore';
+import { applyActiveSlotThinking } from '../../store/slices/slotThinking';
 
 /**
  * Scene Continue fallback path (§6) — builds a fresh TurnState from the live store
@@ -40,7 +41,8 @@ export function rebuildStateFromLiveStoreLike(
         getUtilityEndpoint: () => store.getActiveUtilityEndpoint(),
         getFreshAuxiliaryProvider: () => {
             const aux = store.getActiveAuxiliaryEndpoint?.();
-            return aux?.modelName ? aux : store.getActiveStoryEndpoint();
+            // A story fallback is still doing the auxiliary job, so it takes the auxiliary slot's thinking.
+            return aux?.modelName ? aux : applyActiveSlotThinking(store.settings, 'auxiliary', store.getActiveStoryEndpoint());
         },
         getRawAuxiliaryProvider: () => store.getActiveAuxiliaryEndpoint(),
         getRawSummariserProvider: () => store.getActiveSummarizerEndpoint(),
