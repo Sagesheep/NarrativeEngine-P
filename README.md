@@ -15,7 +15,7 @@ No cloud. No subscription. Your campaigns stay on your machine.
 
 > 📱 **Android client available:** [NarrativeEngine-M](https://github.com/Sagesheep/NarrativeEngine-M/releases/tag/v1.6.20)
 >
-> 💬 **Join our community:** [Discord Server](https://discord.gg/gf3Ntw6pUY)
+> 💬 **Join our community:** [Discord Server](https://discord.gg/Qp2y7s3X6T)
 
 **New in 2.0** — a frozen [mod API](docs/MODDING.md) with an **Extensions** tab, a pixel-art [World Map](#world-map-extension--work-in-progress), an [image gallery with vision recall](#images-vision--the-gallery), a [Location Ledger](#location-ledger), and a translated interface.
 
