@@ -23,7 +23,7 @@
 //
 // A divergence found here is not a test to relax. It is either a bug in the
 // port or a deliberate change, and a deliberate change gets a named exception
-// in this file with the reason. There are none today.
+// in this file with the reason. One today: DROPPED_BY_DESIGN, below.
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
@@ -56,10 +56,24 @@ afterEach(() => {
  * both sides emit the same paths, and pinning message wording would make this
  * a test about prose.
  */
+// Named exception (2026-10-05): Enemy Discovery was removed from the mod. Its scanner
+// was deleted in 0e7780c and never rebuilt, so the flag only drove a toggle and a
+// header label. The mod's config no longer carries `enemyDiscoveryEnabled`, while the
+// frozen pre-extraction schema still emits it, so it is dropped from the old side
+// before comparing. Every other field must still match exactly.
+const DROPPED_BY_DESIGN = { validateEnemyCombatConfig: ['enemyDiscoveryEnabled'] };
+function withoutDropped(name, value) {
+    const dropped = DROPPED_BY_DESIGN[name];
+    if (!dropped || !value || typeof value !== 'object') return value;
+    const copy = { ...value };
+    for (const key of dropped) delete copy[key];
+    return copy;
+}
+
 function bothAgree(name, input) {
     const oldResult = before[name](input);
     const newResult = after[name](input);
-    expect(newResult.value, `${name}: repaired value diverged`).toEqual(oldResult.value);
+    expect(newResult.value, `${name}: repaired value diverged`).toEqual(withoutDropped(name, oldResult.value));
     expect(newResult.errors.length, `${name}: error count diverged`).toBe(oldResult.errors.length);
     return oldResult;
 }
@@ -272,7 +286,7 @@ describe('the mod repair wrappers the migration relies on', () => {
         // `campaignHydrator`'s `normalizeEnemyCombatConfig`, left with 8.2).
         // Same values, one layer earlier.
         expect(after.repairConfig(null)).toEqual(after.DEFAULT_ENEMY_COMBAT_CONFIG);
-        expect(after.repairConfig(null)).toEqual(before.validateEnemyCombatConfig({}).value);
+        expect(after.repairConfig(null)).toEqual(withoutDropped('validateEnemyCombatConfig', before.validateEnemyCombatConfig({}).value));
     });
 
     it('is idempotent — repairing repaired data changes nothing', () => {

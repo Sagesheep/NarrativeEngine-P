@@ -487,7 +487,6 @@ export function validateEnemyCombatConfig(value) {
     return {
         value: {
             promptContextEnabled: optionalBoolean(value.promptContextEnabled, 'enemyCombatConfig.promptContextEnabled', errors, true),
-            enemyDiscoveryEnabled: optionalBoolean(value.enemyDiscoveryEnabled, 'enemyCombatConfig.enemyDiscoveryEnabled', errors, false),
             enabled: optionalBoolean(value.enabled, 'enemyCombatConfig.enabled', errors, false),
             initiativeMode,
             initiativeModifierStat: optionalString(value.initiativeModifierStat, 'enemyCombatConfig.initiativeModifierStat', errors, ''),
@@ -514,7 +513,6 @@ export function validateEnemyCombatConfig(value) {
 
 export const DEFAULT_ENEMY_COMBAT_CONFIG = Object.freeze({
     promptContextEnabled: true,
-    enemyDiscoveryEnabled: false,
     enabled: false,
     initiativeMode: 'manual',
     initiativeModifierStat: '',

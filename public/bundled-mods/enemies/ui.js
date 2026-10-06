@@ -117,7 +117,6 @@ export function mountEnemyCompendium(root, ctx, api) {
         }
     };
     const stops = [];
-    const newSuggestion = suggestion => api.setSuggestions([...api.getSuggestions(), { id: makeId(), ...suggestion }]);
 
     function editTemplate(template) {
         templateId = template?.id || null;
@@ -165,26 +164,6 @@ export function mountEnemyCompendium(root, ctx, api) {
         );
     }
 
-    function renderSuggestions() {
-        const suggestions = api.getSuggestions();
-        const cards = suggestions.map(suggestion => node('div', { className: 'enemy-card' },
-            node('strong', {}, suggestion.name),
-            suggestion.classification ? node('span', { className: 'enemy-muted' }, suggestion.classification) : null,
-            suggestion.reason ? node('p', {}, suggestion.reason) : null,
-            node('div', { className: 'enemy-actions' },
-                action(t('suggestions.accept'), () => run(async () => {
-                    if (suggestion.targetEnemyId) await data.updateEnemy(ctx, suggestion.targetEnemyId, { aliases: suggestion.name });
-                    else await data.addEnemy(ctx, blankEnemy(suggestion.name));
-                    api.setSuggestions(api.getSuggestions().filter(item => item.id !== suggestion.id));
-                    paint();
-                })),
-                action(t('suggestions.dismiss'), () => { api.setSuggestions(api.getSuggestions().filter(item => item.id !== suggestion.id)); paint(); }, 'enemy-btn enemy-btn-muted'),
-            ),
-        ));
-        return node('section', { className: 'enemy-suggestions' }, node('h3', {}, t('suggestions.title')),
-            cards.length ? node('div', { className: 'enemy-stack' }, cards) : node('p', { className: 'enemy-empty' }, t('suggestions.empty')));
-    }
-
     function templatesView() {
         const visible = state.compendium.filter(item => !query || [item.name, item.aliases, item.classification, item.faction].join(' ').toLowerCase().includes(query.toLowerCase()));
         if (!templateId && visible[0]) editTemplate(visible[0]);
@@ -211,7 +190,6 @@ export function mountEnemyCompendium(root, ctx, api) {
                 ),
                 importInput,
                 rows.length ? node('div', { className: 'enemy-list' }, rows) : node('p', { className: 'enemy-empty' }, t('templates.empty')),
-                renderSuggestions(),
             ),
             renderTemplateEditor(visible.find(item => item.id === templateId) || draft),
         );
@@ -300,8 +278,7 @@ export function mountEnemyCompendium(root, ctx, api) {
         return node('div', { className: 'enemy-combat' },
             node('div', { className: 'enemy-card enemy-config' }, node('h3', {}, t('combat.config')),
                 toggle(t('combat.enabled'), config.enabled, value => run(() => data.setEnemyCombatConfig(ctx, { enabled: value }).then(paint))),
-                toggle(t('combat.promptContext'), config.promptContextEnabled, value => run(() => data.setEnemyCombatConfig(ctx, { promptContextEnabled: value }).then(paint))),
-                toggle(t('combat.discovery'), config.enemyDiscoveryEnabled, value => run(() => data.setEnemyCombatConfig(ctx, { enemyDiscoveryEnabled: value }).then(paint)))),
+                toggle(t('combat.promptContext'), config.promptContextEnabled, value => run(() => data.setEnemyCombatConfig(ctx, { promptContextEnabled: value }).then(paint)))),
             cards.length ? node('div', { className: 'enemy-stack' }, cards) : node('p', { className: 'enemy-empty' }, t('combat.empty')));
     }
 

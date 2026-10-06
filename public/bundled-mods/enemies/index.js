@@ -321,7 +321,6 @@ function normalizeEnemyCombatConfig(config) {
     return {
         ...DEFAULT_ENEMY_COMBAT_CONFIG,
         promptContextEnabled: boolean('promptContextEnabled'),
-        enemyDiscoveryEnabled: boolean('enemyDiscoveryEnabled'),
         enabled: boolean('enabled'),
         initiativeMode,
         initiativeModifierStat: typeof config?.initiativeModifierStat === 'string' ? config.initiativeModifierStat : '',
@@ -346,14 +345,10 @@ function normalizeEnemyCombatConfig(config) {
 // own table from its own state — there is no shared-snapshot race to debounce
 // against (§2 ruling).
 //
-// `enemySuggestions` is deliberately NOT here. §4 rules: suggestions live in
-// the mod's module-local runtime state, the pattern
-// `enemySuggestionTrack.ts:12`'s `enemyDiscoveryState` already uses. The
-// suggestion track itself is 8.3's deletion target; the mod's suggestion
-// state will be wired by 8.3/8.4 when the track and the panel move. For 8.2
-// the mod owns the five persisted tables only.
-
-const enemySuggestions = [];
+// Enemy Discovery (a post-turn scanner that proposed new compendium entries for
+// review) was removed 2026-10-05: its host track was deleted in 0e7780c and
+// never rebuilt here, so the tier entry, the toggle and the suggestions panel
+// did nothing.
 
 const state = {
     compendium: [],
@@ -1197,8 +1192,6 @@ function registerEnemyMounts(ctx) {
             repairEncounters,
             repairResolutions,
             repairConfig,
-            getSuggestions: () => enemySuggestions,
-            setSuggestions: next => { enemySuggestions.splice(0, enemySuggestions.length, ...next); },
         }),
     });
     const headerHandle = ctx.mounts.header({
@@ -1208,7 +1201,7 @@ function registerEnemyMounts(ctx) {
         tooltip: 'header.open.tooltip.off',
         onSelect: () => win.open(),
         state: () => {
-            const enabled = state.config.enemyDiscoveryEnabled === true;
+            const enabled = state.config.enabled === true;
             return {
                 label: enabled ? 'header.open.label.on' : 'header.open.label.off',
                 tooltip: enabled ? 'header.open.tooltip.on' : 'header.open.tooltip.off',
