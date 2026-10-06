@@ -1,0 +1,50 @@
+{
+  "_note": "Turn Prep Experiment probes (Upgrade/Turn-Prep-Experiment/SPEC.md §5). Inputs are the player's NEXT message from the campaign's current state. `criteria` is shown to the blind reviewer; the spec holds the sources.",
+  "c1": {
+    "campaigns": [
+      "exp-c1-rebuilt",
+      "exp-c1-raw"
+    ],
+    "probes": {
+      "P1": "I sip the tea and ask Rin whether the dream on the ship kept her up.",
+      "P2": "I open the letter from the Soll household.",
+      "P3": "I tell Rin: \"Therese is going to want what we promised her back at the Soll study.\"",
+      "P4": "A palace runner is waiting downstairs: General Duskbane wants to see me. Fine. I go.",
+      "P5": "On the way back from the market I spot Helena Broadmarsh across the square. I walk over.",
+      "P6": "I remind Rin how we pinned everything on Pell with that forged IOU, back in Marken.",
+      "P7": "I ask Rin whether the Weave has any idea who took out their operative in Dunncarrock.",
+      "P8": "I rewind time thirty seconds so the courier never knocks.",
+      "P9": "I equip Keenedge alongside my current cards."
+    },
+    "criteria": {
+      "P1": "PASS: stays in the kitchen with Rin; no invented events; doesn't contradict the dream she mentioned.",
+      "P2": "PASS: the letter or the reaction connects to Grey's deal with Therese (scenes 533–534): when he understands the Sovereign pattern he comes to her first — not Duskbane, not the Kaiser — plus documentation access to any Sovereign card recovered. Those terms are now due (Space-Time fusion at 568). FAIL: reads as a fresh, unrelated contact.",
+      "P3": "PASS: terms consistent with 533–534 (Sovereign-pattern findings to Therese first, before Duskbane or the Kaiser; documentation access to recovered Sovereign cards). FAIL: invented or contradictory terms.",
+      "P4": "PASS: Duskbane presses about the overdue report (Grey refused to write it, 574) and does NOT state knowledge of the Space-Time fusion, the Still card or the Sovereign of Death. Clearly framed inference is allowed.",
+      "P5": "PASS: Helena recalled correctly — the Marken investigator Grey once double-agented for; last met on Day 235 (scene 282). She may suspect the heists, and she knows Pell was framed (144–145) but not by whom; she does NOT know Grey confessed to framing Pell (435–436, she wasn't there).",
+      "P6": "PASS: details consistent with the scenes — the IOU recorded Harwick the Bent's three-gold debt to Pell (a real note; the campaign later also calls it \"forged\", so either word is fine); Grey stole it from Pell's hidden lockbox and planted it where Helena's investigation would find it (the waste bin by the Harbormaster's office); Helena's case led to Pell's arrest; Pell was a berth coordinator on the Marken docks. Later Pell escaped, surfaced in Essenhall, and Grey killed him there (446–448, bruised throat; body to the Crown). FAIL: invented or contradictory details, e.g. a different fate for Pell.",
+      "P7": "PASS: Grey and Rin speculate but do NOT know about the relay station, the black-tabbed pin report, the cipher to \"the Architect\" or the surveillance order (all off-screen, 575). The Weave's \"Architect\" is not confused with Grey's Architect card.",
+      "P8": "PASS: rewind is treated as theoretical, untested and dangerous, and/or blocked by the Observer Paradox (Grey already observed the knock). FAIL: a free rewind, OR enforcing a \"five-second limit\" (invented canon).",
+      "P9": "PASS: enforces the 3-card hard limit — Grey is 3/3 (Domain, Titan, Wraith-Pulse), so one must come off. FAIL: four cards equipped."
+    }
+  },
+  "c2": {
+    "campaigns": [
+      "exp-c2"
+    ],
+    "probes": {
+      "P10": "I ask Zhang Fei how far it is to the next village.",
+      "P11": "Further down the road a column of conscripts is being marched toward Ye. I look over their faces.",
+      "P12": "I tell Zhang Fei about the boy at Huang Ridge whose brother was taken toward Ye.",
+      "P13": "I ask the scout what his general actually knows about me.",
+      "P14": "I ask Zhang Fei if he thinks that woman's husband is still stuck at the northern garrison."
+    },
+    "criteria": {
+      "P10": "PASS: cast and place consistent — dusk at a fork in the trail (north to the pass, east to the mountain), Zhang Fei with the cart, the Cao scout waiting at the fork ahead. The messenger is gone (rode to Zhuo on the scout's horse, 046). Nothing invented.",
+      "P11": "PASS: the narration or the protagonist connects the column to A Fu — scans for a thin sixteen-year-old with a scar on his left eyebrow, or recalls the boy at Huang Ling begging him to look for his brother on the way to Ye (018–019). FAIL: no connection.",
+      "P12": "PASS: details consistent — Huang Ling / Huang Ridge village; A Fu, sixteen, under the conscription age; he found a glowing stone on the west ridge and showed it to a stranger who 'spoke wrong'; three days later soldiers took him and two other sons 'for the northern garrison', toward Ye. (The protagonist later ran from the boy in the dark, 021.) FAIL: invented or contradictory details.",
+      "P13": "PASS: the scout knows only what he was sent with and what he overheard — Cao's seer dreamed of a green 'thread', advisor Cheng Yu sent him to follow it and learn the person's face, name and gait (046); since his capture he heard that the green thing is in the protagonist's bag and Zhang Fei asking about it (046–047). FAIL: he knows the protagonist needs Daoist help to get home (034) or arrived only yesterday (040) — said privately to Zhang Fei before the scout appeared.",
+      "P14": "PASS: recalls scene 039 — the woman at the burning farmstead begged Zhang Fei to bring back her husband (Zhang Shi), conscripted three months ago to the northern garrison; Zhang Fei refused but gave her flatbread and dried fish and sent her two villages east. FAIL: invented or contradictory details (e.g. he promised to look)."
+    }
+  }
+}
