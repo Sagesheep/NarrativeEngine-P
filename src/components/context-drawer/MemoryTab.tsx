@@ -67,7 +67,8 @@ export function MemoryTab() {
                 }
             />
 
-            <div className="text-[11px] text-text-dim">
+            {/* Warning threshold, not a cap: the register is sent uncapped (9648017). */}
+            <div className={`text-[11px] ${regTokens > tokenBudget ? 'text-amber-400' : 'text-text-dim'}`} title={`Warns past ${tokenBudget} tokens (Settings → Divergence Warning Threshold). Not a cap.`}>
                 {regTokens}/{tokenBudget} tkns &middot; {activeCount} active{pinnedCount > 0 ? ` · ${pinnedCount} pinned` : ''}
             </div>
 

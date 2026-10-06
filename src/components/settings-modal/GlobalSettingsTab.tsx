@@ -261,43 +261,8 @@ export function GlobalSettingsTab() {
       <div data-ui="settings-section" data-group="memory" data-active={activeGroup === 'memory' ? 'true' : undefined} className="contents">
       <h4 data-ui="settings-group" className="hidden">Memory &amp; retrieval</h4>
 
-      {/* Deep Archive Search */}
-      <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
-        <div>
-          <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold mb-1">
-            Deep Archive Search
-          </label>
-          <p className="text-[9px] text-text-dim max-w-[240px] leading-tight">
-            Enables AI-driven full-archive scan. Adds a "Deep Search" button to the toolbar.
-            Requires a utility AI endpoint. Adds ~1-2 min per turn when used.
-          </p>
-        </div>
-        <button
-          onClick={() => updateSettings({ deepContextSearch: !settings.deepContextSearch })}
-          className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${settings.deepContextSearch ? 'bg-amber-500' : 'bg-border'}`}
-        >
-          <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-surface transition-transform ${settings.deepContextSearch ? 'translate-x-[22px]' : 'translate-x-[2px]'}`} />
-        </button>
-      </div>
-
-      {/* Archive Agent Planner */}
-      <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
-        <div>
-          <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold mb-1">
-            Archive Agent Planner
-          </label>
-          <p className="text-[9px] text-text-dim max-w-[240px] leading-tight">
-            Enables an intelligent utility AI planner to rank archive scenes based on structured scene events before recall.
-            Requires a utility AI endpoint and structured events populated.
-          </p>
-        </div>
-        <button
-          onClick={() => updateSettings({ enableArchivePlanner: !settings.enableArchivePlanner })}
-          className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${settings.enableArchivePlanner ? 'bg-terminal' : 'bg-border'}`}
-        >
-          <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-surface transition-transform ${settings.enableArchivePlanner ? 'translate-x-[22px]' : 'translate-x-[2px]'}`} />
-        </button>
-      </div>
+      {/* Deep Archive Search and the Archive Planner are switched in Block View only
+          (their second switches here were removed 2026-10-05). */}
 
       {/* Retrieval algorithm (IDF+RRF vs classic) — kill-switch for the lore/rules ranker */}
       <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
@@ -444,9 +409,12 @@ export function GlobalSettingsTab() {
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-[10px] text-text-dim uppercase tracking-wider">
-              Divergence Token Budget
+              Divergence Warning Threshold
             </label>
           </div>
+          <p className="text-[9px] text-text-dim leading-tight mb-1">
+            Not a cap: the whole register is sent every turn. The meter in Memory turns amber past this many tokens.
+          </p>
           <input
             type="number"
             min={500}

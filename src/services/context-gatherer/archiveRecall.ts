@@ -160,12 +160,13 @@ export async function gatherPlannerSceneIds(
     facade?: HostFacade,
 ): Promise<string[] | undefined> {
     const plannerEndpoint = facade ? undefined : state.getUtilityEndpoint?.();
-    const plannerEnabled = facade?.config.enableArchivePlanner ?? state.settings.enableArchivePlanner;
     const plannerAvailable = facade ? hasHostModelRole(facade, 'utility') : Boolean(plannerEndpoint?.endpoint);
     // Off in every preset (its picks never changed recall on the Turn Prep probes); read
     // through the block switch so a user who turns it back on in Block View gets it.
     const plannerBlockOn = isBlockEnabled('planner', facade?.config.aiTier ?? state.settings.aiTier, state.settings.moduleEnabled);
-    if (plannerBlockOn && plannerEnabled && plannerAvailable) {
+    // The Block View block is the only switch (the Global Settings "Archive Agent Planner"
+    // toggle, a hidden second switch, was removed 2026-10-05).
+    if (plannerBlockOn && plannerAvailable) {
         try {
             return await runArchivePlanner(
                 plannerEndpoint,

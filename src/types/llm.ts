@@ -139,6 +139,7 @@ export type AppSettings = {
     theme?: 'light' | 'dark' | 'system';
     locale?: LocaleCode;             // UI chrome language. Defaults to the browser language on first run, then never auto-changes. Independent of narration language (Phase 3).
     showReasoning?: boolean;
+    /** @deprecated Unread since 2026-10-05: Deep Archive Search is switched in Block View (`deepScan`). Kept so stored settings load. */
     deepContextSearch?: boolean;
     autoExtractDivergences?: boolean;
     divergenceTokenBudget?: number;
@@ -151,6 +152,7 @@ export type AppSettings = {
     storyTimeoutSeconds?: number;          // streaming AI idle deadline, 30-3600 seconds (default 600)
     utilityTimeoutSeconds?: number;        // soft deadline for utility AI calls (default 45)
     verboseUtilityLogging?: boolean;
+    /** @deprecated Unread since 2026-10-05: the Archive Planner is switched in Block View (`planner`). Kept so stored settings load. */
     enableArchivePlanner?: boolean;
     retrievalAlgorithm?: 'classic' | 'idf-rrf';
     archiveRecallDepth?: 'lean' | 'standard' | 'deep';  // archive recall ceiling; default 'standard' (desktop). 'lean' = mobile parity (3/4/5)
