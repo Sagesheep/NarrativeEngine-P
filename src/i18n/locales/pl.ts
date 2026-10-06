@@ -33,7 +33,7 @@ export const pl: LocalePack = {
     },
 
     strings: {
-     // ── Header ───────────────────────────────────────────────────────────
+    // ── Header ───────────────────────────────────────────────────────────
     'header.drawer.open': 'Otwórz panel kontekstowy',
     'header.drawer.close': 'Zamknij panel kontekstowy',
     'header.title': 'Narrative Engine',
@@ -117,7 +117,7 @@ export const pl: LocalePack = {
     'settings.extensions.mods.rescan': 'Ponowne skanowanie',
     'settings.extensions.mods.loading': 'Odczytywanie zawartości folderu mods…',
     'settings.extensions.mods.error': 'Nie udało się połączyć z serwerem w celu wyświetlenia listy modów. Nie ma to wpływu na rozgrywkę; wcześniej załadowane mody pozostają bez zmian.',
-    'settings.extensions.mods.empty': 'Nie zainstalowano żadnych modów. Dodaj plik .mod.json do folderu „mods”, a następnie naciśnij przycisk {{settings.extensions.mods.rescan}}.',
+    'settings.extensions.mods.empty': 'Nie zainstalowano żadnych modów. Dodaj plik .mod.json do folderu „mods”, a następnie naciśnij przycisk „Ponowne skanowanie”.',
     'settings.extensions.guide.show': 'Przewodnik po tworzeniu modów',
     'settings.extensions.guide.hide': 'Ukryj przewodnik',
     // The path stays out of the translatable string — a file path is not prose and must not be
@@ -156,7 +156,7 @@ export const pl: LocalePack = {
     // (it was written for an older surface) and what follows from the
     // published policy (the author updates it, not the app).
     'settings.extensions.mod.apiVersionStale': 'Opracowano dla interfejsu API modów {{declared}}; ta aplikacja udostępnia {{current}}. Nadal się ładuje — jeśli działa nieprawidłowo, autor powinien ją zaktualizować.',
-    'settings.extensions.mod.faultInline': 'Ten mod nie mógł zostać uruchomiony: {{powód}}',
+    'settings.extensions.mod.faultInline': 'Ten mod nie mógł zostać uruchomiony: {{reason}}',
 
     // Phase 6.3 — provenance badge. A bundled mod ships with the app (on by
     // default, version moves with app updates); an installed mod the user
@@ -178,10 +178,10 @@ export const pl: LocalePack = {
     // fixtures" tells a modder what these are; "they write test output into
     // your chat" tells everyone else why they are off.
     'settings.extensions.mod.dev.badge': 'Dev',
-    'settings.extensions.mod.dev.tooltip': 'To element wyposażenia służący do prac rozwojowych, a nie modyfikacja do zabawy. Jest wyłączony, chyba że go włączysz.',
-    'settings.extensions.dev.title': 'Elementy wyposażenia deweloperskiego',
+    'settings.extensions.mod.dev.tooltip': 'To testowy mod deweloperski, a nie mod do gry. Jest wyłączony, dopóki go nie włączysz.',
+    'settings.extensions.dev.title': 'Testowe mody deweloperskie',
     'settings.extensions.dev.count': '{{count}} dostępne',
-    'settings.extensions.dev.countOn': '{{count}} available · {{on}} on',
+    'settings.extensions.dev.countOn': '{{count}} dostępne · {{on}} włączone',
     'settings.extensions.dev.help': 'Mody testowe, które sprawdzają działanie interfejsu API modów. Wyświetlają komunikaty debugowania na czacie, dodają przyciski do nagłówka i zapisują dane testowe w kampanii — są przydatne podczas tworzenia modów, ale mogą przeszkadzać podczas gry. Każdy z nich jest wyłączony, dopóki go nie włączysz.',
 
     // Phase 6.4 — the two blocking confirmations (`DATA_POLICY.md` §5). The
@@ -194,7 +194,7 @@ export const pl: LocalePack = {
     'settings.extensions.modData.disable.confirm': 'Wyłącz mimo wszystko',
     'settings.extensions.modData.delete.title': 'Czy chcesz usunąć dane tego modu?',
     'settings.extensions.modData.delete.body': 'Usunięcie {{modName}} powoduje trwałe usunięcie jego danych z tej kampanii. Nie ma możliwości cofnięcia tej czynności. Tekst twojej historii pozostaje nienaruszony, ale wszystkie dane śledzone przez mod zostały usunięte, a MG będzie nadal odnosił się do elementów, które już nie istnieją.',
-    'settings.extensions.modData.delete.confirm': 'Usuń permamentnie',
+    'settings.extensions.modData.delete.confirm': 'Usuń trwale',
     'settings.extensions.modData.cancel': 'Anuluj',
     // The row affordance that opens the delete dialog, and the two states it
     // can be in. Data is per campaign, so with no campaign open there is
@@ -272,7 +272,7 @@ export const pl: LocalePack = {
     'tierblock.profileScan.name': 'Character Profile Scan',
     'tierblock.profileScan.description': 'Okresowo skanuje historię czatu, aby aktualizować kartę postaci gracza i aktywne cechy.',
     'tierblock.inventoryScan.name': 'Inventory Scan',
-    'tierblock.inventoryScan.description': 'POkresowo skanuje historię czatu, aby aktualizować listę ekwipunku gracza.',
+    'tierblock.inventoryScan.description': 'Okresowo skanuje historię czatu, aby aktualizować listę ekwipunku gracza.',
     'tierblock.locationScan.name': 'Location Scan',
     'tierblock.locationScan.description': 'Okresowo skanuje historię czatu w celu ustalenia aktualnej lokalizacji i scalenia wpisów w rejestrze lokalizacji.',
     'tierblock.locationEnrich.name': 'Location Enrichment',
@@ -286,7 +286,7 @@ export const pl: LocalePack = {
     'tierblock.timeskipRun.name': 'Timeskip Narration',
     'tierblock.timeskipRun.description': 'Symuluje życie postaci niezależnych poza ekranem i opowiada o ich powrocie, gdy gracz pomija kilka tygodni naraz.',
     'tierblock.arcTick.name': 'Arc Engine Tick',
-    'tierblock.arcTick.description': 'Tempo zwijania na aktywny arc, przesuwa drabinkę i przenosi linię powierzchniową do następnego polecenia GM.',
+    'tierblock.arcTick.description': 'Losuje tempo każdego aktywnego wątku, przesuwa drabinkę i przenosi linię powierzchniową do następnego wywołania GM.',
     'tierblock.arcSpawn.name': 'Arc Injector Spawn',
     'tierblock.arcSpawn.description': 'Uruchamia nowy wątek konfliktu systemowego za pomocą przycisku „Arc Injector”. Naciśnięcie przycisku stanowi bramkę; wartość macierzy poziomów nie jest nigdy odczytywana.',
     'tierblock.directorBrief.name': 'Director Brief',
