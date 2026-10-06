@@ -88,6 +88,43 @@ describe('isThinkingEnabled — provider-slot resolution', () => {
     });
 });
 
+describe('isThinkingEnabled — preset Story slot level', () => {
+    // The provider-wide picker is gone; the Story slot is what the request sends,
+    // so the CoT gate must read it rather than the stored provider's frozen value.
+    it('slot off beats a provider legacy high', () => {
+        const settings = {
+            ...baseSettings(),
+            activePresetId: 'preset_1',
+            providers: [{ id: 'prov_a', modelName: 'anything', thinkingEffort: 'high' }],
+            presets: [{ id: 'preset_1', storyAIProviderId: 'prov_a', slotThinking: { story: 'off' } }],
+        } as unknown as AppSettings;
+
+        expect(isThinkingEnabled(settings)).toBe(false);
+    });
+
+    it('slot high enables CoT when the provider legacy level is unset (migrated DeepSeek)', () => {
+        const settings = {
+            ...baseSettings(),
+            activePresetId: 'preset_1',
+            providers: [{ id: 'prov_a', endpoint: 'https://api.deepseek.com/v1', modelName: 'deepseek-v4-flash' }],
+            presets: [{ id: 'preset_1', storyAIProviderId: 'prov_a', slotThinking: { story: 'high' } }],
+        } as unknown as AppSettings;
+
+        expect(isThinkingEnabled(settings)).toBe(true);
+    });
+
+    it('another slot\'s level does not leak into the story gate', () => {
+        const settings = {
+            ...baseSettings(),
+            activePresetId: 'preset_1',
+            providers: [{ id: 'prov_a', modelName: 'anything' }],
+            presets: [{ id: 'preset_1', storyAIProviderId: 'prov_a', slotThinking: { utility: 'high', summarizer: 'max' } }],
+        } as unknown as AppSettings;
+
+        expect(isThinkingEnabled(settings)).toBe(false);
+    });
+});
+
 describe('isThinkingEnabled — legacy fallback', () => {
     it('falls back to activePreset.storyAI.thinkingEffort when storyAIProviderId is missing', () => {
         const settings = {
