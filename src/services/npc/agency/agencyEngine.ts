@@ -12,7 +12,7 @@
 //   - Prompt-section helpers (TTRPG_PERSONA_GM_ASSISTANT, joinPromptSections, ANCHOR_BEFORE_INPUT,
 //     INPUT_DELIMITER) are inlined since desktop has no shared infrastructure/utilityPrompts module.
 
-import type { NPCEntry, SceneStakes } from '../../../types';
+import type { NPCEntry, SceneStakes, ThinkingEffort } from '../../../types';
 import type { TurnState, TurnCallbacks } from '../../turn/turnOrchestrator';
 import { hasHostModelRole, type HostFacade } from '../../turn/hostFacade';
 import { uid } from '../../../utils/uid';
@@ -307,7 +307,7 @@ function runTimeskipPath(
             ? 'story' as const
             : undefined;
     const modelCall = modelRole
-        ? (request: { prompt: string; signal?: AbortSignal; maxTokens?: number; priority?: 'low'; trackingLabel?: string; timeoutMs?: number }) =>
+        ? (request: { prompt: string; signal?: AbortSignal; maxTokens?: number; priority?: 'low'; thinkingEffort?: ThinkingEffort; trackingLabel?: string; timeoutMs?: number }) =>
             facade!.model.call(modelRole, request).then(result => result.content)
         : undefined;
 
@@ -376,14 +376,17 @@ function runTimeskipPath(
                     `OFF-SCREEN DEVELOPMENTS:\n${result.narration}`,
                 );
                 const narrationText = modelCall
-                    ? await modelCall({ prompt: narrationPrompt, priority: 'low', maxTokens: 300, trackingLabel: 'timeskip-narration', timeoutMs: 120000 })
+                    ? await modelCall({ prompt: narrationPrompt, priority: 'low', maxTokens: 300, thinkingEffort: 'off', trackingLabel: 'timeskip-narration', timeoutMs: 120000 })
                     : await llmCall(provider!, narrationPrompt, { priority: 'low', maxTokens: 300, thinkingEffort: 'off' });
-                if (narrationText && narrationText.trim()) {
+                // An empty reply (e.g. a thinking endpoint spending the 300 tokens on reasoning)
+                // used to add nothing; fall back to the deterministic narration like a throw does.
+                const seamText = narrationText?.trim() || result.narration;
+                if (seamText) {
                     callbacks.addMessage({
                         id: uid(),
                         role: 'system',
                         name: 'timeskip-seam',
-                        content: `[Time passes] ${narrationText.trim()}`,
+                        content: `[Time passes] ${seamText}`,
                         timestamp: Date.now(),
                     });
                 }

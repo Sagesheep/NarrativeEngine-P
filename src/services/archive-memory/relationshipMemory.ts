@@ -1,3 +1,4 @@
+import { parsePresentHeader, resolvePresentNpcs } from '../npc/presentHeader';
 import type { NPCEntry, PlayerCharacter, RelationshipMemoryFault, RelationshipMemoryImpact, RelationshipMemoryMood, RelationshipMemoryRecord } from '../../types';
 import { RELATIONSHIP_MEMORY_IMPACTS, RELATIONSHIP_MEMORY_MOODS } from '../../types';
 import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
@@ -122,10 +123,10 @@ const capEvent = capOutcome;
 
 const MC_TARGETS = new Set(['mc', 'player', 'the player', 'player character', 'the player character', 'protagonist', 'the protagonist']);
 
+/** The 👥 header's names. Uses the shared parser: the old exact `[Present]` match read the
+ *  default ruleset but none of the shapes custom rulesets write (`👥 [**Rin**], …`). */
 export function extractPresentNames(assistantText: string): string[] {
-    const match = assistantText.match(/\[Present\]\s*([^\r\n]+)/i);
-    if (!match) return [];
-    return match[1].split(',').map(normalise).filter(Boolean);
+    return (parsePresentHeader(assistantText) ?? []).map(normalise).filter(Boolean);
 }
 
 export function getRelationshipMemoryParticipants(
@@ -134,12 +135,8 @@ export function getRelationshipMemoryParticipants(
     playerCharacter: PlayerCharacter | null | undefined,
 ): RelationshipMemoryParticipants {
     const presentNames = extractPresentNames(assistantText);
-    const present = new Set(presentNames.map(name => name.toLowerCase()));
-    const onStageNpcs = npcLedger.filter(npc =>
-        !npc.isPC &&
-        !npc.archived &&
-        aliasesFor(npc).some(alias => present.has(alias.toLowerCase()))
-    );
+    const onStageNpcs = resolvePresentNpcs(presentNames, npcLedger)
+        .filter(npc => !npc.isPC && !npc.archived);
     return { presentNames, onStageNpcs, playerCharacter };
 }
 
@@ -231,6 +228,7 @@ export async function rateRelationshipMemory(
         const response = await modelCall({
             prompt: buildRelationshipMemoryPrompt(sceneText, participants),
             maxTokens: 1200,
+            thinkingEffort: 'off',
             temperature: 0.1,
             priority: 'low',
             trackingLabel: 'relationship-memory',

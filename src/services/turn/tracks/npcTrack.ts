@@ -98,7 +98,7 @@ async function runNPCTrack(ctx: PostTurnTrackContext): Promise<void> {
                 backgroundQueue.push(
                     `NPC-Update:${npcsDueForUpdate.map(n => n.name).join(',')}`,
                     async () => {
-                        const relationshipMemoryEnabled = ctx.state?.context.relationshipMemory === true;
+                        const relationshipMemoryEnabled = (ctx.facade?.data.context ?? ctx.state?.context)?.relationshipMemory === true;
                         await (useBroker
                             ? relationshipMemoryEnabled
                                 ? updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC, modelCall, { relationshipMemoryEnabled: true })

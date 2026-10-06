@@ -37,6 +37,15 @@ vi.mock('../../../mods/events', () => ({
     emitCoreEvent: vi.fn(),
 }));
 
+vi.mock('../../../../store/relationshipMemoryState', () => ({
+    readRelationshipMemoryState: () => ({ relationshipMemoriesNpcToMc: [], relationshipMemoriesNpcToNpc: [] }),
+}));
+
+vi.mock('../../hostFacade', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../hostFacade')>()),
+    hasHostModelRole: () => true,
+}));
+
 vi.mock('../../postTurnPipeline', () => ({
     runCombinedSeal: mocks.runCombinedSeal,
 }));
@@ -130,5 +139,27 @@ describe('Stage C archive-child tracks', () => {
 
         await Promise.allSettled([...started, ...mocks.tasks]);
         expect(mockApi.chapters.seal).toHaveBeenCalledTimes(1);
+    });
+
+    // Every live commit runs under the host facade. There, the seal's only model path is
+    // the facade's story model; c8a4539 dropped it, so every auto-seal wrote no summary.
+    it('under the host facade, hands the story-model call to the combined seal', async () => {
+        const call = vi.fn().mockResolvedValue({ content: '{}' });
+        const ctx = makeContext(25);
+        (ctx as unknown as { facade: unknown }).facade = {
+            config: { aiTier: 'max', moduleEnabled: {}, divergenceScanBudget: 0, contextLimit: 4096 },
+            data: { npcLedger: [], archiveIndex: [], divergenceRegister: { entries: [] } },
+            model: { call },
+        };
+        const started = postCommitTracks.start(ctx, { isEnabled: id => id === 'track.chapter-seal' });
+        await Promise.allSettled([...started, ...mocks.tasks]);
+
+        expect(mocks.runCombinedSeal).toHaveBeenCalledTimes(1);
+        const args = mocks.runCombinedSeal.mock.calls[0];
+        expect(args[0]).toBeUndefined(); // no direct provider under the facade
+        const modelCall = args[7] as (request: { prompt: string }) => Promise<string>;
+        expect(typeof modelCall).toBe('function');
+        await modelCall({ prompt: 'seal' });
+        expect(call).toHaveBeenCalledWith('story', { prompt: 'seal' });
     });
 });

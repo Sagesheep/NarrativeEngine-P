@@ -294,6 +294,30 @@ describe('track.npc — existing NPC updates', () => {
     });
 });
 
+describe('track.npc — relationship memory flag', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockActiveCampaignId = 'campaign-1';
+    });
+
+    // The pipeline's track context carries no `state`; the flag lives on the facade's
+    // context. Reading `ctx.state` made it always false.
+    it('passes relationshipMemoryEnabled to the updater when the campaign has it on', async () => {
+        const mira = npc({ id: 'n1', name: 'Mira', drives: 'x', populated: true } as any);
+        mockExtract.mockReturnValueOnce(['Mira']);
+        mockClassify.mockReturnValueOnce({ newNames: [], existingNpcs: [mira] } as any);
+        mockBQ.push.mockImplementation(async (_label, execute) => execute());
+
+        await npcTrack.run(makeCtx({
+            state: { context: { relationshipMemory: true } as any, archiveIndex: [{ sceneId: '007' }] as any },
+        }));
+
+        expect(mockUpdateExisting).toHaveBeenCalledWith(
+            expect.anything(), ALL_MSGS, [mira], expect.any(Function), undefined, { relationshipMemoryEnabled: true },
+        );
+    });
+});
+
 describe('track.npc — agency fill for older NPCs', () => {
     beforeEach(() => {
         vi.clearAllMocks();

@@ -84,6 +84,10 @@ export const chapterSealTrack: PostTurnTrack<PostCommitTrackContext> = {
                         contextLimit: ctx.facade?.config.contextLimit ?? ctx.state.settings.contextLimit ?? 4096,
                         divergenceRegister: ctx.facade?.data.divergenceRegister ?? ctx.state.divergenceRegister ?? EMPTY_REGISTER,
                     },
+                    // Under the facade sealProvider is undefined and this is the only model path.
+                    // It was dropped in c8a4539 (2026-08-10), so every auto-seal threw before
+                    // writing a summary while the "auto-sealed" toast still showed.
+                    sealModelCall,
                 );
             }
         }).catch(err => console.warn('[Auto-Seal] Failed:', err));
