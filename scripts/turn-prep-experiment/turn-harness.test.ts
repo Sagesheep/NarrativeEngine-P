@@ -14,6 +14,9 @@
 // Real model calls need API keys, which live only in the browser. Supply them in
 // scripts/turn-prep-experiment/.keys.json ({ "<provider label>": "<key>" }, gitignored).
 // EXP_MOCK=1 replaces every model call with a canned reply to validate the plumbing.
+// EXP_AUX_THINKING=off|low|medium|high|max sets the active preset's Auxiliary slot thinking
+// (the Director runs on that slot). EXP_STOP_AFTER_DIRECTOR=1 stops the turn once the
+// Director is done, before the story call: a Director-only timing run.
 
 import { execSync } from 'child_process';
 import fs from 'fs';
@@ -71,6 +74,11 @@ const STORY = process.env.EXP_STORY ?? '';
 const UTILITY = process.env.EXP_UTILITY ?? STORY;
 const HERE = path.resolve('scripts/turn-prep-experiment');
 const RUNS_NAME = process.env.EXP_RUNS || 'runs';
+const AUX_THINKING = process.env.EXP_AUX_THINKING || '';
+const STOP_AFTER_DIRECTOR = process.env.EXP_STOP_AFTER_DIRECTOR === '1';
+// EXP_KEY_NAME: the .keys.json entry to use for the story/utility provider when the
+// provider has been renamed since the key was stored.
+const KEY_NAME = process.env.EXP_KEY_NAME || '';
 
 const PRE_TOKEN_MODEL_FEATURES = ['planner', 'archiveFunnel', 'recommender', 'directorBrief', 'expandQuery', 'reranker', 'introEngine'] as const;
 const ADD_BACK: Record<string, string[]> = {
@@ -96,6 +104,8 @@ type ModelRequest = {
     ms?: number; status?: number; usage?: Usage;
     firstReasoningMs?: number; firstContentMs?: number; endMs?: number;
     toolCall?: string; finishReason?: string;
+    /** Non-streamed calls only: the reply text, so a Director brief can be read back. */
+    reply?: string;
 };
 
 test(`turn harness: ${CAMPAIGN} ${PROBE} ${ARM} s${SAMPLE}${MOCK ? ' (mock)' : ''}`, async () => {
@@ -105,6 +115,7 @@ test(`turn harness: ${CAMPAIGN} ${PROBE} ${ARM} s${SAMPLE}${MOCK ? ' (mock)' : '
     const blockedWrites: string[] = [];
     const modelRequests: ModelRequest[] = [];
     const watchers: Promise<void>[] = [];
+    let directorDone = false;
 
     // ── Network seam: absolute URLs, write blocking, optional mock model ─────
     const realFetch = globalThis.fetch;
@@ -117,6 +128,8 @@ test(`turn harness: ${CAMPAIGN} ${PROBE} ${ARM} s${SAMPLE}${MOCK ? ' (mock)' : '
             return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
         }
         if (url.endsWith('/llm/proxy')) {
+            // Director-only runs: nothing after the Director reaches a model.
+            if (STOP_AFTER_DIRECTOR && directorDone) throw new DOMException('Director-only run stopped', 'AbortError');
             const outer = JSON.parse(String(init?.body ?? '{}'));
             const inner = outer.body ? JSON.parse(outer.body) : {};
             const system = (inner.messages ?? []).find((m: any) => m.role === 'system')?.content;
@@ -140,7 +153,12 @@ test(`turn harness: ${CAMPAIGN} ${PROBE} ${ARM} s${SAMPLE}${MOCK ? ' (mock)' : '
                 watchers.push(watchStream(mine, rec, started));
                 return new Response(theirs, { status: res.status, statusText: res.statusText, headers: res.headers });
             }
-            watchers.push(res.clone().json().then((j: any) => { rec.usage = j?.usage; rec.endMs = Math.round(performance.now() - started); }, () => {}));
+            watchers.push(res.clone().json().then((j: any) => {
+                rec.usage = j?.usage;
+                rec.endMs = Math.round(performance.now() - started);
+                const text = j?.choices?.[0]?.message?.content;
+                if (typeof text === 'string') rec.reply = text.slice(0, 6000);
+            }, () => {}));
             return res;
         }
         return realFetch(url, init);
@@ -177,12 +195,14 @@ test(`turn harness: ${CAMPAIGN} ${PROBE} ${ARM} s${SAMPLE}${MOCK ? ' (mock)' : '
             if (!fs.existsSync(keysPath)) throw new Error('Real model calls need scripts/turn-prep-experiment/.keys.json (see header). Use EXP_MOCK=1 to validate the plumbing.');
             const keys = JSON.parse(fs.readFileSync(keysPath, 'utf8')) as Record<string, string>;
             for (const p of providers) if (keys[p.label]) p.apiKey = keys[p.label];
+            if (KEY_NAME && keys[KEY_NAME]) for (const p of [story, utility]) if (p && !p.apiKey) p.apiKey = keys[KEY_NAME];
             for (const p of [story, utility]) if (p && !p.apiKey) throw new Error(`No key for "${p.label}" in .keys.json`);
         }
         const presets = (s0.presets ?? []).map(p => p.id !== s0.activePresetId ? p : {
             ...p,
             ...(story ? { storyAIProviderId: story.id } : {}),
             ...(utility ? { utilityAIProviderId: utility.id, auxiliaryAIProviderId: utility.id, summarizerAIProviderId: utility.id } : {}),
+            ...(AUX_THINKING ? { slotThinking: { ...(p.slotThinking ?? {}), auxiliary: AUX_THINKING } } : {}),
         });
         useAppStore.setState({ settings: { ...s0, providers, presets, aiTier: 'max', debugMode: true, moduleEnabled: {} } } as any);
 
@@ -273,7 +293,10 @@ test(`turn harness: ${CAMPAIGN} ${PROBE} ${ARM} s${SAMPLE}${MOCK ? ' (mock)' : '
             archiveNPC: st.archiveNPC, restoreNPC: st.restoreNPC,
             stageInventoryProposal: () => {},
             persistTurnState: () => {},
-            onDirectorBriefPhase: (phase: string) => mark(`director:${phase}`),
+            onDirectorBriefPhase: (phase: string) => {
+                mark(`director:${phase}`);
+                if (phase === 'done' && STOP_AFTER_DIRECTOR) { directorDone = true; abort.abort(); }
+            },
         } as any, abort);
         // runTurn resolves after the FIRST generation round. A tool call (or an API retry)
         // continues on a timer, so the turn is only over when the pipeline returns to idle
@@ -281,7 +304,9 @@ test(`turn harness: ${CAMPAIGN} ${PROBE} ${ARM} s${SAMPLE}${MOCK ? ' (mock)' : '
         // which the model called a tool.
         const lastPhase = () => [...marks].reverse().find(m => m.event.startsWith('phase:'))?.event;
         const deadline = performance.now() + 600_000;
+        // A Director-only run is stopped on purpose; the app does not return to idle on a stop.
         for (;;) {
+            if (STOP_AFTER_DIRECTOR && directorDone) break;
             if (lastPhase() === 'phase:idle') {
                 const seen = marks.length;
                 await new Promise(r => setTimeout(r, 2000));
@@ -321,6 +346,8 @@ test(`turn harness: ${CAMPAIGN} ${PROBE} ${ARM} s${SAMPLE}${MOCK ? ' (mock)' : '
             models: [...new Set(modelRequests.map(r => r.model).filter(Boolean))],
             appCommit: gitHead(),
             ranAt: new Date().toISOString(),
+            auxThinking: AUX_THINKING || '(preset)',
+            stopAfterDirector: STOP_AFTER_DIRECTOR,
             enabledPreTokenModelFeatures: [...enabled],
             recommenderStandIn: enabled.has('recommender') ? null : recommenderStandIn,
             timing: {
@@ -348,8 +375,11 @@ test(`turn harness: ${CAMPAIGN} ${PROBE} ${ARM} s${SAMPLE}${MOCK ? ' (mock)' : '
         const outDir = path.join(HERE, 'work', RUNS_NAME, CAMPAIGN, PROBE);
         fs.mkdirSync(outDir, { recursive: true });
         // A provider error or an empty reply is not a result: tag it so the runner retries it.
-        const failed = failedRequests.length > 0 || firstVisibleToken === null || !reply.trim();
-        const tag = `${ARM}__${(story?.label ?? 'default').replace(/[^A-Za-z0-9.]+/g, '-')}__s${SAMPLE}${MOCK ? '__mock' : ''}${failed ? '__FAILED' : ''}`;
+        const failed = STOP_AFTER_DIRECTOR
+            ? failedRequests.length > 0 || at('director:done') === null
+            : failedRequests.length > 0 || firstVisibleToken === null || !reply.trim();
+        const variant = `${AUX_THINKING ? `__aux-${AUX_THINKING}` : ''}${STOP_AFTER_DIRECTOR ? '__director-only' : ''}`;
+        const tag = `${ARM}__${(story?.label ?? 'default').replace(/[^A-Za-z0-9.]+/g, '-')}${variant}__s${SAMPLE}${MOCK ? '__mock' : ''}${failed ? '__FAILED' : ''}`;
         fs.writeFileSync(path.join(outDir, `${tag}.json`), JSON.stringify(record, null, 2));
         clearPendingTurnSnapshot();
         const t = record.tokens.preToken;
