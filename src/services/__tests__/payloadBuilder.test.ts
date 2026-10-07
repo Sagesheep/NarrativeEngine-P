@@ -197,6 +197,13 @@ describe('buildPayload — scenario 1: minimal', () => {
         expect(result.messages[0].content).toContain('ROLE: Dynamic-Realism GM.');
     });
 
+    // Ported from mobile: desktop never asked for the tag (0 in ~1,200 scenes), so the
+    // fallback classifier ran before every Send.
+    it('the stable system message asks the GM for the scene-stakes tag', () => {
+        const result = buildPayload({ settings: baseSettings(), context: baseContext(), history: [], userMessage: 'Hello world' });
+        expect(result.messages[0].content).toContain('[[SCENE_STAKES: calm|tense|dangerous]]');
+    });
+
     it('the final user message contains the GM REMINDER literal', () => {
         const result = buildPayload({ settings: baseSettings(), context: baseContext(), history: [], userMessage: 'Hello world' });
         const lastMsg = result.messages[result.messages.length - 1];

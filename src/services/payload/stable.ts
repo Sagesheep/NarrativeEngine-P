@@ -35,6 +35,13 @@ export function isThinkingEnabled(settings: AppSettings): boolean {
 // so the framework works for any provider: DeepSeek emits it in `reasoning_content`,
 // Claude in `thinking` blocks, GPT-5 in `reasoning` tokens, Gemini in `thinking_config`
 // parts, and legacy non-thinking models reason silently before the narrative.
+export const SCENE_STAKES_INSTRUCTION =
+    'On the LAST line of your response, output a scene-stakes tag:\n' +
+    '[[SCENE_STAKES: calm|tense|dangerous]]\n' +
+    'Rubric: calm = no immediate threat; tense = physical OR social/political threat looming;\n' +
+    'dangerous = active harm or imminent deadly/ruinous consequences. This tag is metadata —\n' +
+    'never reference it in your prose.';
+
 const WRITER_COT = `[WRITER REASONING FRAMEWORK]
 Work through these steps in your internal reasoning before writing the narrative. Never show the steps in the narrative output. Always produce the full narrative response after your reasoning ends.
 Step 1 — Deconstruct: break the player's input into discrete intents. Judge each against the rules and MC boundaries. Impossible or implausible demands are narrated as attempts with consequences, not successes.
@@ -98,6 +105,12 @@ export function buildStable(opts: {
     if (context.headerIndexActive && context.headerIndex) stableParts.push(context.headerIndex);
     if (context.starterActive && context.starter) stableParts.push(context.starter);
     if (context.continuePromptActive && context.continuePrompt) stableParts.push(context.continuePrompt);
+
+    // The scene-stakes tag (ported from mobile's stable content). The engine strips it and
+    // stores it on the swipe variant (sceneStakesTag.ts); agency reads it. Desktop never asked
+    // for it — 0 tags in ~1,200 archived scenes — so the fallback classifier ran before every
+    // Send. The classifier stays as the fallback for a reply that omits the tag.
+    stableParts.push(SCENE_STAKES_INSTRUCTION);
 
     // Only inject when the active preset's Story slot has thinking enabled (any
     // effort level except 'off'). The Story slot's Thinking picker is the single
