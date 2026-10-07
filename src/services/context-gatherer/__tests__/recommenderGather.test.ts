@@ -35,3 +35,12 @@ describe('gatherRecommender — the recommenderThinking block', () => {
         expect(thinkingArg()).toBe(true);
     });
 });
+
+describe('gatherRecommender — lore picks', () => {
+    // The lore picks used to be logged and dropped; lore selection now fuses them in.
+    it('returns the recommender\'s lore picks', async () => {
+        recommendContext.mockResolvedValueOnce({ relevantNPCNames: [], relevantLoreIds: ['lore-helena'], inventoryCategories: [], profileFields: [] });
+        const result = await gatherRecommender(state(), 'I spot Helena', undefined);
+        expect(result.recommendedLoreIds).toEqual(['lore-helena']);
+    });
+});

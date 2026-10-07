@@ -1,3 +1,4 @@
+import { isFieldLabelKeyword } from './fieldLabels';
 import type { LoreChunk, LoreCategory } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
 
@@ -45,11 +46,16 @@ function extractTriggerKeywords(header: string, content: string): string[] {
     const keywords = new Set<string>();
     const text = header + '\n' + content;
 
-    const properNouns = text.match(/[A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})*/g);
+    // Field labels (`**Type:**`, `Aliases:`) are not names; strip them before the
+    // capitalised-word scan so they don't take keyword slots (see fieldLabels.ts).
+    const unlabelled = text
+        .replace(/\*\*\s*[A-Z][A-Za-z ]{0,30}?:\s*\*\*/g, ' ')
+        .replace(/^\s*[-*]?\s*[A-Z][A-Za-z ]{0,30}?:(?=\s)/gm, ' ');
+    const properNouns = unlabelled.match(/[A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})*/g);
     if (properNouns) {
         for (const noun of properNouns) {
             const lower = noun.toLowerCase();
-            if (!STOP_WORDS.has(lower) && lower.length > 2) {
+            if (!STOP_WORDS.has(lower) && lower.length > 2 && !isFieldLabelKeyword(lower)) {
                 keywords.add(lower);
             }
         }
@@ -76,7 +82,7 @@ function extractTriggerKeywords(header: string, content: string): string[] {
         .split(/[\s/—–]+/)
         .map(w => w.toLowerCase().replace(/[^a-z0-9]/g, ''))
         .filter(w => w.length > 2 && !STOP_WORDS.has(w));
-    headerWords.forEach(w => keywords.add(w));
+    headerWords.filter(w => !isFieldLabelKeyword(w)).forEach(w => keywords.add(w));
 
     if (/\$[\d,]+/.test(text)) {
         keywords.add('money');

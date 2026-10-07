@@ -12,7 +12,8 @@ export type LoreRulesResult = {
 
 export function gatherLoreAndRules(
     state: TurnState,
-    semanticCandidates: SemanticCandidates
+    semanticCandidates: SemanticCandidates,
+    recommendedLoreIds?: string[],
 ): LoreRulesResult {
     const { input, messages, loreChunks, context } = state;
     const { semanticLoreIds, semanticRuleIds } = semanticCandidates;
@@ -22,7 +23,7 @@ export function gatherLoreAndRules(
         : messages;
 
     const relevantLore = loreChunks.length > 0
-        ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex, input, 1200, messages, semanticLoreIds, state.settings.retrievalAlgorithm ?? 'idf-rrf')
+        ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex, input, 1200, messages, semanticLoreIds, state.settings.retrievalAlgorithm ?? 'idf-rrf', recommendedLoreIds)
         : undefined;
 
     const rulesBudget = Math.floor(

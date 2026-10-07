@@ -299,9 +299,11 @@ export async function gatherContext(
     const recommenderPromise = timed('recommender', gatherRecommender(state, finalInput, pinnedChaptersForRecommender, signal, facade));
 
     // ─── Lore & rules — depend on semantic candidates ───
+    // Waits for the recommender too: its lore picks join keyword + meaning search. With
+    // thinking off it returns in 1–2 s, about when the meaning search does.
     const loreRulesPromise = timed('lore-rules', (async () => {
-        const semanticCandidates = await semanticPromise;
-        return gatherLoreAndRules(state, semanticCandidates);
+        const [semanticCandidates, recommender] = await Promise.all([semanticPromise, recommenderPromise]);
+        return gatherLoreAndRules(state, semanticCandidates, recommender.recommendedLoreIds);
     })());
 
     // ─── Dynamic Elevation (WO-11) — depends on state only (synopsis scope

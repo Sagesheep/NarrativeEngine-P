@@ -6,6 +6,8 @@ import { hasHostModelRole, type HostFacade } from '../turn/hostFacade';
 
 export type RecommenderResult = {
     recommendedNPCNames: string[] | undefined;
+    /** Lore chunk ids the recommender picked; lore selection fuses them in (loreRetriever.ts). */
+    recommendedLoreIds?: string[];
     inventoryCategories: string[] | undefined;
     profileFields: string[] | undefined;
 };
@@ -62,10 +64,11 @@ export async function gatherRecommender(
             // Block View's explicit toggles, so a toggle read through it would do nothing.
             isBlockEnabled('recommenderThinking', config?.aiTier ?? state.settings.aiTier, config?.moduleEnabled ?? state.settings.moduleEnabled),
         );
-        const { relevantNPCNames: recommendedNPCNames, inventoryCategories, profileFields } = result;
+        const { relevantNPCNames: recommendedNPCNames, inventoryCategories, profileFields, relevantLoreIds } = result;
         console.log(`[ContextGatherer] Recommender returned: ${recommendedNPCNames?.length || 0} NPCs, ${result.relevantLoreIds.length} lore, ${inventoryCategories?.length || 0} inv cats, ${profileFields?.length || 0} profile fields`);
         return {
             recommendedNPCNames: recommendedNPCNames ?? undefined,
+            recommendedLoreIds: relevantLoreIds,
             inventoryCategories: inventoryCategories ?? undefined,
             profileFields: profileFields ?? undefined,
         };
