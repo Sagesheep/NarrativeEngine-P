@@ -141,6 +141,7 @@ export type AppSettings = {
     showReasoning?: boolean;
     /** @deprecated Unread since 2026-10-05: Deep Archive Search is switched in Block View (`deepScan`). Kept so stored settings load. */
     deepContextSearch?: boolean;
+    /** @deprecated No effect since f03e6c7 (per-turn divergence extraction removed); its toggle was removed 2026-10-07. Kept so stored settings load. */
     autoExtractDivergences?: boolean;
     divergenceTokenBudget?: number;
     divergenceScanBudget?: number;
@@ -150,7 +151,8 @@ export type AppSettings = {
     rulesBudgetPct?: number;               // fraction of context limit for rules RAG, default 0.10
     autoGenerateRuleKeywords?: boolean;    // default true; false = header+bold extraction only
     storyTimeoutSeconds?: number;          // streaming AI idle deadline, 30-3600 seconds (default 600)
-    utilityTimeoutSeconds?: number;        // soft deadline for utility AI calls (default 45)
+    /** @deprecated No reader since 6969e90 (utility calls use fixed timeouts, llm/timeouts.ts); its controls were removed 2026-10-07. Kept so stored settings load. */
+    utilityTimeoutSeconds?: number;
     verboseUtilityLogging?: boolean;
     /** @deprecated Unread since 2026-10-05: the Archive Planner is switched in Block View (`planner`). Kept so stored settings load. */
     enableArchivePlanner?: boolean;

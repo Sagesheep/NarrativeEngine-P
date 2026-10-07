@@ -316,6 +316,9 @@ export function EnginesTab() {
                     </div>
                 </div>
 
+                {/* Relationship Memory (NPC Ledger v3) */}
+                <RelationshipMemorySection context={context} updateContext={updateContext} />
+
                 {/* NPC Appearance Engine (character intro engine) */}
                 <NpcAppearanceSection context={context} updateContext={updateContext} />
 
@@ -334,6 +337,40 @@ export function EnginesTab() {
             >
                 <Plus size={12} /> Add Campaign Fact
             </button>
+        </div>
+    );
+}
+
+// ─── Relationship Memory Section (NPC Ledger v3) ───────────────────────
+// The per-campaign switch for relationship memory. The feature (records, stance, the
+// payload/reaction/updater switch from scalar affinity to stance) shipped 2026-08-14 with
+// readers for `context.relationshipMemory` but nothing that could set it, so it never ran.
+
+type RelationshipMemorySectionProps = {
+    context: ReturnType<typeof useAppStore.getState>['context'];
+    updateContext: ReturnType<typeof useAppStore.getState>['updateContext'];
+};
+
+export function RelationshipMemorySection({ context, updateContext }: RelationshipMemorySectionProps) {
+    const active = context.relationshipMemory === true;
+    return (
+        <div className="space-y-2">
+            <div className="text-[12px] text-terminal uppercase tracking-wider font-bold border-b border-terminal/20 pb-1 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-terminal" />
+                    Relationship Memory
+                </div>
+                <Toggle active={active} onChange={() => updateContext({ relationshipMemory: !active })} />
+            </div>
+            <div className="bg-void border border-border p-3 space-y-2">
+                <p className="text-[12px] text-text-dim leading-relaxed">
+                    NPCs remember specific moments with you and with each other, rated by how much each one mattered, instead of a single like/dislike score.
+                    Before each reply, NPCs in the scene with a shared history get a short note on how they stand toward the others present.
+                </p>
+                <p className="text-[12px] text-text-dim leading-relaxed">
+                    Cost when on: one background AI call per scene to record memories, plus a short step before writing when someone in the scene has history. Off by default; memories start from the scene you turn it on.
+                </p>
+            </div>
         </div>
     );
 }

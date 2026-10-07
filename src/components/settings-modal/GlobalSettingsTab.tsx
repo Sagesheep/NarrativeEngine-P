@@ -365,47 +365,13 @@ export function GlobalSettingsTab() {
           </button>
         </div>
 
-        {/* Utility AI Timeout Field */}
-        <div className="pt-2 border-t border-border/30">
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] text-text-dim uppercase tracking-wider">
-              Utility AI Timeout (Seconds)
-            </label>
-          </div>
-          <input
-            type="number"
-            min={5}
-            max={300}
-            step={5}
-            value={settings.utilityTimeoutSeconds ?? 45}
-            onChange={(e) => {
-              const v = parseInt(e.target.value);
-              if (!isNaN(v) && v > 0) updateSettings({ utilityTimeoutSeconds: v });
-            }}
-            className="w-full h-7 bg-surface border border-border rounded px-2 text-xs text-text font-mono focus:outline-none focus:border-terminal"
-          />
-        </div>
       </div>
 
       {/* Divergence Register */}
       <div className="md:col-span-2 bg-void p-3 border border-border rounded space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold mb-1">
-              Auto-Extract Divergences
-            </label>
-            <p className="text-[9px] text-text-dim max-w-[240px] leading-tight">
-              Automatically extract campaign facts (canon changes, NPC states, obligations) from each turn.
-              Importance gate: 7+ (use ⚡ for lower).
-            </p>
-          </div>
-          <button
-            onClick={() => updateSettings({ autoExtractDivergences: !settings.autoExtractDivergences })}
-            className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${settings.autoExtractDivergences ? 'bg-amber-500' : 'bg-border'}`}
-          >
-            <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-surface transition-transform ${settings.autoExtractDivergences ? 'translate-x-[22px]' : 'translate-x-[2px]'}`} />
-          </button>
-        </div>
+        <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold">
+          Divergence Register
+        </label>
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-[10px] text-text-dim uppercase tracking-wider">

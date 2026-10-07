@@ -83,31 +83,6 @@ export function DebugTab() {
 
                 {debugPanelOpen && (
                     <div className="mt-4 pt-4 border-t border-border/60 space-y-4">
-                        <div className="flex flex-col gap-2">
-                            <div className="flex items-center justify-between">
-                                <label className="text-[10px] text-text-dim uppercase tracking-widest">Utility AI Timeout (seconds)</label>
-                                <span className="text-terminal font-bold font-mono bg-terminal/10 px-2 py-0.5 rounded text-xs">
-                                    {settings.utilityTimeoutSeconds ?? 45}s
-                                </span>
-                            </div>
-                            <input
-                                type="range"
-                                min={10}
-                                max={300}
-                                step={5}
-                                value={settings.utilityTimeoutSeconds ?? 45}
-                                onChange={e => updateSettings({ utilityTimeoutSeconds: Number(e.target.value) })}
-                                className="w-full accent-terminal"
-                            />
-                            <div className="flex justify-between text-[9px] text-text-dim">
-                                <span>10s (aggressive)</span>
-                                <span>5min (lenient)</span>
-                            </div>
-                            <p className="text-[9px] text-text-dim leading-relaxed">
-                                Soft deadline for reranker, query expansion, and AI recommender calls. When exceeded, the EXTEND +1m button appears in-chat. After expiry without extension, the call is abandoned and the pipeline falls back gracefully.
-                            </p>
-                        </div>
-
                         <div className="flex items-center justify-between bg-surface p-3 border border-border rounded">
                             <div>
                                 <label className="block text-[10px] text-text-dim uppercase tracking-widest font-bold mb-1">Verbose Logging</label>
