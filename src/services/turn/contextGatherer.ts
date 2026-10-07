@@ -29,7 +29,7 @@ import {
     sceneKeyForRelationshipStance,
 } from '../npc/relationshipStance';
 import { hasHostModelRole } from './hostFacade';
-import { blockTokenCap } from './blockEnablement';
+import { blockTokenCap, isBlockEnabled } from './blockEnablement';
 import { BUILTIN_IDS, getBuiltinTokenCap } from '../payload/contributions/builtins';
 import { readRelationshipMemoryState, writeRelationshipMemoryState } from '../../store/relationshipMemoryState';
 
@@ -85,7 +85,10 @@ async function gatherRelationshipStances(
 ): Promise<import('../../types').RelationshipStance[]> {
     const data = facade?.data;
     const context = data?.context ?? state.context;
-    if (context.relationshipMemory !== true || state.settings.moduleEnabled?.npcStance === false) return [];
+    // Same gate as the payload side (payloadBuilder): the switch, else the tier preset.
+    // Reading only the switch ran the stance calls on a tier that then dropped them.
+    const stanceOn = isBlockEnabled('npcStance', facade?.config.aiTier ?? state.settings.aiTier, facade?.config.moduleEnabled ?? state.settings.moduleEnabled);
+    if (context.relationshipMemory !== true || !stanceOn) return [];
 
     const onStageNpcIds = data?.onStageNpcIds ?? state.onStageNpcIds ?? [];
     const utilityEndpoint = facade ? undefined : state.getUtilityEndpoint?.();
@@ -323,26 +326,57 @@ export async function gatherContext(
     // bailing early, and the live step indicator (GenerationProgress) shows what's
     // running so the user sees movement instead of a frozen "GATHERING CONTEXT".
     // Individual calls have their own (tighter) timeouts, so this is just a backstop.
+    // A stage still running at the backstop is left behind with its empty result. (The
+    // old race was followed by awaiting every stage anyway, so it never stopped the
+    // wait, and its uncleared timer logged a false "timeout" 180 s after every turn.)
     const CONTEXT_GATHER_TIMEOUT_MS = AI_CALL_TIMEOUT_MS;
-    await Promise.race([
-        Promise.all([archiveRecallPromise, recommenderPromise, loreRulesPromise, plannerPromise, elevationPromise, relationshipStancesPromise]),
-        new Promise<void>((resolve) => setTimeout(() => {
-            console.warn('[ContextGatherer] Context gather timeout — proceeding with partial results');
-            resolve();
-        }, CONTEXT_GATHER_TIMEOUT_MS)),
-    ]);
-
-    let archiveRecall = await archiveRecallPromise;
-    const recommender = await recommenderPromise;
-    const { relevantLore, relevantRules, rulesManifest } = await loreRulesPromise.catch(() => ({ relevantLore: undefined, relevantRules: [], rulesManifest: '' }));
-    const semanticCandidates = await semanticPromise;
-    const plannerSceneIds = await plannerPromise;
-    // WO-11: never let elevation failure block the turn — default to empty.
-    const elevation = await elevationPromise.catch(() => ({ scenes: [] as ElevatedScene[], rankedSceneIds: [] as string[] }));
-    const relationshipStances = await relationshipStancesPromise.catch(error => {
-        console.warn('[ContextGatherer] Relationship stance pass failed:', error);
-        return [] as import('../../types').RelationshipStance[];
+    const TIMED_OUT = Symbol('gather-backstop');
+    const backstopDeadline = Date.now() + CONTEXT_GATHER_TIMEOUT_MS;
+    let backstopTimer: ReturnType<typeof setTimeout> | undefined;
+    let gatherSettled = false;
+    // Resolves only once the deadline has truly passed: a timer that fires early
+    // re-checks the clock and re-arms (the utilityCallTracker pattern). The re-check
+    // is a microtask, not a direct call, so a timer flush cannot spin it in place.
+    const backstop = new Promise<typeof TIMED_OUT>((resolve) => {
+        const arm = (): void => {
+            if (gatherSettled) return;
+            const remaining = backstopDeadline - Date.now();
+            if (remaining <= 0) { resolve(TIMED_OUT); return; }
+            backstopTimer = setTimeout(() => { void Promise.resolve().then(arm); }, remaining);
+        };
+        arm();
     });
+    const orBackstop = <T,>(label: string, p: Promise<T>, fallback: T): Promise<T> =>
+        Promise.race([p, backstop]).then((value) => {
+            if (value !== TIMED_OUT) return value as T;
+            console.warn(`[ContextGatherer] ${label} still running after ${CONTEXT_GATHER_TIMEOUT_MS / 1000} s — continuing without it`);
+            return fallback;
+        });
+
+    let archiveRecall: import('../../types').ArchiveScene[] | undefined;
+    let recommender: Awaited<typeof recommenderPromise>;
+    let loreRules: Awaited<typeof loreRulesPromise>;
+    let semanticCandidates: Awaited<typeof semanticPromise>;
+    let plannerSceneIds: string[] | undefined;
+    let elevation: { scenes: ElevatedScene[]; rankedSceneIds: string[] };
+    let relationshipStances: import('../../types').RelationshipStance[];
+    try {
+        archiveRecall = await orBackstop('Archive recall', archiveRecallPromise, undefined);
+        recommender = await orBackstop('Recommender', recommenderPromise, { recommendedNPCNames: undefined, inventoryCategories: undefined, profileFields: undefined });
+        loreRules = await orBackstop('Lore selection', loreRulesPromise.catch(() => ({ relevantLore: undefined, relevantRules: [], rulesManifest: '' })), { relevantLore: undefined, relevantRules: [], rulesManifest: '' });
+        semanticCandidates = await orBackstop('Meaning search', semanticPromise, { semanticArchiveIds: undefined, semanticLoreIds: undefined, semanticRuleIds: undefined });
+        plannerSceneIds = await orBackstop('Planner', plannerPromise, undefined);
+        // WO-11: never let elevation failure block the turn — default to empty.
+        elevation = await orBackstop('Dynamic elevation', elevationPromise.catch(() => ({ scenes: [] as ElevatedScene[], rankedSceneIds: [] as string[] })), { scenes: [], rankedSceneIds: [] });
+        relationshipStances = await orBackstop('NPC stance', relationshipStancesPromise.catch(error => {
+            console.warn('[ContextGatherer] Relationship stance pass failed:', error);
+            return [] as import('../../types').RelationshipStance[];
+        }), []);
+    } finally {
+        gatherSettled = true;
+        clearTimeout(backstopTimer);
+    }
+    const { relevantLore, relevantRules, rulesManifest } = loreRules;
 
     // WO-12: Slotted RAG — consume WO-11's scoped search results (one search, two
     // consumers). Pure computation from the ranked IDs + archive index; no second

@@ -294,8 +294,8 @@ function mergeSealEntries(register, facts, sceneId) {
 }
 
 function runArcTick(arcs, archiveIndex, aiTier, displayInput, lastAssistantContent) {
-    // Redundant inner guard — the caller (the compute track / sandbox) already
-    // gates on the real tierAllows. On lite this function is never entered.
+    // The host's compute track gates this mod on the `arcTick` block
+    // (computeTrack.ts), so with the switch or the tier off it is never entered.
     if (!arcs || arcs.length === 0) {
         return { arcs: null, arcDigest: null, divergenceFacts: [] };
     }

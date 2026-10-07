@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { parseCombinedSealOutput } from '../combinedSeal';
+import { parseCombinedSealOutput, sealChapterCombined } from '../combinedSeal';
 import { parseChapterSummaryOutput } from '../chapterSummary';
 
 const CHAPTER_ID = 'CH01';
@@ -289,5 +289,20 @@ describe('parseChapterSummaryOutput — WO-06 synopsis fields (unit)', () => {
         expect(out?.synopsis).toBeUndefined();
         expect(out?.abstractTitle).toBeUndefined();
         expect(out?.literalTitle).toBeUndefined();
+    });
+});
+// A good summary whose facts block never parses used to be thrown away after the
+// retries, leaving the chapter with no summary at all.
+describe('sealChapterCombined — keeps a good summary when only the facts fail', () => {
+    it('returns the summary with the facts error after every retry fails the facts', async () => {
+        const modelCall = vi.fn(async () => JSON.stringify({ summary: makeValidSummaryBlock() }));
+        const result = await sealChapterCombined(
+            undefined, [{ sceneId: '001', content: 'x' }], CHAPTER_ID, 'Ch 1', SCENE_IDS, NPC_LEDGER,
+            2, 0, undefined, [], modelCall,
+        );
+        expect(modelCall).toHaveBeenCalledTimes(3);
+        expect(result.summary?.title).toBe('The Battle at Locust Town');
+        expect(result.divergenceParseError).toBe(true);
+        expect(result.divergences).toEqual([]);
     });
 });

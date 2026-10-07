@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     jobs: [] as Promise<unknown>[],
+    deltas: [] as unknown[],
 }));
 vi.mock('../../infrastructure/backgroundQueue', () => ({
     backgroundQueue: {
@@ -14,7 +15,7 @@ vi.mock('../../infrastructure/backgroundQueue', () => ({
 }));
 vi.mock('./agencyTimeskipRun', () => ({
     detectTimeskip: () => ({ weeks: 3 }),
-    runTimeskip: () => ({ narration: 'Mira opened a stall by the north gate.', updatedNPCs: [], deltas: [], ticksConsumed: 3 }),
+    runTimeskip: () => ({ narration: 'Mira opened a stall by the north gate.', updatedNPCs: [], deltas: mocks.deltas, ticksConsumed: 3 }),
 }));
 vi.mock('../../turn/hostFacade', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../../turn/hostFacade')>()),
@@ -42,7 +43,7 @@ function setup(reply: string) {
     return { facade, state, callbacks, call, addMessage };
 }
 
-beforeEach(() => { mocks.jobs.length = 0; });
+beforeEach(() => { mocks.jobs.length = 0; mocks.deltas = []; });
 
 describe('timeskip narration (facade path)', () => {
     it('asks for the seam with thinking off', async () => {
@@ -60,5 +61,20 @@ describe('timeskip narration (facade path)', () => {
             name: 'timeskip-seam',
             content: '[Time passes] Mira opened a stall by the north gate.',
         }));
+    });
+});
+
+// The commit's prologue clears last turn's digest after the turn state was captured.
+// Appending to the captured copy brought the cleared digest back.
+describe('timeskip digest', () => {
+    it('appends to the live digest, not the captured one', () => {
+        mocks.deltas = [{ npcId: 'n1', npcName: 'Mira', goalText: 'open a stall', horizon: 'medium', band: 'success', visibility: 'direct', note: '' }];
+        const { facade, state, callbacks } = setup('You return.');
+        (facade.data as { context: object }).context = { agencyDigest: 'Bram sold the mill.' };
+        (state as unknown as { getFreshContext: () => object }).getFreshContext = () => ({ agencyDigest: '' });
+        runAgencyTick(state, callbacks, [mira], 'Three weeks later.', facade);
+        const digestWrite = vi.mocked(facade.write.updateContext).mock.calls.find(([patch]) => 'agencyDigest' in patch);
+        expect(digestWrite?.[0].agencyDigest).toBeTruthy();
+        expect(digestWrite?.[0].agencyDigest).not.toContain('Bram sold the mill.');
     });
 });

@@ -19,7 +19,7 @@ import { emitCoreEvent, emitCoreEventLazy } from '../mods/events';
 // Lost on crash — that's OK. Relaunch reconciliation rebuilds from the live
 // store (no "next turn's messages" exist after a crash, so live == snapshot).
 interface PendingTurnSnapshot {
-    turnState: TurnState;               // ORIGINAL reference — do NOT rebuild from live
+    turnState: TurnState;               // ORIGINAL reference — do NOT rebuild from live (the commit re-reads only the campaign's accumulated state: withLiveCampaignState)
     messages: ChatMessage[];              // messages at swipe-1 completion time (frozen)
     cachedPayload: OpenAIMessage[];      // for swipes 2–5 (sanitizePayloadForApi(false))
     displayInput: string;                // user's display input for this turn
@@ -394,6 +394,7 @@ async function runCommitPendingTurn(): Promise<void> {
     facade.write.updateContext({ lastSceneStakes: sceneStakes });
 
     const snapshotMessages = commitState.getMessages();
+    const pipelineState = withLiveCampaignState(commitState, useAppStore.getState());
 
     // Durable-commit v1: did the scene actually reach long-term memory? Only then
     // may the turn be retired. Pre-fix this was assumed — the markers were cleared
@@ -407,7 +408,7 @@ async function runCommitPendingTurn(): Promise<void> {
         // boundary) to the post-turn pipeline. Thread-only — the pipeline does
         // NOT yet read it; Project 4 will swap selected reads to bus fields.
         const result = await runPostTurnPipeline(
-            commitState, commitCallbacks, text, snapshotMessages, snapshot?.turnContext,
+            pipelineState, commitCallbacks, text, snapshotMessages, snapshot?.turnContext,
             { verifyExistingScene: pendingMsg.commitFailed === true },
         );
         // A pipeline that reports nothing (older signature / test doubles) is taken
@@ -536,6 +537,27 @@ function commitStateCampaignId(
     store: ReturnType<typeof useAppStore.getState>,
 ): string {
     return snapshot?.activeCampaignId || store.activeCampaignId || '';
+}
+
+// The snapshot's TurnState was captured when the turn STARTED. The campaign's own data
+// has moved since: the stakes written just above, the digests, NPCs the player edited
+// or an earlier commit updated, the scene list. Reading those from the snapshot made
+// the agency tick use the previous turn's stakes and append to a digest the prologue
+// had already cleared, and let the NPC agency fill roll an NPC a second time. The
+// turn's own input and messages stay from the snapshot. Same campaign only.
+function withLiveCampaignState(state: TurnState, live: ReturnType<typeof useAppStore.getState>): TurnState {
+    if (!state.activeCampaignId || live.activeCampaignId !== state.activeCampaignId) return state;
+    return {
+        ...state,
+        context: live.context ?? state.context,
+        npcLedger: live.npcLedger ?? state.npcLedger,
+        archiveIndex: live.archiveIndex ?? state.archiveIndex,
+        loreChunks: live.loreChunks ?? state.loreChunks,
+        timeline: live.timeline ?? state.timeline,
+        chapters: live.chapters ?? state.chapters,
+        divergenceRegister: live.divergenceRegister ?? state.divergenceRegister,
+        onStageNpcIds: live.onStageNpcIds ?? state.onStageNpcIds,
+    };
 }
 
 // ── Rebuild TurnState from the live store (crash recovery path) ────────

@@ -283,7 +283,7 @@ export const en = {
     'tierblock.directorBrief.name': 'Director Brief',
     'tierblock.directorBrief.description': 'Asks a utility model for scene directives that steer the next GM reply.',
     'tierblock.lodDynamicElevation.name': 'Dynamic Scene Elevation',
-    'tierblock.lodDynamicElevation.description': 'Elevates synopsis-tier scenes verbatim below the cache boundary when they are highly relevant.',
+    'tierblock.lodDynamicElevation.description': 'Puts the closest-matching older (synopsis-tier) scenes back in full for this turn, below the cache boundary. There is no relevance cutoff: it always takes the top matches.',
     'tierblock.lodSlottedRag.name': 'Slotted RAG Snippets',
     'tierblock.lodSlottedRag.description': 'Injects one-line snippets from synopsis-tier scenes that had search hits but were not elevated.',
 

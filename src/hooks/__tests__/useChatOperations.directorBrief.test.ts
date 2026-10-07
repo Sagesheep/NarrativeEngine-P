@@ -334,3 +334,34 @@ describe('useChatOperations — gallery keyword recall', () => {
         }
     });
 });
+
+// The next turn must be built from the store as it is AFTER the previous turn's
+// commit. A snapshot taken before it fed the writer the state one commit behind.
+describe('useChatOperations — reads the store after the commit', () => {
+    it('builds the turn from the post-commit NPCs, context and on-stage cast', async () => {
+        const { useAppStore } = await import('../../store/useAppStore');
+        const getState = vi.mocked(useAppStore.getState);
+        const before = getState();
+        const committed = {
+            ...before,
+            context: { ...before.context, agencyDigest: 'Sanna left town.' },
+            npcLedger: [{ id: 'n1', name: 'Sanna' }],
+            onStageNpcIds: ['n1'],
+        } as any;
+        vi.clearAllMocks();
+        commitPendingTurnMock.mockImplementationOnce(async () => {
+            getState.mockImplementation(() => committed);
+        });
+        try {
+            wireRunTurnToSettleImmediately();
+            const { result } = renderHook(() => useChatOperations(baseArgs()));
+            await act(async () => { await result.current.handleSend(); });
+            const state = runTurnMock.mock.calls[0][0];
+            expect(state.context.agencyDigest).toBe('Sanna left town.');
+            expect(state.npcLedger).toEqual([{ id: 'n1', name: 'Sanna' }]);
+            expect(state.onStageNpcIds).toEqual(['n1']);
+        } finally {
+            getState.mockImplementation(() => before);
+        }
+    });
+});

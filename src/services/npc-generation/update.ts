@@ -31,6 +31,9 @@ const HEX_AXES: readonly HexAxis[] = ['drive', 'diligence', 'boldness', 'warmth'
  * Delta-only fields (pcRelation, personalityHex) are clamped on parse: a "+5" still moves +1.
  * `relations` is a sparse shallow-merge, never a wholesale replace. `wants.short` is engine-only
  * and always preserved.
+ *
+ * Resolves false when the model call or the JSON parse failed, so the caller can leave the
+ * NPCs' update cooldown unspent and try again next time they appear.
  */
 export async function updateExistingNPCs(
     provider: EndpointConfig | ProviderConfig | undefined,
@@ -39,8 +42,8 @@ export async function updateExistingNPCs(
     updateNPCStore: (id: string, updates: Partial<NPCEntry>) => void,
     modelCall?: JsonModelCall,
     options?: { relationshipMemoryEnabled?: boolean },
-) {
-    if (!npcsToCheck.length) return;
+): Promise<boolean> {
+    if (!npcsToCheck.length) return true;
 
     console.log(`[NPC Updater] Checking for attribute shifts on ${npcsToCheck.length} existing NPC(s)...`);
 
@@ -406,5 +409,7 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
         }
     } catch (err) {
         console.error('[NPC Updater] Failed to parse generated JSON or fatal error:', err);
+        return false;
     }
+    return true;
 }

@@ -99,13 +99,16 @@ async function runNPCTrack(ctx: PostTurnTrackContext): Promise<void> {
                     `NPC-Update:${npcsDueForUpdate.map(n => n.name).join(',')}`,
                     async () => {
                         const relationshipMemoryEnabled = (ctx.facade?.data.context ?? ctx.state?.context)?.relationshipMemory === true;
-                        await (useBroker
+                        const updated = await (useBroker
                             ? relationshipMemoryEnabled
                                 ? updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC, modelCall, { relationshipMemoryEnabled: true })
                                 : updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC, modelCall)
                             : relationshipMemoryEnabled
                                 ? updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC, undefined, { relationshipMemoryEnabled: true })
                                 : updateExistingNPCs(updateProvider, allMsgs, npcsDueForUpdate, guardedUpdateNPC));
+                        // A failed call or unparseable answer leaves the cooldown unspent, so these
+                        // NPCs are tried again the next time the GM names them.
+                        if (!updated) return;
                         for (const npc of npcsDueForUpdate) {
                             guardedUpdateNPC(npc.id, { lastUpdateScene: sceneNow });
                         }
@@ -149,6 +152,10 @@ async function runNPCTrack(ctx: PostTurnTrackContext): Promise<void> {
     if (npcsNeedingAgency.length > 0) {
         const matureMode = (ctx.state?.settings ?? useAppStore.getState().settings)?.matureMode ?? false;
         for (const npc of npcsNeedingAgency) {
+            // The fill rolls a personality, so never fill an NPC twice: the ledger this
+            // turn was built from can predate a fill an earlier commit already made.
+            const live = useAppStore.getState().npcLedger?.find(n => n.id === npc.id);
+            if (live && !needsAgencyFill(live)) continue;
             guardedUpdateNPC(npc.id, agencyFillPatch(npc, { matureMode }));
             console.log(`[NPC Agency Fill] Populated ${npc.name}`);
         }

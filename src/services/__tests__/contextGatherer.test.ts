@@ -16,6 +16,9 @@ vi.mock('../archive-memory/archiveChapterEngine', () => ({
 vi.mock('../contextRecommender', () => ({
     recommendContext: vi.fn().mockResolvedValue({ relevantNPCNames: [], relevantLoreIds: [] }),
 }));
+vi.mock('../archive-memory/dynamicElevation', () => ({
+    gatherDynamicElevation: vi.fn(async () => ({ scenes: [], rankedSceneIds: [] })),
+}));
 vi.mock('../lore/loreRetriever', () => ({
     retrieveRelevantLore: vi.fn().mockReturnValue([]),
     searchLoreByQuery: vi.fn().mockReturnValue([]),
@@ -28,6 +31,8 @@ global.fetch = vi.fn().mockResolvedValue({
 
 import { gatherContext } from '../turn/contextGatherer';
 import { fetchArchiveScenes } from '../archiveMemory';
+import { gatherDynamicElevation } from '../archive-memory/dynamicElevation';
+import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 
 const mockFetchArchiveScenes = vi.mocked(fetchArchiveScenes);
 
@@ -169,5 +174,40 @@ describe('gatherContext', () => {
         await gatherContext(state, 'attack', deps);
 
         expect(clearPinnedChapters).not.toHaveBeenCalled();
+    });
+});
+
+// The backstop used to be followed by awaiting every stage anyway, so a stuck stage
+// still held the turn; and its uncleared timer logged a false timeout after every turn.
+describe('gatherContext — backstop', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('continues without a stage that is still running at the backstop', async () => {
+        vi.useFakeTimers();
+        try {
+            vi.mocked(gatherDynamicElevation).mockImplementationOnce(() => new Promise(() => {}));
+            let done = false;
+            const pending = gatherContext(makeState(), 'attack', noDeps()).then(r => { done = true; return r; });
+            await vi.advanceTimersByTimeAsync(AI_CALL_TIMEOUT_MS - 1);
+            expect(done).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            const result = await pending;
+            expect(result.elevatedScenes ?? []).toEqual([]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('logs no timeout once the gather has finished', async () => {
+        vi.useFakeTimers();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            await gatherContext(makeState(), 'attack', noDeps());
+            await vi.advanceTimersByTimeAsync(AI_CALL_TIMEOUT_MS + 1000);
+            expect(warn.mock.calls.some(([m]) => /timeout|still running/i.test(String(m)))).toBe(false);
+        } finally {
+            warn.mockRestore();
+            vi.useRealTimers();
+        }
     });
 });

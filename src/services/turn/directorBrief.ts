@@ -22,13 +22,13 @@ import type { ChatMessage, NPCEntry, TimelineEvent, EndpointConfig, ProviderConf
 import { llmCall, UtilityTimeoutError } from '../../utils/llmCall';
 import { countTokens } from '../infrastructure/tokenizer';
 
-// AI_CALL_TIMEOUT_MS is the codebase's standard 120 s utility-call budget; the
-// Director reuses it (DIRECTOR_BRIEF_TIMEOUT_MS below aliases 120_000). Not
+// AI_CALL_TIMEOUT_MS is the codebase's standard 180 s utility-call budget; the
+// Director reuses it (DIRECTOR_BRIEF_TIMEOUT_MS below aliases 180_000). Not
 // imported as a value — kept as a comment so the equivalence is discoverable.
 
 // ── Tunables ────────────────────────────────────────────────────────────────
 
-// 120 s per spec — same budget as AI_CALL_TIMEOUT_MS for other tracked utility
+// 180 s — same budget as AI_CALL_TIMEOUT_MS for other tracked utility
 // calls (importance rating, profile scan). The user can EXTEND via the strip if
 // their local model is slow.
 const DIRECTOR_BRIEF_TIMEOUT_MS = 180_000;

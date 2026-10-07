@@ -7,6 +7,21 @@ import {
 } from './sandbox/sandboxFaults';
 import { SANDBOX_DEADLINE_MS } from './sandbox/sandboxTypes';
 import type { PostTurnTrack, PostTurnTrackContext } from '../turn/tracks/types';
+import { isBlockEnabled } from '../turn/blockEnablement';
+import type { TierFeature } from '../turn/aiTier';
+
+/** Built-in compute mods that took over a tier block's job keep that block's switch.
+ *  The Arc Engine's tick used to be an in-tree step gated on `arcTick`; as a mod it
+ *  ran on every tier and the Block View switch did nothing. */
+const TIER_BLOCK_FOR_COMPUTE_MOD: Readonly<Record<string, TierFeature>> = {
+    arc: 'arcTick',
+};
+
+function tierBlockAllows(modId: string, ctx: PostTurnTrackContext): boolean {
+    const blockId = TIER_BLOCK_FOR_COMPUTE_MOD[modId];
+    if (!blockId || !ctx.facade) return true;
+    return isBlockEnabled(blockId, ctx.facade.config.aiTier, ctx.facade.config.moduleEnabled);
+}
 
 export interface ComputeTrackOptions {
     /** Injectable Worker seam for tests; production uses the browser Worker factory. */
@@ -37,7 +52,7 @@ export function modToComputeTrack(
         defaultEnabled: true,
         trigger: 'automatic',
         callsModel: compute.capabilities.some((capability) => capability.startsWith('model:')),
-        shouldRun: (ctx) => Boolean(ctx.facade) && policy.canRun(mod.id, ctx.allMsgs),
+        shouldRun: (ctx) => Boolean(ctx.facade) && tierBlockAllows(mod.id, ctx) && policy.canRun(mod.id, ctx.allMsgs),
         run: async (ctx) => {
             if (!ctx.facade) throw new Error('[sandbox] no host facade for compute mod: ' + mod.id);
             if (!policy.canRun(mod.id, ctx.allMsgs)) return;

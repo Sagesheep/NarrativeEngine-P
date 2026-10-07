@@ -61,6 +61,9 @@ export function runAgencyTick(
     const sceneStakes: SceneStakes = context.lastSceneStakes ?? 'calm';
     const currentTick = context.agencyTick ?? 0;
     const currentDc = context.agencyHeartbeatDC ?? HEARTBEAT_DC.initial;
+    // The digest is read live: the commit's prologue clears last turn's digest after
+    // `context` was captured, and appending to the captured copy brought it back.
+    const liveDigest = (): string => (state.getFreshContext?.() ?? context).agencyDigest ?? '';
 
     // ── Timeskip detection (§9.7 Piece D, +1 LLM) ──
     const timeskipResult = detectTimeskip(displayInput);
@@ -145,7 +148,7 @@ export function runAgencyTick(
                 collision.tone,
             );
 
-            const existingDigest = state.context.agencyDigest ?? '';
+            const existingDigest = liveDigest();
             const newDigest = buildDigest(tangleDeltas, 'player');
             if (newDigest) {
                 const combined = existingDigest ? existingDigest + '\n' + newDigest : newDigest;
@@ -214,7 +217,7 @@ export function runAgencyTick(
             note: '',
         };
 
-        const existingDigest = state.context.agencyDigest ?? '';
+        const existingDigest = liveDigest();
         const newDigest = buildDigest([delta], 'player');
         if (newDigest) {
             const combined = existingDigest ? existingDigest + '\n' + newDigest : newDigest;
@@ -346,7 +349,8 @@ function runTimeskipPath(
     if (result.deltas.length > 0) {
         const digestText = buildDigest(result.deltas, 'player');
         if (digestText) {
-            const existing = context.agencyDigest ?? '';
+            // Live, for the same reason as `liveDigest` in runAgencyTick.
+            const existing = (state.getFreshContext?.() ?? context).agencyDigest ?? '';
             const combined = existing ? existing + '\n' + digestText : digestText;
             writeCallbacks.updateContext({ agencyDigest: combined });
         }

@@ -88,3 +88,30 @@ describe('compute fault policy wiring', () => {
         expect(policy.getStrikes('arc')).toBe(2);
     });
 });
+
+// The arc tick used to be an in-tree step gated on `arcTick`; as a mod it ran on
+// every tier and the Block View switch did nothing.
+describe('compute track — the Arc Engine keeps the arcTick switch', () => {
+    const withConfig = (config: Partial<HostFacade['config']>) => {
+        const ctx = makeContext([]);
+        (ctx.facade as { config: unknown }).config = { contextLimit: 4096, ...config };
+        return ctx;
+    };
+    const track = modToComputeTrack(mod, { sandboxPolicy: createSandboxFaultPolicy() });
+
+    it('runs on Max and Pro, not on Lite', () => {
+        expect(track.shouldRun(withConfig({ aiTier: 'max' }))).toBe(true);
+        expect(track.shouldRun(withConfig({ aiTier: 'pro' }))).toBe(true);
+        expect(track.shouldRun(withConfig({ aiTier: 'lite' }))).toBe(false);
+    });
+
+    it('follows the Block View switch over the tier', () => {
+        expect(track.shouldRun(withConfig({ aiTier: 'max', moduleEnabled: { arcTick: false } }))).toBe(false);
+        expect(track.shouldRun(withConfig({ aiTier: 'lite', moduleEnabled: { arcTick: true } }))).toBe(true);
+    });
+
+    it('leaves other compute mods alone', () => {
+        const other = modToComputeTrack({ ...mod, id: 'weather' } as ValidatedMod, { sandboxPolicy: createSandboxFaultPolicy() });
+        expect(other.shouldRun(withConfig({ aiTier: 'lite', moduleEnabled: { arcTick: false } }))).toBe(true);
+    });
+});

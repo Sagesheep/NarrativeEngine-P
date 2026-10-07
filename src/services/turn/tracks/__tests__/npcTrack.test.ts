@@ -13,8 +13,9 @@ import type { TurnState, TurnCallbacks } from '../../turnOrchestrator';
  */
 
 let mockActiveCampaignId: string | null = 'campaign-1';
+let mockLiveLedger: NPCEntry[] | undefined;
 vi.mock('../../../../store/useAppStore', () => ({
-    useAppStore: { getState: () => ({ activeCampaignId: mockActiveCampaignId }) },
+    useAppStore: { getState: () => ({ activeCampaignId: mockActiveCampaignId, npcLedger: mockLiveLedger }) },
 }));
 vi.mock('../../../infrastructure/backgroundQueue', () => ({
     backgroundQueue: { push: vi.fn().mockResolvedValue(undefined) },
@@ -25,7 +26,7 @@ vi.mock('../../../npc/npcDetector', () => ({
     validateNPCCandidates: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../../../chatEngine', () => ({
-    updateExistingNPCs: vi.fn().mockResolvedValue(undefined),
+    updateExistingNPCs: vi.fn().mockResolvedValue(true),
     backfillNPCDrives: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -214,6 +215,19 @@ describe('track.npc — existing NPC updates', () => {
         expect(ctx.callbacks!.updateNPC).toHaveBeenCalledWith('n1', { lastUpdateScene: 7 });
     });
 
+    it('a failed update leaves the cooldown unspent', async () => {
+        mockExtract.mockReturnValueOnce(['Mira']);
+        mockClassify.mockReturnValueOnce({ newNames: [], existingNpcs: [existing] } as any);
+        mockUpdateExisting.mockResolvedValueOnce(false);
+        mockBQ.push.mockImplementationOnce(async (_label, execute) => execute());
+
+        const ctx = makeCtx({ state: { archiveIndex: [{ sceneId: '007' }] as any } });
+        await npcTrack.run(ctx);
+
+        expect(mockUpdateExisting).toHaveBeenCalled();
+        expect(ctx.callbacks!.updateNPC).not.toHaveBeenCalledWith('n1', { lastUpdateScene: 7 });
+    });
+
     it('RACE GUARD: drops the lastUpdateScene write when the campaign switched mid-flight', async () => {
         mockExtract.mockReturnValueOnce(['Mira']);
         mockValidate.mockResolvedValueOnce(['Mira']);
@@ -235,7 +249,7 @@ describe('track.npc — existing NPC updates', () => {
         mockValidate.mockResolvedValueOnce(['Mira']);
         mockClassify.mockReturnValueOnce({ newNames: [], existingNpcs: [existing] } as any);
         let guard: ((id: string, patch: any) => void) | undefined;
-        mockUpdateExisting.mockImplementationOnce(async (_p: any, _m: any, _n: any, g: any) => { guard = g; });
+        mockUpdateExisting.mockImplementationOnce(async (_p: any, _m: any, _n: any, g: any) => { guard = g; return true; });
         mockBQ.push.mockImplementationOnce(async (_label, execute) => execute());
 
         const ctx = makeCtx({ state: { archiveIndex: [{ sceneId: '007' }] as any } });
@@ -322,6 +336,7 @@ describe('track.npc — agency fill for older NPCs', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockActiveCampaignId = 'campaign-1';
+        mockLiveLedger = undefined;
     });
 
     const run = async (existing: NPCEntry, aiTier = 'max') => {
@@ -341,6 +356,15 @@ describe('track.npc — agency fill for older NPCs', () => {
 
     it('leaves an already populated NPC alone', async () => {
         const ctx = await run(npc({ id: 'n4', name: 'Rin', populated: true } as any));
+        const patch = vi.mocked(ctx.callbacks!.updateNPC).mock.calls.find(([, p]) => (p as any).populated);
+        expect(patch).toBeUndefined();
+    });
+
+    // The fill rolls a personality; the ledger the turn was built from can predate a fill
+    // an earlier commit made, so the live store decides.
+    it('skips an NPC the live store shows as already filled', async () => {
+        mockLiveLedger = [npc({ id: 'n6', name: 'Oska', populated: true } as any)];
+        const ctx = await run(npc({ id: 'n6', name: 'Oska' }));
         const patch = vi.mocked(ctx.callbacks!.updateNPC).mock.calls.find(([, p]) => (p as any).populated);
         expect(patch).toBeUndefined();
     });

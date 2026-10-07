@@ -405,6 +405,10 @@ export async function sealChapterCombined(
     activeStateFacts: DivergenceEntry[] = [],
     modelCall?: SealModelCall,
 ): Promise<CombinedSealResult> {
+    // A try whose summary is good but whose facts block failed to parse. Retries go
+    // after the facts; if none succeeds, this summary is still kept rather than lost
+    // (the caller warns that only the facts failed).
+    let summaryOnly: CombinedSealResult | null = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const prompt = buildCombinedSealPrompt(scenes, chapterTitle, sceneIds, npcLedger, indexEntries, activeStateFacts);
         const label = attempt === 0 ? '' : ' (retry)';
@@ -425,10 +429,11 @@ export async function sealChapterCombined(
         }
         if (result.summary && result.divergenceParseError) {
             console.warn(`[CombinedSeal] Attempt ${attempt + 1}: summary OK but divergence parse failed — retrying divergences`);
+            summaryOnly = result;
             continue;
         }
         console.warn(`[CombinedSeal] Attempt ${attempt + 1} produced no usable output`);
     }
 
-    return { summary: null, divergences: [], divergenceParseError: true };
+    return summaryOnly ?? { summary: null, divergences: [], divergenceParseError: true };
 }
