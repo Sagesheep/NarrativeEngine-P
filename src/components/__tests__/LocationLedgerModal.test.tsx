@@ -295,3 +295,123 @@ it('saves outbound tunnel and portal authoring without moving the player', () =>
     expect(useAppStore.getState().locationLedger[1].connections).toEqual([]);
     expect(useAppStore.getState().context).toMatchObject({ currentPlaceId: 'a', worldDay: 8 });
 });
+
+describe('LocationLedgerModal map position', () => {
+    const COORDINATE_ERROR = 'Enter whole numbers from 0 to 999 for both X and Y, or leave both blank.';
+    const placed = (): LocationEntry => ({
+        ...makeLocation('a', 'Alder'), knowledge: 'known', coordinates: { x: 5, y: 7 },
+        placement: { preferredBiomes: ['forest'] }, placementIssue: 'No forest within reach', placementPendingUntil: 123,
+        terrainBiome: 'forest', terrainRadius: 4,
+    });
+    const setCell = (x: string, y: string) => {
+        fireEvent.change(screen.getByLabelText('Map X coordinate'), { target: { value: x } });
+        fireEvent.change(screen.getByLabelText('Map Y coordinate'), { target: { value: y } });
+    };
+    const editAlder = () => {
+        render(<LocationLedgerModal />);
+        fireEvent.click(screen.getByText('Alder', { selector: 'p' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
+    };
+
+    beforeEach(() => {
+        useAppStore.setState({ locationLedgerOpen: true, locationLedger: [], context: {} as GameContext });
+    });
+
+    afterEach(() => {
+        cleanup();
+        useAppStore.setState({ locationLedgerOpen: false, locationLedger: [] });
+    });
+
+    it('saves a new location with the coordinates typed in', () => {
+        render(<LocationLedgerModal />);
+        fireEvent.click(screen.getByRole('button', { name: 'New Location' }));
+        expect(screen.getByText('Leave blank and the World Map places it. Hover a map cell to read its coordinates.')).toBeInTheDocument();
+        expect(screen.getByLabelText('Map X coordinate')).toHaveValue(null);
+        fireEvent.change(screen.getByPlaceholderText('Ninja Academy'), { target: { value: 'Harbor' } });
+        setCell('12', '34');
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        expect(useAppStore.getState().locationLedger[0]).toMatchObject({ name: 'Harbor', coordinates: { x: 12, y: 34 } });
+        expect(screen.queryByLabelText('Map X coordinate')).not.toBeInTheDocument();
+        expect(screen.getByText('Map coordinates: 12, 34')).toBeInTheDocument();
+    });
+
+    it('leaves a new location without coordinates when the inputs stay blank', () => {
+        render(<LocationLedgerModal />);
+        saveNewLocation('Harbor');
+        expect(useAppStore.getState().locationLedger[0].coordinates).toBeUndefined();
+    });
+
+    it('writes a moved position as a fixed pin that takes the terrain there', () => {
+        useAppStore.setState({ locationLedger: [placed()] });
+        editAlder();
+        expect(screen.getByLabelText('Map X coordinate')).toHaveValue(5);
+        expect(screen.getByLabelText('Map Y coordinate')).toHaveValue(7);
+        expect(screen.queryByText('Map coordinates: 5, 7')).not.toBeInTheDocument();
+        setCell('40', '41');
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        const saved = useAppStore.getState().locationLedger[0];
+        expect(saved.coordinates).toEqual({ x: 40, y: 41 });
+        for (const field of ['placementPendingUntil', 'placementIssue', 'terrainBiome', 'terrainRadius'] as const) expect(saved[field]).toBeUndefined();
+        expect(saved).toMatchObject({ placement: { preferredBiomes: ['forest'] }, knowledge: 'known', name: 'Alder' });
+    });
+
+    it('hands the place back to automatic placement when both inputs are cleared', () => {
+        useAppStore.setState({ locationLedger: [placed()] });
+        editAlder();
+        setCell('', '');
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        const saved = useAppStore.getState().locationLedger[0];
+        expect(saved.coordinates).toBeUndefined();
+        expect(saved.placementIssue).toBeUndefined();
+        expect(saved.placement).toEqual({ preferredBiomes: ['forest'] });
+        expect(screen.queryByText(/Map coordinates:/)).not.toBeInTheDocument();
+    });
+
+    it('keeps the live position when the inputs are untouched, even if the form copy is stale', () => {
+        useAppStore.setState({ locationLedger: [placed()] });
+        editAlder();
+        act(() => useAppStore.getState().updateLocation('a', { coordinates: { x: 9, y: 9 }, terrainBiome: 'hills', placementIssue: undefined }));
+        fireEvent.change(screen.getByPlaceholderText('1-2 sentences of texture.'), { target: { value: 'Old mill' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        expect(useAppStore.getState().locationLedger[0]).toMatchObject({
+            description: 'Old mill', coordinates: { x: 9, y: 9 }, terrainBiome: 'hills', terrainRadius: 4, placementPendingUntil: 123,
+        });
+        expect(useAppStore.getState().locationLedger[0].placementIssue).toBeUndefined();
+    });
+
+    it.each([
+        ['only X', '12', ''],
+        ['out of range', '12', '1000'],
+        ['a fraction', '12.5', '3'],
+        ['a negative', '-1', '3'],
+    ])('rejects %s and disables Save', (_case, x, y) => {
+        useAppStore.setState({ locationLedger: [placed()] });
+        editAlder();
+        setCell(x, y);
+        expect(screen.getByRole('alert')).toHaveTextContent(COORDINATE_ERROR);
+        expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        expect(useAppStore.getState().locationLedger[0].coordinates).toEqual({ x: 5, y: 7 });
+        setCell('6', '8');
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    });
+
+    it('shows no position inputs for transit nodes', () => {
+        useAppStore.setState({ locationLedger: [{ ...makeLocation('t', 'Old Coast Road'), kind: 'transit', description: 'A worn track' }] });
+        render(<LocationLedgerModal />);
+        fireEvent.click(screen.getByText('Old Coast Road', { selector: 'p' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit world' }));
+        expect(screen.queryByLabelText('Map X coordinate')).not.toBeInTheDocument();
+        expect(screen.queryByText('Map position')).not.toBeInTheDocument();
+        cleanup();
+        render(<LocationLedgerModal />);
+        fireEvent.click(screen.getByRole('button', { name: 'New Location' }));
+        setCell('1', '');
+        fireEvent.change(screen.getByDisplayValue('Location (a destination)'), { target: { value: 'transit' } });
+        expect(screen.queryByLabelText('Map X coordinate')).not.toBeInTheDocument();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    });
+});

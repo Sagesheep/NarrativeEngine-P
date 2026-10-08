@@ -15,7 +15,7 @@ import { travelUnitWords } from '../services/location/travelUnit';
 import { composeDeparture, mergeUpserts } from '../services/turn/departureComposer';
 import { buildCheckpointMessage } from '../services/turn/travelPress';
 import { LocationSuggestionsPanel } from './location-ledger/LocationSuggestionsPanel';
-import { LocationEditForm } from './location-ledger/LocationEditForm';
+import { LocationEditForm, type CoordinateDraft } from './location-ledger/LocationEditForm';
 import { filterLocations } from '../utils/ledgerFilters';
 import { parseLocationsFromLoreDetailed } from '../services/lore/loreLocationParser';
 import { resolvePlace } from '../services/locationParser';
@@ -35,6 +35,22 @@ const EMPTY_ENTRY: LocationEntry = {
     source: 'manual',
     kind: 'place',
 };
+
+type MapCell = { x: number; y: number };
+type CoordinateEdit = { kind: 'untouched' | 'invalid' | 'clear' } | { kind: 'set'; cell: MapCell };
+
+const coordinateDraftFor = (cell?: MapCell): CoordinateDraft => cell ? { x: String(cell.x), y: String(cell.y) } : { x: '', y: '' };
+
+// Only a real change to the Map position inputs counts, so an untouched field
+// never overwrites a position the World Map wrote while the form was open.
+function readCoordinateEdit(draft: CoordinateDraft, original?: MapCell): CoordinateEdit {
+    const initial = coordinateDraftFor(original);
+    if (draft.x === initial.x && draft.y === initial.y) return { kind: 'untouched' };
+    if (draft.x === '' && draft.y === '') return { kind: original ? 'clear' : 'untouched' };
+    const cell = { x: Number(draft.x), y: Number(draft.y) };
+    if (!draft.x || !draft.y || ![cell.x, cell.y].every(n => Number.isInteger(n) && n >= 0 && n <= 999)) return { kind: 'invalid' };
+    return original?.x === cell.x && original.y === cell.y ? { kind: 'untouched' } : { kind: 'set', cell };
+}
 
 export function LocationLedgerModal() {
     const {
@@ -72,6 +88,7 @@ export function LocationLedgerModal() {
     const [newConnectionTo, setNewConnectionTo] = useState('');
     const [newConnectionBand, setNewConnectionBand] = useState<DistanceBand>('local');
     const [newConnectionNote, setNewConnectionNote] = useState('');
+    const [coordinateDraft, setCoordinateDraft] = useState<CoordinateDraft>(() => coordinateDraftFor());
     // WO3 §5 — TRAVEL HERE departure flow. `travelTargetId` is the place the
     // player clicked TRAVEL HERE on; the inline panel shows a band picker
     // (only when no direct connection exists) + a mode dropdown, and a
@@ -138,26 +155,40 @@ export function LocationLedgerModal() {
         if (!latest) return;
         setForm({ ...latest });
         setFeaturesDraft(latest.features.join(', '));
+        setCoordinateDraft(coordinateDraftFor(latest.coordinates));
         setIsEditing(true);
     };
     const handleCreateNew = () => {
         setSelectedId(null);
         setForm({ ...EMPTY_ENTRY, id: newLocationId() });
         setFeaturesDraft('');
+        setCoordinateDraft(coordinateDraftFor());
         setNewConnectionTo('');
         setNewConnectionBand('local');
         setNewConnectionNote('');
         setIsEditing(true);
     };
 
+    const coordinateEdit: CoordinateEdit = isEditing && form.kind !== 'transit'
+        ? readCoordinateEdit(coordinateDraft, form.coordinates)
+        : { kind: 'untouched' };
+
     const handleSave = () => {
-        if (!form.name?.trim()) return;
+        if (!form.name?.trim() || coordinateEdit.kind === 'invalid') return;
         const features = featuresDraft
             .split(',')
             .map(s => s.trim())
             .filter(Boolean)
             .slice(0, 20);
         const spatial = locationLedger.find(entry => entry.id === selectedId) ?? form;
+        // A typed cell is the same manual move the World Map records: a fixed
+        // pin that takes the terrain already there. Clearing both inputs hands
+        // the place back to automatic placement. Otherwise live fields win.
+        const cleared = coordinateEdit.kind === 'clear';
+        const position = coordinateEdit.kind === 'set'
+            ? { coordinates: coordinateEdit.cell, placementIssue: undefined, terrainBiome: undefined, terrainRadius: undefined, placementPendingUntil: undefined }
+            : { coordinates: cleared ? undefined : spatial.coordinates, placementIssue: cleared ? undefined : spatial.placementIssue,
+                terrainBiome: spatial.terrainBiome, terrainRadius: spatial.terrainRadius, placementPendingUntil: spatial.placementPendingUntil };
         const payload: LocationEntry = {
             id: selectedId || form.id || newLocationId(),
             name: form.name!.trim(),
@@ -172,9 +203,8 @@ export function LocationLedgerModal() {
             firstSeenScene: form.firstSeenScene || String(Date.now()),
             lastSeenScene: form.lastSeenScene || String(Date.now()),
             source: form.source ?? 'manual',
-            coordinates: spatial.coordinates, recordKind: form.recordKind, pinned: form.pinned,
-            placement: spatial.placement, placementIssue: spatial.placementIssue, terrainBiome: spatial.terrainBiome, terrainRadius: spatial.terrainRadius,
-            placementPendingUntil: spatial.placementPendingUntil,
+            recordKind: form.recordKind, pinned: form.pinned,
+            placement: spatial.placement, ...position,
             kind: form.kind === 'transit' ? 'transit' : 'place',
         };
         if (selectedId) {
@@ -651,6 +681,9 @@ export function LocationLedgerModal() {
                             setNewConnectionBand={setNewConnectionBand}
                             newConnectionNote={newConnectionNote}
                             setNewConnectionNote={setNewConnectionNote}
+                            coordinateDraft={coordinateDraft}
+                            setCoordinateDraft={setCoordinateDraft}
+                            coordinatesInvalid={coordinateEdit.kind === 'invalid'}
                             locationLedger={locationLedger.filter(place => showSecrets || place.knowledge !== 'secret')}
                             onStartEditing={handleStartEditing}
                             onSetAsCurrent={handleSetAsCurrent}

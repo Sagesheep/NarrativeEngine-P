@@ -18,6 +18,10 @@ function inputClass(enabled: boolean): string {
     return `w-full bg-void border border-border rounded px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal transition-colors ${enabled ? '' : 'opacity-80 cursor-default'}`;
 }
 
+/** Map position inputs as typed. null marks text the browser cannot read as a
+ *  number, which a number input reports as '' and would otherwise pass as blank. */
+export type CoordinateDraft = Record<'x' | 'y', string | null>;
+
 type Props = {
     form: Partial<LocationEntry>;
     setForm: React.Dispatch<React.SetStateAction<Partial<LocationEntry>>>;
@@ -32,6 +36,9 @@ type Props = {
     setNewConnectionBand: React.Dispatch<React.SetStateAction<DistanceBand>>;
     newConnectionNote: string;
     setNewConnectionNote: React.Dispatch<React.SetStateAction<string>>;
+    coordinateDraft: CoordinateDraft;
+    setCoordinateDraft: React.Dispatch<React.SetStateAction<CoordinateDraft>>;
+    coordinatesInvalid: boolean;
     locationLedger: LocationEntry[];
     onStartEditing: () => void;
     onSetAsCurrent: (loc: LocationEntry) => void;
@@ -48,16 +55,40 @@ export function LocationEditForm({
     newConnectionTo, setNewConnectionTo,
     newConnectionBand, setNewConnectionBand,
     newConnectionNote, setNewConnectionNote,
+    coordinateDraft, setCoordinateDraft, coordinatesInvalid,
     locationLedger,
     onStartEditing, onSetAsCurrent, onCancel, onSave,
     onAddConnection, onRemoveConnection, onDelete,
 }: Props) {
     const [imageBusy, setImageBusy] = useState(false);
+    // React skips onChange while a number input holds unreadable text (its value
+    // stays ''), so onInput is what notices it.
+    const readAxis = (axis: 'x' | 'y') => (event: React.FormEvent<HTMLInputElement>) => {
+        const value = event.currentTarget.validity.badInput ? null : event.currentTarget.value;
+        setCoordinateDraft(previous => ({ ...previous, [axis]: value }));
+    };
     return (
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
             {isEditing && <p role="status" className="text-xs text-text-dim">Editing world facts. Position correction ends the current journey without spending a day.</p>}
             {renderedForm.placementIssue && <div role="status" className="text-xs text-warning">{renderedForm.placementIssue}</div>}
-            {renderedForm.coordinates && (isEditing || (renderedForm.knowledge !== 'rumoured' && renderedForm.knowledge !== 'secret')) && <div className="text-xs text-text-dim">Map coordinates: {renderedForm.coordinates.x}, {renderedForm.coordinates.y}</div>}
+            {/* Transit nodes take their position from the two places they join. */}
+            {isEditing && renderedForm.kind !== 'transit' ? (
+                <Field label="Map position">
+                    <div className="grid grid-cols-2 gap-2">
+                        {(['x', 'y'] as const).map(axis => (
+                            <label key={axis} className="flex items-center gap-1.5 text-[10px] uppercase text-text-dim">
+                                {axis}
+                                <input type="number" min={0} max={999} step={1} inputMode="numeric"
+                                    aria-label={`Map ${axis.toUpperCase()} coordinate`} aria-invalid={coordinatesInvalid || undefined}
+                                    value={coordinateDraft[axis] ?? ''} className={inputClass(true)}
+                                    onChange={readAxis(axis)} onInput={readAxis(axis)} />
+                            </label>
+                        ))}
+                    </div>
+                    <p className="mt-1 text-[10px] text-text-dim">Leave blank and the World Map places it. Hover a map cell to read its coordinates.</p>
+                    {coordinatesInvalid && <p role="alert" className="mt-1 text-xs text-danger">Enter whole numbers from 0 to 999 for both X and Y, or leave both blank.</p>}
+                </Field>
+            ) : renderedForm.coordinates && (isEditing || (renderedForm.knowledge !== 'rumoured' && renderedForm.knowledge !== 'secret')) && <div className="text-xs text-text-dim">Map coordinates: {renderedForm.coordinates.x}, {renderedForm.coordinates.y}</div>}
             <Field label="Character knowledge">
                 <select aria-label="Character knowledge" className={inputClass(isEditing)} disabled={!isEditing}
                     value={renderedForm.knowledge ?? 'known'} onChange={event => setForm(previous => ({ ...previous, knowledge: event.target.value as LocationEntry['knowledge'] }))}>
@@ -111,7 +142,7 @@ export function LocationEditForm({
                             </button>
                             <button
                                 onClick={onSave}
-                                disabled={imageBusy}
+                                disabled={imageBusy || coordinatesInvalid}
                                 className="px-3 py-1.5 border border-terminal bg-terminal/10 rounded text-[10px] uppercase tracking-wider text-terminal hover:bg-terminal/20 transition-colors disabled:opacity-40"
                             >
                                 Save
