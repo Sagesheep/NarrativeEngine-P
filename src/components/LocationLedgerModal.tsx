@@ -11,6 +11,7 @@ import { connectionBand } from '../services/locationParser';
 import type { DistanceBand } from '../services/location/distance';
 import { DISTANCE_BANDS, formatDayRangeForMode } from '../services/location/distance';
 import { TRAVEL_MODES, type TravelMode, gridsPerDayFor } from '../services/location/travelModes';
+import { travelUnitWords } from '../services/location/travelUnit';
 import { composeDeparture, mergeUpserts } from '../services/turn/departureComposer';
 import { buildCheckpointMessage } from '../services/turn/travelPress';
 import { LocationSuggestionsPanel } from './location-ledger/LocationSuggestionsPanel';
@@ -271,6 +272,7 @@ export function LocationLedgerModal() {
             deps: { updateLocation, updateContext },
             currentWorldDay,
             currentTravelMinutes: state.context.travelMinutesToday,
+            unit: state.context.travelUnit,
         });
         if (!result) return;
 
@@ -575,7 +577,7 @@ export function LocationLedgerModal() {
                                     className="mt-1 w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-terminal transition-colors"
                                 >
                                     {TRAVEL_MODES.map(({ id, label, gridsPerDay }) => (
-                                        <option key={id} value={id}>{label} ({gridsPerDay} grids/day)</option>
+                                        <option key={id} value={id}>{label} ({gridsPerDay} grids/{travelUnitWords(context.travelUnit).one})</option>
                                     ))}
                                 </select>
                             </label>
@@ -589,7 +591,7 @@ export function LocationLedgerModal() {
                                 if (!from) return null;
                                 const conn = from.connections.find(c => c.toId === travelTargetId);
                                 const band = conn ? connectionBand(conn) : travelBand;
-                                const estimate = formatDayRangeForMode(band, gridsPerDayFor(travelMode));
+                                const estimate = formatDayRangeForMode(band, gridsPerDayFor(travelMode), context.travelUnit);
                                 return (
                                     <div className="text-[10px] text-text-dim flex justify-between">
                                         <span>Estimated travel time</span>

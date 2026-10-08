@@ -9,6 +9,7 @@ export type { ArcRecord };
 import type { LootTree } from './loot';
 import type { GalleryEntry } from './gallery';
 import type { TravelMode } from '../services/location/travelModes';
+import type { TravelUnit } from '../services/location/travelUnit';
 
 // WO-A rewrite 2 §2: PlayerCharacter is an NPCEntry-shaped record stored at
 // `context.playerCharacter`. It is NOT a row in `npcLedger`. `isPC` is vestigial
@@ -182,14 +183,20 @@ export type TravelState = {
     toId: string;
     transitId: string;
     mode: TravelMode;
-    /** Days already travelled. First press reaches checkpoint 1; arrival
-     *  clears travel when this reaches totalLegs. Cumulative across hops. */
+    /** Days (hours, when `unit` is 'hours') already travelled. First press
+     *  reaches checkpoint 1; arrival clears travel when this reaches
+     *  totalLegs. Cumulative across hops. */
     leg: number;
-    /** Total travel days, including arrival. There are totalLegs - 1 camps. */
+    /** Total travel days (or hours), including arrival. There are
+     *  totalLegs - 1 camps. */
     totalLegs: number;
     /** 'constrained' = bound, escorted, carried. A forced journey is a normal
      *  journey with constrained agency — legs still apply. */
     agency: 'free' | 'constrained';
+    /** What one leg stands for, fixed at departure. Absent = days; set only
+     *  for an hour-scale journey, where each leg is one hour of travel and
+     *  `leg`/`totalLegs` count hours instead of days. */
+    unit?: TravelUnit;
     /** WO 6.1 §2 — the per-hop breakdown for a multi-hop journey. Absent for a
      *  single-hop journey (the WO 3 case). When present, `hopIndex` is the
      *  0-based index of the hop currently being traversed, `transitId` is that
@@ -297,6 +304,9 @@ export type GameContext = {
     travelMinutesToday?: number;
     /** Remembers the player's last travel-mode choice. Defaults to `'foot'`. */
     travelMode?: TravelMode;
+    /** What one travel leg stands for — set from the World Map. Absent = days.
+     *  Read at departure and by the travel wording the model sees. */
+    travelUnit?: TravelUnit;
     /** Active journey, or null/undefined when settled. */
     travel?: TravelState | null;
     // ── Player Character (WO-A rewrite 2 §2 — D1: PC leaves npcLedger) ──

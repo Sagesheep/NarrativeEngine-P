@@ -36,7 +36,7 @@ export async function applyStoryMovement(content: string, campaignId: string): P
         if (!travel || (movement.action === 'arrive' && (target?.id !== travel.toId || travel.leg + 1 < travel.totalLegs))) {
             reject('there is no matching journey ready for arrival. Use travel to continue the route.'); return true;
         }
-        apply(advance(travel, context.worldDay).contextPatch);
+        apply(advance(travel, context.worldDay, context.travelMinutesToday).contextPatch);
         return true;
     }
     if (movement.action === 'depart') {
@@ -51,8 +51,8 @@ export async function applyStoryMovement(content: string, campaignId: string): P
         if (fresh.activeCampaignId !== campaignId || movementPositionKey(fresh.context) !== key) return true;
         const connection = current.connections.find(edge => edge.toId === target.id);
         if ((hasMap && !hops) || (!hasMap && !connection)) { reject('no usable route was found. Check the destination and travel mode on the map.'); return true; }
-        const result = hops ? departMultiHop({ fromId: current.id, toId: target.id, mode, hops, ledger: fresh.locationLedger, currentWorldDay: context.worldDay, currentTravelMinutes: context.travelMinutesToday })
-            : depart({ fromId: current.id, toId: target.id, mode, band: connectionBand(connection!), ledger: fresh.locationLedger, currentWorldDay: context.worldDay, currentTravelMinutes: context.travelMinutesToday });
+        const result = hops ? departMultiHop({ fromId: current.id, toId: target.id, mode, hops, ledger: fresh.locationLedger, currentWorldDay: context.worldDay, currentTravelMinutes: context.travelMinutesToday, unit: context.travelUnit })
+            : depart({ fromId: current.id, toId: target.id, mode, band: connectionBand(connection!), ledger: fresh.locationLedger, currentWorldDay: context.worldDay, currentTravelMinutes: context.travelMinutesToday, unit: context.travelUnit });
         if (result.ledgerUpsert) fresh.setLocationLedger(mergeUpserts(fresh.locationLedger, result.ledgerUpsert));
         fresh.updateContext(result.contextPatch);
         return true;

@@ -63,6 +63,7 @@ export function WorldMapTravelBridge() {
                 deps: { updateLocation, updateContext },
                 currentWorldDay,
                 currentTravelMinutes: state.context.travelMinutesToday,
+                unit: state.context.travelUnit,
             });
             if (!result) return;
 

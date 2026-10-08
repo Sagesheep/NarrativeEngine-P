@@ -1,4 +1,4 @@
-import { routeKnowledge, estimateLabel } from './routeKnowledge.js';
+import { routeKnowledge, estimateLabel, legWords } from './routeKnowledge.js';
 import { observedTerrainStore } from './exploration.js';
 import { WORLD_PROFILES, worldProfile } from './worldProfiles.js';
 import { loadPixelArt, drawPixelSprite, paintPixelCell, paintPixelObjects, paintPixelRelief, paintPixelFog, SITE_SPRITES } from './pixelArt.js';
@@ -1102,9 +1102,19 @@ export function mountMapRenderer(root, options) {
         const option = document.createElement('option'); option.value = profile.id; option.textContent = profile.label; settingSelect.append(option);
     }
     settingSelect.addEventListener('change', () => onRouteAction?.('setWorldProfile', settingSelect.value));
+    // One travel leg — one press, one checkpoint — is a day or an hour. Routes
+    // and distances stay the same; the clock and the story's wording follow.
+    const unitLabel = document.createElement('label'); unitLabel.textContent = ' Travel time ';
+    const unitSelect = document.createElement('select'); unitSelect.setAttribute('aria-label', 'Travel time unit');
+    unitSelect.title = 'What one travel step stands for. Applies to new journeys and to the travel context sent to the story.';
+    for (const [value, label] of [['days', 'Days'], ['hours', 'Hours']]) {
+        const option = document.createElement('option'); option.value = value; option.textContent = label; unitSelect.append(option);
+    }
+    unitSelect.addEventListener('change', () => onRouteAction?.('setTravelUnit', unitSelect.value));
+    unitLabel.append(unitSelect);
     settingPanel.style.display = worldEditing ? '' : 'none';
     settingPanel.title = 'Editing world facts. Changes here are not character actions.';
-    settingLabel.append(settingSelect); settingPanel.append(settingLabel); overlay.append(settingPanel);
+    settingLabel.append(settingSelect); settingPanel.append(settingLabel, unitLabel); overlay.append(settingPanel);
 
     const roadPanel = document.createElement('details');
     roadPanel.dataset.worldmapRoads = 'true';
@@ -1761,6 +1771,8 @@ export function mountMapRenderer(root, options) {
         const currentAtlas = ensureAtlas(snapshot);
         const selectedProfile = worldProfile(snapshot.settings?.worldProfile).id;
         if (settingSelect.value !== selectedProfile) settingSelect.value = selectedProfile;
+        const selectedUnit = snapshot.travelUnit === 'hours' ? 'hours' : 'days';
+        if (unitSelect.value !== selectedUnit) unitSelect.value = selectedUnit;
         const nextLayers = normaliseLayerSettings(snapshot.settings);
         layerState = nextLayers;
         for (const [key, input] of layerInputs) {
@@ -2604,8 +2616,9 @@ export function mountMapRenderer(root, options) {
         // control lives where the journey is drawn.
         //
         // It reads the HOST's travel state, not the journey record's
-        // `totalLegs`. Both count total days, including arrival; the host
-        // owns progress. A journey of N days has N - 1 camps.
+        // `totalLegs`. Both count total days (hours, for an hour-scale
+        // journey), including arrival; the host owns progress. A journey of
+        // N days has N - 1 camps.
         const travel = snapshot?.travel ?? null;
         if (travel) {
             panelMode = 'journey';
@@ -2615,10 +2628,11 @@ export function mountMapRenderer(root, options) {
             offerRow.style.display = 'none';
             const toName = travel.toName || 'your destination';
             const arriving = travel.leg + 1 >= travel.totalLegs;
+            const words = legWords(travel.unit);
             const remaining = routeKnowledge(snapshot.journey?.surfaceTravel === false ? [] : snapshot.journey?.cells ?? [], Math.max(1, travel.totalLegs - travel.leg), snapshot.journey?.mode, snapshot.explored, snapshot.roads);
             const lines = [
                 '\u2192 ' + toName,
-                (snapshot.journey?.passage === 'tunnel' ? 'Underground · ' + (travel.totalLegs - travel.leg) + ' travel days remaining' : remaining.uncertain ? estimateLabel(remaining) + ' remaining' : 'camp ' + travel.leg + ' of ' + (travel.totalLegs - 1))
+                (snapshot.journey?.passage === 'tunnel' ? 'Underground · ' + (travel.totalLegs - travel.leg) + ' travel days remaining' : remaining.uncertain ? estimateLabel(remaining, travel.unit) + ' remaining' : words.stop + ' ' + travel.leg + ' of ' + (travel.totalLegs - 1))
                     + (Number.isFinite(snapshot.worldDay) ? ' \u00b7 day ' + snapshot.worldDay : ''),
             ];
             // A click on the map mid-journey is refused (one route at a time).
@@ -2639,7 +2653,7 @@ export function mountMapRenderer(root, options) {
                 : 'Continue \u2192';
             routeTravelButton.title = arriving
                 ? 'Finish the journey and arrive at ' + toName
-                : remaining.uncertain ? 'Continue exploring toward your destination' : 'Travel on to camp ' + (travel.leg + 1) + ' of ' + (travel.totalLegs - 1);
+                : remaining.uncertain ? 'Continue exploring toward your destination' : 'Travel on to ' + words.stop + ' ' + (travel.leg + 1) + ' of ' + (travel.totalLegs - 1);
             routeCancelButton.textContent = 'Abandon';
             routeCancelButton.title = 'Stop travelling without arriving';
             return;
@@ -2702,7 +2716,8 @@ export function mountMapRenderer(root, options) {
         } else {
             const cellCount = preview.cellCount != null ? preview.cellCount : Math.max(0, (preview.cells || []).length - 1);
             const toName = (preview.toAnchor && preview.toAnchor.name) || 'destination';
-            routeReadout.textContent = preview.durationMinutes !== undefined ? `→ ${toName}\n${preview.passage ? preview.passage + ' · ' : ''}${preview.durationMinutes === 0 ? 'Instant' : (preview.knowledge?.uncertain ? `Estimated ${Math.max(1, Math.floor(preview.durationMinutes * 0.5))}–${Math.ceil(preview.durationMinutes * 1.5)} minutes` : preview.durationMinutes + ' minutes')} · local travel` : preview.surfaceTravel === false ? `→ ${toName}\n${preview.passage} · ${preview.days} travel days\nDashed line connects the entrances; it is not a surface path.` : preview.knowledge?.uncertain ? `→ ${toName}\n${estimateLabel(preview.knowledge)}\nDashed line shows direction only; the path and camps are not yet known.` : `→ ${toName}\n${cellCount} cells · ${preview.days} day${preview.days === 1 ? '' : 's'}`;
+            const words = legWords(snapshot?.travelUnit);
+            routeReadout.textContent = preview.durationMinutes !== undefined ? `→ ${toName}\n${preview.passage ? preview.passage + ' · ' : ''}${preview.durationMinutes === 0 ? 'Instant' : (preview.knowledge?.uncertain ? `Estimated ${Math.max(1, Math.floor(preview.durationMinutes * 0.5))}–${Math.ceil(preview.durationMinutes * 1.5)} minutes` : preview.durationMinutes + ' minutes')} · local travel` : preview.surfaceTravel === false ? `→ ${toName}\n${preview.passage} · ${preview.days} travel days\nDashed line connects the entrances; it is not a surface path.` : preview.knowledge?.uncertain ? `→ ${toName}\n${estimateLabel(preview.knowledge, snapshot?.travelUnit)}\nDashed line shows direction only; the path and ${words.stop}s are not yet known.` : `→ ${toName}\n${cellCount} cells · ${preview.days} ${preview.days === 1 ? words.one : words.many}`;
             routeReadout.style.color = 'var(--color-text-primary, inherit)';
             routeCancelButton.textContent = 'Cancel route';
             routeTravelButton.style.display = 'inline-block';

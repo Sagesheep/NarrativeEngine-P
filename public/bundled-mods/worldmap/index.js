@@ -210,8 +210,9 @@ async function rememberTrails(ctx, journey) {
     if (!journey || journey.surfaceTravel === false) return;
     const location = ctx.data.location;
     const cell = partyCellForJourney(journey, location?.travel);
+    // An hour-scale journey can end on the day it started, like a same-day passage.
     const arrived = !location?.travel && location?.currentPlaceId === journey.toId
-        && location?.worldDay >= journey.startedOnDay + (journey.sameDay ? 0 : journey.totalLegs);
+        && location?.worldDay >= journey.startedOnDay + (journey.sameDay || journey.unit === 'hours' ? 0 : journey.totalLegs);
     const endIndex = arrived ? journey.cells.length - 1
         : cell ? journey.cells.findIndex(c => c.x === cell.x && c.y === cell.y) : -1;
     if (endIndex >= 0) await observeTerrain(ctx, journey.cells.slice(0, endIndex + 1));
@@ -994,14 +995,17 @@ export function partyCellForJourney(journey, travel) {
  * counts). `totalLegs` is the sum of the hops' legs — the terrain-real leg
  * count the host will use when `departMultiHop` runs. `startedOnDay` is the
  * host's current `worldDay` (or 1 if unset), so a re-loaded campaign can show
- * how many days the journey has taken so far.
+ * how many days the journey has taken so far. `unit` is the campaign's travel
+ * unit at commit; the host fixes the same unit on its travel state, so an
+ * hour-scale journey is recorded as one (surface routes only — a passage's
+ * legs are always days).
  *
  * Returns `null` when the preview is missing the geometry (e.g. a blocked
  * preview, or a single-hop preview that somehow lost its cells). A `null`
  * result means the commit must NOT emit `travelRequest` — the record and the
  * departure cannot disagree (§1), so no record means no departure.
  */
-function buildJourneyFromPreview(preview, worldDay) {
+function buildJourneyFromPreview(preview, worldDay, unit) {
     if (!preview || preview.blocked) return null;
     const cells = Array.isArray(preview.cells) ? preview.cells : [];
     const checkpoints = Array.isArray(preview.checkpoints) ? preview.checkpoints : [];
@@ -1023,6 +1027,7 @@ function buildJourneyFromPreview(preview, worldDay) {
         surfaceTravel: preview.surfaceTravel !== false,
         passage: preview.passage,
         startedOnDay: Number.isFinite(worldDay) ? worldDay : 1,
+        ...(unit === 'hours' && preview.surfaceTravel !== false ? { unit: 'hours' } : {}),
     };
 }
 
@@ -1201,7 +1206,7 @@ export async function createConnectionAndRoute(ctx, campaignId, fromId, toId, ba
     // other two commit paths. Bail out of the emit if the write fails (the
     // record and the departure cannot disagree).
     const worldDay = afterWrite.data?.location?.worldDay;
-    const journey = buildJourneyFromPreview(reRouted, worldDay);
+    const journey = buildJourneyFromPreview(reRouted, worldDay, afterWrite.data?.location?.travelUnit);
     if (journey) {
         const wrote = await writeJourney(afterWrite, journey);
         if (!wrote) return reRouted;
@@ -1504,7 +1509,8 @@ export function mapSnapshot(ctx) {
     // The leg is part of what the snapshot depends on, so it is part of the
     // key. Deleting the cache from the one subscription that noticed would
     // have fixed this call site and left the trap armed for the next field.
-    const travelKey = `${ctx.data?.location?.currentPlaceId ?? ""}:${travelSnapshotKey(ctx.data?.location?.travel ?? null)}`;
+    const travelUnit = ctx.data?.location?.travelUnit === 'hours' ? 'hours' : 'days';
+    const travelKey = `${ctx.data?.location?.currentPlaceId ?? ""}:${travelSnapshotKey(ctx.data?.location?.travel ?? null)}:${travelUnit}`;
     const cached = snapshotCacheByCampaign.get(campaignId);
     if (cached && cached.worldVersion === version && cached.travelKey === travelKey) {
         return cached.snapshot;
@@ -1547,6 +1553,7 @@ export function mapSnapshot(ctx) {
             toName: ledgerById.get(travel.toId)?.name ?? travel.toId,
             leg: travel.leg,
             totalLegs: travel.totalLegs,
+            unit: travel.unit === 'hours' ? 'hours' : 'days',
         }
         : null;
 
@@ -1578,6 +1585,9 @@ export function mapSnapshot(ctx) {
         worldVersion: version,
         travel: travelSummary,
         worldDay: ctx.data?.location?.worldDay ?? null,
+        // What one leg reads as in a route preview. The journey on screen
+        // keeps the unit it departed with (`travel.unit`).
+        travelUnit,
         chunkStore,
         controls,
         // WO 6.2 — the journey on screen. The renderer draws the walked leg
@@ -1726,7 +1736,7 @@ function mountMap(node, ctx) {
             const latest = await freshCampaignContext(ctx);
             if (!latest || latest.data.campaignId !== campaignId || latest.data.location.travel
                 || latest.data.location.currentPlaceId !== preview.fromAnchor?.locationId) return;
-            const journey = buildJourneyFromPreview(preview, latest.data.location.worldDay);
+            const journey = buildJourneyFromPreview(preview, latest.data.location.worldDay, latest.data.location.travelUnit);
             if (!journey || !await writeJourney(latest, journey)) return;
             const confirmed = await freshCampaignContext(ctx);
             if (!confirmed || confirmed.data.campaignId !== campaignId) return;
@@ -1747,7 +1757,7 @@ function mountMap(node, ctx) {
             }
             refreshPreview(); return;
         }
-        if ((action.startsWith('road') || action === 'setWorldProfile' || action === 'createConnection') && !worldEditing) return;
+        if ((action.startsWith('road') || action === 'setWorldProfile' || action === 'setTravelUnit' || action === 'createConnection') && !worldEditing) return;
         if (action.startsWith('road')) {
             void handleRoadAction(action, payload).catch(error => {
                 showRoadEditor({ ...(roadEditorsByCampaign.get(currentCampaignId) ?? {}), busy: false, message: 'Could not save or build the path. Please try again.' });
@@ -1770,6 +1780,17 @@ function mountMap(node, ctx) {
                 await updateDiscoveries(fresh);
                 refreshPreview();
             }).catch(error => ctx.log?.('[worldmap] world setting save failed', error));
+            return;
+        }
+        if (action === 'setTravelUnit') {
+            // The unit lives on the campaign context, not in this mod's
+            // tables: the host's clock and the model's travel wording read it
+            // there, and it comes back through `data.location`.
+            const campaignId = currentCampaignId;
+            void freshCampaignContext(ctx).then(fresh => {
+                if (!fresh || fresh.data.campaignId !== campaignId) return;
+                fresh.write?.updateContext?.({ travelUnit: payload === 'hours' ? 'hours' : 'days' });
+            }).catch(error => ctx.log?.('[worldmap] travel unit save failed', error));
             return;
         }
         if (action === 'roleplayEncounter') {
@@ -2206,7 +2227,7 @@ function registerMapWindow(ctx) {
             if (!anchor) { reply(null); return; }
             const preview = computeRoutePreview(fresh, payload.campaignId, anchor.x, anchor.y, payload.mode, undefined, false, payload.toId);
             if (preview.blocked) { reply(null); return; }
-            const journey = buildJourneyFromPreview(preview, fresh.data.location.worldDay);
+            const journey = buildJourneyFromPreview(preview, fresh.data.location.worldDay, fresh.data.location.travelUnit);
             if (!journey || !valid(await freshCampaignContext(ctx)) || !await writeJourney(fresh, journey)) { reply(null); return; }
             reply(valid(await freshCampaignContext(ctx)) ? preview.hops : null);
         } catch (error) { ctx.log?.('[worldmap] story route failed', error); reply(null); }

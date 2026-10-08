@@ -359,6 +359,39 @@ test('world setting persists, reaches story context and applies only to newly ob
 });
 
 
+test('the Hours switch persists, reaches story context and walks the clock an hour per press', async ({ page }) => {
+    await page.getByRole('button', { name: 'Edit world', exact: true }).click();
+    await expect(page.getByLabel('Travel time unit', { exact: true })).toHaveValue('days');
+    await page.getByLabel('Travel time unit', { exact: true }).selectOption('hours');
+    await expect.poll(async () => (await read(page)).context.travelUnit).toBe('hours');
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).worldmapTest);
+    await page.getByRole('button', { name: 'Edit world', exact: true }).click();
+    await expect(page.getByLabel('Travel time unit', { exact: true })).toHaveValue('hours');
+    expect(await page.evaluate(() => (window as any).worldmapTest.sceneContext())).toMatch(/Birch \(remote, \d+–\d+h\)/);
+    await page.getByRole('button', { name: 'Done editing', exact: true }).click();
+    await page.evaluate(() => (window as any).worldmapTest.plan());
+    await expect(page.getByText(/\d+ cells · \d+ hours?|Estimated \d+–\d+ hours/)).toBeVisible();
+    await page.getByRole('button', { name: 'Travel', exact: true }).click();
+    await expect.poll(async () => (await read(page)).context.travel?.leg).toBe(1);
+    const started = await read(page);
+    expect(started.context.travel.unit).toBe('hours');
+    expect(started.context.worldDay).toBe(10);
+    expect(started.context.travelMinutesToday).toBe(60);
+    expect(started.journey.unit).toBe('hours');
+    const totalLegs = started.context.travel.totalLegs;
+    for (let leg = 1; leg < totalLegs; leg++) {
+        await page.getByRole('button', { name: leg === totalLegs - 1 ? 'Arrive at Birch' : 'Continue →', exact: true }).click();
+        const hours = leg + 1;
+        await expect.poll(async () => (await read(page)).context.travelMinutesToday).toBe((hours * 60) % 480);
+        expect((await read(page)).context.worldDay).toBe(10 + Math.floor(hours * 60 / 480));
+    }
+    await expect.poll(async () => (await read(page)).journey).toBeNull();
+    const arrived = await read(page);
+    expect(arrived.context.travel).toBeNull();
+    expect(arrived.context.currentPlaceId).toBe('b');
+});
+
 test('an unexplored empty cell can be previewed, travelled to and revisited without losing its position or fog', async ({ page }, testInfo) => {
     await page.getByRole('button', { name: 'Fit map to content', exact: true }).click();
     const target = await page.evaluate(() => {

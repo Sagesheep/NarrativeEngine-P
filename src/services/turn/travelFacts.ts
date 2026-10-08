@@ -39,12 +39,13 @@ export function buildTravelFacts(context: GameContext, ledger: LocationEntry[]):
     return candidates.map(({ band, destination }) => {
         const definition = DISTANCE_BANDS.find(entry => entry.id === band)!;
         const { min } = bandToDayRange(band);
-        const arrivalDay = context.worldDay! + min;
         const grids = definition.maxGrids === Infinity
             ? `${definition.minGrids}+ grids`
             : definition.minGrids === definition.maxGrids
                 ? `${definition.minGrids} grid`
                 : `${definition.minGrids}–${definition.maxGrids} grids`;
-        return `${currentPlace.name} → ${destination!.name} is ${band} (${grids}), roughly ${formatDayRange(band)} on foot. Today is day ${context.worldDay}; arrival is impossible before day ${arrivalDay}.`;
+        const route = `${currentPlace.name} → ${destination!.name} is ${band} (${grids}), roughly ${formatDayRange(band, context.travelUnit)} on foot.`;
+        if (context.travelUnit === 'hours') return `${route} Arrival takes at least ${min} hour${min === 1 ? '' : 's'} of travel.`;
+        return `${route} Today is day ${context.worldDay}; arrival is impossible before day ${context.worldDay! + min}.`;
     });
 }

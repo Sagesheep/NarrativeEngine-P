@@ -238,7 +238,7 @@ mainApp/
 │   │   ├── vision/                 # describeImage, imageSource, visionRequest (multimodal image→prose)
 │   │   ├── scene-images/           # sceneImageContextGatherer (prompt-package composition)
 │   │   ├── tts/                    # kokoroBuffer, proseStripper, ttsClient, useTtsStatus
-│   │   ├── location/               # distance (DISTANCE_BANDS, day ranges), travelModes, travelModeMap
+│   │   ├── location/               # distance (DISTANCE_BANDS, day ranges), travelModes, travelUnit (days/hours), travelModeMap
 │   │   ├── saveFile/               # combinedSeal, chapterSummary, headerIndex, shared
 │   │   ├── background/             # backgroundManager (chat background image, idb-keyval)
 │   │   └── infrastructure/         # backgroundQueue, jsonExtract, tokenizer, settingsCrypto, assetService

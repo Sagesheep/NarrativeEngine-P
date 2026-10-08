@@ -7,8 +7,9 @@
 
 import type { DistanceBand } from '../services/location/distance';
 import type { TravelMode } from '../services/location/travelModes';
+import type { TravelUnit } from '../services/location/travelUnit';
 
-export type { TravelMode };
+export type { TravelMode, TravelUnit };
 
 export type LocationConnection = {
     passage?: 'ferry' | 'portal' | 'tunnel';
