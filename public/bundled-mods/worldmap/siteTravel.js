@@ -1,14 +1,16 @@
 import { validCell } from './exploration.js';
 import { siteLabel } from './discoveries.js';
 
-// Seeded geography stays outside the relational layout solver. Ledger edits
-// can change identity and connections, but never a discovered coordinate.
+// Seeded geography stays outside the relational layout solver. A promoted
+// site's ledger coordinates win over its discovery cell, so a coordinate the
+// user chose (map or Places panel) moves the site too.
 export function fixedSiteAnchors(result, sites, ledger) {
     const byId = new Map((result.anchors ?? []).map(anchor => [anchor.locationId, anchor]));
     const entries = new Map(ledger.map(entry => [entry.id, entry]));
     for (const entry of ledger) if (validCell(entry.coordinates)) byId.set(entry.id, { locationId: entry.id, ...entry.coordinates, source: 'saved', name: entry.name });
     for (const site of sites) if (entries.has(site.id)) {
-        byId.set(site.id, { locationId: site.id, x: site.x, y: site.y, source: 'discovery', name: entries.get(site.id).name });
+        const cell = validCell(entries.get(site.id).coordinates) ? entries.get(site.id).coordinates : site;
+        byId.set(site.id, { locationId: site.id, x: cell.x, y: cell.y, source: 'discovery', name: entries.get(site.id).name });
     }
     for (const entry of ledger) {
         if (entry.kind !== 'transit' || byId.has(entry.id)) continue;
@@ -18,6 +20,13 @@ export function fixedSiteAnchors(result, sites, ledger) {
             y: Math.round((ends[0].y + ends[1].y) / 2), source: 'transit' });
     }
     return [...byId.values()];
+}
+// The one write for "a user chose this cell for a place", shared with the
+// Places panel: a manual move takes the terrain that is there, so any pending
+// or generated placement state is dropped; identity and knowledge are kept.
+export function placeAtCell(entry, cell) {
+    const { placementPendingUntil, placementIssue, terrainBiome, terrainRadius, ...rest } = entry;
+    return { ...rest, coordinates: { x: cell.x, y: cell.y } };
 }
 export function promoteSite(site, ledger, fromId, bandFor = () => 'local') {
     if (ledger.some(entry => entry.id === site.id)) return ledger;

@@ -332,3 +332,75 @@ describe('World Map — the route panel becomes the journey panel', () => {
         expect(journeyIsDrawable({})).toBe(false);
     });
 });
+
+describe('World Map — a party with no spot is offered Start here', () => {
+    let cleanup = null;
+    let root = null;
+
+    beforeEach(() => {
+        cleanup = installCanvasStubs([]);
+        root = document.createElement('div');
+        Object.defineProperty(root, 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 0, top: 0, width: 900, height: 640, right: 900, bottom: 640 }),
+        });
+        document.body.appendChild(root);
+    });
+
+    afterEach(() => {
+        if (root && root.parentNode) root.parentNode.removeChild(root);
+        if (cleanup) cleanup();
+    });
+
+    const mount = (preview, extra = {}) => mountMapRenderer(root, {
+        getSnapshot: () => makeSnapshot({ locationId: null, ...extra }),
+        onClickCell: () => undefined,
+        onRouteAction: extra.onRouteAction ?? (() => undefined),
+        getRoutePreview: () => preview,
+        getTravelMode: () => 'foot',
+    });
+
+    for (const [reason, label] of [
+        ['no-current-place', 'Where is the party? Choose a cell and press Start here.'],
+        ['no-current-anchor', 'Your current place has no map position yet. Choose a cell and press Start here.'],
+    ]) {
+        it(`${reason}: names the cell and offers Start here instead of a dead refusal`, () => {
+            const onRouteAction = vi.fn();
+            const cleanupRenderer = mount({ blocked: true, reason, label, startCell: { x: 12, y: 34 } }, { onRouteAction });
+            expect(root.textContent).toContain(label);
+            expect(root.textContent).toContain('Cell 12, 34');
+            expect(root.textContent).not.toContain('Blocked:');
+            const start = buttonNamed(root, 'Start here');
+            expect(start.style.display).not.toBe('none');
+            start.click();
+            expect(onRouteAction.mock.calls.map(call => call[0])).toEqual(['startHere']);
+            cleanupRenderer();
+        });
+    }
+
+    it('other refusals do not offer Start here', () => {
+        const cleanupRenderer = mount({ blocked: true, reason: 'outside-world', label: 'Choose a cell inside the map' }, { locationId: 'a' });
+        expect(root.textContent).toContain('Blocked: Choose a cell inside the map');
+        expect(buttonNamed(root, 'Start here').style.display).toBe('none');
+        cleanupRenderer();
+    });
+
+    it('a map notice reads as a message, and is shown mid-journey too', () => {
+        let cleanupRenderer = mount({ blocked: true, notice: true, reason: 'move-occupied', label: 'Alder is already at 1, 2. Choose another cell.' }, { locationId: 'a' });
+        expect(root.textContent).toContain('Alder is already at 1, 2. Choose another cell.');
+        expect(root.textContent).not.toContain('Blocked:');
+        cleanupRenderer();
+        root.replaceChildren();
+        cleanupRenderer = mount({ blocked: true, notice: true, reason: 'move-journey', label: 'Abandon the journey before moving places' },
+            { locationId: 'transit-a-b', travel: travelling() });
+        expect(root.textContent).toContain('Abandon the journey before moving places');
+        expect(buttonNamed(root, 'Start here').style.display).toBe('none');
+        cleanupRenderer();
+    });
+
+    it('the HUD says when there is no current place', () => {
+        const cleanupRenderer = mount(null);
+        expect(root.textContent).toContain('OVERWORLD · Day 12 · no current place — click a cell to start');
+        cleanupRenderer();
+    });
+});

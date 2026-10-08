@@ -409,7 +409,7 @@ test('an unexplored empty cell can be previewed, travelled to and revisited with
     expect(before.exploration.cells).not.toContain(`${target.x},${target.y}`);
     expect(before.exploration.generatedCells).not.toContain(`${target.x},${target.y}`);
     await page.mouse.move(target.screenX, target.screenY);
-    await expect(page.getByText('Not generated — explore to reveal', { exact: true })).toBeVisible();
+    await expect(page.getByText(`${target.x}, ${target.y} · Not generated — explore to reveal`, { exact: true })).toBeVisible();
     await page.mouse.click(target.screenX, target.screenY, { button: 'right' });
     await expect(page.getByRole('button', { name: 'Travel here', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Travel here', exact: true }).click();
@@ -709,6 +709,112 @@ test('world authoring is opt-in and leaving it discards the unsaved road draft',
     await page.reload();
     await page.waitForFunction(() => !!(window as any).worldmapTest);
     await expect(page.getByRole('button', { name: 'Edit world', exact: true })).toHaveAttribute('aria-pressed', 'false');
+});
+
+// The cell under a screen point, as the map itself reports it.
+async function hoverCell(page: Page, x: number, y: number) {
+    await page.mouse.move(x, y);
+    const text = await page.locator('[data-worldmap-hover]').innerText();
+    const match = text.match(/^(\d+), (\d+) · /);
+    expect(match, 'hover readout names the cell: ' + text).toBeTruthy();
+    return { x: Number(match![1]), y: Number(match![2]) };
+}
+
+test('a campaign with no current place starts at a clicked cell and can then travel from it', async ({ page }) => {
+    // Seed once; the flag keeps a later reload from re-seeding over the saved state.
+    await page.addInitScript(() => {
+        if (sessionStorage.getItem('worldmap-start-seeded')) return;
+        sessionStorage.setItem('worldmap-start-seeded', '1');
+        sessionStorage.setItem('worldmap-fixture', JSON.stringify({
+            tables: { settings: { worldSeed: 'milestone-one', climateGradient: 0.65 }, anchors: [], visited: [], journey: null },
+            state: { activeCampaignId: 'worldmap-start-here', messages: [], locationLedger: [],
+                context: { currentPlaceId: null, worldDay: 10, travelMode: 'flying', travel: null } },
+        }));
+    });
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).worldmapTest);
+    await expect(page.getByText(/no current place — click a cell to start/)).toBeVisible();
+    const box = (await page.locator('canvas').boundingBox())!;
+    const point = { x: box.x + box.width / 2 + 3, y: box.y + box.height / 2 + 3 };
+    const start = await hoverCell(page, point.x, point.y);
+    await page.mouse.click(point.x, point.y);
+    const question = page.getByText('Where is the party? Choose a cell and press Start here.');
+    await expect(question).toBeVisible();
+    await expect(question).toContainText(`Cell ${start.x}, ${start.y}`);
+    await page.getByRole('button', { name: 'Start here', exact: true }).click();
+    await expect.poll(async () => (await read(page)).context.currentPlaceId).toMatch(/^point-/);
+    const started = await read(page), id = started.context.currentPlaceId;
+    expect(started.ledger.find((row: any) => row.id === id)).toMatchObject({ coordinates: start, recordKind: 'position', connections: [] });
+    expect(started.context.worldDay).toBe(10);
+    expect(started.context.travel).toBeNull();
+    expect(started.journey).toBeNull();
+    expect(started.messages).toEqual([]);
+    await expect(page.getByText(/no current place/)).toBeHidden();
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).worldmapTest);
+    expect((await read(page)).context.currentPlaceId).toBe(id);
+    await expect.poll(async () => (await page.evaluate(() => (window as any).worldmapTest.anchors()))
+        .find((row: any) => row.locationId === id)).toMatchObject(start);
+
+    // An ordinary click now plans from the new spot; Travel moves the party.
+    await page.getByRole('button', { name: 'Centre on your party (C)', exact: true }).click();
+    const centre = await hoverCell(page, box.x + box.width / 2, box.y + box.height / 2);
+    expect(centre).toEqual(start);
+    const goal = { x: start.x + 3, y: start.y };
+    const goalPoint = { x: box.x + box.width / 2 + 3 * 16, y: box.y + box.height / 2 };
+    expect(await hoverCell(page, goalPoint.x, goalPoint.y)).toEqual(goal);
+    await page.mouse.click(goalPoint.x, goalPoint.y);
+    await expect(page.getByText(/minutes.*local travel|\d+ cells · \d+ days?/)).toBeVisible();
+    await page.getByRole('button', { name: 'Travel', exact: true }).click();
+    await expect.poll(async () => (await read(page)).context.currentPlaceId).not.toBe(id);
+    const arrived = await read(page);
+    expect(arrived.context.currentPlaceId).toMatch(/^point-/);
+    expect(arrived.ledger.find((row: any) => row.id === arrived.context.currentPlaceId)).toMatchObject({ coordinates: goal });
+    expect(arrived.context.travel).toBeNull();
+});
+
+test('Edit world moves a ledger place onto a chosen cell, refuses an occupied one, and keeps it after reload', async ({ page }) => {
+    await page.getByRole('button', { name: 'Centre on your party (C)', exact: true }).click();
+    const box = (await page.locator('canvas').boundingBox())!;
+    const point = { x: box.x + box.width / 2 + 3 * 16, y: box.y + box.height / 2 - 2 * 16 };
+    const anchors = await page.evaluate(() => (window as any).worldmapTest.anchors());
+    const a = anchors.find((row: any) => row.locationId === 'a');
+    const cell = await hoverCell(page, point.x, point.y);
+    expect(cell).toEqual({ x: a.x + 3, y: a.y - 2 });
+    const before = await read(page);
+
+    // Outside Edit world the menu offers no world edits.
+    await page.mouse.click(point.x, point.y, { button: 'right' });
+    await expect(page.locator('[data-worldmap-context-menu]')).toContainText(`Cell ${cell.x}, ${cell.y}`);
+    await expect(page.getByLabel('Place to move here')).toBeHidden();
+    await page.getByRole('button', { name: 'Edit world', exact: true }).click();
+    // A background repaint remounts the map and closes an open menu, so retry the gesture.
+    const moveHere = (label: string) => expect(async () => {
+        await page.mouse.click(point.x, point.y, { button: 'right' });
+        await page.getByLabel('Place to move here').selectOption({ label }, { timeout: 1000 });
+        await page.getByRole('button', { name: 'Move here', exact: true }).click({ timeout: 1000 });
+    }).toPass();
+    await moveHere('Birch');
+    await expect.poll(async () => (await read(page)).ledger.find((row: any) => row.id === 'b')?.coordinates).toEqual(cell);
+    await expect.poll(async () => (await page.evaluate(() => (window as any).worldmapTest.anchors()))
+        .find((row: any) => row.locationId === 'b')).toMatchObject(cell);
+    const moved = await read(page);
+    expect(moved.context.worldDay).toBe(before.context.worldDay);
+    expect(moved.context.currentPlaceId).toBe(before.context.currentPlaceId);
+    expect(moved.ledger.find((row: any) => row.id === 'a').coordinates).toEqual(before.ledger.find((row: any) => row.id === 'a').coordinates);
+
+    // The cell is taken now: moving Alder there is refused, visibly, with no write.
+    await page.mouse.click(point.x, point.y, { button: 'right' });
+    await expect(page.locator('[data-worldmap-context-menu]')).toContainText(`Cell ${cell.x}, ${cell.y} · Birch`);
+    await moveHere('Alder');
+    await expect(page.getByText(`Birch is already at ${cell.x}, ${cell.y}. Choose another cell.`)).toBeVisible();
+    expect((await read(page)).ledger.find((row: any) => row.id === 'a').coordinates).toEqual(moved.ledger.find((row: any) => row.id === 'a').coordinates);
+
+    await page.reload();
+    await page.waitForFunction(() => !!(window as any).worldmapTest);
+    expect((await read(page)).ledger.find((row: any) => row.id === 'b').coordinates).toEqual(cell);
+    await expect.poll(async () => (await page.evaluate(() => (window as any).worldmapTest.anchors()))
+        .find((row: any) => row.locationId === 'b')).toMatchObject(cell);
 });
 
 for (const passage of ['portal', 'tunnel', 'ferry']) {
