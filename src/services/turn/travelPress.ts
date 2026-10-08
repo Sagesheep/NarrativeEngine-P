@@ -13,6 +13,7 @@
 import type { LocationEntry, TravelState } from '../../types';
 import type { ChatMessage } from '../../types/campaign';
 import { uid } from '../../utils/uid';
+import { travelUnitWords } from '../location/travelUnit';
 import {
     advance,
     type TransitionResult,
@@ -42,7 +43,7 @@ export function buildCheckpointMessage(
     const totalCamps = Math.max(0, travel.totalLegs - 1);
     const day = worldDay ?? 1;
 
-    const header = `Day ${day} · camp ${campNum} of ${totalCamps} — road to ${toName}`;
+    const header = `Day ${day} · ${travelUnitWords(travel.unit).stop} ${campNum} of ${totalCamps} — road to ${toName}`;
     const content = terrainLabel ? `${header} · ${terrainLabel}` : header;
 
     return {
@@ -86,10 +87,11 @@ export function pressTravelAdvance(
     travel: TravelState,
     currentWorldDay: number | undefined,
     ledger: readonly LocationEntry[],
+    currentTravelMinutes?: number,
 ): { result: TransitionResult; message: ChatMessage } | null {
     if (!travel) return null;
 
-    const result = advance(travel, currentWorldDay);
+    const result = advance(travel, currentWorldDay, currentTravelMinutes);
     const newDay = result.contextPatch.worldDay ?? (currentWorldDay ?? 0) + 1;
 
     if (!result.travel) {
@@ -138,5 +140,6 @@ export function travelButtonLabel(travel: TravelState | null | undefined): strin
 export function travelButtonTitle(travel: TravelState | null | undefined): string {
     if (!travel) return 'Open the destination picker and depart';
     if (travel.leg + 1 >= travel.totalLegs) return 'Finish the journey and arrive';
-    return `Travel on to camp ${travel.leg + 1} of ${travel.totalLegs - 1} — one press, one day`;
+    const words = travelUnitWords(travel.unit);
+    return `Travel on to ${words.stop} ${travel.leg + 1} of ${travel.totalLegs - 1} — one press, one ${words.one}`;
 }

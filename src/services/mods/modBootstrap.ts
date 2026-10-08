@@ -242,6 +242,7 @@ function buildNativeModContext(mod: {
                 travel: fresh.context.travel ?? null,
                 worldDay: fresh.context.worldDay,
                 travelMode: fresh.context.travelMode,
+                travelUnit: fresh.context.travelUnit,
             };
         };
         return buildModContext({

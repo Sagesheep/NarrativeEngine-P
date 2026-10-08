@@ -541,6 +541,17 @@ export class ChunkStore {
         return { biome, elevation };
     }
 
+    /**
+     * The cell as the bare noise classifies it — no anchor warps, no hardened
+     * cells, no cache. For callers that must not see their own earlier
+     * edits to the world (the solver's layout origin); everything else reads
+     * `getCell`.
+     */
+    getBaseCell(x, y) {
+        const sample = sampleRawField(x >> 0, y >> 0, this.worldSeed, this.climateGradient, this.salts);
+        return { biome: classifyBiome(sample), elevation: sample.elev };
+    }
+
     /** Same as `getCell` but returns the raw biome byte for bitmask math. */
     getCellBiomeByte(x, y) {
         const ix = x >> 0;

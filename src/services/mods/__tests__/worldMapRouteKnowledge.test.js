@@ -19,3 +19,7 @@ it('uses firm durations for explored paths, authored roads, and direct flight', 
 it('does not treat a partially known road as a complete known route', () => {
     expect(routeKnowledge(cells, 1, 'foot', new Set(), [{ cells: cells.slice(0, 2) }])).toMatchObject({ uncertain: true, minDays: 1 });
 });
+it('reads the estimate in hours when the campaign travels in hours', () => {
+    expect(estimateLabel({ minDays: 2, maxDays: 5 }, 'hours')).toBe('Estimated 2–5 hours · route uncertain');
+    expect(estimateLabel({ minDays: 2, maxDays: 5 })).toBe('Estimated 2–5 days · route uncertain');
+});

@@ -415,3 +415,16 @@ Playtest after reload:
 5. Inside a settlement, enter a room or district: only currentFeature should change. Remembering another town must not move the party.
 
 Limits: commit remains the existing next-send/exit lifecycle, not live streaming. Free-chat route departures require a known destination; arbitrary compass-direction exploration is not implemented here. Model compliance and narrative quality require live playtesting; malformed replies fail without moving, and older replies without a contract retain header compatibility. Existing saved custom rules are not overwritten.
+
+## Travel time: days or hours
+
+Edit world → Travel time switches what one travel step stands for. Routes,
+distances and leg counts do not change; only the clock and the wording do.
+In Hours, each press spends one hour of travel (the day rolls over after eight
+travelled hours, the same budget short passages use), the [TRAVEL] block reads
+"Hour N of M", Nearby ranges and director travel facts read in hours, and the
+map labels stops and estimates in hours. A journey keeps the unit it departed
+with; tunnels always travel in days. The setting lives on the campaign context
+(`travelUnit`) and reaches the mod read-only through `data.location`.
+Verified by `src/services/turn/__tests__/travelUnit.test.ts` and a Chromium
+journey in `e2e/worldMapTravel.spec.ts`.

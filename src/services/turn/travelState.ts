@@ -3,6 +3,7 @@ import type { DistanceBand } from '../location/distance';
 import { DISTANCE_BANDS } from '../location/distance';
 import { connectionBand } from '../locationParser';
 import { legsFor, gridsPerDayFor } from '../location/travelModes';
+import type { TravelUnit } from '../location/travelUnit';
 import { newLocationId } from '../../utils/locationIds';
 
 /** Result of a transition: the new travel state plus the context writes it implies. */
@@ -15,6 +16,29 @@ export type TransitionResult = {
 };
 
 const EMPTY: TransitionResult = { travel: null, contextPatch: {} };
+
+/** Travel minutes in one travel day — the same budget short passages spend. */
+const TRAVEL_DAY_MINUTES = 480;
+
+/**
+ * The clock after one leg. A day-scale leg is the next day. An hour-scale leg
+ * spends 60 travel minutes and rolls into the next day once a full travel day
+ * of hours has been walked, the same way a short passage's minutes do.
+ */
+export function legClock(
+    unit: TravelUnit | undefined,
+    currentWorldDay: number | undefined,
+    currentTravelMinutes: number | undefined,
+): { worldDay: number; travelMinutesToday: number } {
+    if (unit !== 'hours') return { worldDay: (currentWorldDay ?? 0) + 1, travelMinutesToday: 0 };
+    const today = Number.isSafeInteger(currentTravelMinutes) && currentTravelMinutes! >= 0
+        ? currentTravelMinutes! % TRAVEL_DAY_MINUTES : 0;
+    const spent = today + 60;
+    return {
+        worldDay: (currentWorldDay ?? 1) + Math.floor(spent / TRAVEL_DAY_MINUTES),
+        travelMinutesToday: spent % TRAVEL_DAY_MINUTES,
+    };
+}
 
 /**
  * Find an existing transit node for the A→B edge, if one was created before.
@@ -130,6 +154,8 @@ export function depart(params: {
     /** Exact route duration from the map; bands are fallback only. */
     days?: number;
     durationMinutes?: number;
+    /** What each leg stands for. Absent = days. */
+    unit?: TravelUnit;
 }): TransitionResult {
     const { fromId, toId, band, agency = 'free', ledger, currentWorldDay } = params;
     const mode = ledger.find(place => place.id === fromId)?.connections.find(edge => edge.toId === toId)?.passage === 'ferry' ? 'boat' : params.mode;
@@ -158,7 +184,10 @@ export function depart(params: {
     })) : transit.upsert;
     const totalLegs = params.days ?? (connection?.passage === 'tunnel' && Number.isSafeInteger(minutes) && minutes! > 0 ? Math.ceil(minutes! / 480) : legsFor(band, mode));
     if (!Number.isSafeInteger(totalLegs) || totalLegs < 1) throw new Error('Travel duration must be a positive integer');
-    const nextDay = (currentWorldDay ?? 0) + 1;
+    // A tunnel's legs are derived from its minutes as travel days, so it
+    // stays day-scale whatever the campaign's unit.
+    const unit = params.unit === 'hours' && connection?.passage !== 'tunnel' ? 'hours' : undefined;
+    const clock = legClock(unit, currentWorldDay, params.currentTravelMinutes);
 
     const travel: TravelState = {
         fromId,
@@ -168,13 +197,14 @@ export function depart(params: {
         leg: 1,
         totalLegs,
         agency,
+        ...(unit ? { unit } : {}),
     };
     const ledgerUpserts = [...connectionUpserts, ...transitUpserts];
     const ledgerPatch = ledgerUpserts.length > 0 ? ledgerUpserts : undefined;
 
-    // Single-day journey: depart and arrive in one press.
+    // Single-leg journey: depart and arrive in one press.
     if (totalLegs <= 1) {
-        const arriveResult = arrive(travel, nextDay);
+        const arriveResult = arrive(travel, clock.worldDay, clock.travelMinutesToday);
         return { ...arriveResult, ledgerUpsert: ledgerPatch };
     }
 
@@ -183,7 +213,7 @@ export function depart(params: {
         travelMode: mode,
         currentPlaceId: transitId,
         currentFeature: null,
-        worldDay: nextDay, travelMinutesToday: 0,
+        ...clock,
     };
     return { travel, contextPatch, ledgerUpsert: ledgerPatch };
 }
@@ -212,7 +242,10 @@ export function departMultiHop(params: {
     agency?: 'free' | 'constrained';
     ledger: LocationEntry[];
     currentWorldDay?: number;
-    currentTravelMinutes?: number;}): TransitionResult {
+    currentTravelMinutes?: number;
+    /** What each leg stands for. Absent = days. */
+    unit?: TravelUnit;
+}): TransitionResult {
     const { fromId, toId, mode, hops, agency = 'free', ledger, currentWorldDay } = params;
     if (fromId === toId) return EMPTY;
     if (hops.length === 0) return EMPTY;
@@ -224,7 +257,7 @@ export function departMultiHop(params: {
         // through a band. Estimate a band only for a missing connection.
         const existing = ledger.find(place => place.id === fromId)?.connections.find(c => c.toId === toId);
         const band = existing ? connectionBand(existing) : bandFromLegs(hops[0].legs, mode);
-        return depart({ fromId, toId, band, mode, agency, ledger, currentWorldDay, days: hops[0].legs, durationMinutes: hops[0].durationMinutes, currentTravelMinutes: params.currentTravelMinutes });
+        return depart({ fromId, toId, band, mode, agency, ledger, currentWorldDay, days: hops[0].legs, durationMinutes: hops[0].durationMinutes, currentTravelMinutes: params.currentTravelMinutes, unit: params.unit });
     }
 
     // Ensure connections and transit nodes for every hop without overwriting
@@ -250,7 +283,8 @@ export function departMultiHop(params: {
 
     const totalLegs = resolvedHops.reduce((sum, h) => sum + h.legs, 0);
     const firstHop = resolvedHops[0];
-    const nextDay = (currentWorldDay ?? 0) + 1;
+    const unit = params.unit === 'hours' ? 'hours' : undefined;
+    const clock = legClock(unit, currentWorldDay, params.currentTravelMinutes);
     const travel: TravelState = {
         fromId,
         toId,
@@ -261,10 +295,11 @@ export function departMultiHop(params: {
         agency,
         hops: resolvedHops,
         hopIndex: 0,
+        ...(unit ? { unit } : {}),
     };
-    // Single-day multi-hop: depart and arrive in one press.
+    // Single-leg multi-hop: depart and arrive in one press.
     if (totalLegs <= 1) {
-        const arriveResult = arrive(travel, nextDay);
+        const arriveResult = arrive(travel, clock.worldDay, clock.travelMinutesToday);
         return { ...arriveResult, ledgerUpsert: allUpserts.length > 0 ? allUpserts : undefined };
     }
     const contextPatch: Partial<GameContext> = {
@@ -272,7 +307,7 @@ export function departMultiHop(params: {
         travelMode: mode,
         currentPlaceId: firstHop.legs === 1 ? firstHop.toId : firstHop.transitId,
         currentFeature: null,
-        worldDay: nextDay, travelMinutesToday: 0,
+        ...clock,
     };
     return { travel, contextPatch, ledgerUpsert: allUpserts.length > 0 ? allUpserts : undefined };
 }
@@ -280,7 +315,8 @@ export function departMultiHop(params: {
 /**
  * `advance()` — move to the next leg. WO 6.5: called by the engine travel
  * press (not the post-commit advance track — that is now the safety-valve
- * only). Increments `leg` and `worldDay` by 1. When `leg` reaches
+ * only). Increments `leg` by 1 and moves the clock one leg on — a day, or an
+ * hour for an hour-scale journey (`legClock`). When `leg` reaches
  * `totalLegs`, the journey is over — see `arrive`.
  *
  * For a multi-hop journey (WO 6.1 §2), advancing past a hop's leg range
@@ -290,13 +326,13 @@ export function departMultiHop(params: {
  * `toId` stay the journey's endpoints; only `hopIndex` and `transitId` move.
  *
  * Returns the new travel state (with leg+1) and a context patch that writes
- * `worldDay + 1`.
+ * the clock one leg later.
  */
-export function advance(state: TravelState, currentWorldDay: number | undefined): TransitionResult {
+export function advance(state: TravelState, currentWorldDay: number | undefined, currentTravelMinutes?: number): TransitionResult {
     const nextLeg = state.leg + 1;
-    const nextDay = (currentWorldDay ?? 0) + 1;
+    const clock = legClock(state.unit, currentWorldDay, currentTravelMinutes);
     if (nextLeg >= state.totalLegs) {
-        return arrive(state, nextDay);
+        return arrive(state, clock.worldDay, clock.travelMinutesToday);
     }
     // Multi-hop: check whether we're crossing a hop boundary. Each hop covers
     // a leg range; when the new leg falls in the next hop, the party has
@@ -314,27 +350,28 @@ export function advance(state: TravelState, currentWorldDay: number | undefined)
                     hopIndex: i,
                     transitId: nextHop.transitId,
                 };
-                return { travel, contextPatch: { travel, worldDay: nextDay, travelMinutesToday: 0, currentPlaceId: nextLeg === cumulative ? nextHop.toId : nextHop.transitId, currentFeature: null } };
+                return { travel, contextPatch: { travel, ...clock, currentPlaceId: nextLeg === cumulative ? nextHop.toId : nextHop.transitId, currentFeature: null } };
             }
         }
     }
     const travel: TravelState = { ...state, leg: nextLeg };
-    return { travel, contextPatch: { travel, worldDay: nextDay, travelMinutesToday: 0 } };
+    return { travel, contextPatch: { travel, ...clock } };
 }
 
 /**
  * `arrive()` — the journey is over. Sets `currentPlaceId` to `toId`, clears
- * `travel`, and advances the day. The transit node is left in the ledger as a
- * walked road (it remains in the UI, visually marked, excluded from Nearby).
+ * `travel`, and writes the clock the caller computed for the final leg. The
+ * transit node is left in the ledger as a walked road (it remains in the UI,
+ * visually marked, excluded from Nearby).
  */
-export function arrive(state: TravelState, nextDay: number): TransitionResult {
+export function arrive(state: TravelState, nextDay: number, travelMinutesToday = 0): TransitionResult {
     return {
         travel: null,
         contextPatch: {
             travel: null,
             currentPlaceId: state.toId,
             currentFeature: null,
-            worldDay: nextDay, travelMinutesToday: 0,
+            worldDay: nextDay, travelMinutesToday,
         },
     };
 }

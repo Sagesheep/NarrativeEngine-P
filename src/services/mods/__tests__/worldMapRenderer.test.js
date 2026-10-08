@@ -245,6 +245,58 @@ describe('World Map renderer — pan does not invalidate tiles (§11)', () => {
         }));
         cleanupRenderer();
     });
+
+    it('in Edit world an empty cell can take the party or a moved place', () => {
+        // One cell is 32px at this framing, so 5 cells right of the anchor is
+        // well outside the menu's 2-cell snap radius.
+        const onContextAction = vi.fn();
+        const snapshot = makeSnapshot({
+            anchors: [{ locationId: 'a', name: 'Aethelgard', x: 500, y: 500, source: 'lore' }],
+        });
+        const places = [{ id: 'b', name: 'Briarwatch' }, { id: 'c', name: 'Cedar Hall' }];
+        const rightClick = () => root.querySelector('canvas').dispatchEvent(new MouseEvent('contextmenu', {
+            bubbles: true, cancelable: true, clientX: 450 + 32 * 5, clientY: 320,
+        }));
+        let cleanupRenderer = mountMapRenderer(root, {
+            getSnapshot: () => snapshot, onContextAction, getWorldEditing: () => false, getMovablePlaces: () => places,
+        });
+        rightClick();
+        expect(root.querySelector('[data-worldmap-context-menu]').textContent).toContain('Cell 505, 500');
+        expect(root.querySelector('[data-context-action="current"]').style.display).toBe('none');
+        expect(root.querySelector('[data-worldmap-move-place]').style.display).toBe('none');
+        cleanupRenderer();
+        root.replaceChildren();
+
+        cleanupRenderer = mountMapRenderer(root, {
+            getSnapshot: () => snapshot, onContextAction, getWorldEditing: () => true, getMovablePlaces: () => places,
+        });
+        rightClick();
+        const correct = root.querySelector('[data-context-action="current"]');
+        expect(correct.disabled).toBe(false);
+        correct.click();
+        expect(onContextAction).toHaveBeenLastCalledWith('current', expect.objectContaining({ x: 505, y: 500, locationId: null }));
+
+        rightClick();
+        const move = root.querySelector('[data-worldmap-move-place]');
+        expect(move.style.display).toBe('block');
+        const select = move.querySelector('select[aria-label="Place to move here"]');
+        expect([...select.options].map(option => option.textContent)).toEqual(['Briarwatch', 'Cedar Hall']);
+        select.value = 'c';
+        [...move.querySelectorAll('button')].find(button => button.textContent === 'Move here').click();
+        expect(onContextAction).toHaveBeenLastCalledWith('move', expect.objectContaining({ x: 505, y: 500, placeId: 'c' }));
+        expect(root.querySelector('[data-worldmap-context-menu]').style.display).toBe('none');
+        cleanupRenderer();
+    });
+
+    it('the hover readout leads with the cell coordinates', () => {
+        const snapshot = makeSnapshot({
+            anchors: [{ locationId: 'a', name: 'Aethelgard', x: 500, y: 500, source: 'lore' }],
+        });
+        const cleanupRenderer = mountMapRenderer(root, { getSnapshot: () => snapshot });
+        root.querySelector('canvas').dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 450 + 32 * 2, clientY: 320 - 32 }));
+        expect(root.querySelector('[data-worldmap-hover]').textContent).toMatch(/^502, 499 · [A-Z]/);
+        cleanupRenderer();
+    });
     it('getSnapshot returns the same object identity across two calls with no intervening change', async () => {
         // Drive the real mapSnapshot memoisation (§7). Build a lifecycle-style
         // context, solve into the module state via onActivate, then assert two

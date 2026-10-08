@@ -8,6 +8,7 @@ import { queryTraits, formatTraitsForContext } from '../retrieval/semanticMemory
 import type { TraceCollector } from './traceCollector';
 import { connectionBand } from '../locationParser';
 import { formatDayRange } from '../location/distance';
+import { travelUnitWords } from '../location/travelUnit';
 
 export function buildVolatile(opts: {
     context: GameContext;
@@ -238,8 +239,10 @@ export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]
     const header = `At: ${place.name} (${place.broadLocation || '?'})${featureSuffix}${statusSuffix}`;
 
     // Nearby: local remains bare; every other band teaches the scale and its
-    // baseline day range. Legacy short values normalize to local above.
+    // baseline day range (hour range, when the campaign travels in hours).
+    // Legacy short values normalize to local above.
     // Transit nodes (WO3 §3) are excluded — they are roads, not destinations.
+    const unitWords = travelUnitWords(context.travelUnit);
     const nearbyParts: string[] = [];
     for (const conn of place.connections) {
         const other = ledger.find(l => l.id === conn.toId);
@@ -254,7 +257,7 @@ export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]
             ? other.name
             : band === 'adjacent'
                 ? `${other.name} (${band})`
-                : `${other.name} (${band}, ${formatDayRange(band).replace(' days', 'd').replace(' day', 'd')})`);
+                : `${other.name} (${band}, ${formatDayRange(band, context.travelUnit).replace(' ' + unitWords.many, unitWords.short).replace(' ' + unitWords.one, unitWords.short)})`);
     }
     const nearbyLine = nearbyParts.length > 0 ? `Nearby: ${nearbyParts.join(', ')}` : '';
 
@@ -290,7 +293,8 @@ export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]
 
 // ── [TRAVEL] block builder (WO3 §8) ─────────────────────────────────────
 // Sibling of [LOCATION], emitted immediately after it, only when
-// `context.travel` is set. Hard cap 200 chars. Format:
+// `context.travel` is set. Hard cap 200 chars. Format (`Hour 2 of 3` for an
+// hour-scale journey):
 //
 //   [TRAVEL]
 //   Day 2 of 3 — Point A → Point B by cart.
@@ -311,7 +315,7 @@ export function buildTravelBlock(context: GameContext, ledger: LocationEntry[]):
     const toName = to?.name ?? travel.toId;
     const modeWord = travel.mode; // lowercase id — "foot", "cart", "horseback", "flying"
 
-    const headerLine = `Day ${travel.leg} of ${travel.totalLegs} — ${fromName} → ${toName} by ${modeWord}.`;
+    const headerLine = `${travelUnitWords(travel.unit).title} ${travel.leg} of ${travel.totalLegs} — ${fromName} → ${toName} by ${modeWord}.`;
 
     let secondLine: string;
     if (travel.agency === 'constrained') {

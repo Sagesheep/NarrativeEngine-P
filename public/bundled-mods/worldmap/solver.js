@@ -755,7 +755,75 @@ function constraintStrength(priority) {
     return 0.08;
 }
 
-function initialPositions(locations, pins, fieldClauses, worldSeed) {
+const WORLD_CENTRE = Object.freeze({ x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 });
+
+/**
+ * Free places spiral out from a layout origin. The world centre is ocean for
+ * a third to a half of seeds, and a place solved there gets an implicit islet
+ * that the first save makes permanent — a party with nowhere to walk. The
+ * origin is the lattice point nearest the centre whose radius-12 disc is at
+ * least 80% land by the place requirement's ocean test, out to 160 cells.
+ *
+ * It reads the un-warped base field when the store has one, so the islets and
+ * hardened cells a campaign's own solves add never move it. The centre is
+ * kept when it qualifies (land-centred seeds lay out exactly as before),
+ * without a store, and when nothing within the cap does.
+ */
+const ORIGIN_STRIDE = 4;
+const ORIGIN_RADIUS = 12;
+const ORIGIN_MAX_DISTANCE = 160;
+const ORIGIN_LAND_SHARE = 0.8;
+let originLattice = null;
+
+function latticeOffsets(radius) {
+    const offsets = [];
+    const steps = Math.floor(radius / ORIGIN_STRIDE);
+    for (let j = -steps; j <= steps; j += 1) {
+        for (let i = -steps; i <= steps; i += 1) {
+            const dx = i * ORIGIN_STRIDE;
+            const dy = j * ORIGIN_STRIDE;
+            if ((dx * dx) + (dy * dy) <= radius * radius) offsets.push({ dx, dy, d2: (dx * dx) + (dy * dy) });
+        }
+    }
+    return offsets;
+}
+
+export function layoutOrigin(chunkStore) {
+    if (!chunkStore) return WORLD_CENTRE;
+    if (!originLattice) originLattice = {
+        disc: latticeOffsets(ORIGIN_RADIUS),
+        rings: latticeOffsets(ORIGIN_MAX_DISTANCE).sort((left, right) => left.d2 - right.d2 || left.dy - right.dy || left.dx - right.dx),
+    };
+    const { disc, rings } = originLattice;
+    const read = typeof chunkStore.getBaseCell === 'function'
+        ? (x, y) => chunkStore.getBaseCell(x, y)
+        : (x, y) => chunkStore.getCell(x, y);
+    const requirement = TERRAIN_REQUIREMENTS.place;
+    const land = new Map();
+    const isLand = (x, y) => {
+        const key = (y * WORLD_SIZE) + x;
+        let value = land.get(key);
+        if (value === undefined) {
+            value = requirement.predicate(read(x, y), chunkStore, x, y);
+            land.set(key, value);
+        }
+        return value;
+    };
+    const oceanAllowed = Math.floor(disc.length * (1 - ORIGIN_LAND_SHARE));
+    for (const candidate of rings) {
+        const x = WORLD_CENTRE.x + candidate.dx;
+        const y = WORLD_CENTRE.y + candidate.dy;
+        let ocean = 0;
+        for (const offset of disc) {
+            if (!isLand(x + offset.dx, y + offset.dy)) ocean += 1;
+            if (ocean > oceanAllowed) break;
+        }
+        if (ocean <= oceanAllowed) return candidate.d2 === 0 ? WORLD_CENTRE : { x, y };
+    }
+    return WORLD_CENTRE;
+}
+
+function initialPositions(locations, pins, fieldClauses, worldSeed, origin) {
     const positions = new Map();
     const rotation = seededUnit(worldSeed, 'base-rotation') * Math.PI * 2;
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
@@ -769,8 +837,8 @@ function initialPositions(locations, pins, fieldClauses, worldSeed) {
         const radius = index === 0 ? 0 : 13 * Math.sqrt(index);
         const jitter = (seededUnit(worldSeed, `node:${canonical(location.name)}`) - 0.5) * 0.36;
         const angle = rotation + (index * goldenAngle) + jitter;
-        let x = (WORLD_SIZE / 2) + (Math.cos(angle) * radius);
-        let y = (WORLD_SIZE / 2) + (Math.sin(angle) * radius);
+        let x = origin.x + (Math.cos(angle) * radius);
+        let y = origin.y + (Math.sin(angle) * radius);
 
         // A transect is attached to its anchor, but it still needs to affect
         // the placement solve. Shift the anchor opposite the authored ray so
@@ -873,18 +941,20 @@ function projectConstraint(constraint, positions, pins, worldSeed) {
     }
 }
 
-function runLayout(locations, pins, constraints, fieldClauses, worldSeed) {
-    const positions = initialPositions(locations, pins, fieldClauses, worldSeed);
+function runLayout(locations, pins, constraints, fieldClauses, worldSeed, origin) {
+    const positions = initialPositions(locations, pins, fieldClauses, worldSeed, origin);
     const iterations = Math.min(900, 520 + (locations.length * 12));
     for (let iteration = 0; iteration < iterations; iteration += 1) {
         const deltas = new Map(locations.map(location => [location.id, { x: 0, y: 0 }]));
         for (let leftIndex = 0; leftIndex < locations.length; leftIndex += 1) {
             const left = locations[leftIndex];
             const leftPosition = positions.get(left.id);
+            // The centring pull follows the origin too, or the layout drifts
+            // back toward an ocean centre over the iterations.
             if (!pins.has(left.id)) {
                 addDelta(deltas, left.id,
-                    ((WORLD_SIZE / 2) - leftPosition.x) * 0.00035,
-                    ((WORLD_SIZE / 2) - leftPosition.y) * 0.00035);
+                    (origin.x - leftPosition.x) * 0.00035,
+                    (origin.y - leftPosition.y) * 0.00035);
             }
             for (let rightIndex = leftIndex + 1; rightIndex < locations.length; rightIndex += 1) {
                 const right = locations[rightIndex];
@@ -955,9 +1025,9 @@ function conflictMessage(constraint, positions, suffix) {
     return `${names} "${constraint.source}" ${suffix} at ${grids} grids`;
 }
 
-function relaxDistanceConstraints(locations, pins, constraintsInput, fieldClauses, worldSeed, relaxations, refusals) {
+function relaxDistanceConstraints(locations, pins, constraintsInput, fieldClauses, worldSeed, relaxations, refusals, origin) {
     const active = [...constraintsInput];
-    let positions = runLayout(locations, pins, active, fieldClauses, worldSeed);
+    let positions = runLayout(locations, pins, active, fieldClauses, worldSeed, origin);
     let guard = constraintsInput.length + 2;
     while (guard > 0) {
         guard -= 1;
@@ -983,7 +1053,7 @@ function relaxDistanceConstraints(locations, pins, constraintsInput, fieldClause
                 message: `${conflictMessage(constraint, positions, 'relaxed')} — a higher-priority constraint wins`,
             });
         }
-        positions = runLayout(locations, pins, active, fieldClauses, worldSeed);
+        positions = runLayout(locations, pins, active, fieldClauses, worldSeed, origin);
     }
     return { active, positions };
 }
@@ -1267,7 +1337,7 @@ function bandMid(bandId) {
  * `pins` parameter is kept because lore `Coords:` could still pin a transit
  * node, but no player-drag path can.
  */
-function deriveTransitWaypoints(transit, placePositions, placeById, pins, warnings) {
+function deriveTransitWaypoints(transit, placePositions, placeById, pins, warnings, origin) {
     const waypoints = [];
     for (const node of transit) {
         const pin = pins.get(node.id);
@@ -1292,7 +1362,7 @@ function deriveTransitWaypoints(transit, placePositions, placeById, pins, warnin
             warnings.push(makeWarning(`${node.name} has fewer than two place connections — treating as a place`, {
                 kind: 'transit-underconnected', locationId: node.id, locationName: node.name,
             }));
-            const fallback = placePositions.get(node.id) ?? { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
+            const fallback = placePositions.get(node.id) ?? origin;
             waypoints.push({
                 id: node.id,
                 locationId: node.id,
@@ -1319,7 +1389,7 @@ function deriveTransitWaypoints(transit, placePositions, placeById, pins, warnin
         const fromPos = placePositions.get(legA.toId);
         const toPos = placePositions.get(legB.toId);
         if (!fromPos || !toPos) {
-            const fallback = placePositions.get(node.id) ?? { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
+            const fallback = placePositions.get(node.id) ?? origin;
             waypoints.push({
                 id: node.id,
                 locationId: node.id,
@@ -1465,6 +1535,7 @@ function applyTerrainAwarePlacement(
     chunkStore,
     worldSeed,
     relaxations,
+    origin,
 ) {
     if (!chunkStore) {
         return { positions, movedPins: new Map(), implicitClauses: [], reifiedTransit: [] };
@@ -1525,7 +1596,7 @@ function applyTerrainAwarePlacement(
     if (movedPins.size > 0) {
         const mergedPins = new Map(pins);
         for (const [id, pin] of movedPins) mergedPins.set(id, pin);
-        const resettled = runLayout(places, mergedPins, constraints, fieldClauses, worldSeed);
+        const resettled = runLayout(places, mergedPins, constraints, fieldClauses, worldSeed, origin);
         // Preserve moved-pin positions (they are not negotiable).
         for (const [id, pin] of movedPins) resettled.set(id, { x: pin.x, y: pin.y });
         // Preserve original pins too.
@@ -1575,6 +1646,11 @@ export function solveWorldMap(input = {}) {
     const pins = collectPins(places, lore.pins, refusals);
     const distanceConstraints = buildDistanceConstraints(places, lore, warnings, transit);
     let fieldClauses = lore.clauses.filter(clause => clause.kind === 'transect');
+    // Only a free place or a transit fallback reads the origin; a fully
+    // pinned ledger skips the search.
+    const origin = transit.length > 0 || places.some(place => !pins.has(place.id))
+        ? layoutOrigin(chunkStore)
+        : WORLD_CENTRE;
 
     let graph = relaxDistanceConstraints(
         places,
@@ -1584,6 +1660,7 @@ export function solveWorldMap(input = {}) {
         worldSeed,
         relaxations,
         refusals,
+        origin,
     );
     fieldClauses = resolveFieldConflicts(fieldClauses, graph.positions, relaxations, refusals);
     fieldClauses = applyHardenedCells(fieldClauses, graph.positions, hardened, relaxations);
@@ -1595,6 +1672,7 @@ export function solveWorldMap(input = {}) {
         worldSeed,
         relaxations,
         refusals,
+        origin,
     );
     resolveRoundedCollisions(places, pins, graph.positions, refusals);
 
@@ -1612,6 +1690,7 @@ export function solveWorldMap(input = {}) {
         chunkStore,
         worldSeed,
         relaxations,
+        origin,
     );
     const implicitClauses = terrainResult.implicitClauses;
     if (implicitClauses.length > 0) {
@@ -1634,7 +1713,7 @@ export function solveWorldMap(input = {}) {
     // Re-derive waypoints after terrain moves — their endpoints may have
     // moved. The place positions are the source of truth; the transit
     // positions are a pure function of them.
-    const waypoints = deriveTransitWaypoints(transit, graph.positions, placeById, pins, warnings);
+    const waypoints = deriveTransitWaypoints(transit, graph.positions, placeById, pins, warnings, origin);
 
     // WO 4.4 — `pinned` is gone; `source` reports *why* a place sits where it
     // sits. A `Coords:` bullet reports `lore`; a free-solved place reports

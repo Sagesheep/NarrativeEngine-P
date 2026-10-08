@@ -1,4 +1,4 @@
-import { routeKnowledge, estimateLabel } from './routeKnowledge.js';
+import { routeKnowledge, estimateLabel, legWords } from './routeKnowledge.js';
 import { observedTerrainStore } from './exploration.js';
 import { WORLD_PROFILES, worldProfile } from './worldProfiles.js';
 import { loadPixelArt, drawPixelSprite, paintPixelCell, paintPixelObjects, paintPixelRelief, paintPixelFog, SITE_SPRITES } from './pixelArt.js';
@@ -911,7 +911,7 @@ function refreshTokenCache(root) {
  *   },
  *   log?: (...args: unknown[]) => void,
  *   onClickCell?: (x: number, y: number) => void,
- *   onRouteAction?: (action: 'commit' | 'cancel' | 'setMode', payload?: unknown) => void,
+ *   onRouteAction?: (action: 'commit' | 'cancel' | 'setMode' | 'startHere' | string, payload?: unknown) => void,
  *   getRoutePreview?: () => (null | {
  *     cells: Array<{x: number, y: number}>,
  *     cost: number,
@@ -925,7 +925,9 @@ function refreshTokenCache(root) {
  *   getTravelMode?: () => string,
  *   travelModes?: Array<{ id: string, label: string }>,
  *   onLayerChange?: (patch: { grid?: boolean, roads?: boolean, labels?: boolean }) => void,
- *   onContextAction?: (action: string, payload: object) => void,
+ *   onContextAction?: (action: 'travel' | 'current' | 'details' | 'move', payload: object) => void,
+ *   getWorldEditing?: () => boolean,
+ *   getMovablePlaces?: () => Array<{ id: string, name: string }>,
  * }} options
  */
 export function mountMapRenderer(root, options) {
@@ -933,7 +935,7 @@ export function mountMapRenderer(root, options) {
         getSnapshot, log = () => undefined,
         getInitialView, onViewChange,
         onClickCell, onRouteAction, getRoutePreview, getTravelMode,
-        travelModes, onLayerChange, onContextAction, getWorldEditing,
+        travelModes, onLayerChange, onContextAction, getWorldEditing, getMovablePlaces,
     } = options;
 
     let worldEditing = Boolean(getWorldEditing?.());
@@ -1102,9 +1104,19 @@ export function mountMapRenderer(root, options) {
         const option = document.createElement('option'); option.value = profile.id; option.textContent = profile.label; settingSelect.append(option);
     }
     settingSelect.addEventListener('change', () => onRouteAction?.('setWorldProfile', settingSelect.value));
+    // One travel leg — one press, one checkpoint — is a day or an hour. Routes
+    // and distances stay the same; the clock and the story's wording follow.
+    const unitLabel = document.createElement('label'); unitLabel.textContent = ' Travel time ';
+    const unitSelect = document.createElement('select'); unitSelect.setAttribute('aria-label', 'Travel time unit');
+    unitSelect.title = 'What one travel step stands for. Applies to new journeys and to the travel context sent to the story.';
+    for (const [value, label] of [['days', 'Days'], ['hours', 'Hours']]) {
+        const option = document.createElement('option'); option.value = value; option.textContent = label; unitSelect.append(option);
+    }
+    unitSelect.addEventListener('change', () => onRouteAction?.('setTravelUnit', unitSelect.value));
+    unitLabel.append(unitSelect);
     settingPanel.style.display = worldEditing ? '' : 'none';
     settingPanel.title = 'Editing world facts. Changes here are not character actions.';
-    settingLabel.append(settingSelect); settingPanel.append(settingLabel); overlay.append(settingPanel);
+    settingLabel.append(settingSelect); settingPanel.append(settingLabel, unitLabel); overlay.append(settingPanel);
 
     const roadPanel = document.createElement('details');
     roadPanel.dataset.worldmapRoads = 'true';
@@ -1207,6 +1219,26 @@ export function mountMapRenderer(root, options) {
         });
         contextMenu.appendChild(button);
     }
+    // Edit world: put an existing ledger place on this cell. The mod decides
+    // whether the cell is free; the menu only offers the choice.
+    const moveSection = makeElement('div', undefined, {
+        display: 'none', padding: '4px 6px', marginTop: '3px',
+        borderTop: '1px solid var(--color-border, rgba(255,255,255,0.12))',
+    });
+    moveSection.dataset.worldmapMovePlace = 'true';
+    const moveSelect = document.createElement('select');
+    moveSelect.setAttribute('aria-label', 'Place to move here');
+    applyStyle(moveSelect, { display: 'block', width: '100%', margin: '3px 0', font: 'inherit' });
+    const moveButton = makeElement('button', 'Move here', { cursor: 'pointer', font: 'inherit' });
+    moveButton.type = 'button';
+    moveButton.addEventListener('click', () => {
+        if (!contextMenu._contextPayload || !worldEditing || !moveSelect.value) return;
+        const payload = contextMenu._contextPayload;
+        contextMenu.style.display = 'none';
+        if (onContextAction) onContextAction('move', { ...payload, placeId: moveSelect.value });
+    });
+    moveSection.append(makeElement('div', 'Move a place here…', { color: 'var(--color-text-dim, inherit)' }), moveSelect, moveButton);
+    contextMenu.appendChild(moveSection);
     overlay.appendChild(contextMenu);
     const help = makeElement('div', 'Bright: visible · Dim: known · Dark: not generated · Markers can be known beyond sight', {
         position: 'absolute', bottom: '8px', left: '8px', padding: '4px 8px', borderRadius: '4px',
@@ -1508,7 +1540,18 @@ export function mountMapRenderer(root, options) {
         if (!onRouteAction) return;
         onRouteAction(panelMode === 'journey' ? 'abandon' : 'cancel');
     });
-    routeActionRow.append(routeTravelButton, routeCancelButton);
+    // A party with no spot on the map is offered one at the clicked cell. The
+    // mod decides what that cell becomes; no time passes and nobody travels.
+    const routeStartButton = makeElement('button', 'Start here', {
+        padding: '3px 10px', border: '1px solid var(--color-terminal-dim, #5B21B6)',
+        borderRadius: '3px', background: 'transparent',
+        color: 'var(--color-terminal-dim, #5B21B6)',
+        font: 'inherit', fontSize: '10px', fontWeight: '600', cursor: 'pointer', display: 'none',
+    });
+    routeStartButton.type = 'button';
+    routeStartButton.title = 'Put the party on this cell. No time passes.';
+    routeStartButton.addEventListener('click', () => onRouteAction?.('startHere'));
+    routeActionRow.append(routeStartButton, routeTravelButton, routeCancelButton);
     routePanel.appendChild(routeActionRow);
 
     const view = { cx: FIELD_WORLD_SIZE / 2, cy: FIELD_WORLD_SIZE / 2, cellPixels: ZOOM_LEVELS[1].cellPixels };
@@ -1673,15 +1716,17 @@ export function mountMapRenderer(root, options) {
             hoverReadout.textContent = 'Hover a cell for terrain details';
             return;
         }
+        // Coordinates lead so a cell can be read off the map and typed into the Places panel.
+        const coordinates = `${x}, ${y} · `;
         if (snapshot.generated && !snapshot.generated.has(`${x},${y}`)) {
             hoverCell = null;
             const known = snapshot.anchors?.some(anchor => anchor.x === x && anchor.y === y);
-            hoverReadout.textContent = known ? 'Known place — surrounding terrain not generated' : 'Not generated — explore to reveal';
+            hoverReadout.textContent = coordinates + (known ? 'Known place — surrounding terrain not generated' : 'Not generated — explore to reveal');
             return;
         }
         const cell = snapshot.chunkStore.getCell(x, y);
         hoverCell = { x, y, biome: cell.biome, elevation: cell.elevation };
-        hoverReadout.textContent = (snapshot.generated ? (snapshot.visible?.has(`${x},${y}`) ? 'Visible · ' : 'Known · ') : '') + ({ deadzone: 'Dead zone', sand: 'Dry sand' }[cell.biome] ?? cell.biome.charAt(0).toUpperCase() + cell.biome.slice(1));
+        hoverReadout.textContent = coordinates + (snapshot.generated ? (snapshot.visible?.has(`${x},${y}`) ? 'Visible · ' : 'Known · ') : '') + ({ deadzone: 'Dead zone', sand: 'Dry sand' }[cell.biome] ?? cell.biome.charAt(0).toUpperCase() + cell.biome.slice(1));
     }
 
     function showContextMenu(event) {
@@ -1704,20 +1749,27 @@ export function mountMapRenderer(root, options) {
         };
         contextCell = cell;
         contextMenu._contextPayload = payload;
-        contextTitle.textContent = anchor
-            ? `cell ${cell.x},${cell.y} · ${anchor.name || anchor.locationId}`
-            : `cell ${cell.x},${cell.y}`;
+        // Same "x, y" form as the hover readout, so either can be copied into the Places panel.
+        contextTitle.textContent = `Cell ${cell.x}, ${cell.y}` + (anchor ? ` · ${anchor.name || anchor.locationId}` : '');
         const buttons = contextMenu.querySelectorAll('[data-context-action]');
         for (const button of buttons) {
             const action = button.dataset.contextAction;
             button.style.display = action === 'current' && !worldEditing ? 'none' : 'block';
-            const enabled = action === 'travel' || Boolean(anchor);
+            // Without a place nearby, correcting the position puts the party on the cell itself.
+            const enabled = action === 'travel' || (action === 'current' && worldEditing) || Boolean(anchor);
             button.disabled = !enabled;
             button.style.opacity = enabled ? '1' : '0.45';
             button.style.cursor = enabled ? 'pointer' : 'not-allowed';
         }
+        const movable = worldEditing && typeof getMovablePlaces === 'function' ? getMovablePlaces() ?? [] : [];
+        moveSelect.replaceChildren(...movable.map(place => {
+            const option = document.createElement('option');
+            option.value = place.id; option.textContent = place.name;
+            return option;
+        }));
+        moveSection.style.display = movable.length ? 'block' : 'none';
         const menuWidth = 170;
-        const menuHeight = 150;
+        const menuHeight = movable.length ? 220 : 150;
         contextMenu.style.left = `${clamp(px, 4, Math.max(4, rect.width - menuWidth))}px`;
         contextMenu.style.top = `${clamp(py, 4, Math.max(4, rect.height - menuHeight))}px`;
         contextMenu.style.display = 'block';
@@ -1761,6 +1813,8 @@ export function mountMapRenderer(root, options) {
         const currentAtlas = ensureAtlas(snapshot);
         const selectedProfile = worldProfile(snapshot.settings?.worldProfile).id;
         if (settingSelect.value !== selectedProfile) settingSelect.value = selectedProfile;
+        const selectedUnit = snapshot.travelUnit === 'hours' ? 'hours' : 'days';
+        if (unitSelect.value !== selectedUnit) unitSelect.value = selectedUnit;
         const nextLayers = normaliseLayerSettings(snapshot.settings);
         layerState = nextLayers;
         for (const [key, input] of layerInputs) {
@@ -2604,9 +2658,11 @@ export function mountMapRenderer(root, options) {
         // control lives where the journey is drawn.
         //
         // It reads the HOST's travel state, not the journey record's
-        // `totalLegs`. Both count total days, including arrival; the host
-        // owns progress. A journey of N days has N - 1 camps.
+        // `totalLegs`. Both count total days (hours, for an hour-scale
+        // journey), including arrival; the host owns progress. A journey of
+        // N days has N - 1 camps.
         const travel = snapshot?.travel ?? null;
+        routeStartButton.style.display = 'none';
         if (travel) {
             panelMode = 'journey';
             routePanel.style.display = 'flex';
@@ -2615,10 +2671,11 @@ export function mountMapRenderer(root, options) {
             offerRow.style.display = 'none';
             const toName = travel.toName || 'your destination';
             const arriving = travel.leg + 1 >= travel.totalLegs;
+            const words = legWords(travel.unit);
             const remaining = routeKnowledge(snapshot.journey?.surfaceTravel === false ? [] : snapshot.journey?.cells ?? [], Math.max(1, travel.totalLegs - travel.leg), snapshot.journey?.mode, snapshot.explored, snapshot.roads);
             const lines = [
                 '\u2192 ' + toName,
-                (snapshot.journey?.passage === 'tunnel' ? 'Underground · ' + (travel.totalLegs - travel.leg) + ' travel days remaining' : remaining.uncertain ? estimateLabel(remaining) + ' remaining' : 'camp ' + travel.leg + ' of ' + (travel.totalLegs - 1))
+                (snapshot.journey?.passage === 'tunnel' ? 'Underground · ' + (travel.totalLegs - travel.leg) + ' travel days remaining' : remaining.uncertain ? estimateLabel(remaining, travel.unit) + ' remaining' : words.stop + ' ' + travel.leg + ' of ' + (travel.totalLegs - 1))
                     + (Number.isFinite(snapshot.worldDay) ? ' \u00b7 day ' + snapshot.worldDay : ''),
             ];
             // A click on the map mid-journey is refused (one route at a time).
@@ -2628,6 +2685,8 @@ export function mountMapRenderer(root, options) {
             const refusal = getRoutePreview ? getRoutePreview() : null;
             if (refusal && refusal.blocked && refusal.reason === 'journey-active') {
                 lines.push('Abandon to plan a new route.');
+            } else if (refusal?.blocked && refusal.notice && refusal.label) {
+                lines.push(refusal.label);
             }
             const stop = snapshot.journey?.checkpoints?.[travel.leg - 1];
             if (stop?.siteName) lines.push('Stopping at ' + stop.siteName);
@@ -2639,7 +2698,7 @@ export function mountMapRenderer(root, options) {
                 : 'Continue \u2192';
             routeTravelButton.title = arriving
                 ? 'Finish the journey and arrive at ' + toName
-                : remaining.uncertain ? 'Continue exploring toward your destination' : 'Travel on to camp ' + (travel.leg + 1) + ' of ' + (travel.totalLegs - 1);
+                : remaining.uncertain ? 'Continue exploring toward your destination' : 'Travel on to ' + words.stop + ' ' + (travel.leg + 1) + ' of ' + (travel.totalLegs - 1);
             routeCancelButton.textContent = 'Abandon';
             routeCancelButton.title = 'Stop travelling without arriving';
             return;
@@ -2678,10 +2737,14 @@ export function mountMapRenderer(root, options) {
             const detail = (preview.blocked && typeof preview.blocked === 'object') ? preview.blocked : preview;
             const reason = detail.label || detail.reason || 'no route';
             const toName = (preview.toAnchor && preview.toAnchor.name) || 'destination';
-            routeReadout.textContent = `Blocked: ${reason}`;
-            routeReadout.style.color = 'var(--color-command-accent, #E01B1B)';
+            // No current place is a question, not a failure: name the cell and offer Start here.
+            const startable = (detail.reason === 'no-current-place' || detail.reason === 'no-current-anchor') && preview.startCell;
+            routeReadout.textContent = startable ? `${reason}\nCell ${preview.startCell.x}, ${preview.startCell.y}`
+                : preview.notice ? reason : `Blocked: ${reason}`;
+            routeReadout.style.color = startable ? 'var(--color-text-primary, inherit)' : 'var(--color-command-accent, #E01B1B)';
             routeCancelButton.textContent = 'Dismiss';
             routeTravelButton.style.display = 'none';
+            routeStartButton.style.display = startable ? 'inline-block' : 'none';
             // WO 6.3 §1 — the no-road refusal is an offer, not a dead end.
             // Show the band selector (defaulted to the straight-line band
             // the mod pre-computed) and the "Create and travel" button. The
@@ -2702,7 +2765,8 @@ export function mountMapRenderer(root, options) {
         } else {
             const cellCount = preview.cellCount != null ? preview.cellCount : Math.max(0, (preview.cells || []).length - 1);
             const toName = (preview.toAnchor && preview.toAnchor.name) || 'destination';
-            routeReadout.textContent = preview.durationMinutes !== undefined ? `→ ${toName}\n${preview.passage ? preview.passage + ' · ' : ''}${preview.durationMinutes === 0 ? 'Instant' : (preview.knowledge?.uncertain ? `Estimated ${Math.max(1, Math.floor(preview.durationMinutes * 0.5))}–${Math.ceil(preview.durationMinutes * 1.5)} minutes` : preview.durationMinutes + ' minutes')} · local travel` : preview.surfaceTravel === false ? `→ ${toName}\n${preview.passage} · ${preview.days} travel days\nDashed line connects the entrances; it is not a surface path.` : preview.knowledge?.uncertain ? `→ ${toName}\n${estimateLabel(preview.knowledge)}\nDashed line shows direction only; the path and camps are not yet known.` : `→ ${toName}\n${cellCount} cells · ${preview.days} day${preview.days === 1 ? '' : 's'}`;
+            const words = legWords(snapshot?.travelUnit);
+            routeReadout.textContent = preview.durationMinutes !== undefined ? `→ ${toName}\n${preview.passage ? preview.passage + ' · ' : ''}${preview.durationMinutes === 0 ? 'Instant' : (preview.knowledge?.uncertain ? `Estimated ${Math.max(1, Math.floor(preview.durationMinutes * 0.5))}–${Math.ceil(preview.durationMinutes * 1.5)} minutes` : preview.durationMinutes + ' minutes')} · local travel` : preview.surfaceTravel === false ? `→ ${toName}\n${preview.passage} · ${preview.days} travel days\nDashed line connects the entrances; it is not a surface path.` : preview.knowledge?.uncertain ? `→ ${toName}\n${estimateLabel(preview.knowledge, snapshot?.travelUnit)}\nDashed line shows direction only; the path and ${words.stop}s are not yet known.` : `→ ${toName}\n${cellCount} cells · ${preview.days} ${preview.days === 1 ? words.one : words.many}`;
             routeReadout.style.color = 'var(--color-text-primary, inherit)';
             routeCancelButton.textContent = 'Cancel route';
             routeTravelButton.style.display = 'inline-block';
@@ -2724,9 +2788,9 @@ export function mountMapRenderer(root, options) {
         const hasCurrent = currentPlaceId
             ? (snapshot.anchors || []).some(anchor => anchor.locationId === currentPlaceId)
             : false;
-        const currentLine = currentPlaceId && !hasCurrent
-            ? ' · current place has no anchor'
-            : '';
+        const currentLine = !currentPlaceId
+            ? ' · no current place — click a cell to start'
+            : !hasCurrent ? ' · current place has no anchor' : '';
         hud.textContent = 'OVERWORLD' + (Number.isFinite(snapshot.worldDay) ? ' · Day ' + snapshot.worldDay : '') + currentLine;
     }
 

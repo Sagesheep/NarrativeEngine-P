@@ -6,7 +6,7 @@ import { readRoads, serializeRoads, roadEdges, travelSurfaces, planRoad, roadCan
 import { readExploration, readGeneratedCells, serializeExploration, revealCells, visibleCells, explorationPoint, validCell } from './exploration.js';
 import { worldProfile } from './worldProfiles.js';
 import { checkpointKey, readEncounters, serializeEncounters, recordCheckpoint, handleEncounter, noteEncounter, setEncounterFlags } from './encounters.js';
-import { fixedSiteAnchors, promoteSite, preferSiteStops } from './siteTravel.js';
+import { fixedSiteAnchors, promoteSite, preferSiteStops, placeAtCell } from './siteTravel.js';
 import { readDiscoveries, serializeDiscoveries, surveyDiscoveries, nearbyDiscoveries, nameDiscovery, siteLabel } from './discoveries.js';
 import { readTrails, serializeTrails, recordTrailProgress } from './trails.js';
 import { solveWorldMap, DISTANCE_BANDS } from './solver.js';
@@ -210,8 +210,9 @@ async function rememberTrails(ctx, journey) {
     if (!journey || journey.surfaceTravel === false) return;
     const location = ctx.data.location;
     const cell = partyCellForJourney(journey, location?.travel);
+    // An hour-scale journey can end on the day it started, like a same-day passage.
     const arrived = !location?.travel && location?.currentPlaceId === journey.toId
-        && location?.worldDay >= journey.startedOnDay + (journey.sameDay ? 0 : journey.totalLegs);
+        && location?.worldDay >= journey.startedOnDay + (journey.sameDay || journey.unit === 'hours' ? 0 : journey.totalLegs);
     const endIndex = arrived ? journey.cells.length - 1
         : cell ? journey.cells.findIndex(c => c.x === cell.x && c.y === cell.y) : -1;
     if (endIndex >= 0) await observeTerrain(ctx, journey.cells.slice(0, endIndex + 1));
@@ -420,6 +421,38 @@ function nearestAnchor(anchors, x, y, radius) {
     return best;
 }
 
+// The record an empty cell becomes: an unpromoted discovery there, else the
+// cell's exploration point. A point whose record was moved to another cell is
+// not reused, or the route and the party would follow it to its new cell.
+function cellSite(campaignId, ledger, x, y) {
+    const elsewhere = new Set(ledger.filter(entry => validCell(entry.coordinates)
+        && (entry.coordinates.x !== x || entry.coordinates.y !== y)).map(entry => entry.id));
+    const found = [...(discoveriesByCampaign.get(campaignId)?.sites.values() ?? [])].find(site => site.x === x && site.y === y && !elsewhere.has(site.id));
+    if (found) return found;
+    const point = explorationPoint(reportsByCampaign.get(campaignId).settings.worldSeed, x, y);
+    let id = point.id;
+    for (let n = 2; elsewhere.has(id); n++) id = `${point.id}-${n}`;
+    return { ...point, id };
+}
+
+// The ledger place whose anchor sits exactly on `cell` (ledger coordinates
+// first, then site cells, then the solve). Transit midpoints are not places.
+function ledgerAnchorAt(campaignId, ledger, cell, accept = () => true) {
+    const byId = new Map(ledger.map(entry => [entry.id, entry]));
+    return fixedSiteAnchors(reportsByCampaign.get(campaignId) ?? {}, discoveriesByCampaign.get(campaignId)?.sites.values() ?? [], ledger)
+        .find(anchor => anchor.x === cell.x && anchor.y === cell.y && byId.get(anchor.locationId)
+            && byId.get(anchor.locationId).kind !== 'transit' && accept(byId.get(anchor.locationId))) ?? null;
+}
+
+// Positions and routes follow the party; only authored places are moved by hand.
+function isMovablePlace(entry) {
+    return Boolean(entry) && entry.kind !== 'transit' && entry.recordKind !== 'position' && entry.recordKind !== 'route';
+}
+export function movablePlaces(ledger) {
+    return ledger.filter(isMovablePlace).map(entry => ({ id: entry.id, name: entry.name || entry.id }))
+        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
 /**
  * BFS over the ledger's connection graph to find a path from `fromId` to
  * `toId` through intermediate places. Returns an array of place ids
@@ -505,14 +538,17 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
         };
     }
 
+    // A party with no spot on the map cannot route anywhere, so the refusal
+    // carries the clicked cell and the panel offers Start here instead.
+    const startCell = validCell({ x: toX, y: toY }) ? { x: toX, y: toY } : undefined;
     const fromId = ctx.data?.location?.currentPlaceId ?? null;
-    if (!fromId) return { blocked: true, reason: 'no-current-place', label: 'No current place — set one in the Places panel' };
+    if (!fromId) return { blocked: true, reason: 'no-current-place', label: 'Where is the party? Choose a cell and press Start here.', startCell };
 
     const originCell = stoppedCell(positionByCampaign.get(campaignId), ctx.data?.location);
     const baseFromAnchor = anchors.find(a => a.locationId === fromId);
     const fromAnchor = baseFromAnchor && { ...baseFromAnchor, ...originCell };
     if (!fromAnchor || !Number.isFinite(fromAnchor.x) || !Number.isFinite(fromAnchor.y)) {
-        return { blocked: true, reason: 'no-current-anchor', label: 'Current place has no map anchor' };
+        return { blocked: true, reason: 'no-current-anchor', label: 'Your current place has no map position yet. Choose a cell and press Start here.', startCell };
     }
 
     // Exact-cell selection: adjacent wilderness must remain independently reachable.
@@ -521,8 +557,7 @@ export function computeRoutePreview(ctx, campaignId, toX, toY, mode, preference 
     let destinationSite = null;
     let toAnchor = targetId ? anchors.find(anchor => anchor.locationId === targetId) : nearestAnchor(anchors.filter(anchor => !ledger.some(entry => entry.id === anchor.locationId && entry.kind === 'transit')), toX, toY, 0);
     if (!toAnchor && !targetId) {
-        destinationSite = [...(discoveriesByCampaign.get(campaignId)?.sites.values() ?? [])].find(site => site.x === toX && site.y === toY)
-            ?? explorationPoint(result.settings.worldSeed, toX, toY);
+        destinationSite = cellSite(campaignId, allPlaces, toX, toY);
         toAnchor = { locationId: destinationSite.id, x: toX, y: toY, name: siteLabel(destinationSite) };
         anchors.push(toAnchor);
     }
@@ -994,14 +1029,17 @@ export function partyCellForJourney(journey, travel) {
  * counts). `totalLegs` is the sum of the hops' legs — the terrain-real leg
  * count the host will use when `departMultiHop` runs. `startedOnDay` is the
  * host's current `worldDay` (or 1 if unset), so a re-loaded campaign can show
- * how many days the journey has taken so far.
+ * how many days the journey has taken so far. `unit` is the campaign's travel
+ * unit at commit; the host fixes the same unit on its travel state, so an
+ * hour-scale journey is recorded as one (surface routes only — a passage's
+ * legs are always days).
  *
  * Returns `null` when the preview is missing the geometry (e.g. a blocked
  * preview, or a single-hop preview that somehow lost its cells). A `null`
  * result means the commit must NOT emit `travelRequest` — the record and the
  * departure cannot disagree (§1), so no record means no departure.
  */
-function buildJourneyFromPreview(preview, worldDay) {
+function buildJourneyFromPreview(preview, worldDay, unit) {
     if (!preview || preview.blocked) return null;
     const cells = Array.isArray(preview.cells) ? preview.cells : [];
     const checkpoints = Array.isArray(preview.checkpoints) ? preview.checkpoints : [];
@@ -1023,6 +1061,7 @@ function buildJourneyFromPreview(preview, worldDay) {
         surfaceTravel: preview.surfaceTravel !== false,
         passage: preview.passage,
         startedOnDay: Number.isFinite(worldDay) ? worldDay : 1,
+        ...(unit === 'hours' && preview.surfaceTravel !== false ? { unit: 'hours' } : {}),
     };
 }
 
@@ -1108,6 +1147,7 @@ export async function solveAndPersist(ctx) {
     if (JSON.stringify(liveLedger) !== JSON.stringify(sourceLedger)) return null;
     result.anchors = fixedSiteAnchors(result, sites.values(), placedLedger);
     const records = markCurrentVisited(reconcilePlaceRecords(placedLedger, result.anchors, sites.values()), fresh.data.location?.currentPlaceId, player);
+    await syncMovedSites(confirm, campaignId, records, terrainChunkStore);
     if (records !== liveLedger && confirm.write?.setLocationLedger) await confirm.write.setLocationLedger(records);
     await confirm.table.write('anchors', result.anchors);
     publishResult(campaignId, result, settings);
@@ -1128,6 +1168,25 @@ export async function solveAndPersist(ctx) {
         }).catch(error => ctx.log?.('[worldmap] pending placement recovery failed', error));
     }, Math.max(1, Math.min(...deadlines) - Date.now() + 1)));
     return result;
+}
+
+// Ledger coordinates are authoritative for promoted sites (fixedSiteAnchors),
+// so a Places-panel edit has to reach the discoveries table too, or surveys,
+// overnight stops and site hardening keep using the old cell. The biome moves
+// with it: a stale one would harden the new cell to the old terrain. Writes
+// only when something differs, so the next solve finds nothing to do.
+async function syncMovedSites(fresh, campaignId, ledger, store) {
+    const state = discoveriesByCampaign.get(campaignId);
+    if (!state?.sites.size) return;
+    const moved = ledger.filter(entry => state.sites.has(entry.id) && validCell(entry.coordinates)
+        && (state.sites.get(entry.id).x !== entry.coordinates.x || state.sites.get(entry.id).y !== entry.coordinates.y));
+    if (!moved.length) return;
+    const next = readDiscoveries(serializeDiscoveries(state));
+    for (const entry of moved) next.sites.set(entry.id, { ...next.sites.get(entry.id), ...entry.coordinates,
+        biome: store.getCell(entry.coordinates.x, entry.coordinates.y).biome });
+    await fresh.table.write('discoveries', serializeDiscoveries(next));
+    discoveriesByCampaign.set(campaignId, next);
+    snapshotCacheByCampaign.delete(campaignId);
 }
 
 /**
@@ -1201,7 +1260,7 @@ export async function createConnectionAndRoute(ctx, campaignId, fromId, toId, ba
     // other two commit paths. Bail out of the emit if the write fails (the
     // record and the departure cannot disagree).
     const worldDay = afterWrite.data?.location?.worldDay;
-    const journey = buildJourneyFromPreview(reRouted, worldDay);
+    const journey = buildJourneyFromPreview(reRouted, worldDay, afterWrite.data?.location?.travelUnit);
     if (journey) {
         const wrote = await writeJourney(afterWrite, journey);
         if (!wrote) return reRouted;
@@ -1504,9 +1563,14 @@ export function mapSnapshot(ctx) {
     // The leg is part of what the snapshot depends on, so it is part of the
     // key. Deleting the cache from the one subscription that noticed would
     // have fixed this call site and left the trap armed for the next field.
-    const travelKey = `${ctx.data?.location?.currentPlaceId ?? ""}:${travelSnapshotKey(ctx.data?.location?.travel ?? null)}`;
+    const travelUnit = ctx.data?.location?.travelUnit === 'hours' ? 'hours' : 'days';
+    const travelKey = `${ctx.data?.location?.currentPlaceId ?? ""}:${travelSnapshotKey(ctx.data?.location?.travel ?? null)}:${travelUnit}`;
+    // Anchors read ledger coordinates directly, so a moved place must not be
+    // served from a snapshot built from an older ledger — including one a
+    // repaint built from a not-yet-refreshed context just after the write.
+    const ledgerKey = ctx.data?.location?.ledger;
     const cached = snapshotCacheByCampaign.get(campaignId);
-    if (cached && cached.worldVersion === version && cached.travelKey === travelKey) {
+    if (cached && cached.worldVersion === version && cached.travelKey === travelKey && cached.ledgerKey === ledgerKey) {
         return cached.snapshot;
     }
 
@@ -1547,6 +1611,7 @@ export function mapSnapshot(ctx) {
             toName: ledgerById.get(travel.toId)?.name ?? travel.toId,
             leg: travel.leg,
             totalLegs: travel.totalLegs,
+            unit: travel.unit === 'hours' ? 'hours' : 'days',
         }
         : null;
 
@@ -1578,6 +1643,9 @@ export function mapSnapshot(ctx) {
         worldVersion: version,
         travel: travelSummary,
         worldDay: ctx.data?.location?.worldDay ?? null,
+        // What one leg reads as in a route preview. The journey on screen
+        // keeps the unit it departed with (`travel.unit`).
+        travelUnit,
         chunkStore,
         controls,
         // WO 6.2 — the journey on screen. The renderer draws the walked leg
@@ -1589,8 +1657,145 @@ export function mapSnapshot(ctx) {
         journey: journey && travel ? journey : null,
         journeyLeg,
     };
-    snapshotCacheByCampaign.set(campaignId, { snapshot, worldVersion: version, travelKey });
+    snapshotCacheByCampaign.set(campaignId, { snapshot, worldVersion: version, travelKey, ledgerKey });
     return snapshot;
+}
+
+// ── Placing the party and places by hand ──────────────────────────────────
+//
+// None of these is travel: no day passes and no journey starts. They are
+// serialised so a double press cannot claim the same cell twice.
+let placingQueue = Promise.resolve();
+function queuePlacing(ctx, task) {
+    placingQueue = placingQueue.then(task).catch(error => ctx.log?.('[worldmap] placement failed', error));
+    return placingQueue;
+}
+
+// Refusals use the route panel, the map's one message surface; a notice has
+// no cells, so it draws nothing and offers Dismiss.
+function mapNotice(campaignId, reason, label) {
+    routePreviewByCampaign.set(campaignId, { blocked: true, notice: true, reason, label });
+    for (const listener of mapPaintListeners) listener(campaignId);
+}
+
+// An empty cell becomes a position record exactly as an empty-cell
+// destination does on commit, minus the road: nobody travelled here.
+async function claimEmptyCell(ctx, campaignId, cell) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh || fresh.data.campaignId !== campaignId) return null;
+    const site = cellSite(campaignId, fresh.data.location.ledger ?? [], cell.x, cell.y);
+    const state = readDiscoveries(serializeDiscoveries(discoveriesByCampaign.get(campaignId) ?? readDiscoveries(null)));
+    if (!state.sites.has(site.id)) {
+        state.sites.set(site.id, { ...site, biome: mapSnapshot(fresh)?.chunkStore.getCell(site.x, site.y).biome });
+        await fresh.table.write('discoveries', serializeDiscoveries(state));
+        discoveriesByCampaign.set(campaignId, state);
+    }
+    const latest = await freshCampaignContext(ctx);
+    if (!latest || latest.data.campaignId !== campaignId) return null;
+    const ledger = latest.data.location.ledger ?? [];
+    const next = promoteSite(site, ledger, null);
+    snapshotCacheByCampaign.delete(campaignId);
+    if (next !== ledger) await latest.write?.setLocationLedger?.(next);
+    return site.id;
+}
+
+// The shared "a user chose this cell for a place" write. A promoted site's
+// discovery cell follows, and a camp the current place left behind is
+// dropped so the party marker follows the place rather than the old camp.
+async function placeOnCell(ctx, campaignId, placeId, cell) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh || fresh.data.campaignId !== campaignId) return false;
+    const state = discoveriesByCampaign.get(campaignId);
+    if (state?.sites.has(placeId)) {
+        const next = readDiscoveries(serializeDiscoveries(state));
+        next.sites.set(placeId, { ...next.sites.get(placeId), x: cell.x, y: cell.y,
+            biome: mapSnapshot(fresh)?.chunkStore.getCell(cell.x, cell.y).biome });
+        await fresh.table.write('discoveries', serializeDiscoveries(next));
+        discoveriesByCampaign.set(campaignId, next);
+    }
+    if (fresh.data.location.currentPlaceId === placeId && positionByCampaign.get(campaignId)?.placeId === placeId) {
+        positionByCampaign.set(campaignId, null);
+        await fresh.table.write('position', {});
+    }
+    const latest = await freshCampaignContext(ctx);
+    if (!latest || latest.data.campaignId !== campaignId) return false;
+    const ledger = latest.data.location.ledger ?? [];
+    if (!ledger.some(entry => entry.id === placeId) || !latest.write?.setLocationLedger) return false;
+    routePreviewByCampaign.delete(campaignId);
+    snapshotCacheByCampaign.delete(campaignId);
+    await latest.write.setLocationLedger(ledger.map(entry => entry.id === placeId ? placeAtCell(entry, cell) : entry));
+    snapshotCacheByCampaign.delete(campaignId);
+    for (const listener of mapPaintListeners) listener(campaignId);
+    return true;
+}
+
+// The party was put on this place by hand, so any camp from an earlier
+// journey no longer says where it stands.
+async function settlePartyAt(ctx, campaignId, placeId) {
+    const latest = await freshCampaignContext(ctx);
+    if (!placeId || !latest || latest.data.campaignId !== campaignId) return false;
+    if (Number.isSafeInteger(positionByCampaign.get(campaignId)?.x)) {
+        positionByCampaign.set(campaignId, null);
+        await latest.table.write('position', {});
+    }
+    routePreviewByCampaign.delete(campaignId);
+    snapshotCacheByCampaign.delete(campaignId);
+    if (latest.write?.updateContext) latest.write.updateContext({ currentPlaceId: placeId, currentFeature: null, travel: null });
+    else latest.events?.emit('setCurrentPlace', { locationId: placeId });
+    for (const listener of mapPaintListeners) listener(campaignId);
+    return true;
+}
+
+// Start here: a party with no current place (or a current place with no
+// position) gets one at the chosen cell. An exact place is reused; a current
+// place that simply had no position is given this one; anything else becomes
+// a position record. Not a world-fact edit, so it needs no Edit world.
+async function startPartyAt(ctx, campaignId, cell) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh || fresh.data.campaignId !== campaignId || !reportsByCampaign.get(campaignId)) return;
+    if (!validCell(cell)) { mapNotice(campaignId, 'outside-world', 'Choose a cell inside the map'); return; }
+    const check = computeRoutePreview(fresh, campaignId, cell.x, cell.y, currentTravelMode);
+    if (check.reason !== 'no-current-place' && check.reason !== 'no-current-anchor') {
+        // The party found a place meanwhile; show what this click means now.
+        routePreviewByCampaign.set(campaignId, { ...check, _clickCell: cell });
+        for (const listener of mapPaintListeners) listener(campaignId);
+        return;
+    }
+    const ledger = fresh.data.location.ledger ?? [];
+    const current = ledger.find(entry => entry.id === fresh.data.location.currentPlaceId);
+    let placeId = ledgerAnchorAt(campaignId, ledger, cell, hasKnownPosition)?.locationId ?? null;
+    if (!placeId && check.reason === 'no-current-anchor' && current && current.kind !== 'transit') {
+        if (!await placeOnCell(ctx, campaignId, current.id, cell)) return;
+        placeId = current.id;
+    }
+    placeId ??= await claimEmptyCell(ctx, campaignId, cell);
+    await settlePartyAt(ctx, campaignId, placeId);
+}
+
+// Edit world: put the party on an exact cell that has no place near it.
+async function correctPositionAt(ctx, campaignId, cell) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh || fresh.data.campaignId !== campaignId || !reportsByCampaign.get(campaignId)) return;
+    if (!validCell(cell)) { mapNotice(campaignId, 'outside-world', 'Choose a cell inside the map'); return; }
+    await settlePartyAt(ctx, campaignId, await claimEmptyCell(ctx, campaignId, cell));
+}
+
+// Edit world: move a ledger place onto a cell. Refused rather than stacked
+// on another place, and never under a journey whose route assumes the old map.
+async function movePlaceHere(ctx, campaignId, placeId, cell) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh || fresh.data.campaignId !== campaignId || !reportsByCampaign.get(campaignId)) return;
+    if (!validCell(cell)) { mapNotice(campaignId, 'outside-world', 'Choose a cell inside the map'); return; }
+    if (fresh.data.location.travel) { mapNotice(campaignId, 'move-journey', 'Abandon the journey before moving places'); return; }
+    const ledger = fresh.data.location.ledger ?? [];
+    if (!isMovablePlace(ledger.find(entry => entry.id === placeId))) { mapNotice(campaignId, 'move-missing', 'Choose a place to move'); return; }
+    const occupant = ledgerAnchorAt(campaignId, ledger, cell, entry => entry.id !== placeId);
+    if (occupant) {
+        const name = ledger.find(entry => entry.id === occupant.locationId)?.name || 'Another place';
+        mapNotice(campaignId, 'move-occupied', `${name} is already at ${cell.x}, ${cell.y}. Choose another cell.`);
+        return;
+    }
+    await placeOnCell(ctx, campaignId, placeId, cell);
 }
 
 function mountMap(node, ctx) {
@@ -1726,7 +1931,7 @@ function mountMap(node, ctx) {
             const latest = await freshCampaignContext(ctx);
             if (!latest || latest.data.campaignId !== campaignId || latest.data.location.travel
                 || latest.data.location.currentPlaceId !== preview.fromAnchor?.locationId) return;
-            const journey = buildJourneyFromPreview(preview, latest.data.location.worldDay);
+            const journey = buildJourneyFromPreview(preview, latest.data.location.worldDay, latest.data.location.travelUnit);
             if (!journey || !await writeJourney(latest, journey)) return;
             const confirmed = await freshCampaignContext(ctx);
             if (!confirmed || confirmed.data.campaignId !== campaignId) return;
@@ -1747,7 +1952,7 @@ function mountMap(node, ctx) {
             }
             refreshPreview(); return;
         }
-        if ((action.startsWith('road') || action === 'setWorldProfile' || action === 'createConnection') && !worldEditing) return;
+        if ((action.startsWith('road') || action === 'setWorldProfile' || action === 'setTravelUnit' || action === 'createConnection') && !worldEditing) return;
         if (action.startsWith('road')) {
             void handleRoadAction(action, payload).catch(error => {
                 showRoadEditor({ ...(roadEditorsByCampaign.get(currentCampaignId) ?? {}), busy: false, message: 'Could not save or build the path. Please try again.' });
@@ -1770,6 +1975,17 @@ function mountMap(node, ctx) {
                 await updateDiscoveries(fresh);
                 refreshPreview();
             }).catch(error => ctx.log?.('[worldmap] world setting save failed', error));
+            return;
+        }
+        if (action === 'setTravelUnit') {
+            // The unit lives on the campaign context, not in this mod's
+            // tables: the host's clock and the model's travel wording read it
+            // there, and it comes back through `data.location`.
+            const campaignId = currentCampaignId;
+            void freshCampaignContext(ctx).then(fresh => {
+                if (!fresh || fresh.data.campaignId !== campaignId) return;
+                fresh.write?.updateContext?.({ travelUnit: payload === 'hours' ? 'hours' : 'days' });
+            }).catch(error => ctx.log?.('[worldmap] travel unit save failed', error));
             return;
         }
         if (action === 'roleplayEncounter') {
@@ -1868,6 +2084,15 @@ function mountMap(node, ctx) {
             refreshPreview();
             return;
         }
+        if (action === 'startHere') {
+            const preview = routePreviewByCampaign.get(currentCampaignId);
+            if (!preview?.blocked || !preview._clickCell
+                || (preview.reason !== 'no-current-place' && preview.reason !== 'no-current-anchor')) return;
+            const campaignId = currentCampaignId;
+            const cell = { x: preview._clickCell.x, y: preview._clickCell.y };
+            void queuePlacing(ctx, () => startPartyAt(ctx, campaignId, cell));
+            return;
+        }
         if (action === 'setMode' || action === 'setPreference') {
             if (action === 'setMode') currentTravelMode = String(payload || 'foot');
             else routePreferenceByCampaign.set(currentCampaignId, payload === 'shortest' ? 'shortest' : 'fastest');
@@ -1954,6 +2179,18 @@ function mountMap(node, ctx) {
             }
             return;
         }
+        const campaignId = currentCampaignId;
+        const cell = { x: payload.x, y: payload.y };
+        if (action === 'current' && worldEditing) {
+            // No place within reach of the cell: the party stands on the cell itself.
+            void queuePlacing(ctx, () => correctPositionAt(ctx, campaignId, cell));
+            return;
+        }
+        if (action === 'move' && worldEditing) {
+            const placeId = String(payload.placeId ?? '');
+            void queuePlacing(ctx, () => movePlaceHere(ctx, campaignId, placeId, cell));
+            return;
+        }
         if (action === 'details' && locationId) {
             ctx.events?.emit('placeDetails', { locationId });
             return;
@@ -2019,6 +2256,7 @@ function mountMap(node, ctx) {
             getRoutePreview,
             getTravelMode,
             getWorldEditing: () => worldEditing,
+            getMovablePlaces: () => movablePlaces(liveCtx.data?.location?.ledger ?? []),
             travelModes: MAP_TRAVEL_MODES,
             log: (...args) => ctx?.log?.('[worldmap:map]', ...args),
         });
@@ -2206,7 +2444,7 @@ function registerMapWindow(ctx) {
             if (!anchor) { reply(null); return; }
             const preview = computeRoutePreview(fresh, payload.campaignId, anchor.x, anchor.y, payload.mode, undefined, false, payload.toId);
             if (preview.blocked) { reply(null); return; }
-            const journey = buildJourneyFromPreview(preview, fresh.data.location.worldDay);
+            const journey = buildJourneyFromPreview(preview, fresh.data.location.worldDay, fresh.data.location.travelUnit);
             if (!journey || !valid(await freshCampaignContext(ctx)) || !await writeJourney(fresh, journey)) { reply(null); return; }
             reply(valid(await freshCampaignContext(ctx)) ? preview.hops : null);
         } catch (error) { ctx.log?.('[worldmap] story route failed', error); reply(null); }

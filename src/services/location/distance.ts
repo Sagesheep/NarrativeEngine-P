@@ -1,3 +1,5 @@
+import { travelUnitWords, type TravelUnit } from './travelUnit';
+
 export type DistanceBand =
     | 'adjacent' | 'nearby' | 'local' | 'regional'
     | 'far' | 'distant' | 'remote' | 'farthest';
@@ -48,24 +50,28 @@ export function bandToDayRangeForMode(band: DistanceBand, gridsPerDay: number): 
     };
 }
 
-/** Format a band's travel-time range for player-facing context. */
-export function formatDayRange(band: DistanceBand): string {
-    const { min, max } = bandToDayRange(band);
+function formatLegRange({ min, max }: { min: number; max: number }, unit: TravelUnit | undefined): string {
+    const words = travelUnitWords(unit);
     if (min === 0 && max === 0) return 'no travel';
-    if (max === Infinity) return `${min}+ days`;
-    if (min === max) return `about ${min} day`;
-    return `${min}–${max} days`;
+    if (max === Infinity) return `${min}+ ${words.many}`;
+    if (min === max) return `about ${min} ${min === 1 ? words.one : words.many}`;
+    return `${min}–${max} ${words.many}`;
+}
+
+/**
+ * Format a band's travel-time range for player-facing context. A leg is a day
+ * unless the campaign travels in hours, which reads the same counts as hours.
+ */
+export function formatDayRange(band: DistanceBand, unit?: TravelUnit): string {
+    return formatLegRange(bandToDayRange(band), unit);
 }
 
 /**
  * Format a `(band, mode)` day-range for the picker. Mode-aware companion to
  * `formatDayRange`. `adjacent` reads "no travel"; `farthest` reads "N+ days";
- * a single-day band reads "about 1 day"; otherwise "M–N days".
+ * a single-day band reads "about 1 day"; otherwise "M–N days". Hours replace
+ * days when `unit` is 'hours'.
  */
-export function formatDayRangeForMode(band: DistanceBand, gridsPerDay: number): string {
-    const { min, max } = bandToDayRangeForMode(band, gridsPerDay);
-    if (min === 0 && max === 0) return 'no travel';
-    if (max === Infinity) return `${min}+ days`;
-    if (min === max) return `about ${min} day`;
-    return `${min}–${max} days`;
+export function formatDayRangeForMode(band: DistanceBand, gridsPerDay: number, unit?: TravelUnit): string {
+    return formatLegRange(bandToDayRangeForMode(band, gridsPerDay), unit);
 }

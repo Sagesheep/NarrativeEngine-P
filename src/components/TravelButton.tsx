@@ -5,6 +5,7 @@ import { useAppStore } from '../store/useAppStore';
 import type { DistanceBand } from '../services/location/distance';
 import { DISTANCE_BANDS, formatDayRange, formatDayRangeForMode } from '../services/location/distance';
 import { TRAVEL_MODES, type TravelMode, gridsPerDayFor } from '../services/location/travelModes';
+import { travelUnitWords } from '../services/location/travelUnit';
 import {
     composeDeparture,
     travellableFrom,
@@ -40,7 +41,7 @@ export function applyTravelAdvance(): void {
     const state = useAppStore.getState();
     const travel = state.context.travel;
     if (!travel) return;
-    const pressed = pressTravelAdvance(travel, state.context.worldDay, state.locationLedger ?? []);
+    const pressed = pressTravelAdvance(travel, state.context.worldDay, state.locationLedger ?? [], state.context.travelMinutesToday);
     if (!pressed) return;
     state.updateContext(pressed.result.contextPatch);
 }
@@ -125,8 +126,9 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
     const selectedCandidate = candidates.find(c => c.location.id === selectedToId) ?? null;
     const hasDirectConnection = selectedCandidate?.band != null;
     const effectiveBand: DistanceBand = selectedCandidate?.band ?? travelBand;
-    const dayEstimate = formatDayRangeForMode(effectiveBand, gridsPerDayFor(travelMode));
-    const baselineDayRange = selectedCandidate?.band ? formatDayRange(selectedCandidate.band) : null;
+    const travelUnit = context.travelUnit;
+    const dayEstimate = formatDayRangeForMode(effectiveBand, gridsPerDayFor(travelMode), travelUnit);
+    const baselineDayRange = selectedCandidate?.band ? formatDayRange(selectedCandidate.band, travelUnit) : null;
 
     const handleDepart = () => {
         if (!fromId || !selectedToId) return;
@@ -142,6 +144,7 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
             deps: { updateLocation, updateContext },
             currentWorldDay,
             currentTravelMinutes: state.context.travelMinutesToday,
+            unit: state.context.travelUnit,
         });
         if (!result) return;
 
@@ -213,7 +216,7 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
                                     {candidates.map(({ location, band }) => (
                                         <option key={location.id} value={location.id}>
                                             {location.name}
-                                            {band ? ` — ${band}, ${formatDayRange(band)}` : ' — no road yet'}
+                                            {band ? ` — ${band}, ${formatDayRange(band, travelUnit)}` : ' — no road yet'}
                                         </option>
                                     ))}
                                 </select>
@@ -246,7 +249,7 @@ function TravelPickerModal({ onClose }: { onClose: () => void }) {
                                     className="mt-1 w-full bg-void border border-border focus:border-terminal text-[13px] text-text-primary rounded px-2 py-1.5 outline-none"
                                 >
                                     {TRAVEL_MODES.map(({ id, label, gridsPerDay }) => (
-                                        <option key={id} value={id}>{label} ({gridsPerDay} grids/day)</option>
+                                        <option key={id} value={id}>{label} ({gridsPerDay} grids/{travelUnitWords(travelUnit).one})</option>
                                     ))}
                                 </select>
                             </label>

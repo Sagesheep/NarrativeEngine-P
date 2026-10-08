@@ -197,6 +197,7 @@ export interface HostFacadeBuildOptions {
         /** WO 6.2 — the in-game day counter, read from the live `GameContext`. */
         readonly worldDay?: number;
     readonly travelMode?: GameContext['travelMode'];
+    readonly travelUnit?: GameContext['travelUnit'];
     };
 }
 
@@ -436,6 +437,7 @@ export function buildHostFacade(
                     travel: fresh?.travel ?? context.travel ?? null,
                     worldDay: fresh?.worldDay ?? context.worldDay,
                     travelMode: fresh?.travelMode ?? context.travelMode,
+                    travelUnit: fresh?.travelUnit ?? context.travelUnit,
                 };
             }
             default: return undefined;

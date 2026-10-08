@@ -17,6 +17,7 @@ import { hasKnownPosition } from '../location/knowledge';
 import type { GameContext, LocationEntry, TravelMode, TravelHop } from '../../types';
 import { DISTANCE_BANDS, type DistanceBand } from '../location/distance';
 import { gridsPerDayFor } from '../location/travelModes';
+import type { TravelUnit } from '../location/travelUnit';
 import { connectionBand } from '../locationParser';
 import {
     depart,
@@ -111,6 +112,8 @@ export function composeDeparture(args: {
     deps: DepartureDeps;
     currentWorldDay?: number;
     currentTravelMinutes?: number;
+    /** The campaign's travel unit (`context.travelUnit`). Absent = days. */
+    unit?: TravelUnit;
 }): TransitionResult | null {
     const { fromId, toId, mode, band, ledger, hops, deps, currentWorldDay } = args;
     const target = ledger.find(l => l.id === toId);
@@ -126,9 +129,9 @@ export function composeDeparture(args: {
     const workingLedger = [...ledger];
     let result: TransitionResult;
     if (hops && hops.length > 0) {
-        result = departMultiHop({ fromId, toId, mode, hops, ledger: workingLedger, currentWorldDay, currentTravelMinutes: args.currentTravelMinutes });
+        result = departMultiHop({ fromId, toId, mode, hops, ledger: workingLedger, currentWorldDay, currentTravelMinutes: args.currentTravelMinutes, unit: args.unit });
     } else {
-        result = depart({ fromId, toId, band: usedBand, mode, ledger: workingLedger, currentWorldDay, currentTravelMinutes: args.currentTravelMinutes });
+        result = depart({ fromId, toId, band: usedBand, mode, ledger: workingLedger, currentWorldDay, currentTravelMinutes: args.currentTravelMinutes, unit: args.unit });
     }
 
     return result;
