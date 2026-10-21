@@ -295,10 +295,57 @@ function transformGeminiTools(tools: unknown[]): unknown[] {
     return [{ functionDeclarations: declarations }];
 }
 
+/** Fields the app reads the reply by; a custom body may not change them. */
+const PROTECTED_BODY_FIELDS = new Set(['messages', 'contents', 'stream']);
+
+/**
+ * Parses a provider's custom body text. Returns the object, `{}` when blank,
+ * or an error message when the text is not a JSON object.
+ */
+export function parseCustomBody(text: string | undefined): { fields: Record<string, unknown> } | { error: string } {
+    if (!text || !text.trim()) return { fields: {} };
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch (err) {
+        return { error: err instanceof Error ? err.message : 'Invalid JSON' };
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { error: 'Must be a JSON object, like {"top_a": 0.2}' };
+    }
+    return { fields: parsed as Record<string, unknown> };
+}
+
+/** Merges the provider's custom body over the built one: `null` removes a field. */
+function applyCustomBody(provider: AnyProvider, body: Record<string, unknown>): Record<string, unknown> {
+    const parsed = parseCustomBody((provider as EndpointConfig).customBody);
+    if ('error' in parsed) {
+        console.warn(`[llmApiHelper] Custom body ignored: ${parsed.error}`);
+        return body;
+    }
+    for (const [key, value] of Object.entries(parsed.fields)) {
+        if (PROTECTED_BODY_FIELDS.has(key)) continue;
+        if (value === null) delete body[key];
+        else body[key] = value;
+    }
+    return body;
+}
+
+type ChatBodyMessage = { role: string; content: string | null; name?: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string; cache_control?: { type: 'ephemeral' } };
+type ChatBodyOptions = { stream?: boolean; max_tokens?: number; temperature?: number; tools?: unknown[]; sampling?: SamplingConfig; thinkingEffort?: ThinkingEffort };
+
 export function buildChatBody(
     provider: AnyProvider,
-    messages: { role: string; content: string | null; name?: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string; cache_control?: { type: 'ephemeral' } }[],
-    options?: { stream?: boolean; max_tokens?: number; temperature?: number; tools?: unknown[]; sampling?: SamplingConfig; thinkingEffort?: ThinkingEffort }
+    messages: ChatBodyMessage[],
+    options?: ChatBodyOptions
+): Record<string, unknown> {
+    return applyCustomBody(provider, buildBaseChatBody(provider, messages, options));
+}
+
+function buildBaseChatBody(
+    provider: AnyProvider,
+    messages: ChatBodyMessage[],
+    options?: ChatBodyOptions
 ): Record<string, unknown> {
     const format = getApiFormat(provider);
     const stream = options?.stream ?? false;

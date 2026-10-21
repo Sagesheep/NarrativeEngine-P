@@ -3,7 +3,7 @@ import { Plus, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle 
 import { useAppStore } from '../../store/useAppStore';
 import { testConnection } from '../../services/chatEngine';
 import type { LLMProvider, ApiFormat, ComfyUiSettings, ServiceTier } from '../../types';
-import { detectFormatFromEndpoint, supportsServiceTier } from '../../utils/llmApiHelper';
+import { detectFormatFromEndpoint, parseCustomBody, supportsServiceTier } from '../../utils/llmApiHelper';
 import { toast } from '../Toast';
 import { uid } from '../../utils/uid';
 
@@ -337,6 +337,30 @@ export function ProvidersTab() {
                                         </p>
                                     </div>
                                 )}
+                                {!isComfy && (() => {
+                                    const parsedBody = parseCustomBody(config.customBody);
+                                    const bodyError = 'error' in parsedBody ? parsedBody.error : null;
+                                    return (
+                                        <div className="xl:col-span-2">
+                                            <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">
+                                                Custom body
+                                            </label>
+                                            <textarea
+                                                value={config.customBody ?? ''}
+                                                onChange={(e) => handleFieldChange('customBody', e.target.value || undefined)}
+                                                placeholder={'{\n  "top_a": 0.2,\n  "provider": { "order": ["DeepInfra"] }\n}'}
+                                                rows={4}
+                                                spellCheck={false}
+                                                className={`w-full bg-surface border px-3 py-2 text-xs text-text-primary placeholder:text-text-dim/40 font-mono focus:outline-none resize-y ${bodyError ? 'border-danger/60 focus:border-danger' : 'border-border focus:border-terminal'}`}
+                                            />
+                                            <p className={`text-[10px] mt-1 leading-relaxed ${bodyError ? 'text-danger' : 'text-text-dim'}`}>
+                                                {bodyError
+                                                    ? `Not sent: ${bodyError}`
+                                                    : <>JSON merged into every request to this provider, overriding the app's values. Set a field to <code>null</code> to remove it. <code>messages</code>, <code>contents</code> and <code>stream</code> can't be changed.</>}
+                                            </p>
+                                        </div>
+                                    );
+                                })()}
                                 <div data-ui="provider-actions" className="pt-2 xl:col-span-2 grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-3 items-start">
                                   <div>
                                     <button

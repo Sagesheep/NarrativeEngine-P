@@ -52,6 +52,8 @@ export type EndpointConfig = {
     /** NanoGPT / OpenRouter only: 'flex' is cheaper and slower, 'priority' faster
      *  and dearer. Ignored on other hosts. */
     serviceTier?: ServiceTier;
+    /** See `LLMProvider.customBody`. */
+    customBody?: string;
 };
 
 export type SamplingConfig = {
@@ -95,6 +97,10 @@ export type LLMProvider = {
     /** NanoGPT / OpenRouter only: 'flex' is cheaper and slower, 'priority' faster
      *  and dearer. Ignored on other hosts. */
     serviceTier?: ServiceTier;
+    /** JSON object text merged into every chat request body, last (like SillyTavern's
+     *  additional parameters). A `null` value removes that field. Kept as text so a
+     *  half-typed draft survives; text that does not parse to an object is ignored. */
+    customBody?: string;
     /** Present only when apiFormat === 'comfyui'. Native ComfyUI image-generation config. */
     comfyUi?: ComfyUiSettings;
 };
