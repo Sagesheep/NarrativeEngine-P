@@ -383,3 +383,28 @@ describe('WO-09c — Claude wire preserves history breakpoints', () => {
         });
     });
 });
+describe('service tier', () => {
+    const messages = [{ role: 'user' as const, content: 'Hello' }];
+    const nano: EndpointConfig = { endpoint: 'https://nano-gpt.com/api/v1', apiKey: 'k', modelName: 'openai/gpt-5.5', apiFormat: 'openai' };
+    const router: EndpointConfig = { endpoint: 'https://openrouter.ai/api/v1', apiKey: 'k', modelName: 'openai/gpt-5.5', apiFormat: 'openrouter' };
+
+    it('sends nothing when unset', () => {
+        expect(buildChatBody(nano, messages).service_tier).toBeUndefined();
+        expect(buildChatBody(router, messages).service_tier).toBeUndefined();
+    });
+
+    it('sends flex and fast to NanoGPT', () => {
+        expect(buildChatBody({ ...nano, serviceTier: 'flex' }, messages).service_tier).toBe('flex');
+        expect(buildChatBody({ ...nano, serviceTier: 'priority' }, messages).service_tier).toBe('fast');
+    });
+
+    it('sends flex and priority to OpenRouter, in either API format', () => {
+        expect(buildChatBody({ ...router, serviceTier: 'flex' }, messages).service_tier).toBe('flex');
+        expect(buildChatBody({ ...router, apiFormat: 'openai', serviceTier: 'priority' }, messages).service_tier).toBe('priority');
+    });
+
+    it('sends nothing to other hosts or formats', () => {
+        expect(buildChatBody({ ...nano, endpoint: 'https://api.openai.com/v1', serviceTier: 'flex' }, messages).service_tier).toBeUndefined();
+        expect(buildChatBody({ ...router, apiFormat: 'claude', serviceTier: 'flex' }, messages).service_tier).toBeUndefined();
+    });
+});

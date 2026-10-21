@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { testConnection } from '../../services/chatEngine';
-import type { LLMProvider, ApiFormat, ComfyUiSettings } from '../../types';
-import { detectFormatFromEndpoint } from '../../utils/llmApiHelper';
+import type { LLMProvider, ApiFormat, ComfyUiSettings, ServiceTier } from '../../types';
+import { detectFormatFromEndpoint, supportsServiceTier } from '../../utils/llmApiHelper';
 import { toast } from '../Toast';
 import { uid } from '../../utils/uid';
 
@@ -294,6 +294,23 @@ export function ProvidersTab() {
                                         >
                                             <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${config.streamingEnabled !== false ? 'translate-x-5' : 'translate-x-0'}`} />
                                         </button>
+                                    </div>
+                                )}
+                                {supportsServiceTier(config) && (
+                                    <div>
+                                        <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Service Tier</label>
+                                        <select
+                                            value={config.serviceTier ?? ''}
+                                            onChange={(e) => handleFieldChange('serviceTier', (e.target.value || undefined) as ServiceTier | undefined)}
+                                            className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary focus:border-terminal focus:outline-none appearance-none"
+                                        >
+                                            <option value="">Default</option>
+                                            <option value="flex">Flex (cheaper, slower)</option>
+                                            <option value="priority">Priority (faster, costs more)</option>
+                                        </select>
+                                        <p className="text-[10px] text-text-dim mt-1 leading-relaxed">
+                                            Only some models offer a tier. Flex requests go only to providers that offer flex, so they may fail where priority falls back.
+                                        </p>
                                     </div>
                                 )}
                                 {!isComfy && (

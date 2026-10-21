@@ -56,6 +56,34 @@ export function getApiFormat(provider: AnyProvider): ApiFormat {
     return (provider as EndpointConfig).apiFormat || 'openai';
 }
 
+/** The host that sells service tiers behind this endpoint, if any. */
+export function serviceTierHostOf(endpoint: string): 'nanogpt' | 'openrouter' | undefined {
+    try {
+        const { hostname } = new URL(endpoint.trim());
+        if (hostname === 'nano-gpt.com' || hostname.endsWith('.nano-gpt.com')) return 'nanogpt';
+        if (hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai')) return 'openrouter';
+    } catch { /* invalid URL */ }
+    return undefined;
+}
+
+/** Whether this provider can take a service tier: an OpenAI-style body on NanoGPT or OpenRouter. */
+export function supportsServiceTier(provider: AnyProvider): boolean {
+    const format = getApiFormat(provider);
+    return (format === 'openai' || format === 'openrouter') && serviceTierHostOf(provider.endpoint) !== undefined;
+}
+
+/**
+ * The `service_tier` value for this provider, or undefined to send none.
+ * NanoGPT calls priority `fast` (`priority` is its legacy alias); OpenRouter
+ * calls it `priority`. Both route a tiered request only to providers that offer it.
+ */
+export function serviceTierFor(provider: AnyProvider): string | undefined {
+    const tier = (provider as EndpointConfig).serviceTier;
+    if (!tier || !supportsServiceTier(provider)) return undefined;
+    if (serviceTierHostOf(provider.endpoint) === 'nanogpt') return tier === 'priority' ? 'fast' : 'flex';
+    return tier;
+}
+
 function isBareHost(url: string): boolean {
     try {
         return new URL(url).pathname.replace(/\/+$/, '') === '';
@@ -410,6 +438,9 @@ export function buildChatBody(
     if (!isOllama && options?.tools && options.tools.length > 0) {
         body.tools = options.tools;
     }
+
+    const serviceTier = serviceTierFor(provider);
+    if (serviceTier) body.service_tier = serviceTier;
 
     return body;
 }

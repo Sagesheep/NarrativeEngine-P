@@ -279,6 +279,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
             streamingEnabled: config.streamingEnabled ?? true,
             apiFormat: config.apiFormat || 'openai',
             thinkingEffort: config.thinkingEffort,
+            ...(config.serviceTier === 'flex' || config.serviceTier === 'priority' ? { serviceTier: config.serviceTier } : {}),
             ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
             // Preserve native ComfyUI config; the reconstruction above would otherwise
             // silently drop it and every ComfyUI provider would fall back to the built-in graph.
@@ -290,7 +291,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         // Include the Comfy config so two workflows aimed at the same endpoint/model
         // (e.g. built-in vs a pasted API workflow) are not collapsed into one provider.
         const comfy = p.comfyUi ? JSON.stringify(p.comfyUi) : '';
-        return `${p.endpoint}|${p.modelName}|${p.apiKey}|${p.apiFormat || 'openai'}|${p.maxOutputTokens ?? ''}|${comfy}`;
+        return `${p.endpoint}|${p.modelName}|${p.apiKey}|${p.apiFormat || 'openai'}|${p.maxOutputTokens ?? ''}|${p.serviceTier ?? ''}|${comfy}`;
     }
 
     function getOrAddProvider(config: any): string {
