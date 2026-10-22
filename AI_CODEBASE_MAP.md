@@ -642,6 +642,8 @@ Non-slice store files: `relationshipMemoryState.ts` (narrow read/write seam so s
 
 **Selection actions menu** (`useSelectionActions.ts`, 463 lines): Lore Check, Pin Memory, Rename, Add NPC, Add Place.
 
+**Glossary**: World → Glossary (`context-drawer/GlossaryTab.tsx`) manages campaign-local `context.glossary` entries (name, comma-separated aliases, description, optional category/image). Selection actions can open an unsaved draft from highlighted story text. Entries use the existing campaign-state save/load and transfer path; older saves may omit the field. `message/mentionLookup.ts` matches parsed Markdown text nodes against glossary names and both ledgers, with Unicode word boundaries, longest phrase matching, and ambiguous-alias suppression. `MentionPreview.tsx` displays text/image previews on hover, keyboard focus, or tap in a viewport-positioned portal. Secret locations and archived NPCs are excluded. Glossary entries are reading aids, separate from lore retrieval and AI prompt assembly.
+
 **TTS playback** (`useTtsPlayback.ts`): per-bubble Kokoro state, karaoke highlighting, disk-chunk preloading.
 
 ---

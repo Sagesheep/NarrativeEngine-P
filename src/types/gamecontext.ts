@@ -1,4 +1,5 @@
 import type { PromptInjection } from './llm';
+import type { GlossaryEntry } from './glossary';
 // ─── Game Context / Pipeline / Session Types ─────────────────────────────
 
 import type { InventoryItem, CharacterProfile, CharacterProfileState, InventoryItemCategory, SceneStakes, NPCEntry, NPCVisualProfile } from './character';
@@ -206,6 +207,8 @@ export type TravelState = {
 };
 
 export type GameContext = {
+    /** Reader-facing reminders, saved with the campaign; not injected into AI prompts. */
+    glossary?: GlossaryEntry[];
     /** Campaign-local story prompt modifiers; omitted in older saves. */
     promptInjections?: PromptInjection[];
     loreRaw: string;

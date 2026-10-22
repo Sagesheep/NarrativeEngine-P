@@ -16,6 +16,7 @@ vi.mock('../../store/useAppStore', () => {
         // MessageMarkdown reads both ledgers to build its hover-chip lookup.
         // The real store always initialises this to an array.
         locationLedger: [],
+        context: {}, // MessageMarkdown also reads campaign-local glossary entries.
     };
     const getState = vi.fn(() => state);
     const subscribe = vi.fn(() => vi.fn());

@@ -9,6 +9,7 @@ import { useAppStore } from '../store/useAppStore';
 import type { ContextScreenId } from '../store/slices/uiSlice';
 import { RulesTab } from './context-drawer/RulesTab';
 import { LoreTab } from './context-drawer/LoreTab';
+import { GlossaryTab } from './context-drawer/GlossaryTab';
 import { EnginesTab } from './context-drawer/EnginesTab';
 import { ChapterTab } from './context-drawer/ChapterTab';
 import { MemoryTab } from './context-drawer/MemoryTab';
@@ -41,6 +42,7 @@ const CONTEXT_LEAVES: Record<ContextScreenId, Omit<NavLeaf, 'onSelect'>> = {
     eng: { id: 'eng', label: 'Engine Tuning', icon: Sparkles },
     chpt: { id: 'chpt', label: 'Chapters', icon: BookOpen },
     mem: { id: 'mem', label: 'Memory', icon: Brain },
+    glossary: { id: 'glossary', label: 'Glossary', icon: BookOpen },
 };
 
 const GROUPS: Array<{ id: GroupId; label: string; icon: NavIcon }> = [
@@ -88,6 +90,9 @@ export function ContextNavigationDrawer() {
     const chaptersCount = useAppStore((s) => s.chapters.length);
     const npcCount = useAppStore((s) => s.npcLedger.length);
     const placesCount = useAppStore((s) => s.locationLedger.length);
+    const glossaryCount = useAppStore((s) => s.context.glossary?.length ?? 0);
+    const campaignId = useAppStore((s) => s.activeCampaignId);
+    const glossaryDraftName = useAppStore((s) => s.glossaryDraftName);
     const pinnedCount = useAppStore((s) => s.pinnedExcerpts.length);
     const galleryMessages = useAppStore((s) => s.messages);
     const galleryUploads = useAppStore((s) => s.context.galleryUploads);
@@ -123,6 +128,7 @@ export function ContextNavigationDrawer() {
             { id: 'npcs', label: 'NPCs', icon: Users, badge: npcCount, onSelect: () => useAppStore.getState().toggleNPCLedger() },
             { id: 'places', label: 'Locations', icon: MapPin, badge: placesCount, onSelect: () => useAppStore.getState().toggleLocationLedger() },
             { ...CONTEXT_LEAVES.world, onSelect: () => openContextScreen('world') },
+            { ...CONTEXT_LEAVES.glossary, badge: glossaryCount, onSelect: () => useAppStore.getState().openGlossary() },
         ],
         play: [
             { id: 'character', label: 'Character', icon: UserCircle, onSelect: () => useAppStore.getState().togglePCPanel() },
@@ -148,7 +154,9 @@ export function ContextNavigationDrawer() {
     // screen. RulesTab hosts the [Write | Retrieval] segmented control and
     // embeds RulesManagerTab for the Retrieval mode, so there is one
     // destination instead of two. `RulesTab` takes no `onOpenManager` prop.
-    const screenContent = contextScreen === 'sys'
+    const screenContent = contextScreen === 'glossary'
+        ? <GlossaryTab key={`${campaignId}:${glossaryDraftName}`} initialName={glossaryDraftName} />
+        : contextScreen === 'sys'
         ? <RulesTab />
         : contextScreen === 'world'
             ? <LoreTab />

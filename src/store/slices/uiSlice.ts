@@ -5,7 +5,7 @@ import type { OneShotEventId } from '../../services/oneshot/oneShotEvents';
 // WO-screen-modernization §A-2 — `rules-mgr` is gone. Rules Manager merged
 // into System Context as the [Write | Retrieval] segmented control; the nav
 // drawer's screen map no longer carries a separate entry.
-export type ContextScreenId = 'sys' | 'world' | 'eng' | 'chpt' | 'mem';
+export type ContextScreenId = 'sys' | 'world' | 'eng' | 'chpt' | 'mem' | 'glossary';
 
 
 // ── Slice type ─────────────────────────────────────────────────────────
@@ -22,6 +22,8 @@ export type UISlice = {
     blockViewOpen: boolean;
     backupModalOpen: boolean;
     contextScreen: ContextScreenId | null;
+    glossaryDraftName: string | null;
+    openGlossary: (name?: string) => void;
     lastPayloadTrace?: PayloadTrace[];
     pipelinePhase: PipelinePhase;
     streamingStats: StreamingStats | null;
@@ -124,6 +126,8 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     blockViewOpen: false,
     backupModalOpen: false,
     contextScreen: null,
+    glossaryDraftName: null,
+    openGlossary: (name) => set({ contextScreen: 'glossary', glossaryDraftName: name ?? null }),
     pipelinePhase: 'idle',
     streamingStats: null,
     loreCheckOpen: false,
@@ -138,8 +142,8 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     toggleLocationLedger: () => set((s) => ({ locationLedgerOpen: !s.locationLedgerOpen })),
     toggleBlockView: () => set((s) => ({ blockViewOpen: !s.blockViewOpen })),
     toggleBackupModal: () => set((s) => ({ backupModalOpen: !s.backupModalOpen })),
-    openContextScreen: (screen) => set({ contextScreen: screen }),
-    closeContextScreen: () => set({ contextScreen: null }),
+    openContextScreen: (screen) => set({ contextScreen: screen, glossaryDraftName: null }),
+    closeContextScreen: () => set({ contextScreen: null, glossaryDraftName: null }),
     setLastPayloadTrace: (trace) => set({ lastPayloadTrace: trace }),
     setPipelinePhase: (phase) => set({ pipelinePhase: phase }),
     setStreamingStats: (stats) => set({ streamingStats: stats }),

@@ -12,10 +12,10 @@ const place = (id, name) => ({ id, name, aliases: '', features: [], connections:
 beforeEach(() => {
     Object.assign(state, { activeCampaignId: 'c', context: { currentPlaceId: 'camp', currentFeature: 'Fire', worldDay: 7 },
         locationLedger: [place('camp', 'Camp')], updateContext: vi.fn(), updateLocation: vi.fn(),
-        addLocation: vi.fn(entry => state.locationLedger.push(entry)), dismissLocationSuggestion: vi.fn() });
+        addLocation: vi.fn(entry => state.locationLedger.push(entry)), dismissLocationSuggestion: vi.fn(), openGlossary: vi.fn() });
 });
 afterEach(() => { cleanup(); window.getSelection()?.removeAllRanges(); document.body.replaceChildren(); });
-function addSelected(name) {
+function addSelected(name, action = 'handleAddPlace') {
     const bubble = document.createElement('div');
     bubble.dataset.loreCheckable = 'true'; bubble.dataset.messageId = 'message';
     const prefix = 'Your quest will be in ';
@@ -23,7 +23,7 @@ function addSelected(name) {
     const range = document.createRange(); range.setStart(bubble.firstChild, prefix.length); range.setEnd(bubble.firstChild, prefix.length + name.length);
     window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
     const hook = renderHook(() => useSelectionActions());
-    act(() => hook.result.current.handleAddPlace({ preventDefault() {} }));
+    act(() => hook.result.current[action]({ preventDefault() {} }));
     hook.unmount();
 }
 it('adding a quest destination never moves the party or copies its coordinates', () => {
@@ -48,4 +48,10 @@ it('adding a feature records it without changing the current feature', () => {
     expect(state.updateLocation).toHaveBeenCalledWith('camp', expect.objectContaining({ features: ['Kitchen'] }));
     expect(state.updateContext).not.toHaveBeenCalled();
     expect(state.addLocation).not.toHaveBeenCalled();
+});
+it('adding selected text to the glossary opens an unsaved draft without changing campaign data', () => {
+    addSelected('Order of Ash', 'handleAddGlossary');
+    expect(state.openGlossary).toHaveBeenCalledWith('Order of Ash');
+    expect(state.updateContext).not.toHaveBeenCalled();
+    expect(window.getSelection().isCollapsed).toBe(true);
 });

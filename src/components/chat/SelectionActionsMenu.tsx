@@ -1,4 +1,4 @@
-import { Loader2, BookCheck, Pin, Replace, UserPlus, MapPin, Image } from 'lucide-react';
+import { Loader2, BookCheck, BookOpen, Pin, Replace, UserPlus, MapPin, Image } from 'lucide-react';
 import { useSelectionActions, stripMarkdown } from './useSelectionActions';
 
 /**
@@ -16,6 +16,7 @@ export function SelectionActionsMenu() {
         handleRenameSelection,
         handleAddNpc,
         handleAddPlace,
+        handleAddGlossary,
         handleGenerateSceneImage,
     } = useSelectionActions();
 
@@ -76,6 +77,13 @@ export function SelectionActionsMenu() {
                     className="flex items-center gap-1.5 rounded-sm border border-terminal/60 bg-void-lighter/95 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-terminal transition-colors hover:border-terminal hover:bg-terminal/15 hover:text-text-primary"
                 >
                     <MapPin size={13} /> Add Location
+                </button>
+                <button
+                    onMouseDown={handleAddGlossary}
+                    onTouchStart={handleAddGlossary}
+                    className="flex items-center gap-1.5 rounded-sm border border-terminal/60 bg-void-lighter/95 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-terminal transition-colors hover:border-terminal hover:bg-terminal/15 hover:text-text-primary"
+                >
+                    <BookOpen size={13} /> Add to Glossary
                 </button>
             </div>
         </div>

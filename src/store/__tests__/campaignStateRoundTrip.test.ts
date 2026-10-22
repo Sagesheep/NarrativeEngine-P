@@ -21,6 +21,22 @@ const RECORD = {
     pinnedExcerpts: PINS,
 };
 
+it('round-trips glossary entries independently for two campaigns and preserves older saves', async () => {
+    const { loadCampaignState, saveCampaignState } = await import('../campaignStore');
+    const { migrateLegacyContext } = await import('../../types');
+    const records = new Map<string, unknown>();
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') records.set(url, JSON.parse(String(init.body)));
+        return { ok: records.has(url), json: async () => records.get(url) };
+    });
+    const glossary = [{ id: 'house', name: 'House Veyran', aliases: 'the Veyrans', description: 'Salt traders.', category: 'Family' }];
+    await saveCampaignState('a', { context: migrateLegacyContext({ glossary }), messages: [], condenser: { condensedUpToIndex: -1 } });
+    await saveCampaignState('b', { context: migrateLegacyContext({}), messages: [], condenser: { condensedUpToIndex: -1 } });
+    expect(migrateLegacyContext((await loadCampaignState('a'))!.context).glossary).toEqual(glossary);
+    expect(migrateLegacyContext((await loadCampaignState('b'))!.context).glossary).toBeUndefined();
+    expect(migrateLegacyContext({}).glossary).toBeUndefined();
+});
+
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {

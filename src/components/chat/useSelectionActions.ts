@@ -377,6 +377,15 @@ export function useSelectionActions() {
         }
     };
 
+    const handleAddGlossary = (e: React.MouseEvent | React.TouchEvent) => {
+        e.preventDefault();
+        const snap = captureFromBubble('[data-lore-checkable="true"]') ?? loreSel;
+        if (!snap) return;
+        useAppStore.getState().openGlossary(stripMarkdown(snap.text));
+        window.getSelection()?.removeAllRanges();
+        setSelectionMenuPosition(null);
+    };
+
     return {
         loreSel,
         npcAdding,
@@ -387,6 +396,7 @@ export function useSelectionActions() {
         handleRenameSelection,
         handleAddNpc,
         handleAddPlace,
+        handleAddGlossary,
         handleGenerateSceneImage,
     };
 }
