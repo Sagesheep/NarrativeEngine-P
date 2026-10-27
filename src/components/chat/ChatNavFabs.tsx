@@ -4,10 +4,8 @@ import { ChevronUp, ChevronDown, ChevronsDown } from 'lucide-react';
 /** Message-by-message navigation plus a shortcut back to the latest turn. */
 export function ChatNavFabs({
     scrollContainerRef,
-    bottomRef,
 }: {
     scrollContainerRef: RefObject<HTMLDivElement | null>;
-    bottomRef: RefObject<HTMLDivElement | null>;
 }) {
     const jumpMessage = (direction: 'previous' | 'next') => {
         const sc = scrollContainerRef.current;
@@ -27,8 +25,11 @@ export function ChatNavFabs({
     };
 
     const handleJumpToBottom = () => {
+        const sc = scrollContainerRef.current;
+        if (!sc) return;
         const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
-        bottomRef.current?.scrollIntoView({ behavior, block: 'end' });
+        // Not scrollIntoView: that also scrolls overflow:hidden ancestors.
+        sc.scrollTo({ top: sc.scrollHeight, behavior });
     };
 
     return (

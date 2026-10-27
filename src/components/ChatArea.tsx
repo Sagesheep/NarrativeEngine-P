@@ -155,7 +155,10 @@ export function ChatArea() {
     const galleryMention = useGalleryMention({ input, setInput, inputRef });
 
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        // Scroll the list itself: scrollIntoView also scrolls every ancestor,
+        // including overflow:hidden app shells, shoving the whole UI upward.
+        const sc = scrollContainerRef.current;
+        sc?.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' });
     }, [messages.length]);
 
     const { resetTextareaHeight, resizeToContent } = useAutoresizeInput(inputRef);
@@ -315,7 +318,7 @@ export function ChatArea() {
             />
             <div className="chat-side-rail">
                 <ReadingControls />
-                <ChatNavFabs scrollContainerRef={scrollContainerRef} bottomRef={bottomRef} />
+                <ChatNavFabs scrollContainerRef={scrollContainerRef} />
             </div>
             </div>
 

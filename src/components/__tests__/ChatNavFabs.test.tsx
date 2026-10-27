@@ -21,10 +21,8 @@ function setup(scrollTop = 300) {
         row.append(bubble);
         sc.append(row);
     }
-    const bottom = document.createElement('div');
-    bottom.scrollIntoView = vi.fn();
-    render(<ChatNavFabs scrollContainerRef={{ current: sc }} bottomRef={{ current: bottom }} />);
-    return { sc, bottom };
+    render(<ChatNavFabs scrollContainerRef={{ current: sc }} />);
+    return { sc };
 }
 
 describe('message navigation', () => {
@@ -47,16 +45,16 @@ describe('message navigation', () => {
         expect(sc.scrollTo).toHaveBeenLastCalledWith({ top: 1200, behavior: 'smooth' });
     });
     it('retains a separate latest-message shortcut', () => {
-        const { bottom } = setup();
+        const { sc } = setup();
         fireEvent.click(screen.getByRole('button', { name: 'Latest message' }));
-        expect(bottom.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'end' });
+        expect(sc.scrollTo).toHaveBeenLastCalledWith({ top: 1200, behavior: 'smooth' });
     });
     it('respects reduced motion for navigation', () => {
         vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
-        const { sc, bottom } = setup();
+        const { sc } = setup();
         fireEvent.click(screen.getByRole('button', { name: 'Next message' }));
         expect(sc.scrollTo).toHaveBeenLastCalledWith({ top: 600, behavior: 'auto' });
         fireEvent.click(screen.getByRole('button', { name: 'Latest message' }));
-        expect(bottom.scrollIntoView).toHaveBeenLastCalledWith({ behavior: 'auto', block: 'end' });
+        expect(sc.scrollTo).toHaveBeenLastCalledWith({ top: 1200, behavior: 'auto' });
     });
 });
