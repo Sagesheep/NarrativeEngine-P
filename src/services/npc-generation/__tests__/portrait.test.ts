@@ -108,6 +108,19 @@ describe('generateNPCPortrait — OpenAI-compatible providers', () => {
         expect(result).toBe('https://cdn.test/x.png');
     });
 
+    it('merges the provider custom body, keeping the prompt', async () => {
+        mockLlmFetch.mockResolvedValue(jsonResponse({ data: [{ url: 'https://cdn.test/x.png' }] }));
+        await generateNPCPortrait(
+            { endpoint: 'https://images.test/v1', apiKey: '', modelName: 'image-model', customBody: '{"size": "1K", "negative_prompt": null, "prompt": "x", "seed": 7}' },
+            'a harbor',
+        );
+        const { body } = lastCall();
+        expect(body.size).toBe('1K');
+        expect(body.seed).toBe(7);
+        expect(body).not.toHaveProperty('negative_prompt');
+        expect(body.prompt).toBe('a harbor');
+    });
+
     it('accepts a b64_json reply as a data URI', async () => {
         mockLlmFetch.mockResolvedValue(jsonResponse({ data: [{ b64_json: 'AAAA' }] }));
         const result = await generateNPCPortrait({ endpoint: 'https://images.test/v1', apiKey: '', modelName: 'image-model' }, 'a harbor');

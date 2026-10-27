@@ -316,19 +316,24 @@ export function parseCustomBody(text: string | undefined): { fields: Record<stri
     return { fields: parsed as Record<string, unknown> };
 }
 
-/** Merges the provider's custom body over the built one: `null` removes a field. */
-function applyCustomBody(provider: AnyProvider, body: Record<string, unknown>): Record<string, unknown> {
-    const parsed = parseCustomBody((provider as EndpointConfig).customBody);
+/** Merges a custom body over the built one: `null` removes a field, protected fields are kept. */
+export function mergeCustomBody<T extends object>(body: T, customBody: string | undefined, protectedFields: ReadonlySet<string>): T {
+    const parsed = parseCustomBody(customBody);
     if ('error' in parsed) {
         console.warn(`[llmApiHelper] Custom body ignored: ${parsed.error}`);
         return body;
     }
+    const target = body as Record<string, unknown>;
     for (const [key, value] of Object.entries(parsed.fields)) {
-        if (PROTECTED_BODY_FIELDS.has(key)) continue;
-        if (value === null) delete body[key];
-        else body[key] = value;
+        if (protectedFields.has(key)) continue;
+        if (value === null) delete target[key];
+        else target[key] = value;
     }
     return body;
+}
+
+function applyCustomBody(provider: AnyProvider, body: Record<string, unknown>): Record<string, unknown> {
+    return mergeCustomBody(body, (provider as EndpointConfig).customBody, PROTECTED_BODY_FIELDS);
 }
 
 type ChatBodyMessage = { role: string; content: string | null; name?: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string; cache_control?: { type: 'ephemeral' } };

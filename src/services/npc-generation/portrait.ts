@@ -7,6 +7,10 @@ import {
     buildOpenRouterImageBody,
     extractOpenRouterImage,
 } from '../../utils/openRouterImage';
+import { mergeCustomBody } from '../../utils/llmApiHelper';
+
+/** The prompt is what makes each image this image; a custom body may change anything else. */
+const PROTECTED_IMAGE_FIELDS = new Set(['prompt']);
 
 // ============================================================================
 // Image Generation API
@@ -63,15 +67,15 @@ export async function generateNPCPortrait(config: ImageEndpointConfig, prompt: s
     }
 
     // OpenRouter's native image API vs. the OpenAI-compatible /images/generations shape.
-    const payload = openRouter
-        ? buildOpenRouterImageBody(config.modelName, prompt, layout === 'landscape' ? '16:9' : '3:4', layout === 'landscape' ? '16:9' : '3:4')
+    const payload = mergeCustomBody<Record<string, unknown>>(openRouter
+        ? { ...buildOpenRouterImageBody(config.modelName, prompt, layout === 'landscape' ? '16:9' : '3:4', layout === 'landscape' ? '16:9' : '3:4') }
         : {
             model: config.modelName || 'nano-banana',
             prompt,
             negative_prompt: PORTRAIT_NEGATIVE,
             size: layout === 'landscape' ? '1536x1024' : '896x1152',
             response_format: 'url',
-        };
+        }, config.customBody, PROTECTED_IMAGE_FIELDS);
 
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',

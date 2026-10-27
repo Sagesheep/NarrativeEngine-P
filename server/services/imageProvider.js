@@ -38,6 +38,31 @@ function sizeToWH(size) {
     };
 }
 
+/**
+ * Merges the provider's custom body (JSON text, see src/utils/llmApiHelper.ts
+ * mergeCustomBody) over the built request: `null` removes a field, `prompt` is kept.
+ */
+export function applyImageCustomBody(body, customBody) {
+    if (typeof customBody !== 'string' || !customBody.trim()) return body;
+    let fields;
+    try {
+        fields = JSON.parse(customBody);
+    } catch (err) {
+        console.warn(`[SceneImage Provider] Custom body ignored: ${err.message}`);
+        return body;
+    }
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+        console.warn('[SceneImage Provider] Custom body ignored: must be a JSON object');
+        return body;
+    }
+    for (const [key, value] of Object.entries(fields)) {
+        if (key === 'prompt') continue;
+        if (value === null) delete body[key];
+        else body[key] = value;
+    }
+    return body;
+}
+
 function isValidImageBuffer(buf) {
     if (!buf || buf.length < 4) return false;
     // PNG
@@ -139,7 +164,7 @@ export async function generateSceneImage({ campaignId, promptPackage, config }) 
         throw new Error('OpenRouter requires an image model name (e.g. google/gemini-2.5-flash-image) in the provider settings.');
     }
 
-    const payload = openRouter
+    const payload = applyImageCustomBody(openRouter
         ? buildOpenRouterImageBody(config.modelName, prompt, promptPackage.aspectRatio, '1:1')
         : {
             model: config.modelName || 'standard-image-v1',
@@ -147,7 +172,7 @@ export async function generateSceneImage({ campaignId, promptPackage, config }) 
             negative_prompt,
             size,
             response_format: 'url',
-        };
+        }, config.customBody);
 
     const headers = {
         'Content-Type': 'application/json',

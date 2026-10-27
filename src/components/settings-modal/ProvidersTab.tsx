@@ -356,7 +356,7 @@ export function ProvidersTab() {
                                             <p className={`text-[10px] mt-1 leading-relaxed ${bodyError ? 'text-danger' : 'text-text-dim'}`}>
                                                 {bodyError
                                                     ? `Not sent: ${bodyError}`
-                                                    : <>JSON merged into every request to this provider, overriding the app's values. Set a field to <code>null</code> to remove it. <code>messages</code>, <code>contents</code> and <code>stream</code> can't be changed.</>}
+                                                    : <>JSON merged into every request to this provider, overriding the app's values. Set a field to <code>null</code> to remove it. <code>messages</code>, <code>contents</code> and <code>stream</code> can't be changed. Image requests use it too (e.g. <code>{'{"size": "1024x1024"}'}</code>); only <code>prompt</code> is fixed there.</>}
                                             </p>
                                         </div>
                                     );
