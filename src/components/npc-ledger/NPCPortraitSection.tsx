@@ -144,13 +144,23 @@ export function NPCPortraitSection({
                 ].map(({ k, l }) => (
                     <div key={k} className={k === 'clothing' || k === 'distinctMarks' ? 'col-span-2' : ''}>
                         <label className="block text-text-dim text-[9px] uppercase tracking-wider mb-1">{l}</label>
-                        <input
-                            type="text"
-                            value={visualProfile?.[k as keyof NPCVisualProfile] || ''}
-                            onChange={e => onVisualProfileChange(k as keyof NPCVisualProfile, e.target.value)}
-                            disabled={!isEditing}
-                            className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
-                        />
+                        {k === 'clothing' || k === 'distinctMarks' ? (
+                            <textarea
+                                value={visualProfile?.[k as keyof NPCVisualProfile] || ''}
+                                onChange={e => onVisualProfileChange(k as keyof NPCVisualProfile, e.target.value)}
+                                disabled={!isEditing}
+                                rows={2}
+                                className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary disabled:opacity-70 disabled:bg-surface disabled:border-transparent resize-y min-h-[2.25rem] focus:outline-none focus:border-terminal"
+                            />
+                        ) : (
+                            <input
+                                type="text"
+                                value={visualProfile?.[k as keyof NPCVisualProfile] || ''}
+                                onChange={e => onVisualProfileChange(k as keyof NPCVisualProfile, e.target.value)}
+                                disabled={!isEditing}
+                                className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
+                            />
+                        )}
                     </div>
                 ))}
             </div>
