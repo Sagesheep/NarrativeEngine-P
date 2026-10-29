@@ -330,7 +330,7 @@ mainApp/
 ├── build-server.mjs               # esbuild server → server.bundle.cjs for Electron ASAR
 ├── data/                           # (gitignored) campaigns/, backups/, embeddings.db, settings.json, apikeys.vault, caches
 ├── index.html                      # Vite entry (root div, /src/main.tsx)
-├── package.json                    # narrative-engine v2.0.1, type:module, 18 deps + 25 devDeps
+├── package.json                    # narrative-engine v2.1.0, type:module, 18 deps + 25 devDeps
 ├── vite.config.ts                  # Vite 8 + React + Tailwind 4 plugins; /api + /assets proxy → :3001; base './'
 ├── vitest.config.ts                # jsdom + setupFiles; includes src/** + server/__tests__/** (engine has own config)
 ├── playwright.config.ts            # e2e/: headless Chromium, baseURL :5173, webServer npm run dev
