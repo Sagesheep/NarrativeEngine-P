@@ -70,13 +70,10 @@ const MIRA: NPCEntry = {
     appearance: 'Ink-stained cuffs',
     faction: 'The Archive',
     storyRelevance: 'Campaign-era projection',
-    disposition: 'Wary',
     status: 'Alive',
-    goals: 'Find the missing folio',
     voice: 'Soft',
     personality: 'Campaign-era personality',
     exampleOutput: '',
-    affinity: 81,
     pcRelation: 2,
 };
 
@@ -133,9 +130,7 @@ describe('NPC Ledger — SillyTavern card quick-add (WO-C §5 / §10.4)', () => 
         const mira = useAppStore.getState().npcLedger.find(n => n.name === 'Mira');
         expect(mira?.id).toBe('ledger-mira');
         // Campaign-owned state survives.
-        expect(mira?.affinity).toBe(81);
         expect(mira?.pcRelation).toBe(2);
-        expect(mira?.goals).toBe('Find the missing folio');
         // The card's own lore group landed on the overwrite.
         expect(useAppStore.getState().loreChunks.some(c => c.group === 'ST:Mira')).toBe(true);
         expect(screen.queryByText('Existing character detected')).not.toBeInTheDocument();

@@ -2,7 +2,6 @@ import { useAppStore } from '../../../store/useAppStore';
 import { backgroundQueue } from '../../infrastructure/backgroundQueue';
 import { extractNPCNames, classifyNPCNames, validateNPCCandidates } from '../../npc/npcDetector';
 import { updateExistingNPCs } from '../../chatEngine';
-// import { backfillNPCDrives } from '../../chatEngine'; — disabled, see the note in runNPCTrack.
 import { agencyFillPatch, needsAgencyFill } from '../../npc/agency/agencyLazyFill';
 import { NPC_UPDATE_COOLDOWN } from '../aiTier';
 import { isBlockEnabled } from '../blockEnablement';
@@ -117,30 +116,9 @@ async function runNPCTrack(ctx: PostTurnTrackContext): Promise<void> {
             }
         }
 
-        // NPC Drives Backfill — DISABLED 2026-10-04 (owner decision: no conflicting systems).
-        // Drives (core/session/scene wants) are the pre-agency motivation model. The agency
-        // system replaced them: wants + personality hexagon + goal records, which the NPC
-        // block in the prompt and the NPC updater read first ("wants, NOT drives",
-        // update.ts). Backfilling drives gave older NPCs a second, competing set of
-        // motivations; the agency fill below now covers those NPCs instead. Drives already
-        // on an NPC are still shown as a fallback when it has no wants, and are carried
-        // into its wants by the agency fill. The block switch is kept (marked unwired) so
-        // stored settings stay valid.
-        //
-        // if (isBlockEnabled('drivesBackfill', config.aiTier, config.moduleEnabled)) {
-        //     const npcsNeedingDrives = existingNpcsToUpdate.filter(n => !n.drives);
-        //     if (npcsNeedingDrives.length > 0) {
-        //         const backfillProvider = useBroker ? undefined : state?.getFreshProvider();
-        //         if (useBroker || backfillProvider) {
-        //             backgroundQueue.push(
-        //                 `NPC-Drives-Backfill:${npcsNeedingDrives.map(n => n.name).join(',')}`,
-        //                 () => useBroker
-        //                     ? backfillNPCDrives(backfillProvider, allMsgs, npcsNeedingDrives, guardedUpdateNPC, modelCall)
-        //                     : backfillNPCDrives(backfillProvider, allMsgs, npcsNeedingDrives, guardedUpdateNPC)
-        //             ).catch(err => console.warn('[NPC Drives Backfill] Background backfill failed:', err));
-        //         }
-        //     }
-        // }
+        // The drives backfill (disabled 2026-10-04) was removed with the drives field
+        // itself (2026-11-01). Old drives fold into `wants` on load (retireLegacyFields.ts).
+        // The `drivesBackfill` block switch is kept (marked unwired) so stored settings stay valid.
     }
 
     // Agency fill: an NPC from before the agency system gets its fields the first time

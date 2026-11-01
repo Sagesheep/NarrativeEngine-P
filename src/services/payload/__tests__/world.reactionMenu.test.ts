@@ -21,9 +21,9 @@ const HEX: PersonalityHex = { drive: 1, diligence: 2, boldness: 1, warmth: 2, em
 function hexNpc(id: string, name: string): NPCEntry {
     return {
         id, name, aliases: '', appearance: '', faction: '',
-        storyRelevance: '', disposition: '', status: 'alive',
-        goals: '', voice: '', personality: '', exampleOutput: '',
-        affinity: 50, archived: false,
+        storyRelevance: '', status: 'alive',
+        voice: '', personality: '', exampleOutput: '',
+        archived: false,
         personalityHex: HEX, traits: ['loyal', 'protective', 'honorable'],
     } as NPCEntry;
 }

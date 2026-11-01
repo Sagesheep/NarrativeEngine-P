@@ -53,13 +53,10 @@ function npc(over: Partial<NPCEntry> = {}): NPCEntry {
         appearance: '',
         faction: '',
         storyRelevance: 'Aria — imported character',
-        disposition: '',
         status: 'Alive',
-        goals: '',
         voice: '',
         personality: 'Shy but kind.',
         exampleOutput: '',
-        affinity: 50,
         tier: 'recurring',
         condition: 'healthy',
         wants: { short: ['eat', 'rest'], medium: ['earn wealth'], long: '' },
@@ -365,7 +362,6 @@ describe('parseAdaptationResponse (WO-C §9.3 — isolated JSON results)', () =>
             traits: ['ruthless', 'vengeful'],
             relations: { b: -3 },
             pcRelation: 3,
-            affinity: 95,
         }]);
         const [result] = parseAdaptationResponse(volunteered, [{ id: 'a', name: 'Aria' }]);
         expect(Object.keys(result).sort()).toEqual(['id', 'name', 'status', 'wants']);

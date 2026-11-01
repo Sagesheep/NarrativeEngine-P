@@ -57,9 +57,9 @@ const baseSettings = (): AppSettings => ({ debugMode: false, contextLimit: 8192 
 function makeNPC(id: string, name: string, faction = ''): NPCEntry {
     return {
         id, name, aliases: '', appearance: '', faction,
-        storyRelevance: '', disposition: 'neutral', status: 'alive',
-        goals: '', voice: '', personality: '', exampleOutput: '',
-        affinity: 0, archived: false,
+        storyRelevance: '', status: 'alive',
+        voice: '', personality: 'neutral', exampleOutput: '',
+        archived: false,
     } as NPCEntry;
 }
 

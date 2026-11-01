@@ -9,9 +9,8 @@ import type { NPCEntry, ArchiveIndexEntry, DivergenceEntry } from '../../../type
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Characterization tests for npcBehaviorDirective.ts (Refactor 19-06 Plan 04 w1).
-// Three exports. Hand-derived strings from the source. affinityDescriptor bands:
-//   <=15 Nemesis | <=30 Distrustful | <=45 Wary | <=55 Neutral | <=70 Warm
-//   | <=85 Trusted ally | else Devoted
+// Three exports. Hand-derived strings from the source. The PC edge is always a
+// relationBand word (-3..+3); the legacy 0..100 affinity descriptor is retired.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const baseNPC = (over: Partial<NPCEntry>): NPCEntry => ({
@@ -21,54 +20,37 @@ const baseNPC = (over: Partial<NPCEntry>): NPCEntry => ({
     appearance: '',
     faction: '',
     storyRelevance: '',
-    disposition: '',
     status: '',
-    goals: '',
     voice: '',
     personality: '',
     exampleOutput: '',
-    affinity: 50,
     ...over,
 } as NPCEntry);
 
-describe('buildBehaviorDirective — affinity descriptor bands', () => {
+describe('buildBehaviorDirective — PC relation band', () => {
     const cases: Array<[number, string]> = [
-        [0, 'Nemesis — actively hostile'],
-        [15, 'Nemesis — actively hostile'],     // boundary <= 15
-        [16, 'Distrustful — suspicious and cold'],
-        [30, 'Distrustful — suspicious and cold'], // boundary <= 30
-        [31, 'Wary — cautious, guarded'],
-        [45, 'Wary — cautious, guarded'],       // boundary <= 45
-        [46, 'Neutral'],
-        [55, 'Neutral'],                        // boundary <= 55
-        [56, 'Warm — generally friendly'],
-        [70, 'Warm — generally friendly'],      // boundary <= 70
-        [71, 'Trusted ally'],
-        [85, 'Trusted ally'],                   // boundary <= 85
-        [86, 'Devoted — deep loyalty'],
-        [100, 'Devoted — deep loyalty'],
+        [-3, 'Arch-enemy'], [-2, 'Hostile'], [-1, 'Cold'], [0, 'Neutral'],
+        [1, 'Friendly'], [2, 'Close'], [3, 'Devoted'],
     ];
-    for (const [aff, label] of cases) {
-        it(`affinity ${aff} -> "[Aff: ${label}]" (legacy fallback when pcRelation undefined)`, () => {
-            // A hex-less legacy NPC: directive uses affinityDescriptor fallback, no Personality band line.
-            const out = buildBehaviorDirective(baseNPC({ affinity: aff, personalityHex: undefined }));
+    for (const [rel, label] of cases) {
+        it(`pcRelation ${rel} -> "[Aff: ${label}]"`, () => {
+            const out = buildBehaviorDirective(baseNPC({ pcRelation: rel, personalityHex: undefined }));
             expect(out).toContain(`[Aff: ${label}]`);
         });
     }
+    it('unset pcRelation reads Neutral', () => {
+        expect(buildBehaviorDirective(baseNPC({ personalityHex: undefined }))).toContain('[Aff: Neutral]');
+    });
 });
 
 describe('buildBehaviorDirective — assembly of parts (legacy hex-less NPC)', () => {
     it('minimal NPC (no personality/voice/example, no hex) -> just "PLAY AS: [Aff: ...]"', () => {
-        const out = buildBehaviorDirective(baseNPC({ personality: '', disposition: '', voice: '', exampleOutput: '', personalityHex: undefined }));
+        const out = buildBehaviorDirective(baseNPC({ personality: '', voice: '', exampleOutput: '', personalityHex: undefined }));
         expect(out).toBe('PLAY AS: [Aff: Neutral]');
     });
     it('personality field is appended after the affinity bracket for a hex-less NPC, joined by " | "', () => {
         const out = buildBehaviorDirective(baseNPC({ personality: 'stoic and watchful', personalityHex: undefined }));
         expect(out).toBe('PLAY AS: [Aff: Neutral] | stoic and watchful');
-    });
-    it('falls back to disposition when personality is empty (hex-less NPC)', () => {
-        const out = buildBehaviorDirective(baseNPC({ personality: '', disposition: 'jovial drunk', personalityHex: undefined }));
-        expect(out).toBe('PLAY AS: [Aff: Neutral] | jovial drunk');
     });
     it('voice is prefixed with "Voice: "', () => {
         const out = buildBehaviorDirective(baseNPC({ voice: 'deep rumble', personalityHex: undefined }));
@@ -106,11 +88,10 @@ describe('buildBehaviorDirective — Phase-4 surfacing (migrated NPC with hex/wa
         expect(out).toContain('Personality: Steady, Diligent, Bold, Affable, Kind, Composed');
         expect(out).not.toContain('| brave');
     });
-    it('wants (Phase-2) supersede legacy drives display', () => {
+    it('wants surface as GOAL / PURSUING / NOW', () => {
         const out = buildBehaviorDirective(baseNPC({
             personalityHex: undefined,
             wants: { short: ['eat'], medium: ['win a contest'], long: 'become the strongest' },
-            drives: { coreWant: 'core', sessionWant: 'session', sceneWant: 'scene' },
         }));
         expect(out).toContain('GOAL: become the strongest');
         expect(out).toContain('PURSUING: win a contest');
@@ -150,107 +131,77 @@ describe('buildDriftAlert — no-snapshot / suppressed / no-shift cases', () => 
     it('returns null when shiftTurnCount >= 3 (suppression gate)', () => {
         const npc = baseNPC({
             shiftTurnCount: 3,
-            previousSnapshot: { personality: '', voice: '', affinity: 50 },
-            affinity: 80, // big shift, but suppression gate fires first
+            previousSnapshot: { personality: 'brave', voice: '' },
+            personality: 'cautious',
         });
         expect(buildDriftAlert(npc)).toBeNull();
     });
     it('shiftTurnCount 2 (below 3) still allows an alert', () => {
         const npc = baseNPC({
             shiftTurnCount: 2,
-            previousSnapshot: { personality: '', voice: '', affinity: 50 },
-            affinity: 80,
+            previousSnapshot: { personality: 'brave', voice: '' },
+            personality: 'cautious',
         });
         expect(buildDriftAlert(npc)).not.toBeNull();
     });
     it('returns null when no fields actually changed', () => {
         const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: 'gruff', affinity: 50 },
-            personality: 'brave', voice: 'gruff', affinity: 50,
+            previousSnapshot: { personality: 'brave', voice: 'gruff', pcRelation: 1 },
+            personality: 'brave', voice: 'gruff', pcRelation: 1,
         });
         expect(buildDriftAlert(npc)).toBeNull();
     });
 });
 
 describe('buildDriftAlert — shift detection', () => {
-    it('affinity change >= 10 emits "affinity <prev>→<curr>"', () => {
+    it('pcRelation band change emits "feeling toward PC <from> → <to>"', () => {
         const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: 'gruff', affinity: 50 },
-            personality: 'brave', voice: 'gruff', affinity: 62,
+            previousSnapshot: { personality: 'brave', voice: 'gruff', pcRelation: 0 },
+            personality: 'brave', voice: 'gruff', pcRelation: 2,
         });
-        expect(buildDriftAlert(npc)).toBe('SHIFT: affinity 50→62');
-    });
-    it('affinity change < 10 does NOT emit an affinity shift', () => {
-        const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: 'gruff', affinity: 50 },
-            personality: 'brave', voice: 'gruff', affinity: 59,
-        });
-        // 59-50 = 9 < 10 -> no affinity shift ; no other shifts -> null
-        expect(buildDriftAlert(npc)).toBeNull();
-    });
-    it('affinity change of exactly 10 emits a shift (>= 10 boundary)', () => {
-        const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: 'gruff', affinity: 50 },
-            personality: 'brave', voice: 'gruff', affinity: 60,
-        });
-        expect(buildDriftAlert(npc)).toBe('SHIFT: affinity 50→60');
-    });
-    it('affinity decrease of 10 also emits (absolute value)', () => {
-        const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: 'gruff', affinity: 50 },
-            personality: 'brave', voice: 'gruff', affinity: 40,
-        });
-        expect(buildDriftAlert(npc)).toBe('SHIFT: affinity 50→40');
+        expect(buildDriftAlert(npc)).toBe('SHIFT: feeling toward PC Neutral → Close');
     });
     it('personality change emits "personality changed" (both prev and current non-empty)', () => {
         const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: 'gruff', affinity: 50 },
-            personality: 'cautious', voice: 'gruff', affinity: 50,
+            previousSnapshot: { personality: 'brave', voice: 'gruff' },
+            personality: 'cautious', voice: 'gruff',
         });
-        expect(buildDriftAlert(npc)).toBe('SHIFT: personality changed');
-    });
-    it('personality fallback to disposition is used for the current-side comparison', () => {
-        const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: 'gruff', affinity: 50 },
-            personality: '', disposition: 'cautious', voice: 'gruff', affinity: 50,
-        });
-        // currentPersonality = npc.personality || npc.disposition = 'cautious' != prev 'brave'
         expect(buildDriftAlert(npc)).toBe('SHIFT: personality changed');
     });
     it('empty previous personality does NOT emit personality change (prev.personality !== "" gate)', () => {
         const npc = baseNPC({
-            previousSnapshot: { personality: '', voice: 'gruff', affinity: 50 },
-            personality: 'cautious', voice: 'gruff', affinity: 50,
+            previousSnapshot: { personality: '', voice: 'gruff' },
+            personality: 'cautious', voice: 'gruff',
         });
         expect(buildDriftAlert(npc)).toBeNull();
     });
     it('empty current personality does NOT emit (currentPersonality !== "" gate)', () => {
         const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: 'gruff', affinity: 50 },
-            personality: '', disposition: '', voice: 'gruff', affinity: 50,
+            previousSnapshot: { personality: 'brave', voice: 'gruff' },
+            personality: '', voice: 'gruff',
         });
         expect(buildDriftAlert(npc)).toBeNull();
     });
     it('voice change emits "voice changed" (both prev and current non-empty)', () => {
         const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: 'gruff', affinity: 50 },
-            personality: 'brave', voice: 'soft', affinity: 50,
+            previousSnapshot: { personality: 'brave', voice: 'gruff' },
+            personality: 'brave', voice: 'soft',
         });
         expect(buildDriftAlert(npc)).toBe('SHIFT: voice changed');
     });
     it('empty previous voice does NOT emit voice change', () => {
         const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: '', affinity: 50 },
-            personality: 'brave', voice: 'soft', affinity: 50,
+            previousSnapshot: { personality: 'brave', voice: '' },
+            personality: 'brave', voice: 'soft',
         });
         expect(buildDriftAlert(npc)).toBeNull();
     });
-    it('multiple shifts are joined with ", " in order: affinity, personality, voice', () => {
+    it('multiple shifts are joined with ", " in order: personality, voice, PC feeling', () => {
         const npc = baseNPC({
-            previousSnapshot: { personality: 'brave', voice: 'gruff', affinity: 50 },
-            personality: 'cautious', voice: 'soft', affinity: 70,
+            previousSnapshot: { personality: 'brave', voice: 'gruff', pcRelation: 0 },
+            personality: 'cautious', voice: 'soft', pcRelation: -2,
         });
-        expect(buildDriftAlert(npc)).toBe('SHIFT: affinity 50→70, personality changed, voice changed');
+        expect(buildDriftAlert(npc)).toBe('SHIFT: personality changed, voice changed, feeling toward PC Neutral → Hostile');
     });
 });
 

@@ -27,21 +27,19 @@ vi.mock('../../../npc/npcDetector', () => ({
 }));
 vi.mock('../../../chatEngine', () => ({
     updateExistingNPCs: vi.fn().mockResolvedValue(true),
-    backfillNPCDrives: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { npcTrack } from '../npcTrack';
 import type { PostTurnTrackContext } from '../types';
 import { backgroundQueue } from '../../../infrastructure/backgroundQueue';
 import { extractNPCNames, classifyNPCNames, validateNPCCandidates } from '../../../npc/npcDetector';
-import { updateExistingNPCs, backfillNPCDrives } from '../../../chatEngine';
+import { updateExistingNPCs } from '../../../chatEngine';
 
 const mockBQ = vi.mocked(backgroundQueue);
 const mockExtract = vi.mocked(extractNPCNames);
 const mockClassify = vi.mocked(classifyNPCNames);
 const mockValidate = vi.mocked(validateNPCCandidates);
 const mockUpdateExisting = vi.mocked(updateExistingNPCs);
-const mockBackfill = vi.mocked(backfillNPCDrives);
 
 const ASSISTANT = 'Kaelen bows. Mira watches.';
 const ALL_MSGS: ChatMessage[] = [{ id: 'm1', role: 'assistant', content: ASSISTANT, timestamp: 1 }];
@@ -160,7 +158,7 @@ describe('track.npc — detection', () => {
     });
 
     it('validates only unknown names; a rejected candidate is not suggested, and known NPCs still update', async () => {
-        const mira = npc({ id: 'n1', name: 'Mira', drives: 'x' } as any);
+        const mira = npc({ id: 'n1', name: 'Mira' } as any);
         mockExtract.mockReturnValueOnce(['Kaelen', 'Mira']);
         mockClassify.mockReturnValueOnce({ newNames: ['Kaelen'], existingNpcs: [mira] } as any);
         mockValidate.mockResolvedValueOnce([]);
@@ -174,7 +172,7 @@ describe('track.npc — detection', () => {
     });
 
     it('a known NPC named exactly goes to the update step without a validator call', async () => {
-        const mira = npc({ id: 'n1', name: 'Mira', drives: 'x' } as any);
+        const mira = npc({ id: 'n1', name: 'Mira' } as any);
         mockExtract.mockReturnValueOnce(['Mira']);
         mockClassify.mockReturnValueOnce({ newNames: [], existingNpcs: [mira] } as any);
 
@@ -192,7 +190,7 @@ describe('track.npc — existing NPC updates', () => {
         mockActiveCampaignId = 'campaign-1';
     });
 
-    const existing = npc({ id: 'n1', name: 'Mira', drives: 'x' } as any);
+    const existing = npc({ id: 'n1', name: 'Mira' } as any);
 
     it('queues NPC-Update under a scene-labelled task and stamps lastUpdateScene', async () => {
         mockExtract.mockReturnValueOnce(['Mira']);
@@ -267,7 +265,7 @@ describe('track.npc — existing NPC updates', () => {
     });
 
     it('Pro tier honours the 5-scene cooldown', async () => {
-        const recent = npc({ id: 'n1', name: 'Mira', lastUpdateScene: 5, drives: 'x' } as any);
+        const recent = npc({ id: 'n1', name: 'Mira', lastUpdateScene: 5 } as any);
         mockExtract.mockReturnValue(['Mira']);
         mockValidate.mockResolvedValue(['Mira']);
         mockClassify.mockReturnValue({ newNames: [], existingNpcs: [recent] } as any);
@@ -304,7 +302,6 @@ describe('track.npc — existing NPC updates', () => {
         await npcTrack.run(makeCtx({ state: { archiveIndex: [{ sceneId: '001' }] as any } }));
 
         expect(mockBQ.push).not.toHaveBeenCalledWith(expect.stringMatching(/^NPC-Drives-Backfill/), expect.any(Function));
-        expect(mockBackfill).not.toHaveBeenCalled();
     });
 });
 
@@ -317,7 +314,7 @@ describe('track.npc — relationship memory flag', () => {
     // The pipeline's track context carries no `state`; the flag lives on the facade's
     // context. Reading `ctx.state` made it always false.
     it('passes relationshipMemoryEnabled to the updater when the campaign has it on', async () => {
-        const mira = npc({ id: 'n1', name: 'Mira', drives: 'x', populated: true } as any);
+        const mira = npc({ id: 'n1', name: 'Mira', populated: true } as any);
         mockExtract.mockReturnValueOnce(['Mira']);
         mockClassify.mockReturnValueOnce({ newNames: [], existingNpcs: [mira] } as any);
         mockBQ.push.mockImplementation(async (_label, execute) => execute());

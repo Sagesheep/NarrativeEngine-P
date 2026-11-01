@@ -25,8 +25,8 @@ const snapshot = {
 } as unknown as OocCampaignSnapshot;
 
 const npc = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
-    id, name, aliases: '', appearance: '', faction: '', storyRelevance: '', disposition: '',
-    status: '', goals: '', voice: '', personality: '', exampleOutput: '', affinity: 0, ...extra,
+    id, name, aliases: '', appearance: '', faction: '', storyRelevance: '',
+    status: '', voice: '', personality: '', exampleOutput: '', ...extra,
 });
 
 const place = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
@@ -86,7 +86,7 @@ describe('buildOocContext', () => {
         const result = buildOocContext(withLedgers({
             npcLedger: [
                 npc('npc-1', 'Kaelen', { aliases: 'The Grey Fox', pcRelation: -2, condition: 'wounded' }),
-                npc('npc-2', 'Mira', { goals: 'Reopen the north road' }),
+                npc('npc-2', 'Mira', { wants: { short: [], medium: [], long: 'Reopen the north road' } }),
                 npc('npc-3', 'Ghost', { archived: true }),
                 npc('npc-4', 'Unrelated', {}),
             ],

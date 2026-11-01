@@ -144,12 +144,6 @@ export type NPCPressureHistory = {
     reason: string;
 };
 
-export type NPCDrives = {
-    coreWant: string;
-    sessionWant: string;
-    sceneWant: string;
-};
-
 export type NPCPressure = {
     ignored: number;
     engaged: number;
@@ -182,14 +176,13 @@ export type NPCEntry = {
     visualProfile?: NPCVisualProfile;
     faction: string;
     storyRelevance: string;
-    disposition: string;
     status: string;
-    goals: string;
     voice: string;
     personality: string;
     exampleOutput: string;
-    affinity: number;
     portrait?: string;
+    // Retired 2026-11-01: affinity, disposition, goals, drives — folded into
+    // pcRelation / personality / wants on load (services/npc/retireLegacyFields.ts).
     // ---- Agency-engine referenced fields (Phase 2 port; all optional → lazy migration) ----
     isPC?: boolean;
     tier?: 'recurring' | 'oneshot' | 'walkon';
@@ -197,14 +190,12 @@ export type NPCEntry = {
     previousSnapshot?: {
         personality: string;
         voice: string;
-        affinity: number;
         personalityHex?: PersonalityHex;
         pcRelation?: number;
         skillRung?: number;
     };
     shiftNote?: string;
     shiftTurnCount?: number;
-    drives?: NPCDrives;
     behavioralTriggers?: NPCBehavioralTrigger[];
     hardBoundaries?: string[];
     softBoundaries?: string[];
@@ -268,7 +259,7 @@ export type NPCEntry = {
 export type HexAxis = 'drive' | 'diligence' | 'boldness' | 'warmth' | 'empathy' | 'composure';
 export type PersonalityHex = Record<HexAxis, number>;
 
-// Tiered wants. Sits beside the legacy NPCDrives (seeded from it in Phase 2; not deleted).
+// Tiered wants. The only motive model; the legacy drives/goals fold into it on load.
 export type NPCWants = {
     short: string[];   // needs/flavor pool draws; repeats allowed; no LLM
     medium: string[];  // goal templates (pool); LLM-updated in Phase 2

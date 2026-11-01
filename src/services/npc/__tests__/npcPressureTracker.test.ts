@@ -11,7 +11,7 @@ import type { NPCEntry } from '../../../types';
 // ─────────────────────────────────────────────────────────────────────────────
 // Characterization tests for npcPressureTracker.ts (Refactor 19-06 Plan 04 w1).
 // Hand-derived numbers from the source. DECAY_RATE=0.1, ARCHIVE_THRESHOLD_TURNS=15,
-// ARCHIVE_PRESSURE_FLOOR=0.5, ARCHIVE_AFFINITY_PROTECT=7, MAX_HISTORY=50.
+// ARCHIVE_PRESSURE_FLOOR=0.5, ARCHIVE_PC_RELATION_PROTECT=2, MAX_HISTORY=50.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const baseNPC = (over: Partial<NPCEntry>): NPCEntry => ({
@@ -21,22 +21,19 @@ const baseNPC = (over: Partial<NPCEntry>): NPCEntry => ({
     appearance: '',
     faction: '',
     storyRelevance: '',
-    disposition: '',
     status: '',
-    goals: '',
     voice: '',
     personality: '',
     exampleOutput: '',
-    affinity: 50,
-    drives: { coreWant: 'revenge', sessionWant: 'find the sword', sceneWant: 'talk' },
+    wants: { short: ['talk'], medium: ['find the sword'], long: 'revenge' },
     ...over,
 } as NPCEntry);
 
 describe('scanPressure — engaged/ignored deltas and reasons', () => {
-    it('skips NPCs that have no drives/triggers/boundaries (no deltas emitted)', () => {
+    it('skips NPCs that have no wants/triggers/boundaries (no deltas emitted)', () => {
         const npc = baseNPC({
             id: 'blank',
-            drives: undefined,
+            wants: undefined,
             behavioralTriggers: undefined,
             hardBoundaries: undefined,
             softBoundaries: undefined,
@@ -96,7 +93,7 @@ describe('scanPressure — engaged/ignored deltas and reasons', () => {
     it('empty softBoundaries array never crosses (no ignored delta)', () => {
         const npc = baseNPC({ softBoundaries: [] });
         const out = scanPressure('anything goes', [npc]);
-        expect(out).toEqual([]); // nothing triggered, drives exist but no name/boundary
+        expect(out).toEqual([]); // nothing triggered, wants exist but no name/boundary
     });
     it('GM response: name mention +0.8 engaged, pronoun near +0.3 engaged (player input has no mention)', () => {
         const out = scanPressure('hello', [baseNPC({})], 'Aldric arrives, he looks tired');
@@ -125,7 +122,6 @@ describe('scanPressure — engaged/ignored deltas and reasons', () => {
 
 describe('shouldArchiveNPC — staleness + pressure floor + protectors', () => {
     const staleNPC = (over: Partial<NPCEntry> = {}): NPCEntry => baseNPC({
-        affinity: 0, // below ARCHIVE_AFFINITY_PROTECT=7 so the protector branch doesn't short-circuit
         pressure: { ignored: 0, engaged: 0, lastDecayTurn: 0, lastActiveTurn: 0, history: [] },
         ...over,
     });
@@ -140,13 +136,21 @@ describe('shouldArchiveNPC — staleness + pressure floor + protectors', () => {
         const r = shouldArchiveNPC(staleNPC(), 100, 0);
         expect(r.shouldArchive).toBe(false);
     });
-    it('affinity >= 7 protects from archiving', () => {
-        const r = shouldArchiveNPC(staleNPC({ affinity: 7 }), 100, 15);
+    it('pcRelation >= +2 (Close) protects from archiving', () => {
+        const r = shouldArchiveNPC(staleNPC({ pcRelation: 2 }), 100, 15);
         expect(r.shouldArchive).toBe(false);
     });
-    it('affinity 6 (below 7) is NOT protected and can archive when stale', () => {
-        const r = shouldArchiveNPC(staleNPC({ affinity: 6 }), 100, 15);
+    it('pcRelation +1 (Friendly) is NOT protected and can archive when stale', () => {
+        const r = shouldArchiveNPC(staleNPC({ pcRelation: 1 }), 100, 15);
         expect(r.shouldArchive).toBe(true);
+    });
+    it('recurring tier protects from archiving', () => {
+        const r = shouldArchiveNPC(staleNPC({ tier: 'recurring' }), 100, 15);
+        expect(r.shouldArchive).toBe(false);
+    });
+    it('the PC is never archived', () => {
+        const r = shouldArchiveNPC(staleNPC({ isPC: true }), 100, 15);
+        expect(r.shouldArchive).toBe(false);
     });
     it('shiftNote present protects from archiving', () => {
         const r = shouldArchiveNPC(staleNPC({ shiftNote: 'grieving' }), 100, 15);

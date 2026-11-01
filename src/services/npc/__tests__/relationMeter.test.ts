@@ -4,8 +4,8 @@ import { applyRelationTone, isRelationTone } from '../relationMeter';
 
 const npc = (over: Partial<NPCEntry> = {}): NPCEntry => ({
     id: 'n', name: 'Test', aliases: '', appearance: '', faction: '', storyRelevance: '',
-    disposition: '', status: '', goals: '', voice: '', personality: '', exampleOutput: '',
-    affinity: 50, pcRelation: 0, relationMeter: 0, ...over,
+    status: '', voice: '', personality: '', exampleOutput: '',
+    pcRelation: 0, relationMeter: 0, ...over,
 } as NPCEntry);
 
 // Fixed rng. friendly[5,12]: 5+floor(rng*8) → 0.99⇒+12, 0⇒+5.
@@ -91,12 +91,6 @@ describe('relationMeter — clamps & bounds', () => {
 });
 
 describe('relationMeter — band fallback', () => {
-    it('derives the starting band from legacy affinity when pcRelation is unset', () => {
-        // affinity 70 → +1 band (Friendly); bonding should then be a no-op (already at cap)
-        const n = npc({ pcRelation: undefined, affinity: 70 });
-        expect(applyRelationTone(n, 'bonding', r(0))).toEqual({});
-    });
-
     it('never mutates the input npc', () => {
         const n = npc({ relationMeter: 10 });
         applyRelationTone(n, 'friendly', r(0.99));

@@ -6,27 +6,15 @@ import { hexDelta } from '../npc/agency/agencyDrift';
 import { applyRelationTone, isRelationTone } from '../npc/relationMeter';
 import { normalizeRelations } from '../npc/relationDedupe';
 import { readPcAffinity } from '../npc/affinityAccess';
-
-// Mirrors the private descriptor in mobile npcGeneration.ts. Used only for read-only legacy
-// display in the LLM context block (so the model understands pre-migration NPCs without us
-// ever asking it to write a raw 0-100 affinity number).
-function legacyAffinityDescriptor(v: number): string {
-    if (v <= 15) return 'Nemesis';
-    if (v <= 30) return 'Distrustful';
-    if (v <= 45) return 'Wary';
-    if (v <= 55) return 'Neutral';
-    if (v <= 70) return 'Warm';
-    if (v <= 85) return 'Trusted';
-    return 'Devoted';
-}
+import type { LegacyNpcFields } from '../npc/retireLegacyFields';
 
 const HEX_AXES: readonly HexAxis[] = ['drive', 'diligence', 'boldness', 'warmth', 'empathy', 'composure'];
 
 /**
  * Background auto-update for existing NPCs that were mentioned in the chat.
  * Phase-4 schema: the LLM is shown the new fields (wants / personalityHex / pcRelation / traits /
- * region / relations) and may propose DRIFTS for them. Legacy `drives` and raw `affinity` are
- * read-only — they are shown to the model only so pre-migration NPCs make sense, but never written.
+ * region / relations) and may propose DRIFTS for them. The retired `drives` / `affinity` /
+ * `disposition` / `goals` are never shown, and are stripped if the model sends them anyway.
  *
  * Delta-only fields (pcRelation, personalityHex) are clamped on parse: a "+5" still moves +1.
  * `relations` is a sparse shallow-merge, never a wholesale replace. `wants.short` is engine-only
@@ -56,15 +44,13 @@ export async function updateExistingNPCs(
             ? 'Relationship memory is the source of truth; do not infer a scalar relationship.'
             : affinityRead.kind === 'pcRelation'
                 ? `${relationBand(affinityRead.value)} (${affinityRead.value >= 0 ? '+' : ''}${affinityRead.value})`
-                : (affinityRead.kind === 'legacyAffinity' ? `${legacyAffinityDescriptor(affinityRead.value)} (${affinityRead.value}/100 legacy)` : 'Neutral (0)');
+                : 'Neutral (0)';
 
         let data = `[NPC: ${npc.name}] (ID: ${npc.id})\n` +
             `Status: ${npc.status || 'Alive'}\n` +
             `Appearance: ${npc.appearance || 'Unknown'}\n` +
-            `Disposition: ${npc.disposition || 'Unknown'}\n` +
-            `Goals: ${npc.goals || 'Unknown'}\n` +
             `Feeling toward PC: ${pcRelationBand}\n` +
-            `Personality: ${npc.personality || npc.disposition || 'Unknown'}\n` +
+            `Personality: ${npc.personality || 'Unknown'}\n` +
             `Voice: ${npc.voice || 'not defined'}\n` +
             `Faction: ${npc.faction || 'Unknown'}\n` +
             `Story Relevance: ${npc.storyRelevance || 'Unknown'}\n`;
@@ -111,7 +97,7 @@ export async function updateExistingNPCs(
         return data;
     }).join('\n\n');
 
-    const prompt = `You are a background game state analyzer. Your job is to read the RECENT CONTEXT of an RPG session and determine if any of the provided NPCs have undergone a shift in their status, personality, goals, disposition, faction, or relevance.
+    const prompt = `You are a background game state analyzer. Your job is to read the RECENT CONTEXT of an RPG session and determine if any of the provided NPCs have undergone a shift in their status, personality, wants, faction, or relevance.
 
 OUTPUT FORMAT — a single JSON object with TWO channels: "updates" (rare) and "tones" (always):
 {"updates": [ ... ], "tones": [ ... ]}
@@ -119,7 +105,7 @@ OUTPUT FORMAT — a single JSON object with TWO channels: "updates" (rare) and "
 CHANNEL 1 — "updates" (only when something fundamentally changed; usually empty []):
 {"updates": [{"name": "<NPC name>", "changes": { ...only the fields that changed... }}]}
 Each update MUST include "name" and only the fields that fundamentally changed. Allowed changes keys:
-  status, disposition, goals, storyRelevance, personality (flavor text), voice, appearance,
+  status, storyRelevance, personality (flavor text), voice, appearance,
   wants (medium/long text only — NEVER include "short"; short is engine-managed),
   personalityHex, traits, region, faction (can list multiple comma-separated factions), relations, behavioralTriggers, hardBoundaries, softBoundaries, visualProfile, signatureKit.
 DO NOT include attributes that stayed the same. If nothing fundamental changed, "updates" is [].
@@ -259,12 +245,15 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
                     const changes = { ...update.changes } as Partial<NPCEntry>;
 
                     // WO-05 §B — defensively strip FORBIDDEN/engine-owned keys. The parse must never
-                    // write a superseded or engine-owned field from the model. `drives`/`affinity` are
-                    // legacy; `pcRelation` is now engine-owned (moves only via the tone meter below), so
-                    // any band the model puts in `changes` is discarded.
-                    delete (changes as Partial<NPCEntry>).drives;
-                    delete (changes as Partial<NPCEntry>).affinity;
-                    delete (changes as Partial<NPCEntry>).pcRelation;
+                    // write a superseded or engine-owned field from the model. `drives`/`affinity`/
+                    // `disposition`/`goals` are retired; `pcRelation` is engine-owned (moves only via
+                    // the tone meter below), so any band the model puts in `changes` is discarded.
+                    const legacy = changes as Partial<NPCEntry> & LegacyNpcFields;
+                    delete legacy.drives;
+                    delete legacy.affinity;
+                    delete legacy.disposition;
+                    delete legacy.goals;
+                    delete legacy.pcRelation;
 
                     // Fold this NPC's tone-driven band/meter move into the same patch so the snapshot
                     // logic below captures the pre-change band for the drift alert.
@@ -285,9 +274,8 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
                     const hasRungChange = changes.skillRung !== undefined;
                     if (hasPersonalityChange || hasHexChange || hasPcRelationChange || hasRungChange) {
                         changes.previousSnapshot = {
-                            personality: targetNpc.personality || targetNpc.disposition || '',
+                            personality: targetNpc.personality || '',
                             voice: targetNpc.voice || '',
-                            affinity: targetNpc.affinity,
                             personalityHex: targetNpc.personalityHex,
                             pcRelation: targetNpc.pcRelation,
                             skillRung: targetNpc.skillRung,
@@ -395,9 +383,8 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
             const changes: Partial<NPCEntry> = { ...patch };
             if (changes.pcRelation !== undefined) {
                 changes.previousSnapshot = {
-                    personality: target.personality || target.disposition || '',
+                    personality: target.personality || '',
                     voice: target.voice || '',
-                    affinity: target.affinity,
                     personalityHex: target.personalityHex,
                     pcRelation: target.pcRelation,
                     skillRung: target.skillRung,

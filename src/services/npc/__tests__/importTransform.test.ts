@@ -3,18 +3,18 @@ import { prepareImportedNpcs } from '../importTransform';
 import type { NPCEntry } from '../../../types';
 
 // A representative cross-campaign export: intrinsic identity + origin-campaign
-// plot baggage (storyRelevance/goals/region/groups/relations/equipment).
-function sampleExport(): Partial<NPCEntry> {
+// plot baggage (storyRelevance/goals/region/groups/relations/equipment). `goals` is the
+// retired free-text field an older export still carries; it folds into wants.long.
+function sampleExport(): Partial<NPCEntry> & { goals?: string } {
     return {
         id: 'origin-id-123',
         name: 'John Roleplay',
         appearance: 'Lean, wiry, thin scar on left jaw',
         voice: 'Monotone, clipped sentences',
         personality: 'Suspicious, guarded',
-        disposition: 'Suspicious, guarded',
         faction: 'Independent operator',
         storyRelevance: "Caught with the stolen Warder's Knot seal — pivotal to Lord Vex's investigation.",
-        goals: 'Escape the manor with the seal and deliver it to his client.',
+        goals: 'Escape the manor with the seal',
         pcRelation: 3,
         region: 'academy',
         haunt: 'the garden',
@@ -34,7 +34,7 @@ describe('prepareImportedNpcs', () => {
         const [npc] = prepareImportedNpcs([sampleExport()], 'full', makeId);
         expect(npc.id).not.toBe('origin-id-123');
         expect(npc.storyRelevance).toContain('Warder\'s Knot seal');
-        expect(npc.goals).toContain('Escape the manor');
+        expect(npc.wants?.long).toContain('Escape the manor');
         expect(npc.pcRelation).toBe(3);
         expect(npc.region).toBe('academy');
         expect(npc.signatureKit?.equipment).toContain("Warder's Knot seal");
@@ -45,7 +45,7 @@ describe('prepareImportedNpcs', () => {
         const [npc] = prepareImportedNpcs([sampleExport()], 'strip', makeId);
         // Cleared / reset
         expect(npc.storyRelevance).toBe('');
-        expect(npc.goals).toBe('');
+        expect(npc.wants).toBeUndefined(); // plot-bound legacy goals are not carried into wants
         expect(npc.pcRelation).toBe(0);
         expect(npc.region).toBeUndefined();
         expect(npc.haunt).toBeUndefined();
@@ -75,7 +75,7 @@ describe('prepareImportedNpcs', () => {
         // original memory preserved after the framing
         expect(npc.storyRelevance).toContain("Warder's Knot seal");
         // plot fields still present (full import)
-        expect(npc.goals).toContain('Escape the manor');
+        expect(npc.wants?.long).toContain('Escape the manor');
     });
 
     it('isekai: still frames an NPC that had no storyRelevance', () => {

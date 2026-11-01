@@ -16,13 +16,10 @@ function makeNpc(id: string, name: string): NPCEntry {
         appearance: '',
         faction: '',
         storyRelevance: '',
-        disposition: '',
         status: '',
-        goals: '',
         voice: '',
         personality: '',
         exampleOutput: '',
-        affinity: 0,
         archived: false,
         isPC: false,
     };

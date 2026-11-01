@@ -5,5 +5,5 @@ export { buildPayload } from './payload/payloadBuilder';
 export { extractJson } from './infrastructure/jsonExtract';
 export { sendMessage, testConnection } from './llm/llmService';
 export type { OpenAIMessage } from './llm/llmService';
-export { generateNPCProfile, updateExistingNPCs, generateNPCPortrait, backfillNPCDrives } from './npcGeneration';
+export { generateNPCProfile, updateExistingNPCs, generateNPCPortrait } from './npcGeneration';
 export { populateEngineTags } from './turn/tagGeneration';

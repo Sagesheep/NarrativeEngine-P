@@ -45,13 +45,10 @@ function npc(over: Partial<NPCEntry> = {}): NPCEntry {
         appearance: '',
         faction: '',
         storyRelevance: 'Aria — imported character',
-        disposition: '',
         status: 'Alive',
-        goals: '',
         voice: '',
         personality: 'Shy but kind.',
         exampleOutput: '',
-        affinity: 50,
         tier: 'recurring',
         condition: 'healthy',
         ...over,
@@ -134,15 +131,10 @@ describe('populateImportedNPC (WO-C §3.4, §6.5)', () => {
         expect(out.populated).toBe(true);
         expect(out.skillRung).toBe(RUNG_DEFAULT);
         expect(out.rungCeiling).toBe(3);
-        expect(out.pcRelation).toBe(0); // affinity 50 → the neutral band
+        expect(out.pcRelation).toBe(0); // born Neutral
         expect(out.region).toBe('');
         expect(out.signatureKit).toBeUndefined();
         expect(out.traits).toBeUndefined();
-    });
-
-    it('homes pcRelation from the affinity band rather than hardcoding 0', () => {
-        const out = populateImportedNPC(npc({ affinity: 20 }), card(), { rng: lcg(12), matureMode: false });
-        expect(out.pcRelation).toBe(-2);
     });
 
     it('derives the hex from personality + tags: "shy, kind" → timid and warm', () => {

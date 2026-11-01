@@ -112,7 +112,6 @@ export function buildNpcSummary(
 /** Format one NPC as a single compact line for the Director prompt. */
 function formatNpcLine(npc: NPCEntry): string {
     const parts: string[] = [npc.name];
-    if (npc.disposition) parts.push(npc.disposition);
     if (npc.faction) parts.push(`faction: ${npc.faction}`);
     if (npc.storyRelevance) parts.push(npc.storyRelevance);
     const rel = resolvePcRelationBand(npc);
@@ -122,12 +121,10 @@ function formatNpcLine(npc: NPCEntry): string {
     return `- ${parts.join('; ')}`;
 }
 
-/** Map pcRelation (-3..+3) to a one-word band for the Director; fall back to affinity. */
+/** Map pcRelation (-3..+3) to a one-word band for the Director. */
 function resolvePcRelationBand(npc: NPCEntry): string | null {
-    const r = typeof npc.pcRelation === 'number' && Number.isFinite(npc.pcRelation)
-        ? npc.pcRelation
-        : affinityToBand(npc.affinity);
-    if (r === null) return null;
+    if (typeof npc.pcRelation !== 'number' || !Number.isFinite(npc.pcRelation)) return null;
+    const r = npc.pcRelation;
     if (r <= -3) return 'hostile';
     if (r <= -2) return 'cool';
     if (r <= -1) return 'wary';
@@ -135,17 +132,6 @@ function resolvePcRelationBand(npc: NPCEntry): string | null {
     if (r === 1) return 'friendly';
     if (r === 2) return 'close';
     return 'devoted';
-}
-
-function affinityToBand(affinity: number | undefined): number | null {
-    if (typeof affinity !== 'number' || !Number.isFinite(affinity)) return null;
-    if (affinity <= 15) return -3;
-    if (affinity <= 30) return -2;
-    if (affinity <= 45) return -1;
-    if (affinity <= 55) return 0;
-    if (affinity <= 70) return 1;
-    if (affinity <= 85) return 2;
-    return 3;
 }
 
 /** Pick the highest-priority active goal text for the NPC (med before long; first before rest). */

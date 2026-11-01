@@ -33,13 +33,10 @@ const npc: NPCEntry = {
     appearance: '',
     faction: '',
     storyRelevance: '',
-    disposition: '',
     status: '',
-    goals: '',
     voice: '',
     personality: '',
     exampleOutput: '',
-    affinity: 50,
     personalityHex: { drive: 0, diligence: 0, boldness: -1, warmth: 0, empathy: 0, composure: 3 },
 };
 

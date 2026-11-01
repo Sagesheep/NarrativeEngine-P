@@ -55,7 +55,7 @@ function mkIndexEntry(sceneId: string, over: Partial<ArchiveIndexEntry> = {}): A
 }
 
 function mkNpc(id: string, name: string, archived = false): NPCEntry {
-    return { id, name, aliases: '', archived, affinity: 50 } as unknown as NPCEntry;
+    return { id, name, aliases: '', archived } as unknown as NPCEntry;
 }
 
 function mkSnippet(sceneId: string, chapterId: string, snippet: string, witnessedBy: string[] | 'all' = 'all'): SlottedRagSnippet {

@@ -32,13 +32,10 @@ function baseNpc(overrides: Partial<NPCEntry> = {}): NPCEntry {
         appearance: '',
         faction: '',
         storyRelevance: '',
-        disposition: '',
         status: 'Alive',
-        goals: '',
         voice: '',
         personality: '',
         exampleOutput: '',
-        affinity: 50,
         ...overrides,
     } as NPCEntry;
 }

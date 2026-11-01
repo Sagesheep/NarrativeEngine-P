@@ -165,12 +165,9 @@ describe('WO-C §10.7 — fixed entry values', () => {
         expect(npc.status).toBe('Alive');
         expect(npc.tier).toBe('recurring');
         expect(npc.condition).toBe('healthy');
-        expect(npc.affinity).toBe(50);
         expect(npc.aliases).toBe('');
         expect(npc.appearance).toBe('');
         expect(npc.faction).toBe('');
-        expect(npc.disposition).toBe('');
-        expect(npc.goals).toBe('');
         expect(npc.voice).toBe('');
         expect(npc.visualProfile).toEqual({
             race: '', gender: '', ageRange: '', build: '', symmetry: '',
@@ -512,7 +509,6 @@ describe('WO-C §10.2 — cardToPC', () => {
         const pc = cardToPC(makeCard(), {});
         expect(pc.isPC).toBe(true);
         expect(pc.populated).toBe(true);
-        expect(pc.affinity).toBe(50);
         expect(pc.status).toBe('Alive');
         expect(pc.name).toBe('Rin');
         expect(pc.appearance).toBe('');

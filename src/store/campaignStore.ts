@@ -1,5 +1,5 @@
 import type { ArchiveChapter, Campaign, LoreChunk, GameContext, ChatMessage, CondenserState, NPCEntry, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, DivergenceRegister, PinnedExcerpt } from '../types';
-import { affinityToPcRelation } from '../services/npc/agency/agencyBands';
+import { retireLegacyNpcFields } from '../services/npc/retireLegacyFields';
 
 import { API_BASE as API } from '../lib/apiBase';
 
@@ -124,17 +124,14 @@ export async function getNPCLedger(campaignId: string): Promise<NPCEntry[]> {
     const res = await fetch(`${API}/campaigns/${campaignId}/npcs`);
     if (!res.ok) return [];
     const npcs: NPCEntry[] = await res.json();
-    // B2 — lazy migration for existing saves: home pcRelation for any NPC where it's still
-    // undefined. populateAgencyFields only runs on UN-populated NPCs, and generated NPCs were
-    // born populated:true with pcRelation unset, so legacy NPCs read "[Aff: Neutral]" forever
-    // and Phase 2's reaction-menu relationship scoring never saw real drift. Home them here on
-    // load regardless of `populated`, mirroring the birth-block fix in profile.ts. Skip PCs
-    // (matches populateAgencyFields' !n.isPC filter). Never clobber an explicit value, never
-    // touch affinity. Persistence happens via the normal store-update path on the next mutation.
+    // Lazy migration for existing saves. Fold the retired affinity/disposition/goals/drives
+    // into pcRelation/personality/wants (retireLegacyFields.ts), then home pcRelation for any
+    // NPC still without one (B2: generated NPCs were born populated:true with it unset). Skip
+    // PCs. Never clobber an explicit value. Persistence happens via the normal store-update
+    // path on the next mutation.
     for (const n of npcs) {
-        if (!n.isPC && n.pcRelation === undefined) {
-            n.pcRelation = affinityToPcRelation(n.affinity ?? 50);
-        }
+        retireLegacyNpcFields(n);
+        if (!n.isPC && n.pcRelation === undefined) n.pcRelation = 0;
         // Coerce any scalar NPCEntry fields that were stored as arrays/objects by a pre-coerce
         // fix in the NPC generator (profile.ts). The render prompt asks the model for strings
         // (e.g. "aliases": "Comma separated aliases..."), but models often returned arrays
@@ -146,9 +143,7 @@ export async function getNPCLedger(campaignId: string): Promise<NPCEntry[]> {
         // place here so already-corrupted saves recover on load. Idempotent — no-op on healthy
         // campaigns. Persistence happens via the normal store-update path on the next mutation.
         if (Array.isArray(n.aliases)) n.aliases = (n.aliases as unknown[]).map(String).filter(Boolean).join(', ');
-        if (Array.isArray(n.goals)) n.goals = (n.goals as unknown[]).map(String).filter(Boolean).join('; ');
         if (Array.isArray(n.appearance)) n.appearance = (n.appearance as unknown[]).map(String).filter(Boolean).join(' ');
-        if (n.disposition && typeof n.disposition !== 'string') n.disposition = String(n.disposition);
         if (n.voice && typeof n.voice !== 'string') n.voice = String(n.voice);
         if (n.personality && typeof n.personality !== 'string') n.personality = String(n.personality);
         if (n.faction && typeof n.faction !== 'string') n.faction = String(n.faction);

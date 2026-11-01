@@ -191,9 +191,8 @@ export function runAgencyTick(
             if (nudge.hexPatch) patch.personalityHex = nudge.hexPatch;
             if (tierCross && tierCross.rungPatch !== undefined) patch.skillRung = tierCross.rungPatch;
             patch.previousSnapshot = {
-                personality: updatedNpc.personality || updatedNpc.disposition || '',
+                personality: updatedNpc.personality || '',
                 voice: updatedNpc.voice || '',
-                affinity: updatedNpc.affinity,
                 personalityHex: updatedNpc.personalityHex,
                 pcRelation: updatedNpc.pcRelation,
                 skillRung: updatedNpc.skillRung,

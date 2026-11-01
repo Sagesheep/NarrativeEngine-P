@@ -72,8 +72,6 @@ describe('generateNPCProfile — Phase-1 refit (propose → roll → render)', (
             status: 'Alive',
             faction: 'Street',
             storyRelevance: 'A street kid',
-            disposition: 'Wary',
-            goals: 'Survive',
             voice: 'clipped',
             appearance: '[inferred] thin, scuffed shoes',
             personality: 'guarded',
@@ -187,7 +185,7 @@ describe('generateNPCProfile — Phase-1 refit (propose → roll → render)', (
         const created: NPCEntry[] = [];
         await generateNPCProfile(provider, history, 'Kid', n => created.push(n), [], false, mulberry32(1));
 
-        expect(created[0].drives).toBeUndefined();
+        expect((created[0] as unknown as Record<string, unknown>).drives).toBeUndefined();
         expect(created[0].wants?.long).toBe('get off the street');
         expect(created[0].wants?.short.length).toBeGreaterThan(0);
         const renderPrompt = String(((mockSend.mock.calls[1][1] as unknown[])[0] as { content: string }).content);
@@ -220,8 +218,8 @@ describe('generateNPCProfile — Phase-1 refit (propose → roll → render)', (
     it('existing saves load unchanged: NPCEntry without primaryGroup/secondaryGroup is valid', () => {
         const legacy: NPCEntry = {
             id: 'old-1', name: 'Old NPC', aliases: '', appearance: '', faction: 'X',
-            storyRelevance: '', disposition: 'Neutral', status: 'Alive', goals: '', voice: '',
-            personality: '', exampleOutput: '', affinity: 50,
+            storyRelevance: '', status: 'Alive', voice: '',
+            personality: '', exampleOutput: '',
             personalityHex: { drive: 0, diligence: 0, boldness: 0, warmth: 0, empathy: 0, composure: 0 },
         };
         expect(legacy.primaryGroup).toBeUndefined();

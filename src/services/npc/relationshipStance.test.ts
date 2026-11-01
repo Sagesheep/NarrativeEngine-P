@@ -14,8 +14,8 @@ import {
 function npc(id: string): NPCEntry {
     return {
         id, name: id, aliases: '', appearance: '', faction: '', storyRelevance: '',
-        disposition: 'guarded', status: 'standing at the door', goals: '', voice: '',
-        personality: '', exampleOutput: '', affinity: 0, hardBoundaries: ['do not touch the sealed door'],
+        status: 'standing at the door', voice: '',
+        personality: '', exampleOutput: '', hardBoundaries: ['do not touch the sealed door'],
     };
 }
 

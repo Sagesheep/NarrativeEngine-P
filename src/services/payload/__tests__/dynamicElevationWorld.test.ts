@@ -59,7 +59,7 @@ function mkIndexEntry(sceneId: string, over: Partial<ArchiveIndexEntry> = {}): A
 }
 
 function mkNpc(id: string, name: string, archived = false): NPCEntry {
-    return { id, name, aliases: '', archived, affinity: 50 } as unknown as NPCEntry;
+    return { id, name, aliases: '', archived } as unknown as NPCEntry;
 }
 
 function elevatedScene(sceneId: string, content: string, chapterId: string, tokens = 10): ElevatedScene {

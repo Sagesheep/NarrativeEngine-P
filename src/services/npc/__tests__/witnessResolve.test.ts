@@ -3,7 +3,7 @@ import type { NPCEntry } from '../../../types';
 import { createWitnessResolver, witnessIds, witnessNames } from '../witnessResolve';
 
 function mkNpc(id: string, name: string, aliases = ''): NPCEntry {
-    return { id, name, aliases, archived: false, affinity: 50 } as unknown as NPCEntry;
+    return { id, name, aliases, archived: false } as unknown as NPCEntry;
 }
 
 const rin = mkNpc('npc_rin', 'Rin Holmes', 'Partner of Grey Holmes, Sovereign of the Hive');

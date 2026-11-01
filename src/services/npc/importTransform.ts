@@ -1,4 +1,5 @@
 import type { NPCEntry } from '../../types';
+import { retireLegacyNpcFields } from './retireLegacyFields';
 
 /**
  * Cross-campaign NPC import modes.
@@ -33,7 +34,7 @@ const ISEKAI_FRAMING =
  * mapping so `full` mode stays byte-for-byte identical to the old behavior.
  */
 function normalize(entry: Partial<NPCEntry>, newId: string): NPCEntry {
-    return {
+    const npc = {
         ...entry,
         id: newId,
         name: entry.name || 'Unknown',
@@ -41,20 +42,20 @@ function normalize(entry: Partial<NPCEntry>, newId: string): NPCEntry {
         appearance: entry.appearance || '',
         faction: entry.faction || '',
         storyRelevance: entry.storyRelevance || '',
-        disposition: entry.disposition || '',
         status: entry.status || 'Alive',
-        goals: entry.goals || '',
         voice: entry.voice ?? '',
-        personality: entry.personality ?? entry.disposition ?? '',
+        personality: entry.personality ?? '',
         exampleOutput: entry.exampleOutput ?? '',
-        affinity: entry.affinity ?? 50,
     } as NPCEntry;
+    // Exports from older builds still carry affinity/disposition/goals/drives.
+    retireLegacyNpcFields(npc);
+    return npc;
 }
 
 /**
  * Remove the fields bound to the origin campaign. Keeps intrinsic identity:
- * appearance, visualProfile, voice, personality, disposition, faction, aliases,
- * signature *abilities*, personality machinery (drives/triggers/hex/traits), and
+ * appearance, visualProfile, voice, personality, faction, aliases,
+ * signature *abilities*, personality machinery (triggers/hex/traits), and
  * long-horizon `goalRecords` (the NPC's own ambitions, not this campaign's plot).
  */
 function stripCampaignBoundFields(npc: NPCEntry): NPCEntry {
@@ -62,7 +63,8 @@ function stripCampaignBoundFields(npc: NPCEntry): NPCEntry {
 
     // Plot-bound narrative text — the primary hallucination vectors.
     cleaned.storyRelevance = '';   // e.g. "…the stolen Warder's Knot seal … Lord Vex's investigation"
-    cleaned.goals = '';            // immediate objective, e.g. "Escape the manor with the seal"
+    // The old free-text `goals` (an immediate objective, e.g. "Escape the manor with the
+    // seal") is dropped before normalize in strip mode — see prepareImportedNpcs.
 
     // Reset stance toward the (now different) player character.
     cleaned.pcRelation = NEUTRAL_PC_RELATION;
@@ -111,7 +113,9 @@ export function prepareImportedNpcs(
     makeId: () => string,
 ): NPCEntry[] {
     return parsed.map((entry) => {
-        const base = normalize(entry, makeId());
+        // Strip mode: the legacy `goals` is plot-bound, so it must not fold into wants.long.
+        const source = mode === 'strip' ? { ...entry, goals: undefined } as Partial<NPCEntry> : entry;
+        const base = normalize(source, makeId());
         if (mode === 'strip') return stripCampaignBoundFields(base);
         if (mode === 'isekai') return applyIsekaiFraming(base);
         return base; // 'full'

@@ -19,8 +19,8 @@ const hex = (over: Partial<PersonalityHex> = {}): PersonalityHex => ({
 
 const npc = (over: Partial<NPCEntry> = {}): NPCEntry => ({
     id: 'n', name: 'Test', aliases: '', appearance: '', faction: '', storyRelevance: '',
-    disposition: '', status: '', goals: '', voice: '', personality: '', exampleOutput: '',
-    affinity: 50, personalityHex: hex(), ...over,
+    status: '', voice: '', personality: '', exampleOutput: '',
+    personalityHex: hex(), ...over,
 } as NPCEntry);
 
 // A deterministic rng that yields a fixed queue of values, then repeats the last.

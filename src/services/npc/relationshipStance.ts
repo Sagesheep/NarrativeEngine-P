@@ -184,7 +184,6 @@ function statusText(npc: NPCEntry): string {
     return [
         npc.status,
         npc.condition ? `condition: ${npc.condition}` : '',
-        npc.disposition ? `disposition: ${npc.disposition}` : '',
         npc.shiftNote ? `shift: ${npc.shiftNote}` : '',
     ].filter(Boolean).join('; ') || 'no status recorded';
 }

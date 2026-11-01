@@ -51,7 +51,6 @@ vi.mock('../chatEngine', () => ({
     sendMessage: vi.fn(),
     generateNPCProfile: vi.fn(),
     updateExistingNPCs: vi.fn(),
-    backfillNPCDrives: vi.fn(),
 }));
 vi.mock('../characterProfileParser', () => ({ scanCharacterProfile: vi.fn() }));
 vi.mock('../characterTraitParser', () => ({ scanCharacterTraits: vi.fn() }));

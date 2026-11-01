@@ -111,20 +111,20 @@ describe('parseNPCsFromLore — lore-authored agency fields (hex + traits)', () 
         expect(npc.traits).toBeUndefined();
     });
 
-    it('still extracts the standard 11 text fields', () => {
+    it('still extracts the standard text fields (legacy Disposition/Goals/Affinity folded)', () => {
         const [npc] = parseNPCsFromLore([charChunk('CHARACTER -- Naruto Uzumaki', NARUTO_BLOCK)]);
         expect(npc.name).toBe('Naruto Uzumaki');
         expect(npc.aliases).toContain('Number One Hyperactive');
         expect(npc.appearance).toContain('whisker marks');
-        expect(npc.disposition).toContain('loyal');
+        expect(npc.personality).not.toContain('Loud, loyal'); // Disposition is dropped when Personality is authored
         expect(npc.personality).toContain('acknowledged');
         expect(npc.voice).toContain('dattebayo');
         expect(npc.status).toBe('Alive');
         expect(npc.faction).toBe('Konohagakure');
-        expect(npc.goals).toContain('Hokage');
+        expect(npc.wants?.long).toContain('Hokage'); // Goals → wants.long
         expect(npc.storyRelevance).toContain('Jinchuuriki');
         expect(npc.exampleOutput).toContain('believe it');
-        expect(npc.affinity).toBe(50);
+        expect(npc.pcRelation).toBe(0); // Affinity 50 → Neutral
     });
 
     it('PRESERVES the desktop-only visualProfile extraction (regression guard)', () => {
@@ -223,13 +223,21 @@ describe('parseNPCsFromLore — extended agency fields (tier, region, haunt, bou
         });
     });
 
-    it('extracts Drives (coreWant/sessionWant/sceneWant)', () => {
-        const [npc] = parseNPCsFromLore([charChunk('CHARACTER — Test NPC', AGENCY_BLOCK)]);
-        expect(npc.drives).toEqual({
-            coreWant: 'to be acknowledged, not feared',
-            sessionWant: 'bring his teammate back',
-            sceneWant: 'prove he is not the fox',
+    it('folds legacy CoreWant/SessionWant/SceneWant into wants only where no Wants were authored', () => {
+        const withWants = parseNPCsFromLore([charChunk('CHARACTER — Test NPC', AGENCY_BLOCK)])[0];
+        expect(withWants.wants?.long).toBe('become Hokage so the village recognizes him');
+
+        const block = AGENCY_BLOCK
+            .replace(/\n\*\*WantsShort:\*\*.*/u, '')
+            .replace(/\n\*\*WantsMedium:\*\*.*/u, '')
+            .replace(/\n\*\*WantsLong:\*\*.*/u, '');
+        const [npc] = parseNPCsFromLore([charChunk('CHARACTER — Test NPC', block)]);
+        expect(npc.wants).toEqual({
+            short: ['prove he is not the fox'],
+            medium: ['bring his teammate back'],
+            long: 'to be acknowledged, not feared',
         });
+        expect((npc as unknown as Record<string, unknown>).drives).toBeUndefined();
     });
 
     it('returns undefined for agency fields when the block omits them', () => {
@@ -241,7 +249,7 @@ describe('parseNPCsFromLore — extended agency fields (tier, region, haunt, bou
         expect(npc.hardBoundaries).toBeUndefined();
         expect(npc.softBoundaries).toBeUndefined();
         expect(npc.behavioralTriggers).toBeUndefined();
-        expect(npc.drives).toBeUndefined();
+        expect(npc.personality).toBe('Cool.'); // Disposition fills an empty Personality
         expect(npc.wants).toBeUndefined();
     });
 

@@ -271,18 +271,6 @@ export function PCEditForm({
                         />
                     </div>
 
-                    <div>
-                        <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Default Disposition</label>
-                        <input
-                            type="text"
-                            value={form.disposition || ''}
-                            onChange={e => setForm({ ...form, disposition: e.target.value })}
-                            disabled={!isEditing}
-                            placeholder="How your character comes across to others..."
-                            className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
-                        />
-                    </div>
-
                     <div className="bg-void p-4 rounded border border-border">
                         <div className="flex items-center gap-2 text-text-primary font-bold uppercase tracking-widest text-xs mb-4">
                             Character Profile

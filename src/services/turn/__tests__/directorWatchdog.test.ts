@@ -34,13 +34,10 @@ function npcEntry(over: Partial<NPCEntry> = {}): NPCEntry {
         visualProfile: undefined,
         faction: '',
         storyRelevance: '',
-        disposition: '',
         status: '',
-        goals: '',
         voice: '',
         personality: '',
         exampleOutput: '',
-        affinity: 50,
         pcRelation: 0,
         ...over,
     } as NPCEntry;
@@ -52,7 +49,6 @@ function pcEntry(name = 'Kai'): NPCEntry {
         name,
         isPC: true,
         pcRelation: 0,
-        affinity: 50,
     });
 }
 
@@ -253,22 +249,6 @@ describe('directorWatchdog — one-directional', () => {
         ];
         const d = buildWatchdogDossier(inputWithPc(msgs, [ingrid]));
         expect(d.signals.find(s => s.kind === 'one-directional')).toBeUndefined();
-    });
-
-    it('falls back to legacy affinity when pcRelation is undefined (>=56 maps to +1)', () => {
-        const ingrid = npcEntry({ pcRelation: undefined, affinity: 70 });
-        const msgs = [
-            asstMsg('Kai asks Ingrid a question.'),
-            asstMsg('Kai presses Ingrid again.'),
-            asstMsg('Kai waits.'),
-            asstMsg('Kai tries once more.'),
-            asstMsg('Kai sighs.'),
-        ];
-        const d = buildWatchdogDossier(inputWithPc(msgs, [ingrid]));
-        const sig = d.signals.find(s => s.kind === 'one-directional');
-        expect(sig).toBeDefined();
-        // Detail should reflect the resolved +1 from affinity fallback.
-        expect(sig!.detail).toMatch(/\+1/);
     });
 
     it('treats NPC-named-first (PC never named) as initiating', () => {

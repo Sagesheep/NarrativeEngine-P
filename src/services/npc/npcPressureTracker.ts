@@ -71,7 +71,7 @@ export function scanPressure(
     const lowerGm = gmResponse ? gmResponse.toLowerCase() : '';
 
     for (const npc of activeNPCs) {
-        if (!npc.drives && !npc.behavioralTriggers && !npc.hardBoundaries && !npc.softBoundaries) continue;
+        if (!npc.wants && !npc.behavioralTriggers && !npc.hardBoundaries && !npc.softBoundaries) continue;
 
         const patterns = npcNamePatterns(npc);
         let ignoredDelta = 0;
@@ -143,12 +143,15 @@ function applyDecay(current: number, lastDecayTurn: number, currentTurn: number)
 
 const ARCHIVE_THRESHOLD_TURNS = 15;
 const ARCHIVE_PRESSURE_FLOOR = 0.5;
-const ARCHIVE_AFFINITY_PROTECT = 7;
+// Protected from auto-archive: the PC, NPCs the PC is close to (pcRelation +2 or better), and recurring
+// cast. This replaced `affinity >= 7` on the retired 0..100 scale (2026-11-01), which every
+// NPC passed at its default of 50 — so auto-archive had never actually fired before.
+const ARCHIVE_PC_RELATION_PROTECT = 2;
 
 export function shouldArchiveNPC(npc: NPCEntry, currentTurn: number, maxStaleTurns: number = ARCHIVE_THRESHOLD_TURNS): { shouldArchive: boolean; turnsSince: number; reason: string } {
     if (npc.archived) return { shouldArchive: false, turnsSince: 0, reason: '' };
     if (maxStaleTurns <= 0) return { shouldArchive: false, turnsSince: 0, reason: '' };
-    if ((npc.affinity ?? 0) >= ARCHIVE_AFFINITY_PROTECT) return { shouldArchive: false, turnsSince: 0, reason: '' };
+    if (npc.isPC || (npc.pcRelation ?? 0) >= ARCHIVE_PC_RELATION_PROTECT || npc.tier === 'recurring') return { shouldArchive: false, turnsSince: 0, reason: '' };
     if (npc.shiftNote) return { shouldArchive: false, turnsSince: 0, reason: '' };
 
     const lastActive = npc.pressure?.lastActiveTurn ?? currentTurn;

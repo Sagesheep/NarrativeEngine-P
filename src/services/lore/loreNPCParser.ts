@@ -1,4 +1,5 @@
-import type { NPCEntry, LoreChunk, HexAxis, PersonalityHex, NPCDrives, NPCWants, NPCBehavioralTrigger } from '../../types';
+import type { NPCEntry, LoreChunk, HexAxis, PersonalityHex, NPCWants, NPCBehavioralTrigger } from '../../types';
+import { retireLegacyNpcFields, type LegacyNpcFields } from '../npc/retireLegacyFields';
 import { TRAIT_NAMES } from '../npc/agency/agencyPools';
 import { sanitizeSignatureKit } from '../npc/signatureKit';
 
@@ -32,9 +33,9 @@ function uid(): string {
  *           - **WantsShort:** [train, eat ramen, prank]   (bracketed CSV)
  *           - **WantsMedium:** [learn a new jutsu, win a sparring match]
  *           - **WantsLong:** become Hokage so the village recognizes him
- *           - **CoreWant:** a deep character truth (drives.coreWant)
- *           - **SessionWant:** arc-level goal (drives.sessionWant)
- *           - **SceneWant:** immediate-scene want (drives.sceneWant)
+ *           - **CoreWant:** a deep character truth (legacy; folds into wants.long)
+ *           - **SessionWant:** arc-level goal (legacy; folds into wants.medium)
+ *           - **SceneWant:** immediate-scene want (legacy; folds into wants.short)
  *           - **SignatureEquipment:** [Excalibur (holy longsword), plate armor]  (durable loadout gear, ≤4)
  *           - **SignatureAbilities:** [fire magic, holy smite]                    (signature powers/techniques, ≤4)
  *           - **Element:** fire                                                   (single affinity tag)
@@ -230,18 +231,20 @@ export function parseNPCsFromLore(chunks: LoreChunk[]): NPCEntry[] {
             visualProfile.gait || visualProfile.distinctMarks || visualProfile.clothing
         );
 
-        const disposition = get('Disposition') || '';
-
-        // ---- Drives + Wants (legacy NPCDrives + tiered NPCWants). ----
-        // populateAgencyFields already respects existing wants.short/medium/long and
-        // existing drives — when the parser surfaces them, the engine keeps them
-        // instead of pulling from the pools or defaultLongWant(faction).
-        const coreWant = getAny(['CoreWant', 'Core Want']);
-        const sessionWant = getAny(['SessionWant', 'Session Want']);
-        const sceneWant = getAny(['SceneWant', 'Scene Want']);
-        const drives: NPCDrives | undefined = (coreWant || sessionWant || sceneWant)
-            ? { coreWant: coreWant || '', sessionWant: sessionWant || '', sceneWant: sceneWant || '' }
-            : undefined;
+        // ---- Wants (tiered NPCWants). ----
+        // The agency lazy fill keeps existing wants and only tops them up from the pools.
+        // Older lore authors CoreWant/SessionWant/SceneWant, Goals, Disposition and Affinity:
+        // still read, then folded into wants/personality/pcRelation by retireLegacyNpcFields.
+        const legacy: LegacyNpcFields = {
+            affinity: getNum('Affinity', 50),
+            disposition: get('Disposition') || '',
+            goals: get('Goals'),
+            drives: {
+                coreWant: getAny(['CoreWant', 'Core Want']),
+                sessionWant: getAny(['SessionWant', 'Session Want']),
+                sceneWant: getAny(['SceneWant', 'Scene Want']),
+            },
+        };
 
         const wantsShort = getStringList('WantsShort');
         const wantsMedium = getStringList('WantsMedium');
@@ -260,24 +263,21 @@ export function parseNPCsFromLore(chunks: LoreChunk[]): NPCEntry[] {
             element: getAny(['Element', 'SignatureElement']),
         });
 
-        npcs.push({
+        const npc: NPCEntry & LegacyNpcFields = {
+            ...legacy,
             id: uid(),
             name,
             aliases: get('Aliases'),
             appearance: getAny(['Appearance', 'VisualForAI']),
             visualProfile: hasVisualProfile ? visualProfile : undefined,
-            disposition,
-            goals: get('Goals'),
             faction: get('Faction'),
             storyRelevance: get('StoryRelevance'),
             status: (get('Status') as NPCEntry['status']) || 'Alive',
-            affinity: getNum('Affinity', 50),
             voice: getAny(['Voice', 'Speech Pattern', 'Voice & Speech Pattern']),
-            personality: getAny(['Personality', 'Personality Traits']) || disposition,
+            personality: getAny(['Personality', 'Personality Traits']),
             exampleOutput: getAny(['Example Output', 'Example Dialogue', 'Example Line']),
-            // Lore-authored agency fields. When present, populateAgencyFields' existing
-            // guards skip the LLM inference / pool-draw calls — canon NPCs keep their
-            // authored personality instead of being re-inferred from the disposition string.
+            // Lore-authored agency fields. When present, the agency lazy fill keeps them —
+            // canon NPCs keep their authored personality instead of a keyword-derived one.
             personalityHex: getHex('PersonalityHex'),
             traits: getTraits('Traits'),
             tier: getTier(),
@@ -286,11 +286,12 @@ export function parseNPCsFromLore(chunks: LoreChunk[]): NPCEntry[] {
             hardBoundaries: getStringList('HardBoundaries'),
             softBoundaries: getStringList('SoftBoundaries'),
             behavioralTriggers: getBehavioralTriggers('BehavioralTriggers'),
-            drives,
             wants,
             signatureKit,
             portrait: '',
-        });
+        };
+        retireLegacyNpcFields(npc);
+        npcs.push(npc);
     }
 
     return npcs;

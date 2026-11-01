@@ -15,7 +15,6 @@ import type { STCard } from './stCardTypes';
 import { deriveKeywordHex } from './keywordHex';
 import { drawShortWants, drawMediumWants } from '../npc/agency/agencyWantDraw';
 import { RUNG_DEFAULT } from '../npc/agency/agencyConstants';
-import { affinityToPcRelation } from '../npc/agency/agencyBands';
 
 export type PopulateOpts = {
     /** Deterministic randomness for the hex fill and the want pool draws. */
@@ -59,8 +58,8 @@ export function populateImportedNPC(npc: NPCEntry, card: STCard, opts: PopulateO
         wantsProvenance: 'pool',
         skillRung: RUNG_DEFAULT,
         rungCeiling: 3,
-        // Mirrors the band-homing in profile.ts: affinity 50 → the neutral band, 0.
-        pcRelation: affinityToPcRelation(npc.affinity ?? 50),
+        // Mirrors the band-homing in profile.ts: born Neutral.
+        pcRelation: 0,
         populated: true,
         region: '',
     };

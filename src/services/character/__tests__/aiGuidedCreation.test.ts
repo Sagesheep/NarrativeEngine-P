@@ -301,8 +301,6 @@ describe('WO-A2 §4.8 — pcUpdater whitelist', () => {
             traits: ['ruthless'],
             relations: { x: 2 },
             pcRelation: 2,
-            drives: { coreWant: 'x', sessionWant: 'y', sceneWant: 'z' },
-            affinity: 99,
         };
         const stripped = stripBlockedKeys(changes);
         // Only the 5 allowed keys survive.

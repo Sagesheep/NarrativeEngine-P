@@ -121,13 +121,10 @@ function makeNPC(overrides: Partial<NPCEntry>): NPCEntry {
         appearance: '',
         faction: '',
         storyRelevance: '',
-        disposition: 'neutral',
         status: 'alive',
-        goals: '',
         voice: '',
         personality: '',
         exampleOutput: '',
-        affinity: 0,
         archived: false,
         ...overrides,
     };
@@ -340,7 +337,7 @@ describe('buildPayload — scenario 3: NPC tiered directive', () => {
     const highNpc = makeNPC({
         id: 'npc_high',
         name: 'Zorath',
-        drives: { coreWant: 'conquer the realm', sessionWant: 'recruit allies', sceneWant: 'intimidate the player' },
+        wants: { short: ['intimidate the player'], medium: ['recruit allies'], long: 'conquer the realm' },
         behavioralTriggers: [{ keyword: 'sword', shift: 'becomes aggressive' }],
         hardBoundaries: ['never retreat', 'no mercy'],
         softBoundaries: ['avoids fire'],
@@ -361,13 +358,13 @@ describe('buildPayload — scenario 3: NPC tiered directive', () => {
         expect(npcTrace!.reason).toContain('tiered');
     });
 
-    it('NPC with drives surfaces a WANTS line (legacy drives fallback) in output', () => {
+    it('NPC with wants surfaces a GOAL line in output', () => {
         const result = buildPayload({ settings: baseSettings(), context: baseContext(), history: [], userMessage: userMsg, condensedUpToIndex: undefined, relevantLore: undefined, npcLedger: [highNpc, lowNpc] });
         const allContent = result.messages
             .map(m => m.content as string)
             .join('\n');
-        // highNpc has drives (not wants) → buildExtendedDirective emits WANTS:.
-        expect(allContent).toContain('WANTS:');
+        // highNpc has wants.long → buildExtendedDirective emits GOAL:.
+        expect(allContent).toContain('GOAL: conquer the realm');
     });
 
     it('NPC triggers surface as ON "keyword": in output', () => {
@@ -386,14 +383,14 @@ describe('buildPayload — scenario 3: NPC tiered directive', () => {
         expect(allContent).toContain('WON\'T:');
     });
 
-    it('NPC without drives does not emit a WANTS line', () => {
+    it('NPC without wants does not emit a GOAL line', () => {
         const result = buildPayload({ settings: baseSettings(), context: baseContext(), history: [], userMessage: userMsg, condensedUpToIndex: undefined, relevantLore: undefined, npcLedger: [highNpc, lowNpc] });
         const allContent = result.messages
             .map(m => m.content as string)
             .join('\n');
-        // lowNpc (Tara) has no drives and no wants — no WANTS line for her.
-        // Only highNpc's WANTS line should be present.
-        const wantsCount = (allContent.match(/WANTS:/g) ?? []).length;
+        // lowNpc (Tara) has no wants — no GOAL line for her.
+        // Only highNpc's GOAL line should be present.
+        const wantsCount = (allContent.match(/GOAL:/g) ?? []).length;
         expect(wantsCount).toBe(1);
     });
 });

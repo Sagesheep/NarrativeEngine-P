@@ -6,16 +6,6 @@ import { readPcAffinity } from './affinityAccess';
 import { parseKnownByToken, parseFactions } from '../campaign-state/knowledgeScope';
 import { createWitnessResolver, type WitnessResolver } from './witnessResolve';
 
-function affinityDescriptor(v: number): string {
-    if (v <= 15) return 'Nemesis — actively hostile';
-    if (v <= 30) return 'Distrustful — suspicious and cold';
-    if (v <= 45) return 'Wary — cautious, guarded';
-    if (v <= 55) return 'Neutral';
-    if (v <= 70) return 'Warm — generally friendly';
-    if (v <= 85) return 'Trusted ally';
-    return 'Devoted — deep loyalty';
-}
-
 function truncate(s: string, max: number): string {
     if (!s || s.length <= max) return s;
     return s.substring(0, max) + '…';
@@ -31,41 +21,24 @@ export type BehaviorDirectiveOpts = {
 export function buildBehaviorDirective(npc: NPCEntry, opts: BehaviorDirectiveOpts = {}): string {
     const parts: string[] = [];
 
-    // Prefer the re-homed PC edge (word-banded -3..+3); fall back to legacy affinity for
-    // un-migrated NPCs. Numbers never reach the LLM — band words only. Routed through the
-    // one affinity accessor (WO-4 §2) so the later v3 switch is one change, not six.
-    // The `legacyAffinity`/`none` arms preserve the pre-refactor `affinityDescriptor(npc.affinity)`
-    // call exactly — `none` passes `undefined` through, which yields 'Devoted — deep loyalty'
-    // (the same edge-case behaviour the old code had when affinity was undefined).
+    // PC edge as a word band (-3..+3); numbers never reach the LLM. Routed through the
+    // one affinity accessor (WO-4 §2). Unset reads Neutral.
     const affinityRead = readPcAffinity(npc, opts.relationshipMemoryEnabled);
     if (affinityRead.kind !== 'stance') {
-        const affinityLabel = affinityRead.kind === 'pcRelation'
-            ? relationBand(affinityRead.value)
-            : affinityDescriptor(affinityRead.kind === 'legacyAffinity' ? affinityRead.value : undefined as unknown as number);
-        parts.push(`[Aff: ${affinityLabel}]`);
+        parts.push(`[Aff: ${relationBand(affinityRead.kind === 'pcRelation' ? affinityRead.value : 0)}]`);
     }
 
     if (npc.personalityHex) {
         parts.push(`Personality: ${describeHex(npc.personalityHex)}`);
-    } else {
-        // Legacy hex-less NPC: show free-text personality (as before), so the model still has
-        // a read. Migrated NPCs surface their hex band-words above instead.
-        const personality = npc.personality || npc.disposition || '';
-        if (personality) parts.push(personality);
+    } else if (npc.personality) {
+        // Hex-less NPC: show free-text personality so the model still has a read.
+        parts.push(npc.personality);
     }
 
-    // Agency wants (Phase 2) supersede the legacy drives display when present — a migrated NPC
-    // carries both, and they hold the same seeded content, so show one to avoid duplication.
-    if (npc.wants && (npc.wants.long || npc.wants.medium?.length || npc.wants.short?.length)) {
+    if (npc.wants) {
         if (npc.wants.long) parts.push(`GOAL: ${truncate(npc.wants.long, 80)}`);
         if (npc.wants.medium?.[0]) parts.push(`PURSUING: ${truncate(npc.wants.medium[0], 60)}`);
         if (npc.wants.short?.[0]) parts.push(`NOW: ${truncate(npc.wants.short[0], 40)}`);
-    } else if (npc.drives) {
-        const driveParts: string[] = [];
-        if (npc.drives.sceneWant) driveParts.push(truncate(npc.drives.sceneWant, 80));
-        if (npc.drives.sessionWant) driveParts.push(truncate(npc.drives.sessionWant, 80));
-        if (npc.drives.coreWant) driveParts.push(truncate(npc.drives.coreWant, 80));
-        if (driveParts.length > 0) parts.push(`WANTS: ${driveParts.join(' ← ')}`);
     }
 
     if (npc.hardBoundaries && npc.hardBoundaries.length > 0) {
@@ -138,11 +111,7 @@ export function buildDriftAlert(npc: NPCEntry): string | null {
     const shifts: string[] = [];
     const prev = npc.previousSnapshot;
 
-    if (prev.affinity !== undefined && Math.abs(npc.affinity - prev.affinity) >= 10) {
-        shifts.push(`affinity ${prev.affinity}→${npc.affinity}`);
-    }
-
-    const currentPersonality = npc.personality || npc.disposition || '';
+    const currentPersonality = npc.personality || '';
     if (prev.personality !== undefined && prev.personality !== currentPersonality && prev.personality !== '' && currentPersonality !== '') {
         shifts.push('personality changed');
     }

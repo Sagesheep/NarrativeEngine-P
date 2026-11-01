@@ -7,10 +7,12 @@ const seeded = (seed: number) => () => {
     return (seed - 1) / 2147483646;
 };
 
+// A pre-agency NPC as it looks after load: the retired disposition/goals have already
+// folded into personality / wants.long (retireLegacyFields.ts).
 const legacy = (over: Partial<NPCEntry> = {}): NPCEntry => ({
     id: 'n1', name: 'Sanna', aliases: '', appearance: '', faction: 'Holmes Agency', storyRelevance: '',
-    disposition: 'warm but guarded', status: '', goals: 'Keep the agency solvent', voice: '',
-    personality: 'cautious, loyal, quietly ambitious', exampleOutput: '', affinity: 60,
+    status: '', voice: '', personality: 'cautious, loyal, quietly ambitious', exampleOutput: '',
+    wants: { short: [], medium: [], long: 'Keep the agency solvent' },
     ...over,
 } as NPCEntry);
 
@@ -46,13 +48,13 @@ describe('agencyFillPatch', () => {
             .toEqual(agencyFillPatch(legacy(), { matureMode: false, rng: seeded(3) }));
     });
 
-    it('carries an existing drive into the wants instead of losing it', () => {
+    it('draws only the empty tiers, keeping a tier carried in from old drives', () => {
         const patch = agencyFillPatch(legacy({
-            drives: { coreWant: 'to be seen as capable', sessionWant: 'repay the Soll debt', sceneWant: 'read the letter' },
+            wants: { short: [], medium: ['repay the Soll debt'], long: 'to be seen as capable' },
         }), { matureMode: false, rng: seeded(5) });
 
-        expect(patch.wants?.short[0]).toBe('read the letter');
-        expect(patch.wants?.medium[0]).toBe('repay the Soll debt');
+        expect(patch.wants?.short).toHaveLength(4);
+        expect(patch.wants?.medium).toEqual(['repay the Soll debt']);
         expect(patch.wants?.long).toBe('to be seen as capable');
     });
 

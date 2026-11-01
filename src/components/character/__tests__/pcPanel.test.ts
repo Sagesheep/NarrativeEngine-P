@@ -14,13 +14,10 @@ function makeNpc(name: string, extra: Partial<NPCEntry> = {}): NPCEntry {
         appearance: '',
         faction: '',
         storyRelevance: '',
-        disposition: '',
         status: 'Alive',
-        goals: '',
         voice: '',
         personality: '',
         exampleOutput: '',
-        affinity: 50,
         ...extra,
     };
 }

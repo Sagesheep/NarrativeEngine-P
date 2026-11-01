@@ -1,5 +1,6 @@
 import type { NPCEntry, NPCPressureHistory } from '../types';
 import { useAppStore } from '../store/useAppStore';
+import { relationBand } from '../services/npc/agency/agencyBands';
 
 function miniSparkline(history: NPCPressureHistory[], type: 'ignored' | 'engaged'): string {
     if (!history || history.length === 0) return '—';
@@ -16,21 +17,21 @@ function miniSparkline(history: NPCPressureHistory[], type: 'ignored' | 'engaged
 function NPCCard({ npc }: { npc: NPCEntry }) {
     const relationshipMemoryEnabled = useAppStore(s => s.context.relationshipMemory === true);
     const pressure = npc.pressure;
-    const hasDrives = !!npc.drives;
+    const wants = npc.wants;
     const hasTriggers = !!npc.behavioralTriggers && npc.behavioralTriggers.length > 0;
 
     return (
         <div className="bg-void border border-border p-2 space-y-1.5">
             <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-text-primary">{npc.name}</span>
-                <span className="text-[9px] text-text-dim">{relationshipMemoryEnabled ? 'historical aff' : 'aff'}:{npc.affinity}</span>
+                <span className="text-[9px] text-text-dim">{relationshipMemoryEnabled ? 'historical rel' : 'rel'}:{relationBand(npc.pcRelation ?? 0)}</span>
             </div>
 
-            {hasDrives && (
+            {wants && (
                 <div className="text-[9px] text-text-dim space-y-0.5">
-                    {npc.drives!.coreWant && <div><span className="text-terminal">Core:</span> {npc.drives!.coreWant}</div>}
-                    {npc.drives!.sessionWant && <div><span className="text-ice">Session:</span> {npc.drives!.sessionWant}</div>}
-                    {npc.drives!.sceneWant && <div><span className="text-amber-400">Scene:</span> {npc.drives!.sceneWant}</div>}
+                    {wants.long && <div><span className="text-terminal">Long:</span> {wants.long}</div>}
+                    {wants.medium?.[0] && <div><span className="text-ice">Medium:</span> {wants.medium[0]}</div>}
+                    {wants.short?.[0] && <div><span className="text-amber-400">Short:</span> {wants.short[0]}</div>}
                 </div>
             )}
 
@@ -81,26 +82,26 @@ export function NPCPressureInspector() {
 
     if (!debugMode) return null;
 
-    const npcsWithDrives = npcLedger.filter(n => n.drives || n.pressure);
-    const npcsWithoutDrives = npcLedger.filter(n => !n.drives && !n.pressure);
+    const trackedNpcs = npcLedger.filter(n => n.wants || n.pressure);
+    const untrackedNpcs = npcLedger.filter(n => !n.wants && !n.pressure);
 
     return (
         <details className="border border-border/50 rounded">
             <summary className="cursor-pointer text-[10px] text-terminal/60 hover:text-terminal transition-colors select-none px-2 py-1 flex items-center gap-2">
                 <span className="font-bold uppercase tracking-wider">NPC Pressure Inspector</span>
-                <span className="text-[9px] text-text-dim/40">({npcsWithDrives.length} tracked / {npcLedger.length} total)</span>
+                <span className="text-[9px] text-text-dim/40">({trackedNpcs.length} tracked / {npcLedger.length} total)</span>
             </summary>
             <div className="p-2 space-y-2 max-h-96 overflow-y-auto">
-                {npcsWithDrives.length === 0 && (
-                    <p className="text-[9px] text-text-dim/40 italic p-2">No NPCs with drives yet. New NPCs will be populated automatically.</p>
+                {trackedNpcs.length === 0 && (
+                    <p className="text-[9px] text-text-dim/40 italic p-2">No NPCs with wants yet. New NPCs will be populated automatically.</p>
                 )}
-                {npcsWithDrives.map(npc => (
+                {trackedNpcs.map(npc => (
                     <NPCCard key={npc.id} npc={npc} />
                 ))}
-                {npcsWithoutDrives.length > 0 && (
+                {untrackedNpcs.length > 0 && (
                     <div className="text-[9px] text-text-dim/30 border-t border-border/20 pt-2">
-                        <span className="uppercase tracking-wider">Legacy NPCs (no drives):</span>{' '}
-                        {npcsWithoutDrives.map(n => n.name).join(', ')}
+                        <span className="uppercase tracking-wider">Untracked NPCs (no wants):</span>{' '}
+                        {untrackedNpcs.map(n => n.name).join(', ')}
                     </div>
                 )}
             </div>

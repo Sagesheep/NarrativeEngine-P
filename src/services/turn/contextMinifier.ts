@@ -142,8 +142,7 @@ export function minifyLoreBlock(chunks: LoreChunk[]): string {
  *
  * The PC relationship is NOT emitted here: buildCoreDirective owns it as an
  * `[Aff: <band>]` word. A raw number here used to contradict that band.
- * Goals are NOT emitted when the NPC has `wants` — the extended tier sends
- * them as GOAL/PURSUING, and a second copy here could disagree.
+ * Motives are not emitted here — the directive tiers send `wants` as NOW/GOAL/PURSUING.
  */
 export function minifyNPC(npc: NPCEntry): string {
     const aliases = npc.aliases ? `(${npc.aliases})` : '';
@@ -155,13 +154,11 @@ export function minifyNPC(npc: NPCEntry): string {
         ? (npc.appearance || '?').substring(0, 80) + '…'
         : (npc.appearance || '?');
 
-    const personality = (npc.personality || npc.disposition || '?').length > 60
-        ? (npc.personality || npc.disposition || '?').substring(0, 60) + '…'
-        : (npc.personality || npc.disposition || '?');
+    const personality = (npc.personality || '?').length > 60
+        ? (npc.personality || '?').substring(0, 60) + '…'
+        : (npc.personality || '?');
 
-    const goals = npc.wants?.long ? '' : (npc.goals || '');
-
-    return `[${name}${aliases}] ${status} | ${appearance} | ${personality}${goals ? ` | ${goals}` : ''}`;
+    return `[${name}${aliases}] ${status} | ${appearance} | ${personality}`;
 }
 
 /**

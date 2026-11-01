@@ -257,50 +257,6 @@ export function NPCEditForm({
                         />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Default Disposition</label>
-                            <input
-                                type="text"
-                                value={form.disposition || ''}
-                                onChange={e => setForm({ ...form, disposition: e.target.value })}
-                                disabled={!isEditing}
-                                placeholder="Helpful, Suspicious..."
-                                className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Affinity (0-100) <span className="text-text-dim/50 normal-case tracking-normal">— legacy</span></label>
-                            <input
-                                type="number"
-                                min={0}
-                                max={100}
-                                value={form.affinity ?? 50}
-                                onChange={e => setForm({ ...form, affinity: parseInt(e.target.value, 10) || 50 })}
-                                disabled={!isEditing || relationshipMemoryEnabled}
-                                className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
-                            />
-                            {form.pcRelation !== undefined && (
-                                <p className="text-[9px] text-text-dim/60 mt-1 italic">Superseded by PC Relation ({form.pcRelation >= 0 ? '+' : ''}{form.pcRelation}, {relationBand(form.pcRelation)}). Shown for legacy saves only.</p>
-                            )}
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Core Motive / Goals <span className="text-text-dim/50 normal-case tracking-normal">— legacy</span></label>
-                        <textarea
-                            value={form.goals || ''}
-                            onChange={e => setForm({ ...form, goals: e.target.value })}
-                            disabled={!isEditing}
-                            placeholder="What does this character ultimately want?"
-                            rows={2}
-                            className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent resize-none focus:outline-none focus:border-terminal"
-                        />
-                        {((form.wants?.long || '') || (form.wants?.medium?.length ?? 0) > 0) && (
-                            <p className="text-[9px] text-text-dim/60 mt-1 italic">Superseded by Wants (below). Shown for legacy saves only.</p>
-                        )}
-                    </div>
-
                     <div className="bg-void p-4 rounded border border-border">
                         <div className="flex items-center gap-2 text-text-primary font-bold uppercase tracking-widest text-xs mb-4">
                             Character Profile

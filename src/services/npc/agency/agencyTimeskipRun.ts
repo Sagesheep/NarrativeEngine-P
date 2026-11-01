@@ -237,9 +237,8 @@ export function runTimeskip(cfg: TimeskipConfig): TimeskipNarrationResult {
             if (nudge.hexPatch) {
                 npc.personalityHex = nudge.hexPatch;
                 npc.previousSnapshot = {
-                    personality: npc.personality || npc.disposition || '',
+                    personality: npc.personality || '',
                     voice: npc.voice || '',
-                    affinity: npc.affinity,
                     personalityHex: preHex,
                     pcRelation: npc.pcRelation,
                     skillRung: preRung,
@@ -257,9 +256,8 @@ export function runTimeskip(cfg: TimeskipConfig): TimeskipNarrationResult {
                 if (tierCross.rungPatch !== undefined) {
                     npc.skillRung = tierCross.rungPatch;
                     npc.previousSnapshot = {
-                        personality: npc.personality || npc.disposition || '',
+                        personality: npc.personality || '',
                         voice: npc.voice || '',
-                        affinity: npc.affinity,
                         personalityHex: npc.personalityHex,
                         pcRelation: npc.pcRelation,
                         skillRung: preRung,

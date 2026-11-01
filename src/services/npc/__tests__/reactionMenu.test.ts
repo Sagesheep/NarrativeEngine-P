@@ -30,13 +30,10 @@ function makeNpc(overrides: Partial<NPCEntry> = {}): NPCEntry {
         appearance: '',
         faction: '',
         storyRelevance: '',
-        disposition: '',
         status: '',
-        goals: '',
         voice: '',
         personality: '',
         exampleOutput: '',
-        affinity: 50,
         personalityHex: { drive: 0, diligence: 0, boldness: 0, warmth: 0, empathy: 0, composure: 0 },
         traits: [],
         ...overrides
@@ -163,19 +160,19 @@ describe('reactionMenu — buildReactionMenu', () => {
     });
 
     describe('Relationship-driven availability (the corrected headline)', () => {
-        const schemer = (affinity: number) => makeNpc({
+        const schemer = (pcRelation: number) => makeNpc({
             traits: ['loyal', 'scheming', 'mercenary', 'ambitious'],
             personalityHex: { drive: 1, diligence: 0, boldness: 0, warmth: -2, empathy: -2, composure: 0 },
-            affinity
+            pcRelation
         });
 
         it('a loyal NPC sells out a STRANGER (betrayal is on the table at low/neutral trust)', () => {
-            const menu = buildReactionMenu(schemer(50), 'peaceful', mulberry32(1), false);
+            const menu = buildReactionMenu(schemer(0), 'peaceful', mulberry32(1), false);
             expect(menu).toContain('quietly sell you out');
         });
 
         it('the SAME loyal NPC never betrays a CLOSE ally (relationship gate engages)', () => {
-            const menu = buildReactionMenu(schemer(85), 'peaceful', mulberry32(1), false);
+            const menu = buildReactionMenu(schemer(2), 'peaceful', mulberry32(1), false);
             expect(menu).not.toContain('quietly sell you out');
         });
     });

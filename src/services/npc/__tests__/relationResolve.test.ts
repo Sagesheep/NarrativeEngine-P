@@ -14,13 +14,10 @@ function mkNpc(id: string, name: string, overrides: Partial<NPCEntry> = {}): NPC
         appearance: '',
         faction: '',
         storyRelevance: '',
-        disposition: '',
         status: 'alive',
-        goals: '',
         voice: '',
         personality: '',
         exampleOutput: '',
-        affinity: 50,
         ...overrides,
     } as NPCEntry;
 }

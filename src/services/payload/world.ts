@@ -44,9 +44,6 @@ export function buildCoreDirective(npc: NPCEntry, relationshipMemoryEnabled = fa
     if (npc.wants?.short?.[0]) {
         const s = npc.wants.short[0];
         parts.push(`NOW: ${s.length > 40 ? s.substring(0, 40) + '\u2026' : s}`);
-    } else if (npc.drives?.sceneWant) {
-        const sw = npc.drives.sceneWant;
-        parts.push(`NOW: ${sw.length > 40 ? sw.substring(0, 40) + '\u2026' : sw}`);
     }
     // NPC Signature Kit (v1) — durable loadout rides CORE so scene-tag filtering
     // can never drop it. The anti-drift analogue of personalityHex.
@@ -72,11 +69,6 @@ function buildExtendedDirective(
     if (npc.wants?.medium?.[0]) {
         const m = npc.wants.medium[0];
         parts.push(`PURSUING: ${m.length > 60 ? m.substring(0, 60) + '\u2026' : m}`);
-    } else if (npc.drives && !npc.wants) {
-        const driveParts: string[] = [];
-        if (npc.drives.sessionWant) driveParts.push(npc.drives.sessionWant.length > 80 ? npc.drives.sessionWant.substring(0, 80) + '\u2026' : npc.drives.sessionWant);
-        if (npc.drives.coreWant) driveParts.push(npc.drives.coreWant.length > 80 ? npc.drives.coreWant.substring(0, 80) + '\u2026' : npc.drives.coreWant);
-        if (driveParts.length > 0) parts.push(`WANTS: ${driveParts.join(' \u2190 ')}`);
     }
     if (npc.hardBoundaries?.length && fieldTagMatches('hardBoundaries', npc.fieldTags, plannerTags)) {
         parts.push(`WON'T: ${npc.hardBoundaries.map(b => b.length > 40 ? b.substring(0, 40) + '\u2026' : b).join('; ')}`);

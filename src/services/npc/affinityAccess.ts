@@ -1,5 +1,4 @@
 import type { NPCEntry } from '../../types';
-import { affinityToPcRelation } from './agency/agencyBands';
 import { resolveRelationTarget } from './relationResolve';
 
 /**
@@ -31,15 +30,14 @@ import { resolveRelationTarget } from './relationResolve';
  * The stored PC-edge relationship, before any derivation. The `kind` tells
  * callers which rendering/fallback to use, preserving today's per-caller
  * branching exactly:
- *   - `pcRelation`   → `relationBand(value)` (the re-homed -3..+3 slot)
- *   - `legacyAffinity` → the legacy 0..100 affinity (callers apply their own
- *     descriptor or `affinityToPcRelation`)
- *   - `none`          → both undefined; callers apply their own default
- *     (the pre-refactor code used `affinity ?? 50` and `affinityDescriptor(undefined)`)
+ *   - `pcRelation`   → `relationBand(value)` (the -3..+3 slot)
+ *   - `none`          → unset; callers treat it as Neutral (0)
+ *
+ * The legacy 0..100 `affinity` arm is gone: it folds into `pcRelation` on load
+ * (services/npc/retireLegacyFields.ts).
  */
 export type PcAffinityRead =
     | { kind: 'pcRelation'; value: number }
-    | { kind: 'legacyAffinity'; value: number }
     | { kind: 'none' }
     | { kind: 'stance' };
 
@@ -68,7 +66,6 @@ export function readPcAffinity(npc: NPCEntry, featureEnabled = false): PcAffinit
         featureEnabled,
         () => {
             if (npc.pcRelation !== undefined) return { kind: 'pcRelation', value: npc.pcRelation };
-            if (npc.affinity !== undefined) return { kind: 'legacyAffinity', value: npc.affinity };
             return { kind: 'none' };
         },
         () => ({ kind: 'stance' }),
@@ -76,11 +73,7 @@ export function readPcAffinity(npc: NPCEntry, featureEnabled = false): PcAffinit
 }
 
 /**
- * The NPC's relationship toward the PC as a -3..+3 band. Prefers the dedicated
- * `pcRelation` slot; falls back to deriving it from legacy `affinity` so
- * un-homed NPCs (bug B2) still read a sensible relationship instead of
- * defaulting everyone to a stranger. The `?? 50` and the
- * `affinityToPcRelation` fallback are both preserved verbatim.
+ * The NPC's relationship toward the PC as a -3..+3 band; unset reads Neutral (0).
  *
  * Moved here from `reactionMenu.ts` so every affinity reader goes through one
  * function. The `pcRelationOf` name is re-exported from `reactionMenu.ts` for
@@ -90,9 +83,7 @@ export function pcRelationOf(npc: NPCEntry, featureEnabled = false): number {
     const read = readPcAffinity(npc, featureEnabled);
     if (read.kind === 'stance') return 0;
     if (read.kind === 'pcRelation') return read.value;
-    // legacyAffinity → derive; none → default to 50 (the pre-refactor `?? 50`).
-    const affinity = read.kind === 'legacyAffinity' ? read.value : 50;
-    return affinityToPcRelation(affinity);
+    return 0;
 }
 
 /**

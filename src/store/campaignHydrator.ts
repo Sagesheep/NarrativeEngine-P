@@ -11,6 +11,7 @@ import { migrateLegacyContext } from '../types';
 import type { GameContext, ArchiveChapter, ArchiveIndexEntry, DivergenceRegister, DivergenceEntry, ChatMessage } from '../types';
 import { migrateV1ToV2 } from '../services/campaign-state/divergenceRegister';
 import { migratePCIntoContext } from '../services/character/migratePC';
+import { retireLegacyNpcFields } from '../services/npc/retireLegacyFields';
 import { loadLocationTable } from '../services/tables/locationTable';
 import { hydrateModTables, saveModTable } from '../services/mods/modTables';
 import { fetchMods } from '../services/mods/modClient';
@@ -309,6 +310,9 @@ export async function hydrateCampaign(campaignId: string) {
     const pcMigration = migratePCIntoContext(migratedContext, npcs ?? []);
     let finalContext = pcMigration.context;
     const finalNpcLedger = pcMigration.npcLedger;
+    // The PC shares NPCEntry, so its retired affinity/disposition/goals/drives fold the
+    // same way the ledger's do in getNPCLedger. Persists with the next context save.
+    if (finalContext.playerCharacter) retireLegacyNpcFields(finalContext.playerCharacter);
     if (pcMigration.migrated) {
         console.log('[Hydrator] Migrated legacy isPC row from npcLedger into context.playerCharacter');
         try { await saveNPCLedger(campaignId, finalNpcLedger); } catch (e) {

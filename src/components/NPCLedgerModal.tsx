@@ -185,8 +185,8 @@ export function NPCLedgerModal() {
     const handleCreateNew = () => {
         setSelectedId(null);
         setForm({
-            name: '', aliases: '', appearance: '', faction: '', storyRelevance: '', disposition: '',
-            status: 'Alive', goals: '', voice: '', personality: '', exampleOutput: '',
+            name: '', aliases: '', appearance: '', faction: '', storyRelevance: '',
+            status: 'Alive', voice: '', personality: '', exampleOutput: '',
             visualProfile: { ...DEFAULT_VISUAL_PROFILE }
         });
         setIsEditing(true);

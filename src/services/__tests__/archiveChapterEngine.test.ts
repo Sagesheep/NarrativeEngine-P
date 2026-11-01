@@ -438,7 +438,7 @@ describe('rankChapters', () => {
             createChapter('CH01', ['001', '010'], Date.now(), 'chapter', [], ['Gandalf']),
         ];
         
-        const npcLedger = [{ id: '1', name: 'Gandalf', aliases: '', appearance: '', faction: '', storyRelevance: '', disposition: '', status: '', goals: '', voice: '', personality: '', exampleOutput: '', affinity: 50 }];
+        const npcLedger = [{ id: '1', name: 'Gandalf', aliases: '', appearance: '', faction: '', storyRelevance: '', status: '', voice: '', personality: '', exampleOutput: '' }];
         
         const result = rankChapters(chapters, 'test', [], npcLedger);
         

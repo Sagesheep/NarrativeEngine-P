@@ -73,13 +73,13 @@ const CARD_OWNED_RULES: { [K in CardOwnedField]: (existing: NPCEntry, incoming: 
  * Card-owned: `personality`, `storyRelevance`, `exampleOutput`, and conditionally
  * `portrait` / `aliases` / `appearance` / `visualProfile`.
  * Campaign-owned (never written here): `id`, `name` — the existing casing is the one
- * the player has been reading — plus `pcRelation`, `affinity`, `relationMeter`,
+ * the player has been reading — plus `pcRelation`, `relationMeter`,
  * `relations`, `status`, `condition`, `region`, `haunt`, `faction`, `wants`,
  * `goalRecords`, `signatureKit`, `pressure`, `agencyActivity`, `skillRung`,
  * `rungCeiling`, `traits`, `personalityHex`, `archived*`, `lastUpdateScene`,
  * `fieldTags`, `primaryGroup`, `secondaryGroup`, `repressionPressure`,
  * `behavioralTriggers`, `hardBoundaries`, `softBoundaries`, `populated`, `tier`,
- * `drives`, `goals`, `disposition`, `voice`, `transmigrated`, `agencyLocked`.
+ * `voice`, `transmigrated`, `agencyLocked`.
  */
 export function overwriteImportedNPC(existing: NPCEntry, incoming: NPCEntry): NPCEntry {
     const patch: Partial<Pick<NPCEntry, CardOwnedField>> = {};

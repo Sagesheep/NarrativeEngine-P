@@ -55,11 +55,10 @@ function characterLine(entry: NPCEntry, includeRelation: boolean): string {
     const bits: string[] = [];
     if (entry.aliases?.trim()) bits.push(`aka ${excerpt(entry.aliases, 80)}`);
     if (entry.faction?.trim()) bits.push(`faction: ${excerpt(entry.faction, 60)}`);
-    if (entry.disposition?.trim()) bits.push(`disposition: ${excerpt(entry.disposition, 80)}`);
     if (includeRelation && entry.pcRelation !== undefined) bits.push(`toward PC: ${relationBand(entry.pcRelation)}`);
     if (entry.condition) bits.push(`condition: ${entry.condition}`);
     if (entry.status?.trim()) bits.push(`status: ${excerpt(entry.status, 120)}`);
-    const goal = entry.wants?.long?.trim() || entry.goals?.trim() || entry.drives?.coreWant?.trim();
+    const goal = entry.wants?.long?.trim();
     if (goal) bits.push(`goal: ${excerpt(goal, 120)}`);
     if (entry.signatureKit?.equipment?.length) bits.push(`kit: ${excerpt(entry.signatureKit.equipment.join(', '), 140)}`);
     if (entry.signatureKit?.abilities?.length) bits.push(`powers: ${excerpt(entry.signatureKit.abilities.join(', '), 140)}`);

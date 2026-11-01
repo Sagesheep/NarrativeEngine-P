@@ -223,22 +223,9 @@ function buildOneDirectionalSignals(
     return signals;
 }
 
-/** Resolve the NPC→PC band using pcRelation, falling back to legacy affinity. */
+/** Resolve the NPC→PC band from pcRelation; unset reads Neutral (0). */
 function resolvePcRelation(npc: NPCEntry): number {
-    if (typeof npc.pcRelation === 'number' && Number.isFinite(npc.pcRelation)) {
-        return npc.pcRelation;
-    }
-    // Mirror reactionMenu.ts / relationMeter.ts fallback. Inline the boundaries so
-    // this module stays pure (no import of agency/agencyBands — keeps the blast
-    // radius small and the test hermetic).
-    const a = typeof npc.affinity === 'number' && Number.isFinite(npc.affinity) ? npc.affinity : 50;
-    if (a <= 15) return -3;
-    if (a <= 30) return -2;
-    if (a <= 45) return -1;
-    if (a <= 55) return 0;
-    if (a <= 70) return 1;
-    if (a <= 85) return 2;
-    return 3;
+    return typeof npc.pcRelation === 'number' && Number.isFinite(npc.pcRelation) ? npc.pcRelation : 0;
 }
 
 /**

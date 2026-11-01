@@ -35,23 +35,25 @@ export function agencyFillPatch(npc: NPCEntry, opts: { matureMode: boolean; rng?
 
     // rng consumption order is fixed: hex first, then short wants, then medium.
     if (!npc.personalityHex) {
-        patch.personalityHex = deriveKeywordHex([npc.personality, npc.disposition, npc.voice], rng).hex;
+        patch.personalityHex = deriveKeywordHex([npc.personality, npc.voice], rng).hex;
     }
 
+    // Only an EMPTY tier gets pool draws. A tier the NPC already has — authored, or carried
+    // in from its retired `drives`/`goals` on load (retireLegacyFields.ts) — is kept as is.
     const wants = npc.wants;
-    if (!wants || (!wants.short?.length && !wants.medium?.length && !wants.long)) {
-        // Carry an existing drive over rather than lose it (mobile does the same).
-        const drives = npc.drives;
+    const shortEmpty = !wants?.short?.length;
+    const mediumEmpty = !wants?.medium?.length;
+    if (shortEmpty || mediumEmpty) {
         const traits = npc.traits ?? [];
         patch.wants = {
-            short: topUp(drives?.sceneWant ? [drives.sceneWant] : [], drawShortWants({ matureMode: opts.matureMode, traits, rng }), 4),
-            medium: topUp(drives?.sessionWant ? [drives.sessionWant] : [], drawMediumWants({ matureMode: opts.matureMode, traits, rng }), 3),
-            long: drives?.coreWant?.trim() || npc.goals?.trim() || '',
+            short: shortEmpty ? topUp([], drawShortWants({ matureMode: opts.matureMode, traits, rng }), 4) : wants!.short,
+            medium: mediumEmpty ? topUp([], drawMediumWants({ matureMode: opts.matureMode, traits, rng }), 3) : wants!.medium,
+            long: wants?.long?.trim() || '',
         };
-        patch.wantsProvenance = 'pool';
+        if (!npc.wantsProvenance) patch.wantsProvenance = 'pool';
     }
 
-    if (npc.pcRelation === undefined) patch.pcRelation = affinityToPcRelation(npc.affinity ?? 50);
+    if (npc.pcRelation === undefined) patch.pcRelation = affinityToPcRelation(50);
     if (npc.skillRung === undefined) patch.skillRung = RUNG_DEFAULT;
     if (npc.rungCeiling === undefined) patch.rungCeiling = RUNG_CEILING_DEFAULT;
     if (npc.region === undefined) patch.region = '';
