@@ -39,4 +39,14 @@ describe('buildPortraitPrompt', () => {
 
         expect(buildPortraitPrompt(longProfile, 'A very long name '.repeat(30), 'Legacy text '.repeat(200)).length).toBeLessThanOrEqual(1_300);
     });
+
+    it('uses the image provider limit when one is set, so long fields are not cut', () => {
+        const longClothing = 'Charcoal tailored suit, ' + 'smart-fabric lining with faint LED piping, '.repeat(6);
+        const profile = { ...populatedProfile, clothing: longClothing };
+
+        expect(buildPortraitPrompt(profile, 'X')).not.toContain(longClothing.trim());
+        const roomy = buildPortraitPrompt(profile, 'X', undefined, 4_000);
+        expect(roomy).toContain(`Clothing: ${longClothing.trim()}.`);
+        expect(roomy.length).toBeLessThanOrEqual(4_000);
+    });
 });

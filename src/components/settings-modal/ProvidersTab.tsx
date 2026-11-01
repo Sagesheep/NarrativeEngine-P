@@ -4,6 +4,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { testConnection } from '../../services/chatEngine';
 import type { LLMProvider, ApiFormat, ComfyUiSettings, ServiceTier } from '../../types';
 import { detectFormatFromEndpoint, parseCustomBody, supportsServiceTier } from '../../utils/llmApiHelper';
+import { DEFAULT_PORTRAIT_PROMPT_CHARS } from '../../services/npc/portraitPrompt';
 import { toast } from '../Toast';
 import { uid } from '../../utils/uid';
 
@@ -83,6 +84,14 @@ export function ProvidersTab() {
         });
     };
 
+    const handleImagePromptLimitChange = (rawValue: string) => {
+        if (!activeProvider) return;
+        const parsed = Number(rawValue.trim());
+        updateProvider(activeProvider.id, {
+            maxImagePromptChars: rawValue.trim() !== '' && Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined,
+        });
+    };
+
     const handleApiFormatChange = (newFormat: ApiFormat) => {
         if (!activeProvider) return;
         let endpoint = (activeProvider.endpoint || '').replace(/\/+$/, '');
@@ -153,6 +162,9 @@ export function ProvidersTab() {
     const config = activeProvider;
     const isComfy = (config?.apiFormat || 'openai') === 'comfyui';
     const isOpenRouter = (config?.apiFormat || 'openai') === 'openrouter';
+    // Image-only formats, or any provider a preset uses for its Image Generation AI slot.
+    const isImageProvider = !!config && (isComfy || isOpenRouter
+        || settings.presets.some(p => p.imageAIProviderId === config.id));
 
     return (
         <div data-ui="providers" className="flex flex-col">
@@ -334,6 +346,25 @@ export function ProvidersTab() {
                                         />
                                         <p className="text-[10px] text-text-dim mt-1 leading-relaxed">
                                             Maximum tokens this endpoint can return in one response  -  <strong>not its context window</strong>. Leave blank if unsure; the app stays conservative when reasoning is enabled.
+                                        </p>
+                                    </div>
+                                )}
+                                {isImageProvider && (
+                                    <div>
+                                        <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">
+                                            Image prompt limit
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            step={1}
+                                            value={config.maxImagePromptChars ?? ""}
+                                            onChange={(e) => handleImagePromptLimitChange(e.target.value)}
+                                            placeholder={String(DEFAULT_PORTRAIT_PROMPT_CHARS)}
+                                            className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
+                                        />
+                                        <p className="text-[10px] text-text-dim mt-1 leading-relaxed">
+                                            Most characters an NPC portrait prompt may use. Blank = {DEFAULT_PORTRAIT_PROMPT_CHARS}, which can shorten clothing and other details on full profiles. Raise it if your image model accepts longer prompts.
                                         </p>
                                     </div>
                                 )}

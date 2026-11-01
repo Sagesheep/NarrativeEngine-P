@@ -2,7 +2,9 @@ import type { NPCVisualProfile } from '../../types';
 import { DEFAULT_VISUAL_PROFILE } from '../../types';
 import { DEFAULT_PORTRAIT_ART_STYLE, PORTRAIT_STYLE_PROMPTS } from '../../data/portraitStyles';
 
-const MAX_PORTRAIT_PROMPT_CHARS = 1_300;
+/** Default when the image provider sets no `maxImagePromptChars`. Conservative so it
+ *  fits the strictest hosts; long profiles get their fields shortened to fit it. */
+export const DEFAULT_PORTRAIT_PROMPT_CHARS = 1_300;
 
 function isMeaningful(value: string | undefined): value is string {
     const normalized = value?.trim().toLowerCase();
@@ -31,8 +33,10 @@ function compact(value: string, maxLength: number): string {
 export function buildPortraitPrompt(
     vp: NPCVisualProfile | undefined,
     _name: string,
-    appearance?: string
+    appearance?: string,
+    maxChars: number = DEFAULT_PORTRAIT_PROMPT_CHARS,
 ): string {
+    const limit = Number.isFinite(maxChars) && maxChars > 0 ? Math.floor(maxChars) : DEFAULT_PORTRAIT_PROMPT_CHARS;
     const profile = vp || DEFAULT_VISUAL_PROFILE;
     const style = PORTRAIT_STYLE_PROMPTS[profile.artStyle] || PORTRAIT_STYLE_PROMPTS[DEFAULT_PORTRAIT_ART_STYLE];
     const base = `Single-subject waist-up character dossier portrait: one person only, three-quarter view, face, hair and upper torso clearly visible, detailed costume, cinematic lighting, softly blurred atmospheric background that stays behind the subject. Keep the frame completely free of writing — no text, letters, calligraphy, seals, stamps, signatures, watermarks, captions, or name plates. No collage, split frame, duplicate, or second person. Style: ${style}.`;
@@ -48,7 +52,7 @@ export function buildPortraitPrompt(
     if (!hasStructuredVisualData(profile) && isMeaningful(appearance)) fields.push(['Legacy notes', appearance]);
 
     const populatedFields = fields.filter(([, value]) => isMeaningful(value)) as Array<[string, string]>;
-    const availablePerField = Math.max(40, Math.floor((MAX_PORTRAIT_PROMPT_CHARS - base.length - populatedFields.length * 2) / Math.max(1, populatedFields.length)));
+    const availablePerField = Math.max(40, Math.floor((limit - base.length - populatedFields.length * 2) / Math.max(1, populatedFields.length)));
     const details = populatedFields.map(([label, value]) => `${label}: ${compact(value, availablePerField)}.`).join(' ');
-    return `${base} ${details}`.slice(0, MAX_PORTRAIT_PROMPT_CHARS).trimEnd();
+    return `${base} ${details}`.slice(0, limit).trimEnd();
 }

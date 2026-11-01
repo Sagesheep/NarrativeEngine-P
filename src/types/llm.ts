@@ -94,6 +94,9 @@ export type LLMProvider = {
      * and the thinking reserve stays conservative (see WORKORDER-thinking-token-floor §3.2).
      * This is an OUTPUT ceiling, not a context window; they are different and much different sizes. */
     maxOutputTokens?: number;
+    /** Image providers only: the most prompt characters this model accepts. Unset falls
+     *  back to DEFAULT_PORTRAIT_PROMPT_CHARS (services/npc/portraitPrompt.ts). */
+    maxImagePromptChars?: number;
     /** NanoGPT / OpenRouter only: 'flex' is cheaper and slower, 'priority' faster
      *  and dearer. Ignored on other hosts. */
     serviceTier?: ServiceTier;
