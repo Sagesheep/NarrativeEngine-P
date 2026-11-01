@@ -9,9 +9,7 @@
  */
 
 import type { LoreChunk, NPCEntry, InventoryItem, InventoryItemCategory, CharacterProfile } from '../../types';
-
-/** How much of an NPC's appearance the narrator sees each turn. Shown in the ledger form. */
-export const APPEARANCE_NARRATOR_CHARS = 80;
+import { clipLine, NPC_FIELD_FLOORS, type NpcFieldLimits } from '../npc/npcFieldLimits';
 
 /**
  * Strip markdown formatting from a block of text.
@@ -146,20 +144,17 @@ export function minifyLoreBlock(chunks: LoreChunk[]): string {
  * The PC relationship is NOT emitted here: buildCoreDirective owns it as an
  * `[Aff: <band>]` word. A raw number here used to contradict that band.
  * Motives are not emitted here — the directive tiers send `wants` as NOW/GOAL/PURSUING.
+ *
+ * `limits` scale with the NPC budget (npcFieldLimits.ts); the default is the floor.
  */
-export function minifyNPC(npc: NPCEntry): string {
+export function minifyNPC(npc: NPCEntry, limits: NpcFieldLimits = NPC_FIELD_FLOORS): string {
     const aliases = npc.aliases ? `(${npc.aliases})` : '';
     const name = npc.name.toUpperCase();
     const status = npc.status || 'Alive';
 
-    // Compact appearance: only its opening reaches the narrator (the portrait gets it all).
-    const appearance = (npc.appearance || '?').length > APPEARANCE_NARRATOR_CHARS
-        ? (npc.appearance || '?').substring(0, APPEARANCE_NARRATOR_CHARS) + '…'
-        : (npc.appearance || '?');
-
-    const personality = (npc.personality || '?').length > 60
-        ? (npc.personality || '?').substring(0, 60) + '…'
-        : (npc.personality || '?');
+    // Only the appearance's opening reaches the narrator (the portrait gets it all).
+    const appearance = clipLine(npc.appearance, limits.appearance) || '?';
+    const personality = clipLine(npc.personality, limits.personality) || '?';
 
     return `[${name}${aliases}] ${status} | ${appearance} | ${personality}`;
 }

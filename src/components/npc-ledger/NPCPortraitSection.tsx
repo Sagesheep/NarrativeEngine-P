@@ -1,7 +1,7 @@
 import { Loader2, Image as ImageIcon, Trash2, Upload, ScanEye } from '../icons/narrativeIcons';
 import { useRef } from 'react';
 import { DEFAULT_PORTRAIT_ART_STYLE, PORTRAIT_ART_STYLE_OPTIONS } from '../../data/portraitStyles';
-import { APPEARANCE_NARRATOR_CHARS } from '../../services/turn/contextMinifier';
+import { NarratorLimitHint } from './NarratorLimitHint';
 import { useVisionDescribe } from '../hooks/useVisionDescribe';
 
 type Props = {
@@ -136,9 +136,7 @@ export function NPCPortraitSection({
                     placeholder="Lead with what identifies them at a glance — species, age, build — then hair, eyes, clothing, gear, marks."
                     className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent resize-y focus:outline-none focus:border-terminal"
                 />
-                <p className="text-[9px] text-text-dim/60 mt-1">
-                    The portrait uses all of it; the story AI reads the first {APPEARANCE_NARRATOR_CHARS} characters every turn.
-                </p>
+                <NarratorLimitHint field="appearance" length={(appearance || '').length} note="the portrait uses all of it" />
             </div>
 
             <div className="mt-3">

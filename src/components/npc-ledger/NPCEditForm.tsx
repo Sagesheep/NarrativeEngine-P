@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Trash2, Save, Loader2, Sparkles, Users, ScrollText, X, ChevronUp, ChevronDown, Search } from '../icons/narrativeIcons';
 import { NPCPortraitSection } from './NPCPortraitSection';
 import { ScreenSection } from '../primitives/ScreenSection';
+import { NarratorLimitHint } from './NarratorLimitHint';
 import type { NPCEntry, NPCBehavioralTrigger, DivergenceCategory, HexAxis } from '../../types';
 import { useAppStore } from '../../store/useAppStore';
 import { getEntriesForNpc, CATEGORY_LABELS, EMPTY_REGISTER } from '../../services/campaign-state/divergenceRegister';
@@ -267,6 +268,7 @@ export function NPCEditForm({
                                     rows={2}
                                     className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent resize-none focus:outline-none focus:border-terminal"
                                 />
+                                <NarratorLimitHint field="personality" length={(form.personality ?? '').length} />
                             </div>
                             <div>
                                 <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Voice &amp; Speech Pattern</label>
@@ -278,6 +280,7 @@ export function NPCEditForm({
                                     rows={2}
                                     className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent resize-none focus:outline-none focus:border-terminal"
                                 />
+                                <NarratorLimitHint field="voice" length={(form.voice ?? '').length} />
                             </div>
                             <div>
                                 <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Example Dialogue</label>
@@ -289,6 +292,7 @@ export function NPCEditForm({
                                     rows={2}
                                     className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent resize-none focus:outline-none focus:border-terminal"
                                 />
+                                <NarratorLimitHint field="example" length={(form.exampleOutput ?? '').length} />
                             </div>
                         </div>
                     </div>
@@ -297,6 +301,7 @@ export function NPCEditForm({
                     <div className="bg-void p-4 rounded border border-border space-y-3">
                         <div className="flex items-center justify-between">
                             <span className="text-text-primary font-bold uppercase tracking-widest text-xs">Wants</span>
+                            <span className="text-[9px] text-text-dim/50 normal-case tracking-normal">the story AI reads the first short and medium want</span>
                         </div>
                         <div>
                             <div className="flex items-center justify-between mb-1">
@@ -364,6 +369,7 @@ export function NPCEditForm({
                                 placeholder="Single overarching life goal"
                                 className="w-full bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void disabled:border-transparent focus:outline-none focus:border-amber-300"
                             />
+                            <NarratorLimitHint field="goal" length={(form.wants?.long ?? '').length} />
                         </div>
                     </div>
 
