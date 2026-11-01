@@ -439,7 +439,7 @@ export function buildWorld(opts: {
 
             for (const npc of activeNPCs) {
                 // Core tier — always injected.
-                const coreParts: string[] = [minifyNPC(npc, relationshipMemoryEnabled)];
+                const coreParts: string[] = [minifyNPC(npc)];
                 const coreDirective = buildCoreDirective(npc, relationshipMemoryEnabled);
                 if (coreDirective) coreParts.push(coreDirective);
                 const coreLine = coreParts.join(' | ');

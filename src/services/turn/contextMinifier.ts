@@ -9,7 +9,6 @@
  */
 
 import type { LoreChunk, NPCEntry, InventoryItem, InventoryItemCategory, CharacterProfile } from '../../types';
-import { readPcAffinity } from '../npc/affinityAccess';
 
 /**
  * Strip markdown formatting from a block of text.
@@ -139,19 +138,17 @@ export function minifyLoreBlock(chunks: LoreChunk[]): string {
  * Minify an NPC entry for AI consumption.
  * Drops verbose labels and compresses into a single dense line.
  * 
- * Before: [ASH HUANG (None)] Alive | Affinity: 50/100 (Neutral) | Asian male... | Goals: ...
- * After:  ASH_HUANG Alive aff:50 | Asian male... | panicked | Gim:... Glr:... | 6/5/10/1/7/6
+ * Output: [ASH HUANG(Ash)] Alive | Asian male... | panicked, guarded
+ *
+ * The PC relationship is NOT emitted here: buildCoreDirective owns it as an
+ * `[Aff: <band>]` word. A raw number here used to contradict that band.
+ * Goals are NOT emitted when the NPC has `wants` — the extended tier sends
+ * them as GOAL/PURSUING, and a second copy here could disagree.
  */
-export function minifyNPC(npc: NPCEntry, relationshipMemoryEnabled = false): string {
+export function minifyNPC(npc: NPCEntry): string {
     const aliases = npc.aliases ? `(${npc.aliases})` : '';
     const name = npc.name.toUpperCase();
     const status = npc.status || 'Alive';
-    const affinityRead = readPcAffinity(npc, relationshipMemoryEnabled);
-    const aff = affinityRead.kind === 'legacyAffinity'
-        ? affinityRead.value
-        : affinityRead.kind === 'pcRelation'
-            ? (npc.affinity ?? 50)
-            : 50;
 
     // Compact appearance: trim to first 80 chars if very long
     const appearance = (npc.appearance || '?').length > 80
@@ -162,9 +159,9 @@ export function minifyNPC(npc: NPCEntry, relationshipMemoryEnabled = false): str
         ? (npc.personality || npc.disposition || '?').substring(0, 60) + '…'
         : (npc.personality || npc.disposition || '?');
 
-    const goals = npc.goals || '?';
+    const goals = npc.wants?.long ? '' : (npc.goals || '');
 
-    return `[${name}${aliases}] ${status}${affinityRead.kind === 'stance' ? '' : ` aff:${aff}`} | ${appearance} | ${personality} | ${goals}`;
+    return `[${name}${aliases}] ${status} | ${appearance} | ${personality}${goals ? ` | ${goals}` : ''}`;
 }
 
 /**
