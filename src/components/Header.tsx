@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
-import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Cpu } from 'lucide-react';
+import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Cpu } from './icons/narrativeIcons';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { TokenGauge } from './TokenGauge';
@@ -12,6 +12,7 @@ import { readRegion, subscribeToRegion, isHeaderStatusEntry, type RegisteredChro
 import { registerHeaderBuiltins, HEADER_BUILTIN_ID_SET, HEADER_TRAILING_ID_SET } from '../services/mods/mounts/headerBuiltins';
 import { HeaderModGroup } from './header/HeaderModGroup';
 import { HeaderScrollRow } from './header/HeaderScrollRow';
+import { NarrativeMark } from './icons/narrativeIcons';
 
 const TIER_CYCLE: Record<AiTier, AiTier> = { lite: 'pro', pro: 'max', max: 'lite' };
 
@@ -122,6 +123,7 @@ export function Header() {
             </button>
 
             <h1 className="chrome-label hidden md:block text-terminal text-sm font-bold tracking-[0.3em] uppercase shrink-0">
+                <NarrativeMark size={19} aria-hidden="true" className="inline-block align-middle mr-2" />
                 {t('header.title')}
             </h1>
             <span className="hidden md:inline text-[9px] font-mono text-text-dim shrink-0" title={t('header.version.tooltip', { version: APP_VERSION })}>

@@ -1,4 +1,4 @@
-import { Image as ImageIcon, X, Plus } from 'lucide-react';
+import { Image as ImageIcon, X, Plus } from '../icons/narrativeIcons';
 import type { GalleryEntry, ArmedGalleryRecall } from '../../types';
 
 /**

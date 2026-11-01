@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Image as ImageIcon, Upload, Trash2 } from 'lucide-react';
+import { Image as ImageIcon, Upload, Trash2 } from './icons/narrativeIcons';
 import { toast } from './Toast';
 import {
     setBackgroundImage,

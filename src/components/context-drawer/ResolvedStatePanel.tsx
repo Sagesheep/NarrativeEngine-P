@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronDown, ChevronUp, Plus, X, Globe } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, X, Globe } from '../icons/narrativeIcons';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store/useAppStore';
 import { api } from '../../services/llm/apiClient';

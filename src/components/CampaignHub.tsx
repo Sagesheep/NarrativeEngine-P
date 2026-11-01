@@ -18,6 +18,7 @@ import { WorldLoreModal } from './WorldLoreModal';
 import { STImportWizard } from './import/STImportWizard';
 import { BetaUiToggle } from './BetaUiToggle';
 import { useTranslation } from '../i18n/useTranslation';
+import { NarrativeMark } from './icons/narrativeIcons';
 
 export function CampaignHub() {
     // `chromeText` handles the inline-styled hero label below: CSS cannot
@@ -257,6 +258,7 @@ export function CampaignHub() {
 
             {/* Hero text */}
             <div style={{ textAlign: 'center', marginBottom: 44, position: 'relative', zIndex: 2 }}>
+                <NarrativeMark size={48} strokeWidth={1.8} aria-hidden="true" style={{ color: 'var(--color-terminal)', margin: '0 auto 18px' }} />
                 <div style={{
                     fontFamily: "'JetBrains Mono', monospace",
                     fontSize: 10, color: 'color-mix(in srgb, var(--color-terminal) 65%, transparent)',

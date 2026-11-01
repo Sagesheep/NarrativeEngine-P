@@ -2,7 +2,7 @@ import React, { memo, useState, useEffect, useRef } from 'react';
 import {
     ChevronDown, ChevronUp, Lock, Unlock, AlertCircle,
     RefreshCcw, Edit2, Check, X, GitMerge, Scissors, Pin, PinOff, Trash2
-} from 'lucide-react';
+} from '../icons/narrativeIcons';
 import type { ArchiveChapter, TimelineEvent } from '../../types';
 import { TimelineDotRow } from './TimelineDotRow';
 import { getEventsByChapter } from '../../services/campaign-state/timelineResolver';

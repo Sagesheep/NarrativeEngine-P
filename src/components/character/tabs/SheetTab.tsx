@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useImperativeHandle, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles } from '../../icons/narrativeIcons';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../../store/useAppStore';
 import type { PlayerCharacter, CharacterProfileState, NPCEntry } from '../../../types';

@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { BookOpen, Pencil, Trash2, ChevronLeft, ChevronRight, Download, Loader2 } from 'lucide-react';
+import { BookOpen, Pencil, Trash2, ChevronLeft, ChevronRight, Download, Loader2 } from './icons/narrativeIcons';
 import type { Campaign } from '../types';
 
 interface SlotStyle {

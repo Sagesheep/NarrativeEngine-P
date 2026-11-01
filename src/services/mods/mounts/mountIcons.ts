@@ -13,7 +13,7 @@
  * render time against the `icons` map `lucide-react` already exports, so a
  * future icon added upstream is available without touching this file.
  */
-import { icons, HelpCircle, type LucideIcon } from 'lucide-react';
+import { icons, HelpCircle, type LucideIcon } from '../../../components/icons/narrativeIcons';
 
 /**
  * The fallback glyph rendered when a chrome entry declares an unknown icon

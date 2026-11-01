@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ScrollText, Database, Sparkles, BookOpen, Brain } from 'lucide-react';
+import { ScrollText, Database, Sparkles, BookOpen, Brain } from './icons/narrativeIcons';
 import { useAppStore } from '../store/useAppStore';
 import { RulesTab } from './context-drawer/RulesTab';
 import { LoreTab } from './context-drawer/LoreTab';

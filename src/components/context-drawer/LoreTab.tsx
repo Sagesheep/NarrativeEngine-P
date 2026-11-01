@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getCampaign } from '../../store/campaignStore';
-import { ChevronDown, ChevronUp, Database, Search, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Database, Search, X } from '../icons/narrativeIcons';
 import { useAppStore } from '../../store/useAppStore';
 import type { LoreChunk } from '../../types';
 import { ScreenSection } from '../primitives/ScreenSection';

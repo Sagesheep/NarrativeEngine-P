@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Sparkles, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
+import { X, Sparkles, Loader2, RefreshCw, AlertCircle } from '../icons/narrativeIcons';
 import { useAppStore } from '../../store/useAppStore';
 import { composeSceneImageAPI, generateSceneImageAPI } from '../../services/sceneImagesClient';
 import { toast } from '../Toast';

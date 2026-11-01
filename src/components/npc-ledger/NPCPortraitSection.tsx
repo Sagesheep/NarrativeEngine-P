@@ -1,4 +1,4 @@
-import { Loader2, Image as ImageIcon, Trash2, Upload, ScanEye } from 'lucide-react';
+import { Loader2, Image as ImageIcon, Trash2, Upload, ScanEye } from '../icons/narrativeIcons';
 import type { NPCVisualProfile } from '../../types';
 import { useRef } from 'react';
 import { DEFAULT_PORTRAIT_ART_STYLE, PORTRAIT_ART_STYLE_OPTIONS } from '../../data/portraitStyles';

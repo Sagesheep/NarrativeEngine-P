@@ -1,4 +1,4 @@
-import { Plus, SlidersHorizontal } from 'lucide-react';
+import { Plus, SlidersHorizontal } from '../icons/narrativeIcons';
 import { useAppStore } from '../../store/useAppStore';
 import { normalizeInjections } from '../../services/payload/promptInjections';
 

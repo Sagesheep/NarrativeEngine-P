@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Pin, Trash2, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Pin, Trash2, ArrowRight, ChevronDown, ChevronUp } from './icons/narrativeIcons';
 import { useAppStore } from '../store/useAppStore';
 import { countTokens } from '../services/infrastructure/tokenizer';
 import type { PinnedExcerpt } from '../types';

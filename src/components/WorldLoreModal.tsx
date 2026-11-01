@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, Plus, Download, FileText } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Download, FileText } from './icons/narrativeIcons';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import type { WorldLoreDraft } from '../types';

@@ -1,4 +1,4 @@
-import { Upload, Users, Trash2, Sparkles } from 'lucide-react';
+import { Upload, Users, Trash2, Sparkles } from '../icons/narrativeIcons';
 import type { NpcImportMode } from '../../services/npc/importTransform';
 
 interface ImportChoiceDialogProps {

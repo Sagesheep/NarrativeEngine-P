@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { FileText, ScrollText, Package, BarChart3, Upload, Download } from 'lucide-react';
+import { FileText, ScrollText, Package, BarChart3, Upload, Download } from '../icons/narrativeIcons';
 import { useAppStore } from '../../store/useAppStore';
 import { SheetTab, type SheetTabHandle } from './tabs/SheetTab';
 import { RecordTab } from './tabs/RecordTab';

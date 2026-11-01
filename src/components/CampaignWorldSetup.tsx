@@ -1,6 +1,6 @@
 import { countTokens } from '../services/infrastructure/tokenizer';
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, Upload, PenLine } from 'lucide-react';
+import { BookOpen, Upload, PenLine } from './icons/narrativeIcons';
 import { cardFromDraft, readWorldFile, type WorldImport } from '../services/lore/worldCard';
 import { parseJsonCard, parsePngCard } from '../services/import/stCardParser';
 import { useAppStore } from '../store/useAppStore';

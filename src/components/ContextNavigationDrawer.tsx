@@ -4,7 +4,7 @@ import { useMemo, useState, useSyncExternalStore } from 'react';
 import {
     Archive, BookOpen, Brain, ChevronDown, ChevronRight, Database, FileText,
     Image as ImageIcon, MapPin, Pin, ScrollText, SlidersHorizontal, Sparkles, UserCircle, Users, Workflow,
-} from 'lucide-react';
+} from './icons/narrativeIcons';
 import { useAppStore } from '../store/useAppStore';
 import type { ContextScreenId } from '../store/slices/uiSlice';
 import { RulesTab } from './context-drawer/RulesTab';

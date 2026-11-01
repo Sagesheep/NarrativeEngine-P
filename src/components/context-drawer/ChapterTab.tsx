@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { BookOpen, Plus, Loader2, Sparkles, Scale, Search, X } from 'lucide-react';
+import { BookOpen, Plus, Loader2, Sparkles, Scale, Search, X } from '../icons/narrativeIcons';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store/useAppStore';
 import { api } from '../../services/llm/apiClient';

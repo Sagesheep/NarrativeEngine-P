@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MapPin, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { MapPin, X, ChevronDown, ChevronRight } from '../icons/narrativeIcons';
 import { useAppStore } from '../../store/useAppStore';
 import type { LocationSuggestion, LocationEntry } from '../../types';
 import { queueLocationEnrichment } from '../../services/locationEnrich';

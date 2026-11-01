@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Loader2, AlertCircle, Maximize2, RotateCw, Trash2, X, Sparkles } from 'lucide-react';
+import { Loader2, AlertCircle, Maximize2, RotateCw, Trash2, X, Sparkles } from '../icons/narrativeIcons';
 import type { SceneImageAttachment } from '../../types';
 import { useAppStore } from '../../store/useAppStore';
 import { generateSceneImageAPI, deleteSceneImageAPI } from '../../services/sceneImagesClient';

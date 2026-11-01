@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ScrollText, Sparkles } from 'lucide-react';
+import { ScrollText, Sparkles } from '../icons/narrativeIcons';
 import { useAppStore } from '../../store/useAppStore';
 import { PayloadTraceView } from '../PayloadTraceView';
 import { SceneNoteEditor } from '../SceneNoteEditor';

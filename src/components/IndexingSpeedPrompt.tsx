@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Cpu, X } from 'lucide-react';
+import { Cpu, X } from './icons/narrativeIcons';
 import { useAppStore } from '../store/useAppStore';
 import { API_BASE as API } from '../lib/apiBase';
 

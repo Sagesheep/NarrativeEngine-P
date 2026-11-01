@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Trash2, Save, ScrollText, X, ChevronUp, ChevronDown, Search } from 'lucide-react';
+import { Trash2, Save, ScrollText, X, ChevronUp, ChevronDown, Search } from '../icons/narrativeIcons';
 import { NPCPortraitSection } from '../npc-ledger/NPCPortraitSection';
 import type { NPCVisualProfile, NPCBehavioralTrigger, DivergenceCategory, HexAxis, PlayerCharacter } from '../../types';
 import { DEFAULT_VISUAL_PROFILE } from '../../types';

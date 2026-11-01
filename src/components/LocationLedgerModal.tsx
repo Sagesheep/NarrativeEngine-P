@@ -2,7 +2,7 @@ import { hasKnownPosition } from '../services/location/knowledge';
 import { isTemporaryLocation } from '../utils/locationRecords';
 import { openMapTravelPreview } from '../services/turn/mapTravelPreview';
 import { useState, useEffect, useMemo } from 'react';
-import { X, Plus, MapPin, Trash2, Search, BookOpen, Compass } from 'lucide-react';
+import { X, Plus, MapPin, Trash2, Search, BookOpen, Compass } from './icons/narrativeIcons';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
 import { modEventBus } from '../services/mods/events';

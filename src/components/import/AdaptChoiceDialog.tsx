@@ -1,4 +1,4 @@
-import { Sparkles, WifiOff } from 'lucide-react';
+import { Sparkles, WifiOff } from '../icons/narrativeIcons';
 import type { AdaptationEndpointInfo } from '../../services/import/adaptationTypes';
 
 export type AdaptChoice = 'living-world' | 'direct';

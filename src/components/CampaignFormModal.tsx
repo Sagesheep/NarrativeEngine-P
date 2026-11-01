@@ -3,7 +3,7 @@ import { CampaignWorldSetup } from './CampaignWorldSetup';
 import { CampaignRoster } from './CampaignRoster';
 import type { CampaignRosterEntry } from '../services/import/campaignRoster';
 import type { WorldImport } from '../services/lore/worldCard';
-import { Trash2, BookOpen } from 'lucide-react';
+import { Trash2, BookOpen } from './icons/narrativeIcons';
 import type { Campaign } from '../types';
 import { Backdrop } from './primitives/Backdrop';
 import { GhostBtn, PrimaryBtn } from './primitives/Buttons';

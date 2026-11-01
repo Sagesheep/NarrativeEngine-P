@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { Sparkles, Wand, Loader2 } from 'lucide-react';
+import { Sparkles, Wand, Loader2 } from './icons/narrativeIcons';
 import { formatLoreText, expandLoreText, AuxNotConfiguredError } from '../services/lore/worldLoreAI';
 import { toast } from './Toast';
 

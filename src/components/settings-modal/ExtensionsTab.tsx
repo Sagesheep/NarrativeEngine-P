@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BookOpen, ChevronRight, Loader2, Puzzle, RefreshCw, RotateCcw, Settings, Trash2, Workflow } from 'lucide-react';
+import { AlertTriangle, BookOpen, ChevronRight, Loader2, Puzzle, RefreshCw, RotateCcw, Settings, Trash2, Workflow } from '../icons/narrativeIcons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // The author's guide, inlined at build time rather than fetched.

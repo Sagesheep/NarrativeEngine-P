@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Trash2, Plus, AlertCircle, Eye, EyeOff, ScrollText } from 'lucide-react';
+import { Trash2, Plus, AlertCircle, Eye, EyeOff, ScrollText } from '../../icons/narrativeIcons';
 import { useAppStore } from '../../../store/useAppStore';
 import { uid } from '../../../utils/uid';
 import type { CharacterProfileState, CharacterTrait, DivergenceCategory } from '../../../types';

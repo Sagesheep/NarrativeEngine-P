@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Sparkles, Loader2 } from 'lucide-react';
+import { X, Sparkles, Loader2 } from './icons/narrativeIcons';
 import { useAppStore } from '../store/useAppStore';
 import { sendMessage } from '../services/llm/llmService';
 import { extractJson } from '../services/infrastructure/jsonExtract';

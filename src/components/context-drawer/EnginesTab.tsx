@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Loader2, Sparkles, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Loader2, Sparkles, Plus, Trash2, ChevronDown, ChevronRight } from '../icons/narrativeIcons';
 import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_ENCOUNTER_TYPES, DEFAULT_ENCOUNTER_TONES, DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHY, DEFAULT_WORLD_WHAT } from '../../store/useAppStore';
 import { populateEngineTags } from '../../services/chatEngine';
 import { Toggle } from './Toggle';

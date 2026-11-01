@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
-import { X, Send, Trash2, Check, Sparkles, Upload as UploadIcon, Pencil, ImagePlus, ScanEye, Loader2 } from 'lucide-react';
+import { X, Send, Trash2, Check, Sparkles, Upload as UploadIcon, Pencil, ImagePlus, ScanEye, Loader2 } from './icons/narrativeIcons';
 import { useAppStore } from '../store/useAppStore';
 import { buildGallery } from '../services/gallery/galleryIndex';
 import { useGalleryUpload } from './hooks/useGalleryUpload';

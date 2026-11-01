@@ -1,4 +1,4 @@
-import { Loader2, BookCheck, BookOpen, Pin, Replace, UserPlus, MapPin, Image } from 'lucide-react';
+import { Loader2, BookCheck, BookOpen, Pin, Replace, UserPlus, MapPin, Image } from '../icons/narrativeIcons';
 import { useSelectionActions, stripMarkdown } from './useSelectionActions';
 
 /**

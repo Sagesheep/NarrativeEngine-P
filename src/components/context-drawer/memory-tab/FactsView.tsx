@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Edit2, Check, Pin, PinOff, ChevronDown, ChevronUp, Trash2, Sparkles, Loader2, Users, X, Link2 } from 'lucide-react';
+import { Edit2, Check, Pin, PinOff, ChevronDown, ChevronUp, Trash2, Sparkles, Loader2, Users, X, Link2 } from '../../icons/narrativeIcons';
 import { useAppStore } from '../../../store/useAppStore';
 import type { DivergenceCategory, DivergenceEntry, NPCEntry } from '../../../types';
 import { EMPTY_REGISTER, CATEGORY_LABELS } from '../../../services/campaign-state/divergenceRegister';

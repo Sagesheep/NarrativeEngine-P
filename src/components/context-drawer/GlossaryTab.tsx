@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BookOpen, Plus, Search } from 'lucide-react';
+import { BookOpen, Plus, Search } from '../icons/narrativeIcons';
 import type { GlossaryEntry } from '../../types';
 import { useAppStore } from '../../store/useAppStore';
 import { uid } from '../../utils/uid';

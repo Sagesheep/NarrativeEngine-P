@@ -1,4 +1,4 @@
-import { Sparkles } from 'lucide-react';
+import { Sparkles } from './icons/narrativeIcons';
 import { useAppStore } from '../store/useAppStore';
 
 /**
