@@ -131,7 +131,7 @@ describe('parseNPCsFromLore — lore-authored agency fields (hex + traits)', () 
         const [npc] = parseNPCsFromLore([charChunk('CHARACTER -- Naruto Uzumaki', NARUTO_BLOCK)]);
         const [authored, look] = npc.appearance.split('\n');
         expect(authored).toContain('whisker marks');
-        expect(look).toContain('Human, Male, 12-13, Lean, wiry build.');
+        expect(look).toContain('Human, Male, 12-13. Build: Lean, wiry.');
         expect(look).toContain('Hair: Spiky sun-blond.');
         expect(look).toContain('Eyes: Bright blue.');
         expect(look).toContain('Skin: Fair.');

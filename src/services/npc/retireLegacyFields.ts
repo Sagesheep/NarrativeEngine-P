@@ -41,15 +41,16 @@ function meaningful(v: unknown): string {
 
 /**
  * Renders the structured look as one paragraph, most identifying details first:
- * "Elf, female, mid 20s, lean build. Hair: silver braid. Eyes: amber. ..."
+ * "Elf, female, mid 20s. Build: lean. Hair: silver braid. Eyes: amber. ..."
  * Returns '' when nothing meaningful is set.
  */
 export function visualProfileToProse(vp: LegacyVisualProfile | null | undefined): string {
     if (!vp) return '';
     const v = (k: keyof LegacyVisualProfile) => meaningful(vp[k]);
-    const lead = [v('race'), v('gender'), v('ageRange'), v('build') && `${v('build')} build`].filter(Boolean).join(', ');
+    const lead = [v('race'), v('gender'), v('ageRange')].filter(Boolean).join(', ');
     const parts = [
         lead,
+        v('build') && `Build: ${v('build')}`,
         v('hairStyle') && `Hair: ${v('hairStyle')}`,
         v('eyeColor') && `Eyes: ${v('eyeColor')}`,
         v('skinTone') && `Skin: ${v('skinTone')}`,

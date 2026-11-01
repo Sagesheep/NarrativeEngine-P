@@ -93,7 +93,7 @@ describe('retireLegacyNpcFields', () => {
         expect(visualProfileToProse({
             race: 'Elf', gender: 'female', ageRange: 'mid 20s', build: 'lean',
             hairStyle: 'silver braid', eyeColor: 'amber', distinctMarks: 'None', clothing: 'Unknown',
-        })).toBe('Elf, female, mid 20s, lean build. Hair: silver braid. Eyes: amber.');
+        })).toBe('Elf, female, mid 20s. Build: lean. Hair: silver braid. Eyes: amber.');
         expect(visualProfileToProse({ race: '', artStyle: 'Chibi' })).toBe('');
     });
 
