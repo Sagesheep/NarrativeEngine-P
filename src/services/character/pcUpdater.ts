@@ -93,7 +93,7 @@ DO NOT include attributes that stayed the same. If nothing fundamental changed, 
   - "personalityHex" / "traits" — written only by the player via the character sheet or quiz. NEVER send.
   - "drives" — superseded by "wants". Never send.
   - "affinity" / "pcRelation" / "relations" — relationship standing is engine-owned and meaningless for the PC. NEVER send.
-  - "voice", "personality", "storyRelevance", "behavioralTriggers", "hardBoundaries", "softBoundaries", "visualProfile" — out of scope for this updater.
+  - "voice", "personality", "storyRelevance", "behavioralTriggers", "hardBoundaries", "softBoundaries", "artStyle" — out of scope for this updater.
 
 SIGNATURE KIT RULES:
   - "signatureKit" is the player character's durable loadout: {"equipment": string[], "abilities": string[], "element": string}. It keeps gear and powers CONSISTENT across the campaign.

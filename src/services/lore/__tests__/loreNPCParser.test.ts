@@ -127,23 +127,20 @@ describe('parseNPCsFromLore — lore-authored agency fields (hex + traits)', () 
         expect(npc.pcRelation).toBe(0); // Affinity 50 → Neutral
     });
 
-    it('PRESERVES the desktop-only visualProfile extraction (regression guard)', () => {
+    it('folds the desktop-only Visual* fields into appearance after the authored Appearance', () => {
         const [npc] = parseNPCsFromLore([charChunk('CHARACTER -- Naruto Uzumaki', NARUTO_BLOCK)]);
-        // visualProfile is desktop-only — adding hex/traits must not break it.
-        expect(npc.visualProfile).toBeDefined();
-        if (!npc.visualProfile) return;
-        expect(npc.visualProfile.race).toBe('Human');
-        expect(npc.visualProfile.gender).toBe('Male');
-        expect(npc.visualProfile.ageRange).toBe('12-13');
-        expect(npc.visualProfile.build).toBe('Lean, wiry');
-        expect(npc.visualProfile.hairStyle).toBe('Spiky sun-blond');
-        expect(npc.visualProfile.eyeColor).toBe('Bright blue');
-        expect(npc.visualProfile.skinTone).toBe('Fair');
-        expect(npc.visualProfile.clothing).toContain('Orange tracksuit');
-        expect(npc.visualProfile.artStyle).toBe('Anime');
+        const [authored, look] = npc.appearance.split('\n');
+        expect(authored).toContain('whisker marks');
+        expect(look).toContain('Human, Male, 12-13, Lean, wiry build.');
+        expect(look).toContain('Hair: Spiky sun-blond.');
+        expect(look).toContain('Eyes: Bright blue.');
+        expect(look).toContain('Skin: Fair.');
+        expect(look).toContain('Wears: Orange tracksuit');
+        expect(npc.artStyle).toBe('Anime');
+        expect((npc as unknown as Record<string, unknown>).visualProfile).toBeUndefined();
     });
 
-    it('omits visualProfile when no Visual* fields are present (unchanged behaviour)', () => {
+    it('leaves appearance as authored when no Visual* fields are present', () => {
         const body = NARUTO_BLOCK
             .replace(/\n\*\*VisualRace:\*\*.*/u, '')
             .replace(/\n\*\*VisualGender:\*\*.*/u, '')
@@ -155,7 +152,9 @@ describe('parseNPCsFromLore — lore-authored agency fields (hex + traits)', () 
             .replace(/\n\*\*VisualClothing:\*\*.*/u, '')
             .replace(/\n\*\*VisualArtStyle:\*\*.*/u, '');
         const [npc] = parseNPCsFromLore([charChunk('CHARACTER -- Naruto Uzumaki', body)]);
-        expect(npc.visualProfile).toBeUndefined();
+        expect(npc.appearance).not.toContain('\n');
+        expect(npc.appearance).toContain('whisker marks');
+        expect(npc.artStyle).toBeUndefined();
     });
 });
 
@@ -253,15 +252,14 @@ describe('parseNPCsFromLore — extended agency fields (tier, region, haunt, bou
         expect(npc.wants).toBeUndefined();
     });
 
-    it('PRESERVES visualProfile alongside the new agency fields (regression guard)', () => {
+    it('PRESERVES the folded Visual* look alongside the new agency fields (regression guard)', () => {
         const block = NARUTO_BLOCK
             + '\n**Tier:** recurring\n**Region:** konoha\n**Haunt:** Ichiraku Ramen\n'
             + '**HardBoundaries:** [will not abandon a teammate]\n'
             + '**WantsLong:** become Hokage';
         const [npc] = parseNPCsFromLore([charChunk('CHARACTER -- Naruto Uzumaki', block)]);
-        // visualProfile still extracts with the original Visual* fields from NARUTO_BLOCK.
-        expect(npc.visualProfile).toBeDefined();
-        expect(npc.visualProfile?.race).toBe('Human');
+        // The Visual* fields from NARUTO_BLOCK still land in appearance.
+        expect(npc.appearance).toContain('Human, Male');
         // And the new agency fields are present alongside it.
         expect(npc.tier).toBe('recurring');
         expect(npc.region).toBe('konoha');

@@ -215,7 +215,7 @@ describe('WO-A2 §4.7 — commitCharacterDraft', () => {
         const draft: CharacterCreationDraft = {
             name: 'Hero',
             answers: { 2: 'from the hills', 3: 'Ironspire', 5: 'stoic', 6: 'gruff', 7: 'find the sword', 8: 'a cloak, a knife' },
-            visualProfile: { race: 'human', gender: 'f', ageRange: '30s', build: '', symmetry: '', hairStyle: '', eyeColor: '', skinTone: '', gait: '', distinctMarks: '', clothing: '', artStyle: 'Anime' },
+            artStyle: 'Stylized Anime',
             appearance: 'tall and scarred',
             hexMode: 'skip',
         };

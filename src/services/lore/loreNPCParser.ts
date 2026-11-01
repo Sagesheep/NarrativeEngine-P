@@ -39,7 +39,7 @@ function uid(): string {
  *           - **SignatureEquipment:** [Excalibur (holy longsword), plate armor]  (durable loadout gear, ≤4)
  *           - **SignatureAbilities:** [fire magic, holy smite]                    (signature powers/techniques, ≤4)
  *           - **Element:** fire                                                   (single affinity tag)
- *         Optional desktop-only visual fields (mobile parser ignores these):
+ *         Optional desktop-only visual fields (folded into Appearance prose on parse):
  *           VisualRace, VisualGender, VisualAgeRange, VisualBuild, VisualSymmetry,
  *           VisualHairStyle, VisualEyeColor, VisualSkinTone, VisualGait,
  *           VisualDistinctMarks, VisualClothing, VisualArtStyle
@@ -210,6 +210,8 @@ export function parseNPCsFromLore(chunks: LoreChunk[]): NPCEntry[] {
             return VALID_TIERS.has(t) ? t as NPCEntry['tier'] : 'recurring';
         };
 
+        // Authored Visual* bullets are still read; retireLegacyNpcFields folds them into
+        // `appearance` prose (after any authored Appearance) and `artStyle`.
         const visualProfile = {
             race: getAny(['VisualRace', 'Visual Race', 'Race', 'Race / Species']),
             gender: getAny(['VisualGender', 'Gender']),
@@ -222,20 +224,15 @@ export function parseNPCsFromLore(chunks: LoreChunk[]): NPCEntry[] {
             gait: getAny(['VisualGait', 'Gait / Posture', 'Gait']),
             distinctMarks: getAny(['VisualDistinctMarks', 'Distinct Marks']),
             clothing: getAny(['VisualClothing', 'Clothing Style', 'Clothing']),
-            artStyle: getAny(['VisualArtStyle', 'Art Style']) || 'Stylized Game Realism',
+            artStyle: getAny(['VisualArtStyle', 'Art Style']),
         };
-        
-        const hasVisualProfile = !!(
-            visualProfile.race || visualProfile.gender || visualProfile.ageRange || visualProfile.build ||
-            visualProfile.symmetry || visualProfile.hairStyle || visualProfile.eyeColor || visualProfile.skinTone ||
-            visualProfile.gait || visualProfile.distinctMarks || visualProfile.clothing
-        );
 
         // ---- Wants (tiered NPCWants). ----
         // The agency lazy fill keeps existing wants and only tops them up from the pools.
         // Older lore authors CoreWant/SessionWant/SceneWant, Goals, Disposition and Affinity:
         // still read, then folded into wants/personality/pcRelation by retireLegacyNpcFields.
         const legacy: LegacyNpcFields = {
+            visualProfile,
             affinity: getNum('Affinity', 50),
             disposition: get('Disposition') || '',
             goals: get('Goals'),
@@ -269,7 +266,6 @@ export function parseNPCsFromLore(chunks: LoreChunk[]): NPCEntry[] {
             name,
             aliases: get('Aliases'),
             appearance: getAny(['Appearance', 'VisualForAI']),
-            visualProfile: hasVisualProfile ? visualProfile : undefined,
             faction: get('Faction'),
             storyRelevance: get('StoryRelevance'),
             status: (get('Status') as NPCEntry['status']) || 'Alive',

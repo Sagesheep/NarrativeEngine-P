@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { NPCEntry } from '../../../types';
-import { retireLegacyNpcFields } from '../retireLegacyFields';
+import { retireLegacyNpcFields, visualProfileToProse } from '../retireLegacyFields';
 
 const row = (over: Record<string, unknown> = {}): NPCEntry => ({
     id: 'n', name: 'Sanna', aliases: '', appearance: '', faction: '', storyRelevance: '',
@@ -87,6 +87,34 @@ describe('retireLegacyNpcFields', () => {
         const n = row({ pcRelation: 0, previousSnapshot: { personality: 'a', voice: 'b', affinity: 50 } });
         expect(retireLegacyNpcFields(n)).toBe(true);
         expect(n.previousSnapshot).toEqual({ personality: 'a', voice: 'b' });
+    });
+
+    it('renders the structured look as prose, identifying details first', () => {
+        expect(visualProfileToProse({
+            race: 'Elf', gender: 'female', ageRange: 'mid 20s', build: 'lean',
+            hairStyle: 'silver braid', eyeColor: 'amber', distinctMarks: 'None', clothing: 'Unknown',
+        })).toBe('Elf, female, mid 20s, lean build. Hair: silver braid. Eyes: amber.');
+        expect(visualProfileToProse({ race: '', artStyle: 'Chibi' })).toBe('');
+    });
+
+    it('fills an empty appearance from visualProfile and moves artStyle', () => {
+        const n = row({ visualProfile: { race: 'Orc', hairStyle: 'shaved', artStyle: 'Graphic Novel' } });
+        retireLegacyNpcFields(n);
+        expect(n.appearance).toBe('Orc. Hair: shaved.');
+        expect(n.artStyle).toBe('Graphic Novel');
+        expect(keys(n)).not.toContain('visualProfile');
+    });
+
+    it('keeps authored appearance first and appends the structured look after it', () => {
+        const n = row({ appearance: 'A scarred veteran.', visualProfile: { eyeColor: 'grey' } });
+        retireLegacyNpcFields(n);
+        expect(n.appearance).toBe('A scarred veteran.\nEyes: grey.');
+    });
+
+    it('never overwrites a chosen artStyle', () => {
+        const n = row({ artStyle: 'Chibi', visualProfile: { artStyle: 'Graphic Novel' } });
+        retireLegacyNpcFields(n);
+        expect(n.artStyle).toBe('Chibi');
     });
 
     it('is idempotent', () => {

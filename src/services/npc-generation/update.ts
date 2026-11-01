@@ -85,15 +85,6 @@ export async function updateExistingNPCs(
             data += `Triggers: ${npc.behavioralTriggers.map(t => `"${t.keyword}" → ${t.shift}`).join('; ')}\n`;
         }
 
-        // Visual profile fill (unchanged from legacy behaviour).
-        const vp = npc.visualProfile || { race: '', gender: '', ageRange: '', build: '', symmetry: '', hairStyle: '', eyeColor: '', skinTone: '', gait: '', distinctMarks: '', clothing: '' };
-        const missingFields = Object.entries(vp)
-            .filter(([key, val]) => key !== 'artStyle' && (!val || val === 'Unknown' || val === 'None'))
-            .map(([key]) => key);
-        if (missingFields.length > 0) {
-            data += `NOTE: This NPC has missing or generic "visualProfile" fields: ${missingFields.join(', ')}. You MUST attempt to determine specific values for these based on their "Appearance" and recent context.\n`;
-        }
-
         return data;
     }).join('\n\n');
 
@@ -107,8 +98,9 @@ CHANNEL 1 — "updates" (only when something fundamentally changed; usually empt
 Each update MUST include "name" and only the fields that fundamentally changed. Allowed changes keys:
   status, storyRelevance, personality (flavor text), voice, appearance,
   wants (medium/long text only — NEVER include "short"; short is engine-managed),
-  personalityHex, traits, region, faction (can list multiple comma-separated factions), relations, behavioralTriggers, hardBoundaries, softBoundaries, visualProfile, signatureKit.
+  personalityHex, traits, region, faction (can list multiple comma-separated factions), relations, behavioralTriggers, hardBoundaries, softBoundaries, signatureKit.
 DO NOT include attributes that stayed the same. If nothing fundamental changed, "updates" is [].
+"appearance" is ONE paragraph. Change it only for a visible change narrated in the context (new clothes, a fresh scar, a lost eye): send the whole paragraph back with ONLY that detail edited, every other word kept as it was.
 
 CHANNEL 2 — "tones" (MANDATORY: one entry for EVERY NPC listed below, every time):
 {"tones": [{"name": "<NPC name>", "tone": "<friendly|tense|neutral|bonding|betrayal>"}]}
@@ -246,13 +238,16 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
 
                     // WO-05 §B — defensively strip FORBIDDEN/engine-owned keys. The parse must never
                     // write a superseded or engine-owned field from the model. `drives`/`affinity`/
-                    // `disposition`/`goals` are retired; `pcRelation` is engine-owned (moves only via
-                    // the tone meter below), so any band the model puts in `changes` is discarded.
+                    // `disposition`/`goals`/`visualProfile` are retired; `pcRelation` is engine-owned
+                    // (moves only via the tone meter below), so any band the model sends is discarded.
+                    // `artStyle` is the user's pick and never the model's.
                     const legacy = changes as Partial<NPCEntry> & LegacyNpcFields;
                     delete legacy.drives;
                     delete legacy.affinity;
                     delete legacy.disposition;
                     delete legacy.goals;
+                    delete legacy.visualProfile;
+                    delete legacy.artStyle;
                     delete legacy.pcRelation;
 
                     // Fold this NPC's tone-driven band/meter move into the same patch so the snapshot
@@ -283,14 +278,6 @@ RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
                         changes.shiftTurnCount = 0;
                     } else if (targetNpc.shiftTurnCount !== undefined && targetNpc.shiftTurnCount < 3) {
                         changes.shiftTurnCount = (targetNpc.shiftTurnCount || 0) + 1;
-                    }
-
-                    if (changes.visualProfile && typeof changes.visualProfile === 'object') {
-                        changes.visualProfile = {
-                            ...targetNpc.visualProfile,
-                            ...changes.visualProfile,
-                            artStyle: targetNpc.visualProfile?.artStyle || 'Stylized Game Realism'
-                        };
                     }
 
                     // (pcRelation is engine-owned now — set above from the tone meter, already clamped;

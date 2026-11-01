@@ -169,11 +169,7 @@ describe('WO-C §10.7 — fixed entry values', () => {
         expect(npc.appearance).toBe('');
         expect(npc.faction).toBe('');
         expect(npc.voice).toBe('');
-        expect(npc.visualProfile).toEqual({
-            race: '', gender: '', ageRange: '', build: '', symmetry: '',
-            hairStyle: '', eyeColor: '', skinTone: '', gait: '', distinctMarks: '',
-            clothing: '', artStyle: 'Stylized Game Realism',
-        });
+        expect(npc.artStyle).toBeUndefined();
         expect(npc.portrait).toBeUndefined();
         // §3.4 owns these — the converter must not pre-empt it.
         expect(npc.populated).toBeUndefined();
@@ -512,7 +508,7 @@ describe('WO-C §10.2 — cardToPC', () => {
         expect(pc.status).toBe('Alive');
         expect(pc.name).toBe('Rin');
         expect(pc.appearance).toBe('');
-        expect(pc.visualProfile?.artStyle).toBe('Stylized Game Realism');
+        expect(pc.artStyle).toBeUndefined();
     });
 
     it('maps the story slice to storyRelevance and the first example line to voice', () => {

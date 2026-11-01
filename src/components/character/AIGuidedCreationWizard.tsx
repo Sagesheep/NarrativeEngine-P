@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Wand2, Loader2, AlertTriangle, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
-import type { CharacterCreationDraft, CreationSlot, NPCVisualProfile, EndpointConfig, ProviderConfig } from '../../types';
-import { DEFAULT_VISUAL_PROFILE } from '../../types';
+import type { CharacterCreationDraft, CreationSlot, EndpointConfig, ProviderConfig } from '../../types';
+import { DEFAULT_PORTRAIT_ART_STYLE, PORTRAIT_ART_STYLE_OPTIONS } from '../../data/portraitStyles';
 import { resolveGuidedCreationEndpoint, listCreationHeaders } from '../../services/character/loreExcerptBuilder';
 import { generateInterviewQuestions, runQuestionPrompt, convertInterviewAnswers, type GuidedProgress } from '../../services/character/aiGuidedGeneration';
 import { drawScenarios, deriveHexFromAnswers, type QuizScenario } from '../../services/character/hexQuiz';
@@ -14,8 +14,6 @@ type Phase = 'idle' | 'generating-questions' | 'answering' | 'hex-choice' | 'qui
 
 const ANSWER_SLOTS: CreationSlot[] = [2, 3, 4, 5, 6, 7, 8];
 
-const PRIMARY_VISUAL_FIELDS: (keyof NPCVisualProfile)[] = ['race', 'gender', 'ageRange', 'build', 'hairStyle', 'eyeColor'];
-const SECONDARY_VISUAL_FIELDS: (keyof NPCVisualProfile)[] = ['symmetry', 'skinTone', 'gait', 'distinctMarks', 'clothing', 'artStyle'];
 
 /**
  * WO-A2 §2 — AI-Guided Creation wizard.
@@ -377,7 +375,6 @@ function emptyDraft(): CharacterCreationDraft {
         name: '',
         questions: {},
         answers: {},
-        visualProfile: { ...DEFAULT_VISUAL_PROFILE },
         appearance: '',
         hexMode: undefined,
         quizAnswers: {},
@@ -564,10 +561,6 @@ function AnsweringForm({
     const updateAnswer = (slot: CreationSlot, value: string) => {
         setDraft({ ...draft, answers: { ...draft.answers, [slot]: value } });
     };
-    const updateVisual = (field: keyof NPCVisualProfile, value: string) => {
-        setDraft({ ...draft, visualProfile: { ...(draft.visualProfile || DEFAULT_VISUAL_PROFILE), [field]: value } });
-    };
-    const [showMoreVisual, setShowMoreVisual] = useState(false);
 
     return (
         <div className="space-y-5">
@@ -597,47 +590,24 @@ function AnsweringForm({
                 </Field>
             ))}
 
-            {/* Slot 9 — Visual profile form */}
-            <Field label="9. Appearance (fill what you know — partial is fine)">
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                    {PRIMARY_VISUAL_FIELDS.map(f => (
-                        <input
-                            key={f}
-                            type="text"
-                            value={(draft.visualProfile ?? DEFAULT_VISUAL_PROFILE)[f] || ''}
-                            onChange={e => updateVisual(f, e.target.value)}
-                            placeholder={f}
-                            className="bg-void border border-border rounded px-2 py-1.5 text-[11px] text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal"
-                        />
-                    ))}
-                </div>
-                <button
-                    onClick={() => setShowMoreVisual(!showMoreVisual)}
-                    className="text-[9px] text-text-dim hover:text-terminal uppercase tracking-wider"
-                >
-                    {showMoreVisual ? 'Hide' : 'More detail'}
-                </button>
-                {showMoreVisual && (
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                        {SECONDARY_VISUAL_FIELDS.map(f => (
-                            <input
-                                key={f}
-                                type="text"
-                                value={(draft.visualProfile ?? DEFAULT_VISUAL_PROFILE)[f] || ''}
-                                onChange={e => updateVisual(f, e.target.value)}
-                                placeholder={f}
-                                className="bg-void border border-border rounded px-2 py-1.5 text-[11px] text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal"
-                            />
-                        ))}
-                    </div>
-                )}
+            {/* Slot 9 — Appearance (one description; the portrait uses all of it) */}
+            <Field label="9. What does your character look like?">
                 <textarea
                     value={draft.appearance || ''}
                     onChange={e => setDraft({ ...draft, appearance: e.target.value })}
-                    rows={2}
-                    placeholder="Optional appearance prose..."
-                    className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal resize-y mt-2"
+                    rows={4}
+                    placeholder="Species, age, build, hair, eyes, clothing, gear, marks — partial is fine."
+                    className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal resize-y"
                 />
+                <select
+                    value={draft.artStyle || DEFAULT_PORTRAIT_ART_STYLE}
+                    onChange={e => setDraft({ ...draft, artStyle: e.target.value })}
+                    className="w-full bg-void border border-border rounded px-2 py-1.5 text-[11px] text-text-primary focus:outline-none focus:border-terminal mt-2"
+                >
+                    {PORTRAIT_ART_STYLE_OPTIONS.map(style => (
+                        <option key={style.value} value={style.value}>Portrait style: {style.label}</option>
+                    ))}
+                </select>
             </Field>
 
             <div className="flex justify-between pt-4 border-t border-border">

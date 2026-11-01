@@ -14,8 +14,7 @@
  * Pure: no store, no network, no mutation of either argument.
  */
 
-import type { LoreChunk, NPCEntry, NPCVisualProfile } from '../../types';
-import { DEFAULT_VISUAL_PROFILE } from '../../types';
+import type { LoreChunk, NPCEntry } from '../../types';
 
 /** Normalized name comparison: trimmed, internal whitespace collapsed, lowercased. */
 export function normalizeName(s: string): string {
@@ -38,16 +37,10 @@ export const CARD_OWNED_FIELDS = [
     'portrait',
     'aliases',
     'appearance',
-    'visualProfile',
+    'artStyle',
 ] as const;
 
 export type CardOwnedField = (typeof CARD_OWNED_FIELDS)[number];
-
-function isDefaultVisualProfile(vp: NPCVisualProfile | undefined): boolean {
-    if (!vp) return true;
-    return (Object.keys(DEFAULT_VISUAL_PROFILE) as (keyof NPCVisualProfile)[])
-        .every(k => (vp[k] ?? '') === DEFAULT_VISUAL_PROFILE[k]);
-}
 
 /**
  * Per-field replacement rules (§10.10). `personality` / `storyRelevance` /
@@ -63,15 +56,15 @@ const CARD_OWNED_RULES: { [K in CardOwnedField]: (existing: NPCEntry, incoming: 
     aliases: (_existing, incoming) => !!incoming.aliases && incoming.aliases.trim() !== '',
     // Appearance drifts in play (wounds, changes of dress) — only fill a blank.
     appearance: existing => !existing.appearance || existing.appearance.trim() === '',
-    // Only seed a visual profile the user (or the portrait generator) never customized.
-    visualProfile: (existing, incoming) => incoming.visualProfile !== undefined && isDefaultVisualProfile(existing.visualProfile),
+    // Only seed an art style the user never picked.
+    artStyle: (existing, incoming) => !!incoming.artStyle && !existing.artStyle,
 };
 
 /**
  * Overwrite an existing ledger row from a freshly converted card.
  *
  * Card-owned: `personality`, `storyRelevance`, `exampleOutput`, and conditionally
- * `portrait` / `aliases` / `appearance` / `visualProfile`.
+ * `portrait` / `aliases` / `appearance` / `artStyle`.
  * Campaign-owned (never written here): `id`, `name` — the existing casing is the one
  * the player has been reading — plus `pcRelation`, `relationMeter`,
  * `relations`, `status`, `condition`, `region`, `haunt`, `faction`, `wants`,
@@ -93,7 +86,7 @@ export function overwriteImportedNPC(existing: NPCEntry, incoming: NPCEntry): NP
             case 'portrait': patch.portrait = incoming.portrait; break;
             case 'aliases': patch.aliases = incoming.aliases; break;
             case 'appearance': patch.appearance = incoming.appearance; break;
-            case 'visualProfile': patch.visualProfile = incoming.visualProfile; break;
+            case 'artStyle': patch.artStyle = incoming.artStyle; break;
         }
     }
 

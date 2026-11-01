@@ -213,7 +213,7 @@ export function applyOverwrite(existing: NPCEntry, incoming: NPCEntry): Partial<
             case 'portrait': patch.portrait = merged.portrait; break;
             case 'aliases': patch.aliases = merged.aliases; break;
             case 'appearance': patch.appearance = merged.appearance; break;
-            case 'visualProfile': patch.visualProfile = merged.visualProfile; break;
+            case 'artStyle': patch.artStyle = merged.artStyle; break;
         }
     }
 

@@ -3,7 +3,6 @@ import { Sparkles } from '../../icons/narrativeIcons';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../../store/useAppStore';
 import type { PlayerCharacter, CharacterProfileState, NPCEntry } from '../../../types';
-import { DEFAULT_VISUAL_PROFILE } from '../../../types';
 import { toast } from '../../Toast';
 import { PCEditForm } from '../PCEditForm';
 import { useNpcPortraits } from '../../hooks/useNpcPortraits';
@@ -81,7 +80,6 @@ export const SheetTab = forwardRef<SheetTabHandle, { onStartGuidedCreation?: () 
                 name: '',
                 status: 'Alive',
                 tier: 'recurring',
-                visualProfile: { ...DEFAULT_VISUAL_PROFILE },
             });
             // WO-A2 §2.1: with no PC we must land on the Manual / AI-Guided
             // chooser (NoPCState), NOT straight into the manual form — otherwise
@@ -136,7 +134,6 @@ export const SheetTab = forwardRef<SheetTabHandle, { onStartGuidedCreation?: () 
                 name: '',
                 status: 'Alive',
                 tier: 'recurring',
-                visualProfile: { ...DEFAULT_VISUAL_PROFILE },
             });
             setIsEditing(false);
         }
@@ -150,7 +147,7 @@ export const SheetTab = forwardRef<SheetTabHandle, { onStartGuidedCreation?: () 
         if (!isEditing) return false;
         const baseline = playerCharacter
             ? { ...playerCharacter }
-            : { isPC: true, name: '', status: 'Alive', tier: 'recurring', visualProfile: { ...DEFAULT_VISUAL_PROFILE } };
+            : { isPC: true, name: '', status: 'Alive', tier: 'recurring' };
         return JSON.stringify(form) !== JSON.stringify(baseline);
     }, [isEditing, form, playerCharacter]);
 

@@ -1,5 +1,5 @@
-import type { PlayerCharacter, CharacterCreationDraft, NPCVisualProfile, InventoryItem, CharacterProfileState } from '../../types';
-import { DEFAULT_VISUAL_PROFILE } from '../../types';
+import type { PlayerCharacter, CharacterCreationDraft, InventoryItem, CharacterProfileState } from '../../types';
+import { visualProfileToProse, type LegacyVisualProfile } from '../npc/retireLegacyFields';
 import { uid } from '../../utils/uid';
 
 /**
@@ -41,14 +41,18 @@ const DEFAULT_HP = { current: 20, max: 20 };
  */
 export function assemblePlayerCharacter(inputs: CommitInputs): PlayerCharacter {
     const { draft, hex, traits } = inputs;
-    const visualProfile: NPCVisualProfile = { ...DEFAULT_VISUAL_PROFILE, ...(draft.visualProfile || {}) };
+    // A draft saved before the visual fields were retired may still carry them.
+    const legacyVp = (draft as CharacterCreationDraft & { visualProfile?: LegacyVisualProfile }).visualProfile;
+    const legacyLook = visualProfileToProse(legacyVp);
+    const appearance = [draft.appearance?.trim(), legacyLook].filter(Boolean).join('\n');
+    const artStyle = draft.artStyle || (typeof legacyVp?.artStyle === 'string' ? legacyVp.artStyle : undefined);
 
     const pc: PlayerCharacter = {
         id: uid(),
         name: (draft.name || '').trim(),
         aliases: '',
-        appearance: draft.appearance || '',
-        visualProfile,
+        appearance,
+        ...(artStyle ? { artStyle } : {}),
         faction: draft.answers?.[3] || '',
         storyRelevance: draft.answers?.[2] || '',
         status: 'Alive',

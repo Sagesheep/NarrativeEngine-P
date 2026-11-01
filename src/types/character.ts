@@ -112,26 +112,6 @@ export type CharacterProfileState = {
 /** Number of PC traits always injected regardless of scene tags. */
 export const CORE_FLOOR_TRAITS = 5;
 
-export type NPCVisualProfile = {
-    race: string;
-    gender: string;
-    ageRange: string;
-    build: string;
-    symmetry: string; // ugly / pretty / handsome etc.
-    hairStyle: string;
-    eyeColor: string;
-    skinTone: string;
-    gait: string;
-    distinctMarks: string;
-    clothing: string;
-    artStyle: string;
-};
-
-export const DEFAULT_VISUAL_PROFILE: NPCVisualProfile = {
-    race: '', gender: '', ageRange: '', build: '', symmetry: '',
-    hairStyle: '', eyeColor: '', skinTone: '', gait: '', distinctMarks: '', clothing: '', artStyle: 'Stylized Game Realism',
-};
-
 export type NPCBehavioralTrigger = {
     keyword: string;
     shift: string;
@@ -172,8 +152,10 @@ export type NPCEntry = {
     id: string;
     name: string;
     aliases: string;
+    /** The one visual description: the portrait prompt gets all of it, the narrator a short lead. */
     appearance: string;
-    visualProfile?: NPCVisualProfile;
+    /** Portrait style preset (data/portraitStyles.ts). Unset = the default style. */
+    artStyle?: string;
     faction: string;
     storyRelevance: string;
     status: string;
@@ -181,8 +163,8 @@ export type NPCEntry = {
     personality: string;
     exampleOutput: string;
     portrait?: string;
-    // Retired 2026-11-01: affinity, disposition, goals, drives — folded into
-    // pcRelation / personality / wants on load (services/npc/retireLegacyFields.ts).
+    // Retired 2026-11-01: affinity, disposition, goals, drives, visualProfile — folded into
+    // pcRelation / personality / wants / appearance+artStyle on load (services/npc/retireLegacyFields.ts).
     // ---- Agency-engine referenced fields (Phase 2 port; all optional → lazy migration) ----
     isPC?: boolean;
     tier?: 'recurring' | 'oneshot' | 'walkon';

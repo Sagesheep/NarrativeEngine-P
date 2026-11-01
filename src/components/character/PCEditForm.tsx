@@ -1,8 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Trash2, Save, ScrollText, X, ChevronUp, ChevronDown, Search } from '../icons/narrativeIcons';
 import { NPCPortraitSection } from '../npc-ledger/NPCPortraitSection';
-import type { NPCVisualProfile, NPCBehavioralTrigger, DivergenceCategory, HexAxis, PlayerCharacter } from '../../types';
-import { DEFAULT_VISUAL_PROFILE } from '../../types';
+import type { NPCBehavioralTrigger, DivergenceCategory, HexAxis, PlayerCharacter } from '../../types';
 import { useAppStore } from '../../store/useAppStore';
 import { getEntriesForNpc, CATEGORY_LABELS, EMPTY_REGISTER } from '../../services/campaign-state/divergenceRegister';
 import { TRAIT_NAMES, TRAIT_VOCAB } from '../../services/npc/agency/agencyPools';
@@ -70,13 +69,6 @@ export function PCEditForm({
 
     const isPC = !!form.isPC;
     void isPC; // always true for the PC form — kept for parity with NPCEditForm branches
-
-    const handleVisualProfileChange = (field: keyof NPCVisualProfile, value: string) => {
-        setForm(prev => ({
-            ...prev,
-            visualProfile: { ...(prev.visualProfile || DEFAULT_VISUAL_PROFILE), [field]: value }
-        }));
-    };
 
     const [traitSearch, setTraitSearch] = useState('');
     const [relationTargetId, setRelationTargetId] = useState('');
@@ -799,18 +791,18 @@ export function PCEditForm({
                     </div>
                 </div>
 
-                {/* Right Form Column (Visual Profile) */}
+                {/* Right Form Column (Look & Portrait) */}
                 <div className="space-y-4">
                     <NPCPortraitSection
                         portrait={form.portrait}
                         name={form.name || ''}
-                        visualProfile={form.visualProfile || DEFAULT_VISUAL_PROFILE}
                         isEditing={isEditing}
                         isGeneratingImage={isGeneratingImage}
                         onGeneratePortrait={onGeneratePortrait}
                         onUploadPortrait={onUploadPortrait}
                         onRemovePortrait={onRemovePortrait}
-                        onVisualProfileChange={handleVisualProfileChange}
+                        artStyle={form.artStyle}
+                        onArtStyleChange={(v) => setForm(prev => ({ ...prev, artStyle: v }))}
                         appearance={form.appearance || ''}
                         onAppearanceChange={(v) => setForm(prev => ({ ...prev, appearance: v }))}
                     />

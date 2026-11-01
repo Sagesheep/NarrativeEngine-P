@@ -18,7 +18,7 @@ import type { NPCEntry, GameContext, PlayerCharacter } from '../../types';
  *    is preserved untouched.
  *  - Pure: returns a new `{ context, npcLedger }` object; does not mutate input.
  *  - The migrated record keeps its `id`, `name`, `signatureKit`, `personalityHex`,
- *    `wants`, `voice`, `personality`, `visualProfile`, `portrait`, `pcMeta`,
+ *    `wants`, `voice`, `personality`, `appearance`, `artStyle`, `portrait`, `pcMeta`,
  *    `traits`, and every other NPCEntry field. `isPC: true` is left in place on
  *    the migrated record — it is vestigial but harmless, and removing it would
  *    change the byte shape of the record mid-migration (and risk confusing any

@@ -9,6 +9,7 @@ import { affinityToPcRelation } from './agency/agencyBands';
  * - `disposition`         → `personality`
  * - `goals`               → `wants.long`
  * - `drives.*Want`        → `wants.short / medium / long`
+ * - `visualProfile` (12 fields) → `appearance` prose + `artStyle`
  *
  * Old saves, exports and lore still carry them, so every entry point that reads an
  * NPC from outside the app runs it through `retireLegacyNpcFields` once.
@@ -18,7 +19,13 @@ export type LegacyNpcFields = {
     disposition?: unknown;
     goals?: unknown;
     drives?: { coreWant?: unknown; sessionWant?: unknown; sceneWant?: unknown } | null;
+    visualProfile?: LegacyVisualProfile | null;
 };
+
+/** The retired 12-field structured look. Every field is optional on old saves. */
+export type LegacyVisualProfile = Partial<Record<
+    'race' | 'gender' | 'ageRange' | 'build' | 'symmetry' | 'hairStyle' | 'eyeColor'
+    | 'skinTone' | 'gait' | 'distinctMarks' | 'clothing' | 'artStyle', unknown>>;
 
 const GENERIC = new Set(['', '?', 'unknown', 'none', 'n/a']);
 
@@ -33,6 +40,28 @@ function meaningful(v: unknown): string {
 }
 
 /**
+ * Renders the structured look as one paragraph, most identifying details first:
+ * "Elf, female, mid 20s, lean build. Hair: silver braid. Eyes: amber. ..."
+ * Returns '' when nothing meaningful is set.
+ */
+export function visualProfileToProse(vp: LegacyVisualProfile | null | undefined): string {
+    if (!vp) return '';
+    const v = (k: keyof LegacyVisualProfile) => meaningful(vp[k]);
+    const lead = [v('race'), v('gender'), v('ageRange'), v('build') && `${v('build')} build`].filter(Boolean).join(', ');
+    const parts = [
+        lead,
+        v('hairStyle') && `Hair: ${v('hairStyle')}`,
+        v('eyeColor') && `Eyes: ${v('eyeColor')}`,
+        v('skinTone') && `Skin: ${v('skinTone')}`,
+        v('symmetry') && `Features: ${v('symmetry')}`,
+        v('gait') && `Bearing: ${v('gait')}`,
+        v('clothing') && `Wears: ${v('clothing')}`,
+        v('distinctMarks') && `Marks: ${v('distinctMarks')}`,
+    ].filter(Boolean);
+    return parts.length ? parts.map(p => p.replace(/[.\s]+$/, '')).join('. ') + '.' : '';
+}
+
+/**
  * Folds the retired fields into their replacements, in place, and deletes them.
  * Never overwrites a value the current field already has. Idempotent.
  * Returns true when anything changed.
@@ -41,8 +70,19 @@ export function retireLegacyNpcFields(npc: NPCEntry): boolean {
     const n = npc as NPCEntry & LegacyNpcFields;
     const snapshot = n.previousSnapshot as { affinity?: unknown } | undefined;
     const had = 'affinity' in n || 'disposition' in n || 'goals' in n || 'drives' in n
-        || (!!snapshot && 'affinity' in snapshot);
+        || 'visualProfile' in n || (!!snapshot && 'affinity' in snapshot);
     if (!had) return false;
+
+    // Structured look → appearance. Prose already there stays first (the narrator reads
+    // its opening); the structured details follow so the portrait prompt keeps them.
+    const look = visualProfileToProse(n.visualProfile);
+    if (look) {
+        const current = text(n.appearance);
+        n.appearance = !current ? look : current.includes(look) ? current : `${current}\n${look}`;
+    }
+    const style = meaningful(n.visualProfile?.artStyle);
+    if (style && !n.artStyle) n.artStyle = style;
+    delete n.visualProfile;
 
     // PCs never had a pcRelation (it is the NPC->PC slot), so their affinity just goes.
     if (!n.isPC && n.pcRelation === undefined) {

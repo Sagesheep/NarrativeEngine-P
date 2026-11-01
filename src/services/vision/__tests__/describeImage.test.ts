@@ -14,60 +14,34 @@ describe('extractJsonObject', () => {
 
 describe('parseVisionDescription', () => {
     const full = JSON.stringify({
-        race: 'human, East Asian',
-        gender: 'female',
-        ageRange: 'early 20s',
-        build: 'lean',
-        symmetry: 'striking',
-        hairStyle: 'long black, braided',
-        eyeColor: 'dark brown',
-        skinTone: 'light olive',
-        gait: 'upright, guarded',
-        distinctMarks: 'scar across left brow',
-        clothing: 'lacquered scale armour, red sash',
+        appearance: 'A young East Asian woman in her early 20s, lean, in lacquered scale armour with a red sash. A scar crosses her left brow.',
         artStyle: 'Stylized Anime',
-        appearance: 'A young woman in lacquered scale armour, a red sash at her waist.',
     });
 
-    it('maps every observed field into the visual profile', () => {
+    it('returns the appearance prose', () => {
         const out = parseVisionDescription(full);
-        expect(out.visualProfile.race).toBe('human, East Asian');
-        expect(out.visualProfile.distinctMarks).toBe('scar across left brow');
         expect(out.appearance).toContain('lacquered scale armour');
+        expect(out.appearance).toContain('scar crosses her left brow');
     });
 
     it('accepts an artStyle only when it is in the controlled vocabulary', () => {
-        expect(parseVisionDescription(full).visualProfile.artStyle).toBe('Stylized Anime');
-        const bogus = JSON.stringify({ race: 'elf', artStyle: 'Deep Fried Meme', appearance: 'x' });
-        expect(parseVisionDescription(bogus).visualProfile.artStyle).toBeUndefined();
+        expect(parseVisionDescription(full).artStyle).toBe('Stylized Anime');
+        const bogus = JSON.stringify({ artStyle: 'Deep Fried Meme', appearance: 'x' });
+        expect(parseVisionDescription(bogus).artStyle).toBeUndefined();
     });
 
     it('matches artStyle case-insensitively and returns the canonical casing', () => {
-        const lower = JSON.stringify({ race: 'elf', artStyle: 'stylized anime', appearance: 'x' });
-        expect(parseVisionDescription(lower).visualProfile.artStyle).toBe('Stylized Anime');
+        const lower = JSON.stringify({ artStyle: 'stylized anime', appearance: 'x' });
+        expect(parseVisionDescription(lower).artStyle).toBe('Stylized Anime');
     });
 
-    it('drops empty fields rather than writing blanks over existing values', () => {
-        const sparse = JSON.stringify({ race: 'orc', gender: '', distinctMarks: '   ', appearance: 'An orc.' });
-        const out = parseVisionDescription(sparse);
-        expect(out.visualProfile.race).toBe('orc');
-        expect('gender' in out.visualProfile).toBe(false);
-        expect('distinctMarks' in out.visualProfile).toBe(false);
+    it('clamps a runaway appearance', () => {
+        const out = parseVisionDescription(JSON.stringify({ appearance: 'y'.repeat(2000) }));
+        expect(out.appearance.length).toBeLessThanOrEqual(700);
     });
 
-    it('clamps runaway fields so they still fit the single-line inputs', () => {
-        const long = JSON.stringify({ race: 'x'.repeat(500), appearance: 'y'.repeat(2000) });
-        const out = parseVisionDescription(long);
-        expect(out.visualProfile.race!.length).toBeLessThanOrEqual(80);
-        expect(out.appearance.length).toBeLessThanOrEqual(600);
-    });
-
-    it('ignores non-string values instead of stringifying them', () => {
-        const weird = JSON.stringify({ race: { name: 'elf' }, gender: 42, appearance: 'An elf.' });
-        const out = parseVisionDescription(weird);
-        expect('race' in out.visualProfile).toBe(false);
-        expect('gender' in out.visualProfile).toBe(false);
-        expect(out.appearance).toBe('An elf.');
+    it('ignores a non-string appearance instead of stringifying it', () => {
+        expect(() => parseVisionDescription(JSON.stringify({ appearance: { text: 'elf' } }))).toThrow(VisionParseError);
     });
 
     it('throws on unparseable output', () => {
@@ -75,7 +49,7 @@ describe('parseVisionDescription', () => {
     });
 
     it('throws when the model returns valid JSON with nothing usable in it', () => {
-        expect(() => parseVisionDescription('{"race":"","appearance":""}')).toThrow(VisionParseError);
+        expect(() => parseVisionDescription('{"appearance":""}')).toThrow(VisionParseError);
     });
 });
 

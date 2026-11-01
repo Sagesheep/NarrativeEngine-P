@@ -36,7 +36,7 @@ export function useNpcPortraits(): UseNpcPortraits {
 
         setIsGeneratingImage(true);
         try {
-            const prompt = buildPortraitPrompt(form.visualProfile, form.name || '', form.appearance, imageConfig.maxImagePromptChars);
+            const prompt = buildPortraitPrompt(form, form.name || '', imageConfig.maxImagePromptChars);
             const url = await generateNPCPortrait(imageConfig, prompt);
             const localPath = await downloadImageToLocal(url, form.name || 'Unknown');
             onFormPatch({ portrait: localPath });
@@ -98,7 +98,7 @@ export function useNpcPortraits(): UseNpcPortraits {
         for (let i = 0; i < targets.length; i++) {
             const target = targets[i];
             try {
-                const prompt = buildPortraitPrompt(target.visualProfile, target.name || 'Unknown', target.appearance, imageConfig.maxImagePromptChars);
+                const prompt = buildPortraitPrompt(target, target.name || 'Unknown', imageConfig.maxImagePromptChars);
                 const url = await generateNPCPortrait(imageConfig, prompt);
                 const localPath = await downloadImageToLocal(url, target.name || 'Unknown');
                 useAppStore.getState().updateNPC(target.id, { portrait: localPath });

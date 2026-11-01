@@ -35,8 +35,7 @@ export function useVisionDescribe() {
         try {
             const image = await loadImageForVision(source);
             const description = await describeImage(provider, image, { subjectName });
-            const filled = Object.keys(description.visualProfile).length;
-            toast.success(`Vision AI filled ${filled} field${filled === 1 ? '' : 's'} — review before saving.`);
+            toast.success('Vision AI drafted the appearance — review before saving.');
             return description;
         } catch (err) {
             console.error('[Vision] describe failed:', err);

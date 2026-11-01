@@ -8,6 +8,7 @@ import { buildGoalsFromWants } from '../npc/agency/agencyGoals';
 import { GROUP_KEYS } from '../npc/dispositionGroups';
 import { rollHex, pickGroups, drawConsistentTraits, rollLooksTier } from '../npc/hexRoll';
 import { buildVoiceDirective } from '../npc/hexVoiceGuide';
+import { visualProfileToProse } from '../npc/retireLegacyFields';
 
 // NPC Generation Refit (Phase 1): propose → roll → render.
 //
@@ -119,10 +120,9 @@ export async function generateNPCProfile(
             status: coerceStringField(parsed.status, 'Alive'),
             faction: coerceStringField(parsed.faction, 'Unknown'),
             storyRelevance: coerceStringField(parsed.storyRelevance, 'Unknown'),
-            appearance: coerceStringField(parsed.appearance),
-            visualProfile: parsed.visualProfile || {
-                race: 'Unknown', gender: 'Unknown', ageRange: 'Unknown', build: 'Unknown', symmetry: 'Unknown', hairStyle: 'Unknown', eyeColor: 'Unknown', skinTone: 'Unknown', gait: 'Unknown', distinctMarks: 'None', clothing: 'Unknown', artStyle: 'Stylized Game Realism',
-            },
+            // One appearance paragraph. A model that still sends the retired structured
+            // "visualProfile" only fills a blank appearance from it.
+            appearance: coerceStringField(parsed.appearance) || visualProfileToProse(parsed.visualProfile),
             voice: coerceStringField(parsed.voice),
             personality: coerceStringField(parsed.personality, 'Unknown'),
             exampleOutput: coerceStringField(parsed.exampleOutput),
@@ -274,20 +274,7 @@ ${voiceSection}OUTPUT FORMAT — respond with a JSON object matching this struct
   "faction": "String (The faction(s), group(s), or origin this NPC belongs to — can list multiple comma-separated factions if they belong to multiple organizations)",
   "storyRelevance": "String (Why this NPC matters to the current story)",
   "voice": "String — describe HOW this NPC speaks, DERIVED from the VOICE DIRECTION above. Sentence length, vocabulary level, verbal quirks, catchphrases, accent notes. Be specific.",
-  "appearance": "String — physical description grounded in the RECENT CHAT HISTORY and the rolled LOOKS TIER (${looksTier}). Quote details mentioned in prose (hair color, clothing, distinguishing marks). If the chat history does not describe them, write a minimal trope-appropriate description and mark it as inferred with prefix '[inferred] '.",
-  "visualProfile": {
-    "race": "String (e.g. Human, Elf)",
-    "gender": "String",
-    "ageRange": "String",
-    "build": "String",
-    "symmetry": "String (e.g. symmetrical features for handsome, rugged, asymmetrical/pockmarked for ugly)",
-    "hairStyle": "String",
-    "eyeColor": "String",
-    "skinTone": "String",
-    "gait": "String",
-    "distinctMarks": "String",
-    "clothing": "String"
-  },
+  "appearance": "String — 3-5 sentences of physical description grounded in the RECENT CHAT HISTORY and the rolled LOOKS TIER (${looksTier}). The FIRST sentence carries the most identifying details (species, presented gender, age, build) because it is the part read every turn; then hair, eyes, skin, clothing and gear, and distinguishing marks. Quote details mentioned in prose. If the chat history does not describe them, write a minimal trope-appropriate description and mark it as inferred with prefix '[inferred] '.",
   "personality": "String — core personality traits in plain language, CONSISTENT with the rolled band-words. What drives them? How do they treat others? What do they fear?",
   "exampleOutput": "String — one line of in-character dialogue that DEMONSTRATES the VOICE DIRECTION (the axis extremes above). Include a brief action in brackets if needed.",
   "behavioralTriggers": [

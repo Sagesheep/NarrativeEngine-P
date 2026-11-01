@@ -1,40 +1,38 @@
 import { Loader2, Image as ImageIcon, Trash2, Upload, ScanEye } from '../icons/narrativeIcons';
-import type { NPCVisualProfile } from '../../types';
 import { useRef } from 'react';
 import { DEFAULT_PORTRAIT_ART_STYLE, PORTRAIT_ART_STYLE_OPTIONS } from '../../data/portraitStyles';
+import { APPEARANCE_NARRATOR_CHARS } from '../../services/turn/contextMinifier';
 import { useVisionDescribe } from '../hooks/useVisionDescribe';
 
 type Props = {
     portrait?: string;
     name: string;
-    visualProfile: NPCVisualProfile;
     isEditing: boolean;
     isGeneratingImage: boolean;
     onGeneratePortrait: () => void;
     onUploadPortrait: (file: File) => void;
     onRemovePortrait: () => void;
-    onVisualProfileChange: (field: keyof NPCVisualProfile, value: string) => void;
     appearance: string;
     onAppearanceChange: (value: string) => void;
+    artStyle?: string;
+    onArtStyleChange: (value: string) => void;
 };
 
 export function NPCPortraitSection({
-    portrait, name, visualProfile, isEditing, isGeneratingImage,
-    onGeneratePortrait, onUploadPortrait, onRemovePortrait, onVisualProfileChange, appearance, onAppearanceChange,
+    portrait, name, isEditing, isGeneratingImage,
+    onGeneratePortrait, onUploadPortrait, onRemovePortrait, appearance, onAppearanceChange, artStyle, onArtStyleChange,
 }: Props) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { isDescribing, visionConfigured, describe } = useVisionDescribe();
 
-    // Vision v1 — read the portrait back into the fields the payload already
+    // Vision v1 — read the portrait back into the appearance the payload already
     // carries. Writes to FORM state only; the user still has to press Save.
     const handleReadImage = async () => {
         if (!portrait) return;
         const result = await describe(portrait, name);
         if (!result) return;
-        for (const [field, value] of Object.entries(result.visualProfile)) {
-            if (value) onVisualProfileChange(field as keyof NPCVisualProfile, value);
-        }
-        if (result.appearance) onAppearanceChange(result.appearance);
+        onAppearanceChange(result.appearance);
+        if (result.artStyle) onArtStyleChange(result.artStyle);
     };
 
     const readImageTitle = !portrait
@@ -42,8 +40,8 @@ export function NPCPortraitSection({
         : !visionConfigured
             ? 'No Vision AI configured (Settings → Presets → Vision AI)'
             : !isEditing
-                ? 'Click Edit first — the description lands in these fields for you to review'
-                : 'Read this image with the Vision AI and fill the fields below';
+                ? 'Click Edit first — the description lands in the appearance box for you to review'
+                : 'Read this image with the Vision AI and draft the appearance below';
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -84,10 +82,10 @@ export function NPCPortraitSection({
 
             <div className="flex items-center justify-between mb-4 border-b border-border/50 pb-2">
                 <div className="text-terminal font-bold uppercase tracking-widest text-xs">
-                    Visual Profile (AI Ready)
+                    Look &amp; Portrait
                 </div>
                 <div className="flex items-center gap-2">
-                    <div className="text-[9px] uppercase tracking-wider text-text-dim hidden sm:block">Portrait Generation Data</div>
+
                     <input
                         ref={fileInputRef}
                         type="file"
@@ -119,7 +117,7 @@ export function NPCPortraitSection({
                         type="button"
                         onClick={onGeneratePortrait}
                         disabled={isGeneratingImage || !name}
-                        title="Generate portrait from visual profile"
+                        title="Generate portrait from the appearance"
                         className="flex items-center gap-1 px-2 py-1 border border-border hover:border-terminal text-terminal text-[9px] uppercase tracking-wider rounded transition-colors disabled:opacity-50"
                     >
                         {isGeneratingImage ? <Loader2 size={10} className="animate-spin" /> : <ImageIcon size={10} />}
@@ -128,48 +126,26 @@ export function NPCPortraitSection({
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-                {[
-                    { k: 'race', l: 'Race / Species' },
-                    { k: 'gender', l: 'Gender' },
-                    { k: 'ageRange', l: 'Age Range' },
-                    { k: 'build', l: 'Build / Body Type' },
-                    { k: 'symmetry', l: 'Attract / Symmetry' },
-                    { k: 'skinTone', l: 'Skin Tone' },
-                    { k: 'hairStyle', l: 'Hair Style & Color' },
-                    { k: 'eyeColor', l: 'Eye Color' },
-                    { k: 'gait', l: 'Gait / Posture' },
-                    { k: 'clothing', l: 'Clothing Style' },
-                    { k: 'distinctMarks', l: 'Distinct Marks' },
-                ].map(({ k, l }) => (
-                    <div key={k} className={k === 'clothing' || k === 'distinctMarks' ? 'col-span-2' : ''}>
-                        <label className="block text-text-dim text-[9px] uppercase tracking-wider mb-1">{l}</label>
-                        {k === 'clothing' || k === 'distinctMarks' ? (
-                            <textarea
-                                value={visualProfile?.[k as keyof NPCVisualProfile] || ''}
-                                onChange={e => onVisualProfileChange(k as keyof NPCVisualProfile, e.target.value)}
-                                disabled={!isEditing}
-                                rows={2}
-                                className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary disabled:opacity-70 disabled:bg-surface disabled:border-transparent resize-y min-h-[2.25rem] focus:outline-none focus:border-terminal"
-                            />
-                        ) : (
-                            <input
-                                type="text"
-                                value={visualProfile?.[k as keyof NPCVisualProfile] || ''}
-                                onChange={e => onVisualProfileChange(k as keyof NPCVisualProfile, e.target.value)}
-                                disabled={!isEditing}
-                                className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
-                            />
-                        )}
-                    </div>
-                ))}
+            <div>
+                <label className="block text-text-dim text-[9px] uppercase tracking-wider mb-1">Appearance</label>
+                <textarea
+                    value={appearance || ''}
+                    onChange={e => onAppearanceChange(e.target.value)}
+                    disabled={!isEditing}
+                    rows={5}
+                    placeholder="Lead with what identifies them at a glance — species, age, build — then hair, eyes, clothing, gear, marks."
+                    className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent resize-y focus:outline-none focus:border-terminal"
+                />
+                <p className="text-[9px] text-text-dim/60 mt-1">
+                    The portrait uses all of it; the story AI reads the first {APPEARANCE_NARRATOR_CHARS} characters every turn.
+                </p>
             </div>
 
             <div className="mt-3">
                 <label className="block text-text-dim text-[9px] uppercase tracking-wider mb-1">Art Style</label>
                 <select
-                    value={visualProfile?.artStyle || DEFAULT_PORTRAIT_ART_STYLE}
-                    onChange={e => onVisualProfileChange('artStyle', e.target.value)}
+                    value={artStyle || DEFAULT_PORTRAIT_ART_STYLE}
+                    onChange={e => onArtStyleChange(e.target.value)}
                     disabled={!isEditing}
                     className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal outline-none"
                 >
@@ -177,17 +153,6 @@ export function NPCPortraitSection({
                         <option key={style.value} value={style.value}>{style.label}</option>
                     ))}
                 </select>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-border/50">
-                <label className="block text-text-dim text-[9px] uppercase tracking-wider mb-1">Legacy Appearance Notes (used only if visual fields are empty)</label>
-                <textarea
-                    value={appearance || ''}
-                    onChange={e => onAppearanceChange(e.target.value)}
-                    disabled={!isEditing}
-                    rows={2}
-                    className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text-primary disabled:opacity-70 disabled:bg-surface disabled:border-transparent resize-none focus:outline-none focus:border-terminal"
-                />
             </div>
         </div>
     );

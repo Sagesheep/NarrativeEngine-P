@@ -10,6 +10,9 @@
 
 import type { LoreChunk, NPCEntry, InventoryItem, InventoryItemCategory, CharacterProfile } from '../../types';
 
+/** How much of an NPC's appearance the narrator sees each turn. Shown in the ledger form. */
+export const APPEARANCE_NARRATOR_CHARS = 80;
+
 /**
  * Strip markdown formatting from a block of text.
  * Removes: ### headers, **bold**, --- rules, excessive newlines, HTML comments.
@@ -149,9 +152,9 @@ export function minifyNPC(npc: NPCEntry): string {
     const name = npc.name.toUpperCase();
     const status = npc.status || 'Alive';
 
-    // Compact appearance: trim to first 80 chars if very long
-    const appearance = (npc.appearance || '?').length > 80
-        ? (npc.appearance || '?').substring(0, 80) + '…'
+    // Compact appearance: only its opening reaches the narrator (the portrait gets it all).
+    const appearance = (npc.appearance || '?').length > APPEARANCE_NARRATOR_CHARS
+        ? (npc.appearance || '?').substring(0, APPEARANCE_NARRATOR_CHARS) + '…'
         : (npc.appearance || '?');
 
     const personality = (npc.personality || '?').length > 60

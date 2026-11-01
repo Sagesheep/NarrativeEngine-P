@@ -1,4 +1,4 @@
-import type { EndpointConfig, ProviderConfig, NPCVisualProfile } from '../../types';
+import type { EndpointConfig, ProviderConfig } from '../../types';
 import { getApiFormat, getChatUrl, buildChatHeaders, extractContent } from '../../utils/llmApiHelper';
 import { getQueueForEndpoint } from '../llm/llmRequestQueue';
 import { startUtilityCall } from '../llm/utilityCallTracker';
@@ -10,10 +10,10 @@ import { buildVisionBody, type VisionImage } from './visionRequest';
  * Vision v1 — image in, text out.
  *
  * The story model never sees the image. A vision model reads it ONCE, at the
- * moment it is attached, and writes what it saw into the fields the payload
- * already carries: the structured `visualProfile` (which `buildPortraitPrompt`
- * also reads, so a described portrait can be regenerated consistently) and the
- * `appearance` prose (which `minifyNPC` already injects every turn).
+ * moment it is attached, and writes what it saw into the field the payload
+ * already carries: the `appearance` prose (which `minifyNPC` injects every turn
+ * and `buildPortraitPrompt` reads, so a described portrait can be regenerated
+ * consistently), plus the closest `artStyle` preset.
  *
  * That is why this feature needs no payload plumbing and no orchestrator
  * change: the caption enters through fields the turn pipeline already reads.
@@ -29,20 +29,15 @@ import { buildVisionBody, type VisionImage } from './visionRequest';
 const TRACKING_LABEL = 'vision-describe';
 const CALL_TIMEOUT_MS = 120_000;
 
-/** Cap per structured field — these render into single-line inputs. */
+/** Cap for the art-style name. */
 const FIELD_CAP = 80;
-/** Cap for the prose caption — it is injected every turn, so it stays small. */
-const APPEARANCE_CAP = 600;
-
-/** The visualProfile keys the model is asked to fill (artStyle is handled separately). */
-const OBSERVED_FIELDS = [
-    'race', 'gender', 'ageRange', 'build', 'symmetry',
-    'hairStyle', 'eyeColor', 'skinTone', 'gait', 'distinctMarks', 'clothing',
-] as const;
+/** Cap for the appearance prose — the portrait prompt carries it whole. */
+const APPEARANCE_CAP = 700;
 
 export type VisionDescription = {
-    visualProfile: Partial<NPCVisualProfile>;
     appearance: string;
+    /** A preset from PORTRAIT_ART_STYLE_OPTIONS, or undefined when the model's pick matched none. */
+    artStyle?: string;
     /** Raw model text, kept for debugging a bad parse. */
     raw: string;
 };
@@ -65,26 +60,14 @@ export function buildDescribeInstruction(subjectName?: string): string {
 Return a single JSON object, no markdown fences and no commentary:
 
 {
-  "race": "species or ethnicity as read from the image, e.g. 'human, East Asian' or 'elf'",
-  "gender": "presented gender, or 'ambiguous'",
-  "ageRange": "e.g. 'late teens', 'mid 30s', 'elderly'",
-  "build": "body type, e.g. 'lean and wiry', 'broad-shouldered'",
-  "symmetry": "one of: plain, average, pretty, handsome, striking, beautiful",
-  "hairStyle": "length, style and colour",
-  "eyeColor": "eye colour",
-  "skinTone": "skin tone",
-  "gait": "posture or bearing as it reads in the pose, e.g. 'upright and guarded'",
-  "distinctMarks": "scars, tattoos, prosthetics, horns, heterochromia — '' if none visible",
-  "clothing": "garments, armour, and any visible weapons or carried gear",
-  "artStyle": "closest match from this list: ${ART_STYLES.join(' | ')}",
-  "appearance": "2-4 sentences of prose a game master could read aloud to describe this character on sight"
+  "appearance": "3-5 sentences a game master could read aloud. Open with the most identifying details (species, presented gender, age, build), then hair, eyes, skin, clothing and carried gear, and any scars, tattoos or other distinct marks.",
+  "artStyle": "closest match from this list: ${ART_STYLES.join(' | ')}"
 }
 
 Rules:
-- Describe ONLY what is visible. If something is not shown, use "" — never guess.
-- Keep every field except "appearance" under ${FIELD_CAP} characters.
+- Describe ONLY what is visible. Leave out anything not shown — never guess.
 - No commentary about art quality, the medium, or the image itself.
-- If the image shows no character at all, set every field to "" and put what the image actually shows in "appearance".`;
+- If the image shows no character at all, put what the image actually shows in "appearance".`;
 }
 
 /** Strip fences and isolate the outermost JSON object. */
@@ -103,7 +86,7 @@ function clamp(value: unknown, max: number): string {
     return trimmed.length <= max ? trimmed : trimmed.slice(0, max).trim();
 }
 
-/** Parse the model's JSON into a partial visual profile + appearance prose. */
+/** Parse the model's JSON into appearance prose + an art-style preset. */
 export function parseVisionDescription(raw: string): VisionDescription {
     let parsed: Record<string, unknown>;
     try {
@@ -113,25 +96,15 @@ export function parseVisionDescription(raw: string): VisionDescription {
     }
     if (!parsed || typeof parsed !== 'object') throw new VisionParseError(raw);
 
-    const visualProfile: Partial<NPCVisualProfile> = {};
-    for (const key of OBSERVED_FIELDS) {
-        const value = clamp(parsed[key], FIELD_CAP);
-        if (value) visualProfile[key] = value;
-    }
+    const appearance = clamp(parsed.appearance, APPEARANCE_CAP);
+    if (!appearance) throw new VisionParseError(raw);
 
     // artStyle is a controlled vocabulary — only accept a value that is in the
     // list, otherwise leave the user's existing choice alone.
-    const artStyle = clamp(parsed.artStyle, FIELD_CAP);
-    const matchedStyle = ART_STYLES.find(s => s.toLowerCase() === artStyle.toLowerCase());
-    if (matchedStyle) visualProfile.artStyle = matchedStyle;
+    const style = clamp(parsed.artStyle, FIELD_CAP);
+    const artStyle = ART_STYLES.find(s => s.toLowerCase() === style.toLowerCase());
 
-    const appearance = clamp(parsed.appearance, APPEARANCE_CAP);
-
-    if (Object.keys(visualProfile).length === 0 && !appearance) {
-        throw new VisionParseError(raw);
-    }
-
-    return { visualProfile, appearance, raw };
+    return { appearance, artStyle, raw };
 }
 
 /**

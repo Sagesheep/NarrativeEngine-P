@@ -47,8 +47,6 @@ describe('describeImage', () => {
         expect(body.messages[0].content[1].type).toBe('text');
         expect(body.messages[0].content[1].text).toContain('named Kael');
 
-        expect(out.visualProfile.race).toBe('human');
-        expect(out.visualProfile.clothing).toBe('battered longcoat');
         expect(out.appearance).toContain('battered longcoat');
     });
 

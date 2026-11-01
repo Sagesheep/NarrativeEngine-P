@@ -54,7 +54,7 @@ function normalize(entry: Partial<NPCEntry>, newId: string): NPCEntry {
 
 /**
  * Remove the fields bound to the origin campaign. Keeps intrinsic identity:
- * appearance, visualProfile, voice, personality, faction, aliases,
+ * appearance, artStyle, voice, personality, faction, aliases,
  * signature *abilities*, personality machinery (triggers/hex/traits), and
  * long-horizon `goalRecords` (the NPC's own ambitions, not this campaign's plot).
  */

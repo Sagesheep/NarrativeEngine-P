@@ -2,7 +2,7 @@ import type { PromptInjection } from './llm';
 import type { GlossaryEntry } from './glossary';
 // ─── Game Context / Pipeline / Session Types ─────────────────────────────
 
-import type { InventoryItem, CharacterProfile, CharacterProfileState, InventoryItemCategory, SceneStakes, NPCEntry, NPCVisualProfile } from './character';
+import type { InventoryItem, CharacterProfile, CharacterProfileState, InventoryItemCategory, SceneStakes, NPCEntry } from './character';
 export type { SceneStakes };
 import type { LoreChunk, RuleChunkMeta } from './lore';
 import type { ArcRecord } from './arc';
@@ -347,10 +347,10 @@ export type CharacterCreationDraft = {
     questions?: Partial<Record<CreationSlot, string>>;
     /** Slots 1–8 — user answers (free text for 2–8; name for 1). */
     answers?: Partial<Record<CreationSlot, string>>;
-    /** Slot 9 — visual profile (hand-filled form, NOT prose). */
-    visualProfile?: NPCVisualProfile;
-    /** Slot 9 — appearance prose. */
+    /** Slot 9 — appearance prose (the one visual description). */
     appearance?: string;
+    /** Slot 9 — portrait style preset. */
+    artStyle?: string;
     /** §2.6 — 'manual' | 'questionnaire' | 'skip'. Set during the hex step. */
     hexMode?: 'manual' | 'questionnaire' | 'skip';
     /** §2.6 — quiz answers (scenario index → option index), for deriveHexFromAnswers. */

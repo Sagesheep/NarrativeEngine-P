@@ -7,7 +7,6 @@ import {
     overwriteImportedNPC,
     replaceCardLoreGroup,
 } from '../importOverwrite';
-import { DEFAULT_VISUAL_PROFILE } from '../../../types';
 import type { Goal, LoreChunk, NPCEntry } from '../../../types';
 
 /** Every campaign-owned field the WO lists, each with a distinctive value. */
@@ -28,7 +27,7 @@ function existingRow(): NPCEntry {
         name: 'ARIA Vance',
         aliases: 'the Kestrel',
         appearance: 'Scar over the left brow, travel-worn coat',
-        visualProfile: { ...DEFAULT_VISUAL_PROFILE, hairStyle: 'short silver braid', eyeColor: 'amber' },
+        artStyle: 'Stylized Anime',
         faction: 'Thieves Guild',
         storyRelevance: 'Old campaign projection',
         status: 'Wounded in the vault job',
@@ -76,7 +75,7 @@ function incomingRow(over: Partial<NPCEntry> = {}): NPCEntry {
         name: 'aria vance',
         aliases: 'the Sparrow',
         appearance: 'Tall, dark hair',
-        visualProfile: { ...DEFAULT_VISUAL_PROFILE, hairStyle: 'loose black waves' },
+        artStyle: 'Painterly Realism',
         faction: '',
         storyRelevance: 'Aria Vance — new card projection',
         status: 'Alive',
@@ -152,16 +151,10 @@ describe('overwriteImportedNPC — card-owned fields (WO-C §9.4 / §10.10)', ()
         expect(blank.appearance).toBe('Tall, dark hair');
     });
 
-    it('only seeds visualProfile when the existing one is all-default', () => {
-        expect(overwriteImportedNPC(existingRow(), incomingRow()).visualProfile?.hairStyle)
-            .toBe('short silver braid');
-        const pristine = overwriteImportedNPC(
-            { ...existingRow(), visualProfile: { ...DEFAULT_VISUAL_PROFILE } },
-            incomingRow(),
-        );
-        expect(pristine.visualProfile?.hairStyle).toBe('loose black waves');
-        const missing = overwriteImportedNPC({ ...existingRow(), visualProfile: undefined }, incomingRow());
-        expect(missing.visualProfile?.hairStyle).toBe('loose black waves');
+    it('only seeds artStyle when the existing row has none', () => {
+        expect(overwriteImportedNPC(existingRow(), incomingRow()).artStyle).toBe('Stylized Anime');
+        const unset = overwriteImportedNPC({ ...existingRow(), artStyle: undefined }, incomingRow());
+        expect(unset.artStyle).toBe('Painterly Realism');
     });
 
     it('never mutates either argument', () => {
@@ -204,7 +197,7 @@ describe('overwriteImportedNPC — campaign-owned preservation matrix', () => {
             expect(CARD_OWNED_FIELDS).not.toContain(field);
         }
         expect([...CARD_OWNED_FIELDS].sort()).toEqual(
-            ['aliases', 'appearance', 'exampleOutput', 'personality', 'portrait', 'storyRelevance', 'visualProfile'],
+            ['aliases', 'appearance', 'artStyle', 'exampleOutput', 'personality', 'portrait', 'storyRelevance'],
         );
     });
 });
