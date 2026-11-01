@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Trash2, Save, Loader2, Sparkles, Users, ScrollText, X, ChevronUp, ChevronDown, Search } from '../icons/narrativeIcons';
 import { NPCPortraitSection } from './NPCPortraitSection';
+import { ScreenSection } from '../primitives/ScreenSection';
 import type { NPCEntry, NPCBehavioralTrigger, DivergenceCategory, HexAxis } from '../../types';
 import { useAppStore } from '../../store/useAppStore';
 import { getEntriesForNpc, CATEGORY_LABELS, EMPTY_REGISTER } from '../../services/campaign-state/divergenceRegister';
@@ -170,6 +171,7 @@ export function NPCEditForm({
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 flex-1">
                 {/* Left Form Column */}
                 <div className="space-y-4">
+                    <ScreenSection label="Identity" rightSlot={<span className="text-[9px] text-text-dim/50 normal-case tracking-normal">who they are at a glance</span>} />
                     <div className="flex gap-4">
                         <div className="flex-1">
                             <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Primary Designation</label>
@@ -249,6 +251,7 @@ export function NPCEditForm({
                         />
                     </div>
 
+                    <ScreenSection label="Character" rightSlot={<span className="text-[9px] text-text-dim/50 normal-case tracking-normal">what the story AI plays them as</span>} />
                     <div className="bg-void p-4 rounded border border-border">
                         <div className="flex items-center gap-2 text-text-primary font-bold uppercase tracking-widest text-xs mb-4">
                             Character Profile
@@ -287,6 +290,125 @@ export function NPCEditForm({
                                     className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent resize-none focus:outline-none focus:border-terminal"
                                 />
                             </div>
+                        </div>
+                    </div>
+
+                    {/* ── Wants ─────────────────────────────────────────────────── */}
+                    <div className="bg-void p-4 rounded border border-border space-y-3">
+                        <div className="flex items-center justify-between">
+                            <span className="text-text-primary font-bold uppercase tracking-widest text-xs">Wants</span>
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between mb-1">
+                                <label className="text-amber-400 text-[10px] uppercase tracking-wider">Short-term</label>
+                                {isEditing && (
+                                    <button onClick={() => setForm({ ...form, wants: { short: [...(form.wants?.short || []), ''], medium: form.wants?.medium || [], long: form.wants?.long || '' } })} className="text-[9px] text-terminal hover:text-terminal/80 uppercase tracking-wider">+ Add</button>
+                                )}
+                            </div>
+                            {(form.wants?.short || []).map((w, i) => (
+                                <div key={i} className="flex gap-2 items-center mb-1">
+                                    <input
+                                        type="text"
+                                        value={w}
+                                        onChange={e => {
+                                            const short = [...(form.wants?.short || [])];
+                                            short[i] = e.target.value;
+                                            setForm({ ...form, wants: { short, medium: form.wants?.medium || [], long: form.wants?.long || '' } });
+                                        }}
+                                        disabled={!isEditing}
+                                        placeholder="e.g. rest"
+                                        className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void focus:outline-none focus:border-amber-500"
+                                    />
+                                    {isEditing && <button onClick={() => {
+                                        const short = (form.wants?.short || []).filter((_, idx) => idx !== i);
+                                        setForm({ ...form, wants: { short, medium: form.wants?.medium || [], long: form.wants?.long || '' } });
+                                    }} className="text-danger/60 hover:text-danger p-1 shrink-0"><Trash2 size={11} /></button>}
+                                </div>
+                            ))}
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between mb-1">
+                                <label className="text-ice text-[10px] uppercase tracking-wider">Medium-term</label>
+                                {isEditing && (
+                                    <button onClick={() => setForm({ ...form, wants: { short: form.wants?.short || [], medium: [...(form.wants?.medium || []), ''], long: form.wants?.long || '' } })} className="text-[9px] text-terminal hover:text-terminal/80 uppercase tracking-wider">+ Add</button>
+                                )}
+                            </div>
+                            {(form.wants?.medium || []).map((w, i) => (
+                                <div key={i} className="flex gap-2 items-center mb-1">
+                                    <input
+                                        type="text"
+                                        value={w}
+                                        onChange={e => {
+                                            const medium = [...(form.wants?.medium || [])];
+                                            medium[i] = e.target.value;
+                                            setForm({ ...form, wants: { short: form.wants?.short || [], medium, long: form.wants?.long || '' } });
+                                        }}
+                                        disabled={!isEditing}
+                                        placeholder="e.g. earn wealth"
+                                        className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void focus:outline-none focus:border-ice"
+                                    />
+                                    {isEditing && <button onClick={() => {
+                                        const medium = (form.wants?.medium || []).filter((_, idx) => idx !== i);
+                                        setForm({ ...form, wants: { short: form.wants?.short || [], medium, long: form.wants?.long || '' } });
+                                    }} className="text-danger/60 hover:text-danger p-1 shrink-0"><Trash2 size={11} /></button>}
+                                </div>
+                            ))}
+                        </div>
+                        <div>
+                            <label className="block text-amber-300 text-[10px] uppercase tracking-wider mb-1">Long-term Goal</label>
+                            <input
+                                type="text"
+                                value={form.wants?.long || ''}
+                                onChange={e => setForm({ ...form, wants: { short: form.wants?.short || [], medium: form.wants?.medium || [], long: e.target.value } })}
+                                disabled={!isEditing}
+                                placeholder="Single overarching life goal"
+                                className="w-full bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void disabled:border-transparent focus:outline-none focus:border-amber-300"
+                            />
+                        </div>
+                    </div>
+
+                    {/* ── Boundaries ─────────────────────────────────────────────── */}
+                    <div className="bg-void p-4 rounded border border-border space-y-3">
+                        <div className="flex items-center justify-between">
+                            <span className="text-text-primary font-bold uppercase tracking-widest text-xs">Boundaries</span>
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between mb-1">
+                                <label className="text-danger text-[10px] uppercase tracking-wider">Hard (will never do)</label>
+                                {isEditing && <button onClick={() => addBoundary('hardBoundaries')} className="text-[9px] text-terminal hover:text-terminal/80 uppercase tracking-wider">+ Add</button>}
+                            </div>
+                            {(form.hardBoundaries || []).map((b, i) => (
+                                <div key={i} className="flex gap-2 items-center mb-1">
+                                    <input
+                                        type="text"
+                                        value={b}
+                                        onChange={e => updateBoundary('hardBoundaries', i, e.target.value)}
+                                        disabled={!isEditing}
+                                        placeholder="e.g. Will not betray her sister"
+                                        className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void focus:outline-none focus:border-danger/50"
+                                    />
+                                    {isEditing && <button onClick={() => removeBoundary('hardBoundaries', i)} className="text-danger/60 hover:text-danger p-1 shrink-0"><Trash2 size={11} /></button>}
+                                </div>
+                            ))}
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between mb-1">
+                                <label className="text-amber-400 text-[10px] uppercase tracking-wider">Soft (dislikes but may tolerate)</label>
+                                {isEditing && <button onClick={() => addBoundary('softBoundaries')} className="text-[9px] text-terminal hover:text-terminal/80 uppercase tracking-wider">+ Add</button>}
+                            </div>
+                            {(form.softBoundaries || []).map((b, i) => (
+                                <div key={i} className="flex gap-2 items-center mb-1">
+                                    <input
+                                        type="text"
+                                        value={b}
+                                        onChange={e => updateBoundary('softBoundaries', i, e.target.value)}
+                                        disabled={!isEditing}
+                                        placeholder="e.g. Dislikes being excluded from plans"
+                                        className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void focus:outline-none focus:border-amber-500/50"
+                                    />
+                                    {isEditing && <button onClick={() => removeBoundary('softBoundaries', i)} className="text-danger/60 hover:text-danger p-1 shrink-0"><Trash2 size={11} /></button>}
+                                </div>
+                            ))}
                         </div>
                     </div>
 
@@ -357,9 +479,13 @@ export function NPCEditForm({
                         </div>
                     </div>
 
-                    {/* ── Drives (legacy) UI hidden — superseded by Wants. The `drives` data still
-                        round-trips through `form`/handleSave; only the editor is removed. ───────── */}
-
+                    {/* ── Engine — state the agency engine owns and tunes in play. Collapsed by
+                        default: edit only to correct it. ───────────────────────────────────── */}
+                    <details className="bg-void/40 rounded border border-border">
+                        <summary className="cursor-pointer select-none px-4 py-2 text-text-dim text-[10px] uppercase tracking-wider hover:text-text-primary">
+                            Engine <span className="normal-case tracking-normal text-text-dim/50">— traits, hexagon, relations, triggers, location; tuned in play</span>
+                        </summary>
+                        <div className="space-y-4 p-4 pt-2">
                     {/* ── Traits (searchable multi-select, max 5) ────────────────── */}
                     <div className="bg-void p-4 rounded border border-border space-y-3">
                         <div className="flex items-center justify-between">
@@ -470,106 +596,6 @@ export function NPCEditForm({
                                     </div>
                                 );
                             })}
-                        </div>
-                    </div>
-
-                    {/* ── Wants ─────────────────────────────────────────────────── */}
-                    <div className="bg-void p-4 rounded border border-border space-y-3">
-                        <div className="flex items-center justify-between">
-                            <span className="text-text-primary font-bold uppercase tracking-widest text-xs">Wants</span>
-                        </div>
-                        <div>
-                            <div className="flex items-center justify-between mb-1">
-                                <label className="text-amber-400 text-[10px] uppercase tracking-wider">Short-term</label>
-                                {isEditing && (
-                                    <button onClick={() => setForm({ ...form, wants: { short: [...(form.wants?.short || []), ''], medium: form.wants?.medium || [], long: form.wants?.long || '' } })} className="text-[9px] text-terminal hover:text-terminal/80 uppercase tracking-wider">+ Add</button>
-                                )}
-                            </div>
-                            {(form.wants?.short || []).map((w, i) => (
-                                <div key={i} className="flex gap-2 items-center mb-1">
-                                    <input
-                                        type="text"
-                                        value={w}
-                                        onChange={e => {
-                                            const short = [...(form.wants?.short || [])];
-                                            short[i] = e.target.value;
-                                            setForm({ ...form, wants: { short, medium: form.wants?.medium || [], long: form.wants?.long || '' } });
-                                        }}
-                                        disabled={!isEditing}
-                                        placeholder="e.g. rest"
-                                        className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void focus:outline-none focus:border-amber-500"
-                                    />
-                                    {isEditing && <button onClick={() => {
-                                        const short = (form.wants?.short || []).filter((_, idx) => idx !== i);
-                                        setForm({ ...form, wants: { short, medium: form.wants?.medium || [], long: form.wants?.long || '' } });
-                                    }} className="text-danger/60 hover:text-danger p-1 shrink-0"><Trash2 size={11} /></button>}
-                                </div>
-                            ))}
-                        </div>
-                        <div>
-                            <div className="flex items-center justify-between mb-1">
-                                <label className="text-ice text-[10px] uppercase tracking-wider">Medium-term</label>
-                                {isEditing && (
-                                    <button onClick={() => setForm({ ...form, wants: { short: form.wants?.short || [], medium: [...(form.wants?.medium || []), ''], long: form.wants?.long || '' } })} className="text-[9px] text-terminal hover:text-terminal/80 uppercase tracking-wider">+ Add</button>
-                                )}
-                            </div>
-                            {(form.wants?.medium || []).map((w, i) => (
-                                <div key={i} className="flex gap-2 items-center mb-1">
-                                    <input
-                                        type="text"
-                                        value={w}
-                                        onChange={e => {
-                                            const medium = [...(form.wants?.medium || [])];
-                                            medium[i] = e.target.value;
-                                            setForm({ ...form, wants: { short: form.wants?.short || [], medium, long: form.wants?.long || '' } });
-                                        }}
-                                        disabled={!isEditing}
-                                        placeholder="e.g. earn wealth"
-                                        className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void focus:outline-none focus:border-ice"
-                                    />
-                                    {isEditing && <button onClick={() => {
-                                        const medium = (form.wants?.medium || []).filter((_, idx) => idx !== i);
-                                        setForm({ ...form, wants: { short: form.wants?.short || [], medium, long: form.wants?.long || '' } });
-                                    }} className="text-danger/60 hover:text-danger p-1 shrink-0"><Trash2 size={11} /></button>}
-                                </div>
-                            ))}
-                        </div>
-                        <div>
-                            <label className="block text-amber-300 text-[10px] uppercase tracking-wider mb-1">Long-term Goal</label>
-                            <input
-                                type="text"
-                                value={form.wants?.long || ''}
-                                onChange={e => setForm({ ...form, wants: { short: form.wants?.short || [], medium: form.wants?.medium || [], long: e.target.value } })}
-                                disabled={!isEditing}
-                                placeholder="Single overarching life goal"
-                                className="w-full bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void disabled:border-transparent focus:outline-none focus:border-amber-300"
-                            />
-                        </div>
-                    </div>
-
-                    {/* ── Region / Haunt ──────────────────────────────────────────── */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Region</label>
-                            <input
-                                type="text"
-                                value={form.region || ''}
-                                onChange={e => setForm({ ...form, region: e.target.value })}
-                                disabled={!isEditing}
-                                placeholder="e.g. academy"
-                                className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Haunt</label>
-                            <input
-                                type="text"
-                                value={form.haunt || ''}
-                                onChange={e => setForm({ ...form, haunt: e.target.value })}
-                                disabled={!isEditing}
-                                placeholder="e.g. the garden"
-                                className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
-                            />
                         </div>
                     </div>
 
@@ -758,50 +784,33 @@ export function NPCEditForm({
                         ))}
                     </div>
 
-                    {/* ── Boundaries ─────────────────────────────────────────────── */}
-                    <div className="bg-void p-4 rounded border border-border space-y-3">
-                        <div className="flex items-center justify-between">
-                            <span className="text-text-primary font-bold uppercase tracking-widest text-xs">Boundaries</span>
+                    {/* ── Region / Haunt ──────────────────────────────────────────── */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Region</label>
+                            <input
+                                type="text"
+                                value={form.region || ''}
+                                onChange={e => setForm({ ...form, region: e.target.value })}
+                                disabled={!isEditing}
+                                placeholder="e.g. academy"
+                                className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
+                            />
                         </div>
                         <div>
-                            <div className="flex items-center justify-between mb-1">
-                                <label className="text-danger text-[10px] uppercase tracking-wider">Hard (will never do)</label>
-                                {isEditing && <button onClick={() => addBoundary('hardBoundaries')} className="text-[9px] text-terminal hover:text-terminal/80 uppercase tracking-wider">+ Add</button>}
-                            </div>
-                            {(form.hardBoundaries || []).map((b, i) => (
-                                <div key={i} className="flex gap-2 items-center mb-1">
-                                    <input
-                                        type="text"
-                                        value={b}
-                                        onChange={e => updateBoundary('hardBoundaries', i, e.target.value)}
-                                        disabled={!isEditing}
-                                        placeholder="e.g. Will not betray her sister"
-                                        className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void focus:outline-none focus:border-danger/50"
-                                    />
-                                    {isEditing && <button onClick={() => removeBoundary('hardBoundaries', i)} className="text-danger/60 hover:text-danger p-1 shrink-0"><Trash2 size={11} /></button>}
-                                </div>
-                            ))}
-                        </div>
-                        <div>
-                            <div className="flex items-center justify-between mb-1">
-                                <label className="text-amber-400 text-[10px] uppercase tracking-wider">Soft (dislikes but may tolerate)</label>
-                                {isEditing && <button onClick={() => addBoundary('softBoundaries')} className="text-[9px] text-terminal hover:text-terminal/80 uppercase tracking-wider">+ Add</button>}
-                            </div>
-                            {(form.softBoundaries || []).map((b, i) => (
-                                <div key={i} className="flex gap-2 items-center mb-1">
-                                    <input
-                                        type="text"
-                                        value={b}
-                                        onChange={e => updateBoundary('softBoundaries', i, e.target.value)}
-                                        disabled={!isEditing}
-                                        placeholder="e.g. Dislikes being excluded from plans"
-                                        className="flex-1 bg-surface border border-border rounded px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-void focus:outline-none focus:border-amber-500/50"
-                                    />
-                                    {isEditing && <button onClick={() => removeBoundary('softBoundaries', i)} className="text-danger/60 hover:text-danger p-1 shrink-0"><Trash2 size={11} /></button>}
-                                </div>
-                            ))}
+                            <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">Haunt</label>
+                            <input
+                                type="text"
+                                value={form.haunt || ''}
+                                onChange={e => setForm({ ...form, haunt: e.target.value })}
+                                disabled={!isEditing}
+                                placeholder="e.g. the garden"
+                                className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 disabled:opacity-70 disabled:bg-surface disabled:border-transparent focus:outline-none focus:border-terminal"
+                            />
                         </div>
                     </div>
+                        </div>
+                    </details>
                 </div>
 
                 {/* Right Form Column (Look & Portrait) */}
