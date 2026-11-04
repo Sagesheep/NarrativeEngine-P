@@ -88,10 +88,10 @@ export function RulesTab() {
                             <button
                                 onClick={() => updateContext({ rulesRaw: DEFAULT_RULES })}
                                 className="flex items-center gap-1 text-[11px] text-terminal hover:text-text-primary transition-colors font-bold uppercase tracking-wider bg-terminal/10 hover:bg-terminal/20 px-1.5 py-0.5 rounded-sm border border-terminal/20"
-                                title="Load AI GM OS v4.0 as a starting point"
+                                title="Load AI GM OS v5.0 as a starting point"
                             >
                                 <Sparkles size={9} />
-                                Load v4.0 Example
+                                Load v5.0 Example
                             </button>
                         )}
                     </div>

@@ -342,7 +342,7 @@ Largest test files: `server/__tests__/modLoader.test.js` (1,546 lines), `src/ser
 | "How does Absolute Command work?" | `src/services/turn/absoluteCommand.ts` (binding OOC block, placed last, suppresses director layer) |
 | "How does TTS work?" | `server/lib/tts.js` (209 lines, Kokoro-82M q8) + `src/components/tts/TtsPlaybackPanel.tsx` |
 | "How does the vault work?" | `server/vault.js` (394 lines, AES-256-GCM, PBKDF2) |
-| "What are the system rules?" | `src/services/rules/defaultRules.ts` (241-line template literal) |
+| "What are the system rules?" | `src/services/rules/defaultRules.ts` (134-line template literal) |
 | "What data does the store hold?" | `src/store/slices/` (7 slice files, see `useAppStore.ts`) |
 | "How are NPCs detected?" | `src/services/npc/npcDetector.ts` (261 lines, multi-pass + LLM fail-closed validator) |
 | "How does the priority queue work?" | `src/services/llm/llmRequestQueue.ts` (204 lines, per-endpoint adaptive concurrency) |

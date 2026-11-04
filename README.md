@@ -76,7 +76,7 @@ Example_Setup/
 3. **World Lore (.md)** — pick a world file, e.g.
    `Example_Setup/World_compendium/Spirit Card World/Spirit_Card_World_Lore.md`
 4. **Rules (.md)** — pick the current ruleset:
-   `Example_Setup/Ruleset/AI_GM_OS_v4.5 - Immersive Mode (Hybrid).md`
+   `Example_Setup/Ruleset/AI_GM_OS_v5.0 - Immersive Mode.md`
 5. **World Loot (.json)** — *optional*. Some worlds ship one, e.g.
    `Example_Setup/World_compendium/Class Scroll World/loot.json`
 6. **Cover Image** — optional, any image file.
@@ -113,7 +113,8 @@ Most world folders hold a lore file plus a **start prompt** or **character creat
 
 `Example_Setup/Ruleset/` holds several GM operating systems. Unless you have a reason not to, use the newest:
 
-- **`AI_GM_OS_v4.5 - Immersive Mode (Hybrid).md`** — the current default. Balanced difficulty, full engine integration.
+- **`AI_GM_OS_v5.0 - Immersive Mode.md`** — the current default. Balanced difficulty, full engine integration, easy-to-read prose, and room for small unprompted events.
+- `AI_GM_OS_v4.5 - Immersive Mode (Hybrid).md` — the previous default, stricter about events and pacing.
 - `AI_GM_OS_v3.2 - Protagonist Easy Difficulty.md` — forgiving, power-fantasy tone.
 - `AI_GM_OS_v3.4 - Protagonist Normal Difficulty.md` — middle ground.
 - `AI_GM_OS_Director_Mode_v1.0.md` — director-style pacing control.

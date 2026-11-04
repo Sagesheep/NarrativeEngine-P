@@ -23,7 +23,7 @@ import { resolvePlace } from './locationParser';
 
 /**
  * Accepts every observed scene-header dialect:
- *   `📍 [Location] Ninja Academy`   (default ruleset, defaultRules.ts:51)
+ *   `📍 [Location] Ninja Academy`   (default ruleset, defaultRules.ts)
  *   `📍 Location: Ninja Academy`    (labeled, no brackets)
  *   `📍 Town of Beginning - Back Alley` (bare pin — custom rulesets)
  * The optional label group must NOT eat a real place name, so it only

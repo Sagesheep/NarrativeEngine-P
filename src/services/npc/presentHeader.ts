@@ -5,7 +5,7 @@ import { createWitnessResolver, type WitnessResolver } from './witnessResolve';
  * Engine-side parser for the scene header's `👥` (who is here) field — the
  * sibling of `parseLocationHeader` (locationHeader.ts). Zero LLM.
  *
- * The default ruleset asks for `👥 [Present] Rin, Mira` (defaultRules.ts:51),
+ * The default ruleset asks for `👥 [Present] Rin, Mira` (defaultRules.ts),
  * but custom rulesets write the field their own way, and the old exact-label
  * regex matched none of the owner's campaigns (0 of ~1,600 header lines on
  * 2026-10-04), so the on-stage set was always empty. Accepted shapes:

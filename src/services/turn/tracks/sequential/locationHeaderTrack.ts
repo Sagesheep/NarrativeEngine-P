@@ -15,7 +15,7 @@ export const locationHeaderTrack: PostTurnTrack<SequentialTrackContext> = {
     shouldRun: () => true,
     async run(ctx) {
         // Sibling of the 👥 [Present] parse: the GM's 📍 [Location] header is the
-        // authoritative per-turn location self-report (requested by defaultRules.ts:51).
+        // authoritative per-turn location self-report (requested by defaultRules.ts).
         // Engine regex, zero LLM, every tier. The interval-gated scanLocation call in
         // runArchiveTrack stays the cold path (features/connections enrichment). Header
         // absent or unusable → no-op. A committed current place is registered before

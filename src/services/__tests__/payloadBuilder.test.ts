@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { buildPayload } from '../payload/payloadBuilder';
 import { DEFAULT_RULES } from '../rules/defaultRules';
@@ -62,7 +63,7 @@ describe('buildPayload — default rules fallback', () => {
         const result = buildPayload({ settings: baseSettings(), context: ctx, history: [], userMessage: 'I look around' });
         const firstSystem = result.messages.find(m => m.role === 'system');
         expect(firstSystem).toBeDefined();
-        expect(firstSystem!.content).toContain('ROLE: Dynamic-Realism GM.');
+        expect(firstSystem!.content).toContain('ROLE: GM of a believable world');
     });
 
     it('uses user-provided rulesRaw instead of DEFAULT_RULES', () => {
@@ -76,13 +77,18 @@ describe('buildPayload — default rules fallback', () => {
     });
 
     it('DEFAULT_RULES contains all expected sections', () => {
-        expect(DEFAULT_RULES).toContain('### Output Format');
-        expect(DEFAULT_RULES).toContain('### NPC Engine');
-        expect(DEFAULT_RULES).toContain('### Name Generation');
-        expect(DEFAULT_RULES).toContain('### Lore Handling');
-        expect(DEFAULT_RULES).toContain('### Action Resolution');
-        expect(DEFAULT_RULES).toContain('### Event Protocol');
-        expect(DEFAULT_RULES).toContain('### World Pressures');
+        expect(DEFAULT_RULES).toContain('### Kernel Directives');
+        expect(DEFAULT_RULES).toContain('### Engine Tags');
+        expect(DEFAULT_RULES).toContain('### NPC Minds');
+        expect(DEFAULT_RULES).toContain('### Location Header');
+        expect(DEFAULT_RULES).toContain('### Naming Rules');
+        expect(DEFAULT_RULES).toContain('### Canon Bounds');
+        expect(DEFAULT_RULES).toContain('### Scene Craft');
+    });
+
+    it('DEFAULT_RULES matches the shipped v5 ruleset file', () => {
+        const shipped = readFileSync('Example_Setup/Ruleset/AI_GM_OS_v5.0 - Immersive Mode.md', 'utf8');
+        expect(DEFAULT_RULES).toBe(shipped.replace(/\r\n/g, '\n').trimEnd());
     });
 });
 
@@ -191,7 +197,7 @@ describe('buildPayload — scenario 1: minimal', () => {
         expect(result.messages.length).toBeGreaterThanOrEqual(2);
         expect(result.messages[0].role).toBe('system');
         // rules text is in the first system message
-        expect(result.messages[0].content).toContain('ROLE: Dynamic-Realism GM.');
+        expect(result.messages[0].content).toContain('ROLE: GM of a believable world');
     });
 
     // Ported from mobile: desktop never asked for the tag (0 in ~1,200 scenes), so the
@@ -956,7 +962,7 @@ describe('buildPayload — cache_control: ephemeral markers', () => {
     it('stable content system message has cache_control: ephemeral', () => {
         const result = buildPayload({ settings: baseSettings(), context: baseContext(), history: [], userMessage: 'Hello world' });
         const stableMsg = result.messages.find(
-            m => m.role === 'system' && typeof m.content === 'string' && m.content.includes('ROLE: Dynamic-Realism GM.')
+            m => m.role === 'system' && typeof m.content === 'string' && m.content.includes('ROLE: GM of a believable world')
         );
         expect(stableMsg).toBeDefined();
         expect((stableMsg as any).cache_control).toEqual({ type: 'ephemeral' });
