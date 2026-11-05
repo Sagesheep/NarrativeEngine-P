@@ -13,7 +13,7 @@
     },
     "tables": [
         {
-            "name": "compendium",
+            "name": "compendium", "keepOnCleanCopy": true,
             "recordShape": "array",
             "label": "Enemy Compendium",
             "migrateFrom": ".enemies.json"
@@ -37,7 +37,7 @@
             "migrateFrom": ".enemy-resolutions.json"
         },
         {
-            "name": "config",
+            "name": "config", "keepOnCleanCopy": true,
             "recordShape": "single-object",
             "label": "Enemy Combat Config",
             "migrateFrom": ".enemy-combat.json"

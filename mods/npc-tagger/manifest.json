@@ -6,7 +6,7 @@
   "author": "Cold Executor",
   "tables": [
     {
-      "name": "tags",
+      "name": "tags", "keepOnCleanCopy": true,
       "recordShape": "array",
       "label": "NPC Tags"
     }

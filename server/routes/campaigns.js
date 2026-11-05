@@ -8,6 +8,7 @@ import { embedText, buildLoreText, resolveIndexingSpeed } from '../lib/embedder.
 import { storeLoreEmbedding, deleteCampaignEmbeddings } from '../lib/vectorStore.js';
 import { startJob, tickJob, endJob } from '../lib/embedJobs.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
+import { copyCampaign, COPY_MODES } from '../services/campaignCopy.js';
 
 export function createCampaignsRouter() {
     const router = Router();
@@ -85,6 +86,15 @@ export function createCampaignsRouter() {
         }
         deleteCampaignEmbeddings(id);
         res.json({ ok: true });
+    }));
+
+    router.post('/api/campaigns/:id/copy', wrapAsync(async (req, res) => {
+        validateCampaignId(req.params.id);
+        const { mode, keepNpcs, keepCharacter } = req.body ?? {};
+        if (!COPY_MODES.includes(mode)) return res.status(400).json({ error: 'Invalid copy mode' });
+        const campaign = await copyCampaign(req.params.id, { mode, keepNpcs, keepCharacter });
+        if (!campaign) return res.status(404).json({ error: 'Not found' });
+        res.json(campaign);
     }));
 
     // ═══════════════════════════════════════════

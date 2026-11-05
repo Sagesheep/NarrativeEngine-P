@@ -106,6 +106,8 @@ export interface ValidatedModTable {
      * shape round-trips honestly.
      */
     migrateFrom?: string;
+    /** This table is setup, not play, so a clean campaign copy keeps it. Absent = left behind. */
+    keepOnCleanCopy?: boolean;
 }
 
 /**

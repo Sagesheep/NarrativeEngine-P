@@ -3,7 +3,7 @@ import { Settings, Upload, Loader2, BookPlus, FileInput } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import {
     listCampaigns, deleteCampaign, saveCampaign,
-    exportCampaign, importCampaign,
+    exportCampaign, importCampaign, copyCampaign, type CampaignCopyOptions,
 } from '../store/campaignStore';
 import { hydrateCampaign } from '../store/campaignHydrator';
 import { API_BASE as API } from '../lib/apiBase';
@@ -12,6 +12,7 @@ import type { Campaign } from '../types';
 import { useCampaignForm } from './hooks/useCampaignForm';
 import { CampaignFormModal } from './CampaignFormModal';
 import { CoverflowCarousel } from './CoverflowCarousel';
+import { CampaignCopyDialog } from './CampaignCopyDialog';
 import { Backdrop } from './primitives/Backdrop';
 import { GhostBtn, DangerBtn } from './primitives/Buttons';
 import { WorldLoreModal } from './WorldLoreModal';
@@ -30,6 +31,7 @@ export function CampaignHub() {
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [isExporting, setIsExporting] = useState<string | null>(null);
     const [isImporting, setIsImporting] = useState(false);
+    const [copyTarget, setCopyTarget] = useState<Campaign | null>(null);
     const importInputRef = useRef<HTMLInputElement>(null);
     const worldBuilderOpen = useAppStore(s => s.worldLoreModalOpen);
     const [modalOpen, setModalOpen] = useState(false);
@@ -38,17 +40,18 @@ export function CampaignHub() {
     // new campaign, which sets `activeCampaignId`; App.tsx leaves the hub by itself.
     const [stImportOpen, setStImportOpen] = useState(false);
 
-    const refresh = useCallback(async () => {
+    const refresh = useCallback(async (focusId?: string) => {
         const list = await listCampaigns();
         const valid = list.filter(c => c && c.id && c.name && c.id !== 'undefined');
         setCampaigns(valid);
-        setActiveIdx(prev => Math.min(prev, Math.max(valid.length - 1, 0)));
+        const focusIdx = focusId ? valid.findIndex(c => c.id === focusId) : -1;
+        setActiveIdx(prev => focusIdx >= 0 ? focusIdx : Math.min(prev, Math.max(valid.length - 1, 0)));
     }, []);
 
     const form = useCampaignForm({
         editingCampaign,
         setEditingCampaign,
-        onDone: () => { setModalOpen(false); refresh(); },
+        onDone: () => { setModalOpen(false); void refresh(); },
     });
 
     useEffect(() => {
@@ -87,6 +90,13 @@ export function CampaignHub() {
         try { await exportCampaign(id); }
         catch (e) { console.error('[Export]', e); alert(t('hub.export.failed')); }
         finally { setIsExporting(null); }
+    };
+
+    const handleCopy = async (options: CampaignCopyOptions) => {
+        if (!copyTarget) return;
+        const copy = await copyCampaign(copyTarget.id, options);
+        setCopyTarget(null);
+        await refresh(copy.id);
     };
 
     const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -299,6 +309,7 @@ export function CampaignHub() {
                 onEdit={openEdit}
                 onDelete={id => setConfirmDelete(id)}
                 onExport={handleExport}
+                onCopy={setCopyTarget}
                 exportingId={isExporting}
                 onNew={openCreate}
             />
@@ -322,6 +333,15 @@ export function CampaignHub() {
                         </div>
                     </div>
                 </Backdrop>
+            )}
+
+            {/* ── Copy Campaign ── */}
+            {copyTarget && (
+                <CampaignCopyDialog
+                    campaign={copyTarget}
+                    onCopy={handleCopy}
+                    onClose={() => setCopyTarget(null)}
+                />
             )}
 
             {/* ── Create / Edit Modal ── */}
@@ -358,7 +378,7 @@ export function CampaignHub() {
             <STImportWizard
                 open={stImportOpen}
                 onClose={() => setStImportOpen(false)}
-                onDone={refresh}
+                onDone={() => void refresh()}
             />
 
             {/* ── World Lore Modal ── */}

@@ -497,6 +497,18 @@ cannot express and the loader cannot order. Use the event bus
 (§"The event bus") or facts registry (§"Publishing facts") for soft
 mod-to-mod relationships.
 
+### `keepOnCleanCopy` — setup that survives a restart
+
+A clean campaign copy keeps the world and leaves the story behind. Tables stay
+behind by default, because the host cannot tell what a mod's records mean. Set
+`"keepOnCleanCopy": true` on a table that holds setup rather than play, such as
+definitions or settings. Leave it off anything that records what happened, or
+the fresh campaign inherits it.
+
+```json
+{ "name": "settings", "recordShape": "single-object", "keepOnCleanCopy": true }
+```
+
 ### `migrateFrom` — adopting a retired campaign file
 
 Phase 8.5 added one optional field to a table declaration:

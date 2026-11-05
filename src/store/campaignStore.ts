@@ -35,6 +35,20 @@ export async function deleteCampaign(id: string): Promise<void> {
     await fetch(`${API}/campaigns/${id}`, { method: 'DELETE' });
 }
 
+export type CampaignCopyOptions =
+    | { mode: 'full' }
+    | { mode: 'clean'; keepNpcs: boolean; keepCharacter: boolean };
+
+export async function copyCampaign(id: string, options: CampaignCopyOptions): Promise<Campaign> {
+    const res = await fetch(`${API}/campaigns/${id}/copy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options),
+    });
+    if (!res.ok) throw new Error('Copy failed');
+    return res.json();
+}
+
 export async function exportCampaign(id: string): Promise<void> {
     const res = await fetch(`${API}/campaigns/${id}/export`);
     if (!res.ok) throw new Error('Export failed');

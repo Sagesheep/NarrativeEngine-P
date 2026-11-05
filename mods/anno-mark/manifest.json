@@ -7,7 +7,7 @@
   "loadOrder": 50,
   "tables": [
     { "name": "marks", "recordShape": "array", "label": "Marks" },
-    { "name": "settings", "recordShape": "single-object", "label": "Anno Mark Settings" }
+    { "name": "settings", "keepOnCleanCopy": true, "recordShape": "single-object", "label": "Anno Mark Settings" }
   ],
   "contributions": [
     {

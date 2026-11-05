@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { BookOpen, Pencil, Trash2, ChevronLeft, ChevronRight, Download, Loader2 } from './icons/narrativeIcons';
+import { BookOpen, Copy, Pencil, Trash2, ChevronLeft, ChevronRight, Download, Loader2 } from './icons/narrativeIcons';
 import type { Campaign } from '../types';
 
 interface SlotStyle {
@@ -37,12 +37,13 @@ export interface CoverflowCarouselProps {
     onEdit: (campaign: Campaign) => void;
     onDelete: (id: string) => void;
     onExport: (id: string) => void;
+    onCopy: (campaign: Campaign) => void;
     exportingId: string | null;
     onNew: () => void;
 }
 
 export function CoverflowCarousel({
-    campaigns, activeIdx, onActiveChange, onSelect, onEdit, onDelete, onExport, exportingId, onNew,
+    campaigns, activeIdx, onActiveChange, onSelect, onEdit, onDelete, onExport, onCopy, exportingId, onNew,
 }: CoverflowCarouselProps) {
     const touchStartX = useRef(0);
 
@@ -89,6 +90,7 @@ export function CoverflowCarousel({
                                 onEdit={e => { e.stopPropagation(); onEdit(c); }}
                                 onDelete={e => { e.stopPropagation(); onDelete(c.id); }}
                                 onExport={e => { e.stopPropagation(); onExport(c.id); }}
+                                onCopy={e => { e.stopPropagation(); onCopy(c); }}
                             />
                         );
                     })
@@ -169,7 +171,7 @@ export function CoverflowCarousel({
     );
 }
 
-function CoverCard({ campaign, isActive, slotStyle, isExporting, onClick, onEdit, onDelete, onExport }: {
+function CoverCard({ campaign, isActive, slotStyle, isExporting, onClick, onEdit, onDelete, onExport, onCopy }: {
     campaign: Campaign;
     isActive: boolean;
     slotStyle: SlotStyle;
@@ -178,6 +180,7 @@ function CoverCard({ campaign, isActive, slotStyle, isExporting, onClick, onEdit
     onEdit: (e: React.MouseEvent) => void;
     onDelete: (e: React.MouseEvent) => void;
     onExport: (e: React.MouseEvent) => void;
+    onCopy: (e: React.MouseEvent) => void;
 }) {
     const [hovered, setHovered] = useState(false);
 
@@ -269,6 +272,7 @@ function CoverCard({ campaign, isActive, slotStyle, isExporting, onClick, onEdit
                         <ActionBtn onClick={onExport} title="Export" disabled={isExporting}>
                             {isExporting ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={11} />}
                         </ActionBtn>
+                        <ActionBtn onClick={onCopy} title="Copy"><Copy size={11} /></ActionBtn>
                         <ActionBtn onClick={onEdit} title="Edit"><Pencil size={11} /></ActionBtn>
                         <ActionBtn onClick={onDelete} title="Delete" danger><Trash2 size={11} /></ActionBtn>
                     </div>

@@ -79,6 +79,7 @@ export function buildModTableDescriptor(modId, table) {
         // member of a closed set the app owns. The adoption itself happens in
         // `legacyAdoption.js`, on the read path.
         ...(typeof table.migrateFrom === 'string' ? { migrateFrom: table.migrateFrom } : {}),
+        ...(table.keepOnCleanCopy === true ? { keepOnCleanCopy: true } : {}),
         // hydrator + slice are wired client-side (Step 4); the server descriptor
         // does not carry function touchpoints.
     };

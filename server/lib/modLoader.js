@@ -584,6 +584,13 @@ function validateTables(raw, modId) {
         // a mod that supplies a path has just attempted to name any file in
         // the campaigns directory, and a mod that supplies a function has
         // just attempted to execute code outside the sandbox.
+        // A clean campaign copy keeps only what the owner says is setup. Absent
+        // means the table is play state and stays behind with the story.
+        if (entry.keepOnCleanCopy !== undefined) {
+            if (typeof entry.keepOnCleanCopy !== 'boolean') reject(`${at}.keepOnCleanCopy must be a boolean`);
+            table.keepOnCleanCopy = entry.keepOnCleanCopy;
+        }
+
         const forbidden = ['fileSuffix', 'filePath', 'path', 'serverSchema', 'clientSchema', 'hooks', 'onRemove'];
         for (const key of forbidden) {
             if (entry[key] !== undefined) {
@@ -593,10 +600,10 @@ function validateTables(raw, modId) {
         // Any other unknown key is a fault too: the manifest shape is a
         // permanent compatibility promise (WO-P5-05 §3), and an unknown key
         // is either a typo or a future field we have not promised yet.
-        const allowed = new Set(['name', 'recordShape', 'label', 'reads', 'writes', 'migrateFrom']);
+        const allowed = new Set(['name', 'recordShape', 'label', 'reads', 'writes', 'migrateFrom', 'keepOnCleanCopy']);
         for (const key of Object.keys(entry)) {
             if (!allowed.has(key)) {
-                reject(`${at} has unknown field "${key}" — only name, recordShape, label, reads, writes, migrateFrom are allowed`);
+                reject(`${at} has unknown field "${key}" — only name, recordShape, label, reads, writes, migrateFrom, keepOnCleanCopy are allowed`);
             }
         }
 

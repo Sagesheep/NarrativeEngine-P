@@ -8,11 +8,11 @@
   "apiVersion": 1,
   "loadOrder": 220,
   "tables": [
-    { "name": "abilities", "recordShape": "array", "label": "Ability Definitions" },
+    { "name": "abilities", "keepOnCleanCopy": true, "recordShape": "array", "label": "Ability Definitions" },
     { "name": "assignments", "recordShape": "array", "label": "Character Abilities" },
     { "name": "runtime", "recordShape": "array", "label": "Runtime State" },
     { "name": "proposals", "recordShape": "array", "label": "Discovery Proposals" },
-    { "name": "config", "recordShape": "single-object", "label": "Compendium Settings" },
+    { "name": "config", "keepOnCleanCopy": true, "recordShape": "single-object", "label": "Compendium Settings" },
     { "name": "prompt-index", "recordShape": "array", "label": "Prompt Index" }
   ],
   "screens": [

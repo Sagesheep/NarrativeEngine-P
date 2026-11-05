@@ -10,7 +10,7 @@
             "label": "Anchors"
         },
         {
-            "name": "settings",
+            "name": "settings", "keepOnCleanCopy": true,
             "recordShape": "single-object",
             "label": "Settings"
         },

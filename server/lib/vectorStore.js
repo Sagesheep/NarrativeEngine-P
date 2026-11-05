@@ -493,6 +493,29 @@ export function deleteRulesEmbedding(campaignId, ruleId) {
     db.prepare("DELETE FROM embedding_meta WHERE campaign_id = ? AND item_type = 'rule' AND item_id = ?").run(campaignId, ruleId);
 }
 
+/**
+ * Duplicate a campaign's vectors under a new id, so a copy of a campaign does not
+ * re-embed text that has not changed. Versions are carried as they are: a stale
+ * vector stays stale and is still flagged for re-index on the copy.
+ */
+export function copyCampaignEmbeddings(fromId, toId, itemTypes) {
+    if (!db) return;
+    const sources = { scene: ['archive_vss', 'scene_id'], lore: ['lore_vss', 'lore_id'], rule: ['rules_vss', 'rule_id'] };
+    const copyMeta = db.prepare(`
+        INSERT OR REPLACE INTO embedding_meta (campaign_id, item_type, item_id, version, updated_at)
+        SELECT ?, item_type, item_id, version, updated_at FROM embedding_meta WHERE campaign_id = ? AND item_type = ?
+    `);
+    db.transaction(() => {
+        for (const itemType of itemTypes) {
+            const [table, idCol] = sources[itemType];
+            const insert = db.prepare(`INSERT INTO ${table}(campaign_id, ${idCol}, embedding) VALUES (?, ?, ?)`);
+            const rows = db.prepare(`SELECT ${idCol} AS itemId, embedding FROM ${table} WHERE campaign_id = ?`).all(fromId);
+            for (const row of rows) insert.run(toId, row.itemId, row.embedding);
+            copyMeta.run(toId, fromId, itemType);
+        }
+    })();
+}
+
 export function deleteCampaignEmbeddings(campaignId) {
     if (!db) return;
     db.prepare("DELETE FROM archive_vss WHERE campaign_id = ?").run(campaignId);
