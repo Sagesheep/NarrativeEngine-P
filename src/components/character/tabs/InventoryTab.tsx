@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
 import { scanInventory } from '../../../services/inventoryParser';
 import { toast } from '../../Toast';
 import type { EndpointConfig, ProviderConfig, InventoryItemCategory, InventoryItem } from '../../../types';
 import { normalizeInventoryItem } from '../../../types';
 import { isItemInSignatureKit } from '../../../utils/signatureKitMatch';
+import { searchInventory } from '../../../utils/inventorySearch';
+import { Trash2 } from '../../icons/narrativeIcons';
 
 // Local copy of the ledger's tab union -- deliberately not imported from
 // CharacterLedgerModal, which imports this file.
@@ -35,23 +37,42 @@ function InventoryRow({
     onRemove,
     inKit,
     onOpenKit,
+    selectMode,
+    selected,
+    onToggleSelected,
 }: {
     it: InventoryItem;
     onUpdate: (id: string, patch: Partial<InventoryItem>) => void;
     onRemove: (id: string) => void;
     inKit?: boolean;
     onOpenKit?: () => void;
+    selectMode?: boolean;
+    selected?: boolean;
+    onToggleSelected?: (id: string) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
     return (
-        <div className="border border-border/30 rounded hover:border-border/60 transition-colors">
+        <div className={`border rounded transition-colors ${selected ? 'border-danger/60 bg-danger/5' : 'border-border/30 hover:border-border/60'}`}>
             <div className="flex items-center gap-2 px-2 py-1 text-[10px]">
-                <input
-                    type="checkbox"
-                    checked={it.equipped}
-                    onChange={(e) => onUpdate(it.id, { equipped: e.target.checked, locationTag: e.target.checked ? 'inventory' : it.locationTag })}
-                    title="Equipped"
-                />
+                {/* The two checkboxes swap rather than sit side by side, so a
+                    tick in select mode can never be mistaken for Equipped. */}
+                {selectMode ? (
+                    <input
+                        type="checkbox"
+                        checked={!!selected}
+                        onChange={() => onToggleSelected?.(it.id)}
+                        title="Select for deletion"
+                        aria-label={`Select ${it.name}`}
+                    />
+                ) : (
+                    <input
+                        type="checkbox"
+                        checked={it.equipped}
+                        onChange={(e) => onUpdate(it.id, { equipped: e.target.checked, locationTag: e.target.checked ? 'inventory' : it.locationTag })}
+                        title="Equipped"
+                        aria-label={`Equipped ${it.name}`}
+                    />
+                )}
                 <button
                     onClick={() => setExpanded(!expanded)}
                     className="text-text-dim/40 hover:text-text-primary w-3 text-center"
@@ -91,7 +112,16 @@ function InventoryRow({
                         <option key={c} value={c}>{c[0].toUpperCase()}{c.slice(1)}</option>
                     ))}
                 </select>
-                <button onClick={() => onRemove(it.id)} className="text-ember/60 hover:text-ember px-1">×</button>
+                {!selectMode && (
+                    <button
+                        onClick={() => onRemove(it.id)}
+                        className="text-danger/60 hover:text-danger p-1 shrink-0"
+                        title="Delete item"
+                        aria-label={`Delete ${it.name}`}
+                    >
+                        <Trash2 size={11} />
+                    </button>
+                )}
             </div>
             {expanded && (
                 <div className="px-2 pb-2 space-y-1 border-t border-border/20 pt-1">
@@ -137,6 +167,65 @@ function InventoryRow({
     );
 }
 
+function isRawInventoryItem(v: unknown): v is InventoryItem {
+    if (typeof v !== 'object' || v === null) return false;
+    const item = v as Partial<InventoryItem>;
+    return typeof item.id === 'string' && typeof item.name === 'string' && Array.isArray(item.keywords);
+}
+
+/**
+ * The JSON has to pass through invalid states while it is being edited (deleting
+ * one object leaves a stray comma), so the text lives in a local draft and only
+ * valid JSON reaches the store. Bound straight to the store, every invalid
+ * keystroke snapped back to the saved value.
+ */
+function RawInventoryEditor({ items, onCommit }: { items: InventoryItem[]; onCommit: (items: InventoryItem[]) => void }) {
+    const serialized = JSON.stringify(items, null, 2);
+    const [draft, setDraft] = useState(serialized);
+    const [error, setError] = useState<string | null>(null);
+    const lastSynced = useRef(serialized);
+
+    // Pick up writes from elsewhere (e.g. Check Inventory), but not our own commits.
+    useEffect(() => {
+        if (serialized === lastSynced.current) return;
+        lastSynced.current = serialized;
+        setDraft(serialized);
+        setError(null);
+    }, [serialized]);
+
+    const handleChange = (text: string) => {
+        setDraft(text);
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(text);
+        } catch {
+            setError('Invalid JSON, not saved. Check for a stray comma. Use [] for an empty inventory.');
+            return;
+        }
+        if (!Array.isArray(parsed) || !parsed.every(isRawInventoryItem)) {
+            setError('Not saved. Must be a list of items, each with an id, name and keywords.');
+            return;
+        }
+        const next = parsed.map(normalizeInventoryItem);
+        lastSynced.current = JSON.stringify(next, null, 2);
+        setError(null);
+        onCommit(next);
+    };
+
+    return (
+        <>
+            <textarea
+                className={`w-full bg-void border rounded text-text-primary text-[11px] px-2 py-1 outline-none font-mono ${error ? 'border-danger' : 'border-border focus:border-terminal'}`}
+                rows={12}
+                aria-label="Raw inventory JSON"
+                value={draft}
+                onChange={(e) => handleChange(e.target.value)}
+            />
+            {error && <p role="alert" className="text-[9px] text-danger mt-1">{error}</p>}
+        </>
+    );
+}
+
 /**
  * Character Ledger — Inventory tab.
  *
@@ -161,6 +250,9 @@ export function InventoryTab({ onNavigateTab }: { onNavigateTab?: (tab: LedgerTa
     const [search, setSearch] = useState('');
     const [rawEdit, setRawEdit] = useState(false);
     const [isScanningInventory, setIsScanningInventory] = useState(false);
+    const [selectMode, setSelectMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+    const [confirmingDelete, setConfirmingDelete] = useState(false);
 
     const getCurrentSceneId = (): string => {
         if (archiveIndex.length === 0) return '1';
@@ -205,8 +297,35 @@ export function InventoryTab({ onNavigateTab }: { onNavigateTab?: (tab: LedgerTa
         });
         setInventoryItems([...inventoryItems, newItem]);
     };
-    const removeItem = (id: string) => {
-        setInventoryItems(inventoryItems.filter((it) => it.id !== id));
+    const deleteItems = (ids: Set<string>) => {
+        const removed = inventoryItems.filter((it) => ids.has(it.id));
+        if (removed.length === 0) return;
+        setInventoryItems(inventoryItems.filter((it) => !ids.has(it.id)));
+        toast.info(removed.length === 1 ? `Deleted ${removed[0].name}` : `Deleted ${removed.length} items`, {
+            label: 'Undo',
+            onClick: () => {
+                // Read fresh: the list may have changed while the toast was up.
+                const current = useAppStore.getState().inventoryItems;
+                const present = new Set(current.map((it) => it.id));
+                setInventoryItems([...current, ...removed.filter((it) => !present.has(it.id))]);
+            },
+        });
+    };
+    const removeItem = (id: string) => deleteItems(new Set([id]));
+
+    const exitSelectMode = () => {
+        setSelectMode(false);
+        setSelectedIds(new Set());
+        setConfirmingDelete(false);
+    };
+    const changeSelection = (next: Set<string>) => {
+        setSelectedIds(next);
+        setConfirmingDelete(false);
+    };
+    const toggleSelected = (id: string) => {
+        const next = new Set(selectedIds);
+        if (!next.delete(id)) next.add(id);
+        changeSelection(next);
     };
 
     // Rows the Signature Kit also names. Display only -- the two stores stay separate.
@@ -235,22 +354,43 @@ export function InventoryTab({ onNavigateTab }: { onNavigateTab?: (tab: LedgerTa
                 list = list.filter((it) => it.category === activeTab);
             }
         }
-        if (search.trim()) {
-            const q = search.toLowerCase();
-            list = list.filter((it) =>
-                it.name.toLowerCase().includes(q) ||
-                (it.locationTag && it.locationTag.toLowerCase().includes(q)) ||
-                it.keywords.some((k) => k.toLowerCase().includes(q))
-            );
-        }
-        return list.slice().sort((a, b) => a.name.localeCompare(b.name));
+        // A search ranks best match first; with no query this is plain A-Z.
+        return searchInventory(list, search);
     }, [inventoryItems, activeTab, search]);
+
+    // Selection survives changing the filter so it can be built up across
+    // categories, which means some of it may be off screen. Always say so.
+    const selectedItems = inventoryItems.filter((it) => selectedIds.has(it.id));
+    const shownIds = new Set(filteredItems.map((it) => it.id));
+    const selectedShown = selectedItems.filter((it) => shownIds.has(it.id)).length;
+    const selectedHidden = selectedItems.length - selectedShown;
+    const allShownSelected = filteredItems.length > 0 && selectedShown === filteredItems.length;
+
+    const toggleAllShown = () => {
+        const next = new Set(selectedIds);
+        for (const it of filteredItems) {
+            if (allShownSelected) next.delete(it.id);
+            else next.add(it.id);
+        }
+        changeSelection(next);
+    };
+    const handleBulkDelete = () => {
+        if (!confirmingDelete) {
+            setConfirmingDelete(true);
+            return;
+        }
+        deleteItems(selectedIds);
+        exitSelectMode();
+    };
 
     return (
         <div className="px-4 py-4 space-y-4">
             <div className="flex items-center gap-2">
                 <button
-                    onClick={() => setRawEdit(!rawEdit)}
+                    onClick={() => {
+                        setRawEdit(!rawEdit);
+                        exitSelectMode();
+                    }}
                     className="px-3 py-1.5 text-[10px] uppercase tracking-wider rounded transition-colors border bg-void border-border text-text-dim hover:border-text-primary"
                 >
                     {rawEdit ? 'Grid View' : 'Raw Edit'}
@@ -288,43 +428,67 @@ export function InventoryTab({ onNavigateTab }: { onNavigateTab?: (tab: LedgerTa
                 </p>
 
                 {rawEdit ? (
-                    <textarea
-                        className="w-full bg-void border border-border rounded text-text-primary text-[11px] px-2 py-1 focus:border-terminal outline-none font-mono"
-                        rows={12}
-                        value={JSON.stringify(inventoryItems, null, 2)}
-                        onChange={(e) => {
-                            try {
-                                const parsed = JSON.parse(e.target.value);
-                                if (Array.isArray(parsed)) setInventoryItems(parsed.map(normalizeInventoryItem));
-                            } catch { /* ignore */ }
-                        }}
-                    />
+                    <RawInventoryEditor items={inventoryItems} onCommit={setInventoryItems} />
                 ) : (
                     <>
-                        {/* Search */}
-                        <input
-                            className="w-full bg-void border border-border/50 rounded text-[11px] px-2 py-1 mb-2 outline-none focus:border-terminal text-text-primary"
-                            placeholder="Search items..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
-
-                        {/* Tabs */}
-                        <div className="flex flex-wrap gap-1 mb-2">
-                            {ALL_CATS.map((cat) => (
-                                <button
-                                    key={cat}
-                                    onClick={() => setActiveTab(cat)}
-                                    className={`px-2 py-0.5 text-[9px] uppercase tracking-wider rounded border transition-colors ${
-                                        activeTab === cat
-                                            ? 'bg-terminal/10 border-terminal text-terminal'
-                                            : 'bg-void border-border/50 text-text-dim/60 hover:text-text-dim hover:border-border'
-                                    }`}
-                                >
-                                    {DISPLAY_LABEL[cat]} ({tabCounts[cat] || 0})
-                                </button>
-                            ))}
+                        {/* Filter, search and select */}
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                            <select
+                                aria-label="Filter inventory"
+                                className="bg-void border border-border/50 rounded text-[11px] text-text-primary px-2 py-1 outline-none focus:border-terminal"
+                                value={activeTab}
+                                onChange={(e) => setActiveTab(e.target.value as typeof activeTab)}
+                            >
+                                {ALL_CATS.map((cat) => (
+                                    <option key={cat} value={cat}>
+                                        {DISPLAY_LABEL[cat]} ({tabCounts[cat] || 0})
+                                    </option>
+                                ))}
+                            </select>
+                            <input
+                                aria-label="Search items"
+                                className="flex-1 min-w-[160px] bg-void border border-border/50 rounded text-[11px] px-2 py-1 outline-none focus:border-terminal text-text-primary"
+                                placeholder='Search items... e.g. spire token, "silver pin", -key, cat:currency'
+                                title={'Every word must match, in any order, and small typos are forgiven.\n"exact phrase"  -exclude  cat:currency  loc:base  is:equipped'}
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                            />
+                            <button
+                                onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                                className="px-2 py-1 text-[10px] uppercase tracking-wider rounded border bg-void border-border/50 text-text-dim hover:border-text-primary transition-colors"
+                            >
+                                {selectMode ? 'Cancel' : 'Select'}
+                            </button>
                         </div>
+
+                        {selectMode && (
+                            <div className="flex flex-wrap items-center gap-3 mb-2 px-2 py-1 border border-border/30 rounded text-[10px] text-text-dim">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={allShownSelected}
+                                        disabled={filteredItems.length === 0}
+                                        ref={(el) => {
+                                            if (el) el.indeterminate = selectedShown > 0 && !allShownSelected;
+                                        }}
+                                        onChange={toggleAllShown}
+                                    />
+                                    Select all shown ({filteredItems.length})
+                                </label>
+                                <span className="flex-1">
+                                    {selectedItems.length} selected
+                                    {selectedHidden > 0 && <span className="text-danger"> ({selectedHidden} not shown)</span>}
+                                </span>
+                                <button
+                                    onClick={handleBulkDelete}
+                                    disabled={selectedItems.length === 0}
+                                    className="flex items-center gap-1 px-2 py-0.5 uppercase tracking-wider rounded border border-danger/50 text-danger hover:border-danger disabled:opacity-40 transition-colors"
+                                >
+                                    <Trash2 size={11} />
+                                    {confirmingDelete ? `Confirm delete ${selectedItems.length}?` : 'Delete selected'}
+                                </button>
+                            </div>
+                        )}
 
                         {/* List */}
                         <div className="space-y-1 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
@@ -336,10 +500,13 @@ export function InventoryTab({ onNavigateTab }: { onNavigateTab?: (tab: LedgerTa
                                     onRemove={removeItem}
                                     inKit={sigItemIds.has(it.id)}
                                     onOpenKit={() => onNavigateTab?.('sheet')}
+                                    selectMode={selectMode}
+                                    selected={selectedIds.has(it.id)}
+                                    onToggleSelected={toggleSelected}
                                 />
                             ))}
                             {filteredItems.length === 0 && (
-                                <div className="text-[10px] text-text-dim/40 text-center py-4">No items in this category.</div>
+                                <div className="text-[10px] text-text-dim/40 text-center py-4">No items match.</div>
                             )}
                         </div>
                     </>
