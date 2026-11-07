@@ -48,7 +48,7 @@ const AI_SLOTS: CreationSlot[] = [2, 3, 4, 5, 6, 7, 8];
 
 /** Live progress surfaced to the wizard so it can render the prompt + stream. */
 export type GuidedProgress = {
-    stage: 'lore-select' | 'questions' | 'convert';
+    stage: 'lore-select' | 'questions' | 'convert' | 'roll';
     /** The exact prompt sent to the model (for the "Sent to AI" pane). */
     prompt: string;
     /** Cumulative reasoning/thinking text. */
@@ -80,7 +80,7 @@ function streamGuidedCall(
         temperature?: number;
         signal?: AbortSignal;
         trackingLabel: string;
-        stage: 'lore-select' | 'questions' | 'convert';
+        stage: GuidedProgress['stage'];
         onProgress?: (p: GuidedProgress) => void;
     },
 ): Promise<string> {
@@ -290,6 +290,174 @@ export async function runQuestionPrompt(
     };
 
     return { ok: true, draft, sentPrompt: prompt };
+}
+
+// ── AI decides — the player fills what they know, the AI chooses the rest from the lore ──
+
+/** Every slot the player can answer or hand to the AI. Hex and traits are not slots (§0). */
+export const ROLLABLE_SLOTS: CreationSlot[] = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+/**
+ * Engine-owned format hints. Slots 4 and 8 are split on commas at commit, so a
+ * rolled answer has to arrive in that shape to land as abilities / inventory.
+ */
+const ROLL_HINTS: Partial<Record<CreationSlot, string>> = {
+    1: 'Give only the name.',
+    4: 'Give a comma-separated list of short ability names.',
+    8: 'Give a comma-separated list of short item names.',
+    9: 'One description covering species, age, build, hair, eyes, clothing and any marks.',
+};
+
+export function getSlotValue(draft: CharacterCreationDraft, slot: CreationSlot): string {
+    if (slot === 1) return draft.name ?? '';
+    if (slot === 9) return draft.appearance ?? '';
+    return draft.answers?.[slot] ?? '';
+}
+
+function writeSlot(draft: CharacterCreationDraft, slot: CreationSlot, value: string): CharacterCreationDraft {
+    if (slot === 1) return { ...draft, name: value };
+    if (slot === 9) return { ...draft, appearance: value };
+    return { ...draft, answers: { ...draft.answers, [slot]: value } };
+}
+
+/** A player edit. Once they touch a rolled answer it is theirs, and a roll can no longer replace it. */
+export function setPlayerSlotValue(draft: CharacterCreationDraft, slot: CreationSlot, value: string): CharacterCreationDraft {
+    return {
+        ...writeSlot(draft, slot, value),
+        aiRolledSlots: (draft.aiRolledSlots ?? []).filter(s => s !== slot),
+    };
+}
+
+export function blankSlots(draft: CharacterCreationDraft): CreationSlot[] {
+    return ROLLABLE_SLOTS.filter(slot => !getSlotValue(draft, slot).trim());
+}
+
+/** A slot can be rolled while it is blank or still holds an untouched AI answer. */
+export function canRollSlot(draft: CharacterCreationDraft, slot: CreationSlot): boolean {
+    return !getSlotValue(draft, slot).trim() || (draft.aiRolledSlots ?? []).includes(slot);
+}
+
+/**
+ * Fold rolled answers into the current draft. The call takes a while and the
+ * form stays editable, so a slot the player wrote in meanwhile is left alone.
+ */
+export function applyRolledAnswers(
+    draft: CharacterCreationDraft,
+    values: Partial<Record<CreationSlot, string>>,
+): CharacterCreationDraft {
+    let next = draft;
+    const rolled = new Set(draft.aiRolledSlots ?? []);
+    for (const slot of ROLLABLE_SLOTS) {
+        const value = values[slot];
+        if (!value || !canRollSlot(draft, slot)) continue;
+        next = writeSlot(next, slot, value);
+        rolled.add(slot);
+    }
+    return { ...next, aiRolledSlots: [...rolled] };
+}
+
+function buildRollPrompt(
+    draft: CharacterCreationDraft,
+    slots: CreationSlot[],
+    loreExcerpt: string,
+): string {
+    const wording = (slot: CreationSlot) => draft.questions?.[slot] || STOCK_QUESTIONS[slot];
+    const decided = ROLLABLE_SLOTS
+        .filter(slot => !slots.includes(slot) && getSlotValue(draft, slot).trim())
+        .map(slot => `- ${wording(slot)}\n  ${getSlotValue(draft, slot).trim()}`)
+        .join('\n');
+    const questionLines = slots
+        .map((slot, i) => `${i + 1}) ${wording(slot)}${ROLL_HINTS[slot] ? ` ${ROLL_HINTS[slot]}` : ''}`)
+        .join('\n');
+    const previous = slots
+        .map(slot => getSlotValue(draft, slot).trim())
+        .filter(Boolean)
+        .map(value => `- ${value}`)
+        .join('\n');
+
+    return `You are helping create a new player character for the world below. The player has settled some details and left the rest for you to decide. Use your own judgment and the lore to make each decision: choose what makes this character specific and interesting, and avoid the most obvious option.
+
+[WORLD LORE]
+${loreExcerpt}
+[END LORE]
+
+[THE PLAYER'S DETAILS — fixed. Everything you invent must fit these.]
+${decided || '(none yet)'}
+[END DETAILS]
+
+${previous ? `
+[ALREADY SUGGESTED — the player wants something different. Do not reuse these.]
+${previous}
+[END SUGGESTED]
+` : ''}
+[QUESTIONS TO ANSWER]
+${questionLines}
+[END QUESTIONS]
+
+Rules:
+- Every place, faction, class, or power you name must come from the lore. You may invent small personal details such as a family name or a keepsake.
+- The character is a new person, not a named figure from the lore.
+- Any examples inside a question are hints, not a limit.
+- Answer in the character's facts, not as advice to the player. Keep each answer under 500 characters.
+
+Output exactly ${slots.length} answers as a numbered list (1 through ${slots.length}), same order, each on its own single line. Plain text only. No preamble, no explanations, no sub-bullets.`;
+}
+
+/** Models sometimes bold or quote a line even when told not to. */
+function cleanRolledAnswer(line: string): string {
+    return line.replace(/\*\*/g, '').trim().replace(/^"(.*)"$/, '$1').trim();
+}
+
+export type RollResult =
+    | { ok: true; values: Partial<Record<CreationSlot, string>> }
+    | { ok: false; reason: 'no-lore' | 'call-failed' | 'unparseable' };
+
+/**
+ * Answer the given slots from the world's lore, around whatever the player has
+ * already decided. Line N maps to the Nth requested slot by construction, so the
+ * model still never sees or writes a field binding (§0). Hex and traits stay out.
+ */
+export async function rollCreationSlots(
+    provider: EndpointConfig | ProviderConfig,
+    draft: CharacterCreationDraft,
+    slots: CreationSlot[],
+    loreChunks: LoreChunk[],
+    opts?: StreamOpts,
+): Promise<RollResult> {
+    const eligible = listCreationHeaders(loreChunks);
+    if (eligible.length === 0) return { ok: false, reason: 'no-lore' };
+
+    // Breadth-first across every section, locations included, because origin
+    // answers need places. Costs no extra call, unlike the header pre-pass.
+    const { excerpt } = packSelectedChunks(eligible, creationExcerptBudget(opts?.maxContextTokens));
+    const prompt = buildRollPrompt(draft, slots, excerpt);
+
+    let raw: string;
+    try {
+        raw = await streamGuidedCall(provider, prompt, {
+            temperature: 0.9,
+            signal: opts?.signal,
+            trackingLabel: 'Guided-Creation-Roll',
+            stage: 'roll',
+            onProgress: opts?.onProgress,
+        });
+    } catch (err) {
+        console.warn('[Guided Creation] Roll call failed:', err);
+        return { ok: false, reason: 'call-failed' };
+    }
+
+    const parsed = parseInterviewLines(raw, slots.length, 1);
+    if (!parsed.ok) {
+        console.warn('[Guided Creation] Roll parse failed:', parsed.error, parsed.detail);
+        return { ok: false, reason: 'unparseable' };
+    }
+
+    const values: Partial<Record<CreationSlot, string>> = {};
+    slots.forEach((slot, i) => {
+        const value = cleanRolledAnswer(parsed.lines[i]);
+        if (value) values[slot] = value;
+    });
+    return { ok: true, values };
 }
 
 // ── §2.7 — Conversion + clarifying questions ────────────────────────────────

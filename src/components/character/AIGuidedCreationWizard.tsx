@@ -1,10 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Wand2, Loader2, AlertTriangle, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import type { CharacterCreationDraft, CreationSlot, EndpointConfig, ProviderConfig } from '../../types';
 import { DEFAULT_PORTRAIT_ART_STYLE, PORTRAIT_ART_STYLE_OPTIONS } from '../../data/portraitStyles';
 import { resolveGuidedCreationEndpoint, listCreationHeaders } from '../../services/character/loreExcerptBuilder';
-import { generateInterviewQuestions, runQuestionPrompt, convertInterviewAnswers, type GuidedProgress } from '../../services/character/aiGuidedGeneration';
+import {
+    generateInterviewQuestions,
+    runQuestionPrompt,
+    convertInterviewAnswers,
+    rollCreationSlots,
+    applyRolledAnswers,
+    setPlayerSlotValue,
+    blankSlots,
+    canRollSlot,
+    type GuidedProgress,
+} from '../../services/character/aiGuidedGeneration';
 import { drawScenarios, deriveHexFromAnswers, type QuizScenario } from '../../services/character/hexQuiz';
 import { commitCharacterDraft } from '../../services/character/commitCharacterDraft';
 import { hexBand } from '../../services/npc/agency/agencyBands';
@@ -26,7 +36,8 @@ const ANSWER_SLOTS: CreationSlot[] = [2, 3, 4, 5, 6, 7, 8];
  *      when no lore chunks exist or no endpoint resolves.
  *   2. LLM call 1 (split: slots 2–5, then 6–8) — AI reskins wording only.
  *      Engine owns the slot/field map; the model never sees it.
- *   3. Answering — user answers all 9 slots offline. No LLM call fires here.
+ *   3. Answering — user answers the slots they know. The AI can decide any
+ *      blank slot from the lore on request; it only runs when the user asks.
  *      Draft persisted to `context.creationDraft` on every step.
  *   4. Hex + traits choice — Manual / Questionnaire / Skip.
  *   5. Quiz (LLM-free) — weighted multiple choice, deterministic.
@@ -86,6 +97,15 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
     const [liveStage, setLiveStage] = useState<GuidedProgress['stage']>('questions');
     const [pendingDraft, setPendingDraft] = useState<CharacterCreationDraft | null>(null);
 
+    // Roll-from-lore state for the answering form.
+    const [rollingSlots, setRollingSlots] = useState<CreationSlot[]>([]);
+    const [rollProgress, setRollProgress] = useState<GuidedProgress | null>(null);
+    const [rollError, setRollError] = useState<string | null>(null);
+    const rollAbort = useRef<AbortController | null>(null);
+    const rolling = rollingSlots.length > 0;
+
+    useEffect(() => () => rollAbort.current?.abort(), []);
+
     const onProgress = (p: GuidedProgress) => {
         setLiveStage(p.stage);
         setSentPrompt(p.prompt);
@@ -100,11 +120,11 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
 
     // Progress elapsed timer.
     useEffect(() => {
-        if (phase !== 'generating-questions' && phase !== 'converting') return;
+        if (phase !== 'generating-questions' && phase !== 'converting' && !rolling) return;
         const start = Date.now();
         const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
         return () => clearInterval(id);
-    }, [phase]);
+    }, [phase, rolling]);
 
     if (!canRun && phase === 'idle') {
         return <UnavailableState reason={!provider ? 'no-endpoint' : 'no-lore'} onCancel={onCancel} />;
@@ -170,6 +190,32 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
             // Second failure — drop into Manual (§2.4 failure ladder).
             toast.error('AI guidance unavailable — dropping into Manual creation.');
             onCancel();
+        }
+    };
+
+    const rollSlots = async (slots: CreationSlot[]) => {
+        if (!provider || rollAbort.current || slots.length === 0) return;
+        const controller = new AbortController();
+        rollAbort.current = controller;
+        setRollError(null);
+        setRollProgress(null);
+        setElapsed(0);
+        setRollingSlots(slots);
+        const result = await rollCreationSlots(provider, draft, slots, loreChunks ?? [], {
+            signal: controller.signal,
+            onProgress: setRollProgress,
+            maxContextTokens,
+        });
+        rollAbort.current = null;
+        setRollingSlots([]);
+        setRollProgress(null);
+        if (controller.signal.aborted) return;
+        if (result.ok) {
+            setDraft(d => applyRolledAnswers(d, result.values));
+        } else {
+            setRollError(result.reason === 'no-lore'
+                ? 'No world lore for the AI to draw on. Add lore in the World Info tab.'
+                : 'The AI could not decide those answers. Your answers are unchanged. Try again?');
         }
     };
 
@@ -322,6 +368,13 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
                     setDraft={setDraft}
                     onBack={onCancel}
                     onNext={proceedToHexChoice}
+                    canRoll={!!provider && eligibleCount > 0}
+                    rollingSlots={rollingSlots}
+                    rollProgress={rollProgress}
+                    rollError={rollError}
+                    elapsed={elapsed}
+                    onRoll={rollSlots}
+                    onStopRoll={() => rollAbort.current?.abort()}
                 />
             )}
 
@@ -436,7 +489,7 @@ function IdleState({ onStart, loreChunkCount }: { onStart: () => void; loreChunk
             </div>
             <p className="text-text-dim uppercase tracking-widest text-sm font-bold">AI-Guided Creation</p>
             <p className="text-text-dim/60 text-xs mt-2 max-w-sm">
-                Answer a short interview tailored to your world lore. The AI reskins the questions; you own the answers.
+                Answer a short interview tailored to your world lore. Fill in what you know, and let the AI decide the rest from the lore.
                 ({loreChunkCount} lore chunks selected)
             </p>
             <button
@@ -462,7 +515,7 @@ function StreamPanel({
     stage, prompt, editablePrompt, setEditablePrompt, reasoning, content,
     elapsed, streamDone, onCancel, onRerun, onContinue,
 }: {
-    stage: 'lore-select' | 'questions' | 'convert';
+    stage: GuidedProgress['stage'];
     prompt: string;
     editablePrompt: string;
     setEditablePrompt: (v: string) => void;
@@ -551,27 +604,64 @@ function StreamPanel({
 }
 
 function AnsweringForm({
-    draft, setDraft, onBack, onNext,
+    draft, setDraft, onBack, onNext, canRoll, rollingSlots, rollProgress, rollError, elapsed, onRoll, onStopRoll,
 }: {
     draft: CharacterCreationDraft;
     setDraft: (d: CharacterCreationDraft) => void;
     onBack: () => void;
     onNext: () => void;
+    canRoll: boolean;
+    rollingSlots: CreationSlot[];
+    rollProgress: GuidedProgress | null;
+    rollError: string | null;
+    elapsed: number;
+    onRoll: (slots: CreationSlot[]) => void;
+    onStopRoll: () => void;
 }) {
-    const updateAnswer = (slot: CreationSlot, value: string) => {
-        setDraft({ ...draft, answers: { ...draft.answers, [slot]: value } });
-    };
+    const rolling = rollingSlots.length > 0;
+    const blanks = blankSlots(draft);
+
+    const edit = (slot: CreationSlot, value: string) => setDraft(setPlayerSlotValue(draft, slot, value));
+
+    const rollAction = (slot: CreationSlot) => canRoll && canRollSlot(draft, slot) && (
+        <RollButton
+            rerolling={(draft.aiRolledSlots ?? []).includes(slot)}
+            active={rollingSlots.includes(slot)}
+            disabled={rolling}
+            onClick={() => onRoll([slot])}
+        />
+    );
 
     return (
         <div className="space-y-5">
-            <p className="text-[10px] text-text-dim/60">Answer each question. Your draft is saved automatically.</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[10px] text-text-dim/60">
+                    Fill in what you already know. Leave the rest blank and the AI can decide it from your world's lore, built around your answers. Your draft is saved automatically.
+                </p>
+                {canRoll && (
+                    <button
+                        onClick={() => onRoll(blanks)}
+                        disabled={rolling || blanks.length === 0}
+                        className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-terminal/20 text-terminal border border-terminal/30 rounded hover:bg-terminal/30 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] uppercase tracking-widest transition-colors"
+                    >
+                        <Wand2 size={12} /> {blanks.length > 0 ? `AI decide ${blanks.length} blank` : 'No blanks left'}
+                    </button>
+                )}
+            </div>
+
+            {rolling && <RollStatus progress={rollProgress} count={rollingSlots.length} elapsed={elapsed} onStop={onStopRoll} />}
+            {rollError && !rolling && (
+                <div className="px-3 py-2 bg-ember/10 border border-ember/40 rounded text-[11px] text-ember flex items-center gap-2">
+                    <AlertTriangle size={12} /> {rollError}
+                </div>
+            )}
 
             {/* Slot 1 — Name (fixed, engine) */}
-            <Field label="1. What is your character's name?">
+            <Field label="1. What is your character's name?" action={rollAction(1)}>
                 <input
                     type="text"
                     value={draft.name || ''}
-                    onChange={e => setDraft({ ...draft, name: e.target.value })}
+                    onChange={e => edit(1, e.target.value)}
                     placeholder="Your character's name"
                     className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal"
                 />
@@ -579,22 +669,22 @@ function AnsweringForm({
 
             {/* Slots 2–8 — AI-reskinned questions */}
             {ANSWER_SLOTS.map(slot => (
-                <Field key={slot} label={`${slot}. ${draft.questions?.[slot] ?? ''}`}>
+                <Field key={slot} label={`${slot}. ${draft.questions?.[slot] ?? ''}`} action={rollAction(slot)}>
                     <textarea
                         value={draft.answers?.[slot] ?? ''}
-                        onChange={e => updateAnswer(slot, e.target.value)}
+                        onChange={e => edit(slot, e.target.value)}
                         rows={3}
-                        placeholder="Your answer..."
+                        placeholder="Your answer, or leave blank for the AI..."
                         className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal resize-y"
                     />
                 </Field>
             ))}
 
             {/* Slot 9 — Appearance (one description; the portrait uses all of it) */}
-            <Field label="9. What does your character look like?">
+            <Field label="9. What does your character look like?" action={rollAction(9)}>
                 <textarea
                     value={draft.appearance || ''}
-                    onChange={e => setDraft({ ...draft, appearance: e.target.value })}
+                    onChange={e => edit(9, e.target.value)}
                     rows={4}
                     placeholder="Species, age, build, hair, eyes, clothing, gear, marks — partial is fine."
                     className="w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal resize-y"
@@ -616,12 +706,62 @@ function AnsweringForm({
                 </button>
                 <button
                     onClick={onNext}
-                    disabled={!draft.name?.trim()}
+                    disabled={!draft.name?.trim() || rolling}
                     className="px-6 py-2 text-xs uppercase tracking-widest text-void bg-terminal font-bold hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                     Next <ChevronRight size={12} className="inline" />
                 </button>
             </div>
+        </div>
+    );
+}
+
+function RollButton({ rerolling, active, disabled, onClick }: {
+    rerolling: boolean;
+    active: boolean;
+    disabled: boolean;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            disabled={disabled}
+            title={rerolling ? 'Ask the AI for a different answer' : 'Let the AI decide this from the lore'}
+            className="shrink-0 flex items-center gap-1 text-[9px] uppercase tracking-widest text-terminal/80 hover:text-terminal disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+            {active ? <Loader2 size={11} className="animate-spin" /> : <Wand2 size={11} />}
+            {rerolling ? 'Try another' : 'AI decide'}
+        </button>
+    );
+}
+
+function RollStatus({ progress, count, elapsed, onStop }: {
+    progress: GuidedProgress | null;
+    count: number;
+    elapsed: number;
+    onStop: () => void;
+}) {
+    return (
+        <div className="bg-void border border-terminal/30 rounded p-3 space-y-2">
+            <div className="flex items-center gap-2">
+                <Loader2 size={12} className="text-terminal animate-spin" />
+                <span className="text-text-dim text-[10px] uppercase tracking-widest">
+                    AI is deciding {count} {count === 1 ? 'answer' : 'answers'} from your world's lore...
+                </span>
+                <span className="text-text-dim/40 text-[10px] ml-auto">{elapsed}s</span>
+                <button onClick={onStop} className="text-[10px] uppercase tracking-widest text-text-dim hover:text-text-primary transition-colors">
+                    Stop
+                </button>
+            </div>
+            {progress && (
+                <details className="text-[10px] text-text-dim">
+                    <summary className="cursor-pointer uppercase tracking-widest text-text-dim/70">Sent to AI and live output</summary>
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap custom-scrollbar">{progress.prompt}</pre>
+                    {progress.reasoning && <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-ice/80 custom-scrollbar">{progress.reasoning}</pre>}
+                    {progress.content && <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-text-primary custom-scrollbar">{progress.content}</pre>}
+                </details>
+            )}
         </div>
     );
 }
@@ -796,10 +936,13 @@ function Reveal({ draft, convertedAnswers, hex, traits, onCommit, onBack }: {
     );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
     return (
         <div>
-            <label className="block text-text-dim text-[10px] uppercase tracking-wider mb-1">{label}</label>
+            <div className="flex items-start justify-between gap-3 mb-1">
+                <label className="block text-text-dim text-[10px] uppercase tracking-wider">{label}</label>
+                {action}
+            </div>
             {children}
         </div>
     );

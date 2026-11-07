@@ -359,6 +359,8 @@ export type CharacterCreationDraft = {
     clarifyingQuestions?: string[];
     /** §2.7 — user answers to the clarifying questions. */
     clarifyingAnswers?: string[];
+    /** Slots currently holding an untouched AI answer. A player edit removes the slot. */
+    aiRolledSlots?: CreationSlot[];
     /** Wizard step index for resume. */
     step?: number;
 };
