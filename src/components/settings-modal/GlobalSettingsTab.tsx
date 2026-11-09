@@ -11,7 +11,7 @@ import {
 } from '../chat/readingPrefs';
 import { MAX_STORY_TIMEOUT_SECONDS, MIN_STORY_TIMEOUT_SECONDS, normalizeStoryTimeoutSeconds } from '../../services/llm/timeouts';
 import { computeLoreBudget, normalizeLoreDepth } from '../../services/lore/loreBudget';
-import { SCENE_RECALL_BUDGETS, normalizeSceneRecallBudget } from '../../services/archive-memory/recallBudget';
+import { MIN_SCENE_RECALL_BUDGET, effectiveSceneRecallBudget, normalizeSceneRecallBudget } from '../../services/archive-memory/recallBudget';
 
 /**
  * The six groups this tab divides into, in the order the blocks already appear
@@ -37,6 +37,17 @@ export function GlobalSettingsTab() {
   // state simply has no effect.
   const [activeGroup, setActiveGroup] = useState<string>('interface');
   const [storyTimeoutDraft, setStoryTimeoutDraft] = useState<string | null>(null);
+  const [recallSpaceDraft, setRecallSpaceDraft] = useState<string | null>(null);
+  const recallSpace = normalizeSceneRecallBudget(settings.sceneRecallBudget);
+  const recallSpaceUsed = effectiveSceneRecallBudget(settings.sceneRecallBudget, settings.contextLimit);
+  const commitRecallSpace = () => {
+    if (recallSpaceDraft === null) return;
+    const n = Math.round(Number(recallSpaceDraft));
+    if (Number.isFinite(n) && recallSpaceDraft.trim() !== '') {
+      updateSettings({ sceneRecallBudget: Math.max(MIN_SCENE_RECALL_BUDGET, Math.min(n, settings.contextLimit || n)) });
+    }
+    setRecallSpaceDraft(null);
+  };
 
   return (
     <div data-ui="global-root" className="mt-8 pt-6 border-t border-border space-y-4">
@@ -279,27 +290,43 @@ export function GlobalSettingsTab() {
               Scene Recall Space
             </label>
             <span className="text-terminal font-bold font-mono bg-terminal/10 px-2 py-0.5 rounded text-[10px]">
-              ≤{normalizeSceneRecallBudget(settings.sceneRecallBudget).toLocaleString()} tok
+              ≤{recallSpaceUsed.toLocaleString()} tok
             </span>
           </div>
           <p className="text-[9px] text-text-dim leading-tight">
-            How much of each turn's prompt past scenes may use. The best match comes in full, the
-            others as one-line summaries. More space lets long scenes arrive whole instead of cut,
-            and costs up to that many extra tokens per turn on the story model. 3k: default.
-            4k or 6k: for large context windows.
+            How many tokens of each turn's prompt past scenes may use. The best match comes in
+            full, the others as one-line summaries. More space lets long scenes arrive whole
+            instead of cut, and costs up to that many tokens per turn on the story model.
+            Default 3,000; 4,000–6,000 suits large context windows. At least
+            {' '}{MIN_SCENE_RECALL_BUDGET}, and never more than the context limit
+            ({(settings.contextLimit || 0).toLocaleString()}).
           </p>
+          {recallSpaceUsed < recallSpace && (
+            <p className="text-[9px] text-amber-400 leading-tight mt-1">
+              Capped at the context limit: recall uses {recallSpaceUsed.toLocaleString()}.
+            </p>
+          )}
         </div>
-        <div className="flex border border-border overflow-hidden rounded">
-          {SCENE_RECALL_BUDGETS.map(budget => (
-            <button
-              key={budget}
-              onClick={() => updateSettings({ sceneRecallBudget: budget })}
-              className={`flex-1 py-1.5 text-[10px] uppercase tracking-wider transition-colors focus:outline-none ${normalizeSceneRecallBudget(settings.sceneRecallBudget) === budget
-                ? 'bg-terminal text-void font-bold'
-                : 'bg-void text-text-dim hover:text-text-primary'
-              }`}
-            >
-              {budget / 1000}k
+        <input
+          type="number"
+          aria-label="Scene recall space in tokens"
+          min={MIN_SCENE_RECALL_BUDGET}
+          max={settings.contextLimit || undefined}
+          step={500}
+          value={recallSpaceDraft ?? String(recallSpace)}
+          onChange={e => setRecallSpaceDraft(e.target.value)}
+          onBlur={commitRecallSpace}
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+          className="w-full h-7 bg-surface border border-border rounded px-2 text-xs text-text font-mono focus:outline-none focus:border-terminal"
+        />
+        <div className="flex flex-wrap gap-1.5">
+          {[3000, 4000, 6000].map(tokens => (
+            <button key={tokens} type="button" onClick={() => {
+              setRecallSpaceDraft(null);
+              updateSettings({ sceneRecallBudget: tokens });
+            }}
+              className="px-2 py-1 text-[10px] font-mono border border-border rounded hover:border-terminal">
+              {tokens / 1000}k
             </button>
           ))}
         </div>

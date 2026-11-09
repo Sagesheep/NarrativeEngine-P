@@ -171,10 +171,13 @@ describe('gatherContext', () => {
     it('recalls past scenes within the Scene Recall Space the player chose (3,000 by default)', async () => {
         const { retrieveArchiveMemory } = await import('../archiveMemory');
         const archiveIndex = [{ sceneId: '005', timestamp: 1, keywords: [], npcsMentioned: [], witnesses: [], userSnippet: '' }];
-        for (const [sceneRecallBudget, expected] of [[undefined, 3000], [6000, 6000], [12345, 3000]] as const) {
+        // [setting, context limit, budget recall gets]: free numbers, capped at the context limit.
+        for (const [sceneRecallBudget, contextLimit, expected] of [
+            [undefined, 128000, 3000], [6000, 128000, 6000], [12345, 128000, 12345], [12345, 8192, 8192], ['x', 128000, 3000],
+        ] as const) {
             vi.mocked(retrieveArchiveMemory).mockReturnValueOnce(['005']);
             mockFetchRecallScenes.mockClear();
-            await gatherContext(makeState({ activeCampaignId: 'c1', archiveIndex, settings: { sceneRecallBudget } as any }), 'look', noDeps());
+            await gatherContext(makeState({ activeCampaignId: 'c1', archiveIndex, settings: { sceneRecallBudget, contextLimit } as any }), 'look', noDeps());
             expect(mockFetchRecallScenes.mock.calls[0]?.[2]).toBe(expected);
         }
     });
