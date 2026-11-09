@@ -226,17 +226,28 @@ describe('runDirectorBrief', () => {
             expect(DIRECTOR_BRIEF_TIMEOUT_MS).toBe(180_000);
         });
 
-        it('passes trackingLabel and priority to llmCall (no own thinkingEffort — WO-04b §3)', async () => {
+        it('passes trackingLabel and priority to llmCall', async () => {
             mockLlmCall.mockResolvedValueOnce(VALID_BRIEF);
             await runDirectorBrief(baseInput());
             const opts = mockLlmCall.mock.calls[0][2] as any;
             expect(opts.trackingLabel).toBe('director-brief');
             expect(opts.priority).toBe('low');
             expect(opts.timeoutMs).toBe(180_000);
-            // WO-04b §3: no own `thinkingEffort` property — llmCall inherits the
-            // chosen endpoint's configured `thinkingEffort` (llmCall.ts:95).
-            expect(Object.prototype.hasOwnProperty.call(opts, 'thinkingEffort')).toBe(false);
-            expect(opts.thinkingEffort).toBeUndefined();
+        });
+
+        // The `directorThinking` block (2026-10-07; replaces WO-04b §3's "inherit the
+        // endpoint's thinking"). Off by default: thinking took ~10 s per brief on
+        // DS v4 Flash instead of ~1.7 s and caught no more slips.
+        it('asks for thinking off by default', async () => {
+            mockLlmCall.mockResolvedValueOnce(VALID_BRIEF);
+            await runDirectorBrief(baseInput());
+            expect((mockLlmCall.mock.calls[0][2] as any).thinkingEffort).toBe('off');
+        });
+
+        it('lets the endpoint thinking level apply when the block is on', async () => {
+            mockLlmCall.mockResolvedValueOnce(VALID_BRIEF);
+            await runDirectorBrief(baseInput({ thinking: true }));
+            expect((mockLlmCall.mock.calls[0][2] as any).thinkingEffort).toBeUndefined();
         });
 
         it('forwards the abort signal to llmCall', async () => {

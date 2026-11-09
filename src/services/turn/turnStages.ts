@@ -350,6 +350,7 @@ export async function runDirectorStage(
                     getBuiltinTokenCap(BUILTIN_IDS.directorBrief)?.default ?? 1500,
                     state.settings.moduleTokens,
                 ),
+                thinking: isBlockEnabled('directorThinking', settings.aiTier, settings.moduleEnabled),
                 modelCall: facade && hasHostModelRole(facade, 'auxiliary')
                     ? (prompt, request) => facade.model.call('auxiliary', { prompt, ...request }).then(result => result.content)
                     : undefined,

@@ -18,7 +18,7 @@
 // on the store are: `getActiveStoryEndpoint`, `getActiveUtilityEndpoint`,
 // `getActiveAuxiliaryEndpoint` (see `store/slices/settingsSlice.ts:180-213`).
 
-import type { ChatMessage, NPCEntry, TimelineEvent, EndpointConfig, ProviderConfig } from '../../types';
+import type { ChatMessage, NPCEntry, TimelineEvent, EndpointConfig, ProviderConfig, ThinkingEffort } from '../../types';
 import { llmCall, UtilityTimeoutError } from '../../utils/llmCall';
 import { countTokens } from '../infrastructure/tokenizer';
 
@@ -162,6 +162,14 @@ export function buildRecentEvents(
 }
 
 // ── Prompt assembly (FABLE-AUTHORED, verbatim) ──────────────────────────────
+// 2026-10-07: the dice and player-claim sentences, and the end of the [MANDATORY]
+// rule, were added after the thinking-off check (director-check.mjs). Without
+// thinking, the Director turned rolls into required outcomes and once confirmed a
+// player's misremembered past as canon. A first wording ("never confirm it as true")
+// over-corrected: it flagged real canon missing from its narrow context as unverified
+// (the Therese promise, the Dunncarrock killing, the campaign's cards). Any rule about
+// the player's claims gave it something to write about, so the rule now tells it to
+// write nothing about what it cannot see.
 
 const DIRECTOR_PROMPT_TEMPLATE = `You are the Continuity Director of an ongoing role-played campaign. You do not write prose or manufacture drama. You audit the last turn and issue a short brief only when the GM needs a hard-world correction or a compatible NPC-agency repair for the next turn.
 
@@ -186,6 +194,7 @@ VERIFIED FACTS (do not re-derive; act on them):
 </world_facts>
 
 Use the supplied context as your complete evidence. Do not invent canon, unseen actions, private knowledge, motives, injuries, or social harm. Do not turn a clever, lawful, or tactically sound player action into a moral failing merely to create friction.
+Dice outcomes in the player input are the Writer's to narrate: never turn a roll into a required result or a forced reaction. Your context is a small slice of the campaign; the Writer has its full memory. Write no directive about a person, place, item, ability, memory, or past event that the player mentions and your context does not show: the Writer judges those.
 
 Consider, in order:
 1. World-law and continuity - does the last GM turn or the player's intended action contradict an established rule, capability, location, prior event, knowledge boundary, or physical consequence? Flag only a contradiction demonstrated by the supplied context. A valid but risky action is not a violation; narrate its real limits or consequences rather than denying it outright.
@@ -197,7 +206,7 @@ OUTPUT exactly this, nothing else:
 WRITER BRIEF
 - [MANDATORY] <directive>   (0-2 lines)
 - [SUGGESTION] <directive>  (0-3 lines)
-Use [MANDATORY] only for a demonstrated world-law, continuity, knowledge, or fair-adjudication correction. Use [SUGGESTION] only for one compatible watchdog repair. Each directive is one imperative line naming specific characters. No analysis, no preamble. If nothing is needed, output "WRITER BRIEF" followed by "- [SUGGESTION] Proceed naturally."`;
+Use [MANDATORY] only for a demonstrated world-law, continuity, knowledge, or fair-adjudication correction, never for a dice result or how a character should feel. Use [SUGGESTION] only for one compatible watchdog repair. Each directive is one imperative line naming specific characters. No analysis, no preamble. If nothing is needed, output "WRITER BRIEF" followed by "- [SUGGESTION] Proceed naturally."`;
 
 /** Render the verbatim Director prompt with the slot values inlined. */
 export function renderDirectorPrompt(input: {
@@ -297,11 +306,15 @@ export interface DirectorBriefInput {
     signal?: AbortSignal;
     /** User-selected output-token cap for the owned director-brief call. */
     maxTokens?: number;
+    /** The `directorThinking` block. Off: the call asks for no thinking. On: the
+     *  Auxiliary slot's own thinking level applies. */
+    thinking?: boolean;
     /** Facade-brokered model call used by the production turn path. */
     modelCall?: (prompt: string, options: {
         signal?: AbortSignal;
         maxTokens: number;
         priority: 'low';
+        thinkingEffort?: ThinkingEffort;
         trackingLabel: string;
         timeoutMs: number;
     }) => Promise<string>;
@@ -366,11 +379,17 @@ export async function runDirectorBrief(input: DirectorBriefInput): Promise<strin
             worldFacts: input.worldFacts,
         });
 
+        // Thinking off unless the `directorThinking` block is on. Measured on DS v4
+        // Flash over nine probe turns (2026-10-07): thinking took ~10 s per brief (up
+        // to 26 s) and ~1.6k reasoning tokens; off took ~1.7 s and caught as many
+        // continuity and knowledge slips. On, the endpoint's own effort applies.
+        const thinkingEffort: ThinkingEffort | undefined = input.thinking ? undefined : 'off';
         const raw = input.modelCall
             ? await input.modelCall(prompt, {
                 signal: input.signal,
                 maxTokens: input.maxTokens ?? 1500,
                 priority: 'low',
+                thinkingEffort,
                 trackingLabel: TRACKING_LABEL,
                 timeoutMs: DIRECTOR_BRIEF_TIMEOUT_MS,
             })
@@ -378,8 +397,7 @@ export async function runDirectorBrief(input: DirectorBriefInput): Promise<strin
                 signal: input.signal,
                 maxTokens: input.maxTokens ?? 1500,
                 priority: 'low',
-                // WO-04b §3: no thinkingEffort option — let llmCall inherit the
-                // chosen endpoint's configured `thinkingEffort` (llmCall.ts:95).
+                thinkingEffort,
                 trackingLabel: TRACKING_LABEL,
                 timeoutMs: DIRECTOR_BRIEF_TIMEOUT_MS,
             });

@@ -291,6 +291,8 @@ export const pl: LocalePack = {
     'tierblock.arcSpawn.description': 'Uruchamia nowy wątek konfliktu systemowego za pomocą przycisku „Arc Injector”. Naciśnięcie przycisku stanowi bramkę; wartość macierzy poziomów nie jest nigdy odczytywana.',
     'tierblock.directorBrief.name': 'Director Brief',
     'tierblock.directorBrief.description': 'Pyta model użytkowy o dyrektywy sceniczne, które kierują kolejną odpowiedzią GM.',
+    'tierblock.directorThinking.name': 'Director Brief: Thinking',
+    'tierblock.directorThinking.description': 'Pozwala Reżyserowi przeprowadzić analizę przed napisaniem wskazówek. Domyślnie wyłączone: w testach na DS v4 Flash (dziewięć tur testowych) analiza wydłużała przygotowanie wskazówek do około 10 s (do 26 s) zamiast około 2 s i nie wychwytywała więcej błędów ciągłości ani wiedzy postaci.',
     'tierblock.lodDynamicElevation.name': 'Dynamic Scene Elevation',
     'tierblock.lodDynamicElevation.description': 'Przenosi sceny z poziomu streszczenia dosłownie poniżej granicy pamięci podręcznej, jeśli są one bardzo istotne.',
     'tierblock.lodSlottedRag.name': 'Slotted RAG Snippets',

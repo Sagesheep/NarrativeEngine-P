@@ -10,7 +10,7 @@
 //   add --mock to validate the plumbing without model calls; --model / --key pick the provider
 //   label and the .keys.json entry (defaults: deepseek-v4-flash, "DS v4 Flash")
 //
-// Records: work/director-check/<campaign>/<probe>/U3__<model>__aux-<level>__director-only__s<n>.json
+// Records: work/<--runs, default director-check>/<campaign>/<probe>/U3__<model>__aux-<level>__director-only__s<n>.json
 // Briefs:  work/director-check/briefs.md
 // Uses the backend on :3001, or starts its own. Unless --mock, needs .keys.json.
 
@@ -22,12 +22,13 @@ import { fileURLToPath } from 'url';
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const HERE = path.join(ROOT, 'scripts/turn-prep-experiment');
 const SERVER = process.env.EXP_SERVER ?? 'http://localhost:3001';
-const RUNS_NAME = 'director-check';
-const RUNS = path.join(HERE, 'work', RUNS_NAME);
 
 const args = process.argv.slice(2);
 const flag = name => args.includes(`--${name}`);
 const opt = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : fallback; };
+// --runs <folder under work/>: a later round keeps its own records and briefs file.
+const RUNS_NAME = opt('runs', 'director-check');
+const RUNS = path.join(HERE, 'work', RUNS_NAME);
 const model = opt('model', 'deepseek-v4-flash');
 // The .keys.json entry was stored under the provider's earlier name.
 const keyName = opt('key', 'DS v4 Flash');

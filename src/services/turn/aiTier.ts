@@ -10,7 +10,7 @@ export type TierFeature =
   | 'sceneStakesClassify'
   | 'heartbeatTick' | 'timeskipRun'
   | 'arcTick' | 'arcSpawn'
-  | 'directorBrief'
+  | 'directorBrief' | 'directorThinking'
   | 'lodDynamicElevation'
   | 'lodSlottedRag';
 
@@ -49,7 +49,7 @@ export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
         sceneStakesClassify: false,
         heartbeatTick: false, timeskipRun: false,
         arcTick: false, arcSpawn: false,
-        directorBrief: false,
+        directorBrief: false, directorThinking: false,
         lodDynamicElevation: false,
         lodSlottedRag: false,
     },
@@ -61,7 +61,7 @@ export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
         sceneStakesClassify: true,
         heartbeatTick: true, timeskipRun: true,
         arcTick: true, arcSpawn: true,
-        directorBrief: true,
+        directorBrief: true, directorThinking: false,
         lodDynamicElevation: true,
         lodSlottedRag: false,
     },
@@ -73,7 +73,7 @@ export const MATRIX: Record<AiTier, Record<TierFeature, boolean>> = {
         sceneStakesClassify: true,
         heartbeatTick: true, timeskipRun: true,
         arcTick: true, arcSpawn: true,
-        directorBrief: true,
+        directorBrief: true, directorThinking: false,
         lodDynamicElevation: true,
         lodSlottedRag: true,
     },
@@ -178,6 +178,7 @@ const TIER_BLOCKS: readonly TierBlock[] = [
     { id: 'arcTick', name: 'Arc Engine Tick', description: 'Rolls tempo per active arc, advances the ladder, and folds the surface line into the next GM call.', toggleable: true, trigger: 'automatic', defaultEnabled: true, callsModel: false },
     { id: 'arcSpawn', name: 'Arc Injector Spawn', description: 'Fires a new systemic-conflict arc from the Arc Injector button. The press is the gate; the tier matrix value is never read.', toggleable: false, trigger: 'manual', defaultEnabled: true, callsModel: true },
     { id: 'directorBrief', name: 'Director Brief', description: 'Asks a utility model for scene directives that steer the next GM reply.', toggleable: true, trigger: 'automatic', defaultEnabled: true, callsModel: true },
+    { id: 'directorThinking', name: 'Director Brief: Thinking', description: 'Lets the Director reason before it writes its brief. Off by default: measured on DS v4 Flash over nine probe turns, thinking made each brief take ~10 s (up to 26 s) instead of ~2 s and caught no more continuity or knowledge slips.', toggleable: true, trigger: 'automatic', defaultEnabled: false, callsModel: true },
     { id: 'lodDynamicElevation', name: 'Dynamic Scene Elevation', description: 'Puts the closest-matching older (synopsis-tier) scenes back in full for this turn, below the cache boundary. There is no relevance cutoff: it always takes the top matches.', toggleable: true, trigger: 'automatic', defaultEnabled: true, callsModel: false },
     { id: 'lodSlottedRag', name: 'Slotted RAG Snippets', description: 'Injects one-line snippets from synopsis-tier scenes that had search hits but were not elevated.', toggleable: true, trigger: 'automatic', defaultEnabled: false, callsModel: false },
 ];

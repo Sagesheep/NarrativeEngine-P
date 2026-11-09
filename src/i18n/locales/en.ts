@@ -293,6 +293,8 @@ export const en = {
     'tierblock.arcSpawn.description': 'Fires a new systemic-conflict arc from the Arc Injector button. The press is the gate; the tier matrix value is never read.',
     'tierblock.directorBrief.name': 'Director Brief',
     'tierblock.directorBrief.description': 'Asks a utility model for scene directives that steer the next GM reply.',
+    'tierblock.directorThinking.name': 'Director Brief: Thinking',
+    'tierblock.directorThinking.description': 'Lets the Director reason before it writes its brief. Off by default: measured on DS v4 Flash over nine probe turns, thinking made each brief take ~10 s (up to 26 s) instead of ~2 s and caught no more continuity or knowledge slips.',
     'tierblock.lodDynamicElevation.name': 'Dynamic Scene Elevation',
     'tierblock.lodDynamicElevation.description': 'Puts the closest-matching older (synopsis-tier) scenes back in full for this turn, below the cache boundary. There is no relevance cutoff: it always takes the top matches.',
     'tierblock.lodSlottedRag.name': 'Slotted RAG Snippets',

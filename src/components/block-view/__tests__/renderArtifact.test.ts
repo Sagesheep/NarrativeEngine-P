@@ -94,12 +94,12 @@ ${section('Post-turn tracks', 'Background work that runs after the scene commits
         const outPath = resolve(outDir, 'BLOCK_VIEW_ARTIFACT.html');
         writeFileSync(outPath, html);
         expect(html.length).toBeGreaterThan(1000);
-        // 28 built-in TierFeature ids (Phase 8.3: enemyDiscovery left with the
-        // enemy subsystem; then recommenderThinking was added). 2 tracks (npc + pressure; enemy-suggestion left with
+        // 29 built-in TierFeature ids (Phase 8.3: enemyDiscovery left with the
+        // enemy subsystem; then recommenderThinking and directorThinking were added). 2 tracks (npc + pressure; enemy-suggestion left with
         // the subsystem). 9 contributions (WO-4 §4 added `npc.relations` — the
         // on-stage NPC↔NPC relations block split out of the structural
         // `volatile.block` so a mod can suppress it).
-        expect(tier.length).toBe(28);
+        expect(tier.length).toBe(29);
         expect(contributions.length).toBe(10);
         expect(tracks.length).toBe(2);
     });
