@@ -267,7 +267,7 @@ export function GlobalSettingsTab() {
       <div data-ui="settings-section" data-group="memory" data-active={activeGroup === 'memory' ? 'true' : undefined} className="contents">
       <h4 data-ui="settings-group" className="hidden">Memory &amp; retrieval</h4>
 
-      {/* Deep Archive Search and the Archive Planner are switched in Block View only
+      {/* Deep Archive Search and the Recall Picker are switched in Block View only
           (their second switches here were removed 2026-10-05). */}
 
       {/* Retrieval algorithm (IDF+RRF vs classic) — kill-switch for the lore/rules ranker */}

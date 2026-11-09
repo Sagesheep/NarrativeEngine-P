@@ -1,5 +1,6 @@
 import { api } from '../../../llm/apiClient';
-import { extractSceneEvents } from '../../../archive-memory/sceneEventExtractor';
+import { analyzeScene } from '../../../archive-memory/sceneEventExtractor';
+import { closeHookPatches, hooksNamedInText, openHooks } from '../../../archive-memory/sceneTags';
 import { backgroundQueue } from '../../../infrastructure/backgroundQueue';
 import type { PostTurnTrack, PostCommitTrackContext } from '../types';
 import { assertStillActive, makeGuarded } from '../guarded';
@@ -7,7 +8,7 @@ import { assertStillActive, makeGuarded } from '../guarded';
 export const eventExtractionTrack: PostTurnTrack<PostCommitTrackContext> = {
     id: 'track.event-extraction',
     name: 'Event Extraction',
-    description: 'Extracts durable scene events after an archive commit.',
+    description: 'Writes a scene definition and extracts durable events, tags and story hooks after an archive commit.',
     toggleable: true,
     defaultEnabled: true,
     trigger: 'automatic',
@@ -23,16 +24,26 @@ export const eventExtractionTrack: PostTurnTrack<PostCommitTrackContext> = {
         if (!entry || (!provider && !modelCall)) return;
 
         const sceneText = `${ctx.displayInput}\n\n${ctx.lastAssistantContent}`;
+        const index = ctx.freshIndex ?? [];
+        const hooksToCheck = hooksNamedInText(openHooks(index), sceneText);
         const guardedSetArchiveIndex = makeGuarded(ctx.callbacks.setArchiveIndex, ctx.activeCampaignId, 'setArchiveIndex (Event-Extraction)');
         backgroundQueue.push(`Event-Extraction:${ctx.sceneId}`, async () => {
             if (!assertStillActive(ctx.activeCampaignId, 'Event-Extraction')) return;
-            const events = await extractSceneEvents(provider, sceneText, undefined, modelCall);
-            if (events && events.length > 0) {
-                await api.archive.patchEvents(ctx.activeCampaignId, [{ sceneId: entry.sceneId, events }]);
-                const updatedIndex = await api.archive.getIndex(ctx.activeCampaignId);
-                guardedSetArchiveIndex(updatedIndex);
-                console.log(`[Archive] Post-turn events extracted for scene #${entry.sceneId}`);
-            }
+            const analysis = await analyzeScene(provider, sceneText, entry.sceneId, { modelCall, openHooks: hooksToCheck });
+            if (!analysis) return;
+            await api.archive.patchEvents(ctx.activeCampaignId, [
+                {
+                    sceneId: entry.sceneId,
+                    ...(analysis.events.length > 0 ? { events: analysis.events } : {}),
+                    tags: analysis.tags,
+                    hooks: analysis.hooks,
+                    ...(analysis.definition ? { definition: analysis.definition } : {}),
+                },
+                ...closeHookPatches(index, analysis.resolvedHookIds, entry.sceneId),
+            ]);
+            const updatedIndex = await api.archive.getIndex(ctx.activeCampaignId);
+            guardedSetArchiveIndex(updatedIndex);
+            console.log(`[Archive] Post-turn analysis saved for scene #${entry.sceneId}`);
         }).catch(err => console.warn('[PostTurn] Background event extraction failed:', err));
     },
 };

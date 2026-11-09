@@ -275,9 +275,13 @@ export function patchEvents(campaignId, patches) {
     const idxp = archiveIndexPath(campaignId);
     const entries = readIndexAt(idxp, []);
     for (const patch of patches) {
-        if (!patch.sceneId || !Array.isArray(patch.events)) continue;
+        if (!patch.sceneId) continue;
         const entry = entries.find(e => e.sceneId === patch.sceneId);
-        if (entry) entry.events = patch.events;
+        if (!entry) continue;
+        if (Array.isArray(patch.events)) entry.events = patch.events;
+        if (patch.tags && typeof patch.tags === 'object' && !Array.isArray(patch.tags)) entry.tags = patch.tags;
+        if (Array.isArray(patch.hooks)) entry.hooks = patch.hooks;
+        if (typeof patch.definition === "string" && patch.definition.trim()) entry.definition = patch.definition.trim();
     }
     writeIndexAt(idxp, entries);
     return { updated: patches.length };

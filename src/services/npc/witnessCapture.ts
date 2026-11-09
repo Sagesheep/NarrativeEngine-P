@@ -33,7 +33,7 @@ export function witnessesFromHeader(gmText: string, ledger: readonly NPCEntry[])
 }
 
 // Name words that say nothing about who someone is ("The Broker", "Lady Soll").
-const NON_NAME_WORDS = new Set(['the', 'lady', 'lord', 'sir', 'master', 'mistress', 'captain', 'old', 'young', 'madam', 'mister', 'doctor', 'dr', 'mr', 'mrs', 'ms']);
+export const NON_NAME_WORDS = new Set(['the', 'lady', 'lord', 'sir', 'master', 'mistress', 'captain', 'old', 'young', 'madam', 'mister', 'doctor', 'dr', 'mr', 'mrs', 'ms']);
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Ledger NPCs the reply names in any form (full name, alias, or a capitalised name
@@ -47,6 +47,23 @@ export function mentionedNpcs(gmText: string, ledger: readonly NPCEntry[]): NPCE
         return npc.name.split(/\s+/).some(word => word.length >= 3 && /^\p{Lu}/u.test(word)
             && !NON_NAME_WORDS.has(word.toLowerCase())
             && new RegExp(`(?<![\\p{L}])${escapeRegex(word)}(?![\\p{L}])`, 'u').test(gmText));
+    });
+}
+
+/** Ledger NPCs named as whole words, in any capitalisation: full name, alias, or a single
+ *  name word ("Rin" for "Rin Holmes"). Stricter than `mentionedNpcs`, which may over-include
+ *  ("during" contains "rin") because a model checks its list; recall has no such check. */
+export function namedNpcs(text: string, ledger: readonly NPCEntry[]): NPCEntry[] {
+    if (!text) return [];
+    const named = (term: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(term)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
+    return ledger.filter(npc => {
+        if (typeof npc.name !== 'string' || npc.name.trim() === '') return false;
+        const terms = [
+            npc.name.trim(),
+            ...(npc.aliases ?? '').split(',').map(a => a.trim()),
+            ...npc.name.split(/\s+/).filter(word => word.length >= 3 && !NON_NAME_WORDS.has(word.toLowerCase())),
+        ].filter(term => term.length >= 2);
+        return terms.some(named);
     });
 }
 

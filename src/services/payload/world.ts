@@ -204,8 +204,22 @@ export function buildWorld(opts: {
             // WO-F (2be3ad5) — drop the internal scene number from the header so it never leaks
             // into the GM prompt. The scene id is a storage detail; the AI should recall scenes by
             // content, not by number (and surgical deletes can leave gaps that would confuse it).
-            const text = `[ARCHIVE RECALL — VERBATIM PAST SCENES]\n${filteredRecall.map(s => `${pastSceneHeader(s.sceneId)}\n${s.content}`).join('\n\n')}\n[END ARCHIVE RECALL]`;
-            worldBlocks.push({ source: 'Archive Recall', content: text, tokens: countTokens(text), reason: `Verbatim history (${filteredRecall.length} scenes)` });
+            // Scenes recalled as a one-line definition (form 'short') are listed after the
+            // verbatim ones, so the budget reaches far more scenes than full text alone.
+            const fullRecall = filteredRecall.filter(s => s.form !== 'short');
+            const shortRecall = filteredRecall.filter(s => s.form === 'short');
+            const fullText = fullRecall.map(s => `${pastSceneHeader(s.sceneId)}\n${s.content}`).join('\n\n');
+            const shortText = shortRecall.length > 0
+                ? `[OTHER RELEVANT PAST SCENES — IN BRIEF]\n${shortRecall.map(s => {
+                    const names = witnessNames(witnessesBySceneId.get(s.sceneId), resolveWitness);
+                    return `- ${s.content}${names.length > 0 ? ` (witnessed by ${names.join(', ')})` : ''}`;
+                }).join('\n')}`
+                : '';
+            const text = `[ARCHIVE RECALL — VERBATIM PAST SCENES]\n${[fullText, shortText].filter(Boolean).join('\n\n')}\n[END ARCHIVE RECALL]`;
+            const reason = shortRecall.length > 0
+                ? `Verbatim history (${fullRecall.length} scenes, ${shortRecall.length} in brief)`
+                : `Verbatim history (${filteredRecall.length} scenes)`;
+            worldBlocks.push({ source: 'Archive Recall', content: text, tokens: countTokens(text), reason });
         }
 
         // Post-filter regular-recall IDs available to elevation dedup.

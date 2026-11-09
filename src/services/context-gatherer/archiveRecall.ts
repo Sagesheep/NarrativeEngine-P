@@ -1,12 +1,13 @@
 import type { ArchiveScene, ArchiveChapter, ArchiveIndexEntry, ChatMessage, NPCEntry, ProviderConfig, EndpointConfig } from '../../types';
 import type { TurnState } from '../turn/turnOrchestrator';
-import { retrieveArchiveMemory, fetchArchiveScenes } from '../archiveMemory';
+import { retrieveArchiveMemory, fetchRecallScenes } from '../archiveMemory';
 import { rankChapters, selectArchiveSceneIdsWithChapterFunnel } from '../archive-memory/archiveChapterEngine';
-import { runArchivePlanner } from '../archive-memory/archivePlanner';
+import { applyRecallPicks, runRecallPicker, PICKER_CANDIDATES, type PickerCandidate } from '../archive-memory/recallPicker';
+import { recallShortForm } from '../archive-memory/recall';
 import { getDivergenceSceneIds, EMPTY_REGISTER, buildSceneMap } from '../campaign-state/divergenceRegister';
 import { isBlockEnabled } from '../turn/blockEnablement';
 import type { SemanticCandidates } from './semanticCandidates';
-import { hasHostModelRole, type HostFacade } from '../turn/hostFacade';
+import type { HostFacade } from '../turn/hostFacade';
 import type { RecallDepth } from '../archive-memory/dynamicMax';
 
 export interface MemoryRecallInput {
@@ -63,14 +64,15 @@ export function toMemoryRecallChapters(chapters: readonly ArchiveChapter[]): Mem
 
 function flatMemoryRecallIds(
     input: MemoryRecallInput,
-    sceneRanges?: [string, string][]
+    sceneRanges?: [string, string][],
+    maxScenes?: number,
 ): string[] {
     return retrieveArchiveMemory(
         input.archiveIndex as ArchiveIndexEntry[],
         input.query,
         input.messages as ChatMessage[],
         input.npcLedger as NPCEntry[],
-        undefined,
+        maxScenes,
         input.semanticFacts as { subject: string; predicate: string; object: string; importance: number }[],
         sceneRanges,
         undefined,
@@ -81,6 +83,51 @@ function flatMemoryRecallIds(
         input.depth,
         input.campaignId,
     );
+}
+
+/**
+ * The Recall Picker block (block id `planner`, which it replaced): a utility model
+ * reads the one-line definitions of the engine's best 30 candidates and picks what
+ * the GM needs, best first. Its first pick is the scene recalled in full. Off,
+ * without a utility model, or on any failure, the engine's order stands.
+ *
+ * Whether it runs is decided synchronously, so a turn where it does not run keeps
+ * exactly the await steps it had before (the base-app gate's trace pins them).
+ */
+function recallPickerCandidates(
+    input: MemoryRecallInput,
+    context: MemoryRecallCoreContext,
+    engineIds: string[],
+): { engineCandidates: string[]; candidates: PickerCandidate[] } | null {
+    if (engineIds.length === 0) return null;
+    if (!isBlockEnabled('planner', context.aiTier, context.moduleEnabled)) return null;
+    const hasModel = Boolean(context.modelCall) || Boolean((context.utilityProvider as EndpointConfig | undefined)?.endpoint);
+    if (!hasModel) return null;
+
+    const byId = new Map(input.archiveIndex.map(e => [e.sceneId, e]));
+    const engineCandidates = flatMemoryRecallIds(input, undefined, PICKER_CANDIDATES);
+    const candidates = engineCandidates
+        .map(sceneId => ({ sceneId, line: recallShortForm(byId.get(sceneId)) }))
+        .filter((c): c is PickerCandidate => Boolean(c.line));
+    return candidates.length < 2 ? null : { engineCandidates, candidates };
+}
+
+async function pickMemoryRecallIds(
+    input: MemoryRecallInput,
+    context: MemoryRecallCoreContext,
+    engineIds: string[],
+    { engineCandidates, candidates }: { engineCandidates: string[]; candidates: PickerCandidate[] },
+): Promise<string[]> {
+    const lastReply = [...input.messages].reverse().find(m => m.role === 'assistant' && typeof m.content === 'string')?.content;
+    const picks = await runRecallPicker({
+        userMessage: input.query,
+        lastReply: typeof lastReply === 'string' ? lastReply : '',
+        candidates,
+        provider: context.utilityProvider,
+        modelCall: context.modelCall,
+    });
+    if (!picks || picks.length === 0) return engineIds;
+    return applyRecallPicks(engineCandidates, picks, engineIds.length);
 }
 
 /** Select IDs only. The host performs archive fetches after a provider answers. */
@@ -97,7 +144,9 @@ export async function selectMemoryRecallIds(
     // search or the planner), while archive-wide search found the right scenes. Read
     // through the block switch so a user who turns it back on gets it.
     if (!hasSealedChapters || !isBlockEnabled('archiveFunnel', context.aiTier, context.moduleEnabled)) {
-        return flatMemoryRecallIds(input);
+        const engineIds = flatMemoryRecallIds(input);
+        const picker = recallPickerCandidates(input, context, engineIds);
+        return picker ? pickMemoryRecallIds(input, context, engineIds, picker) : engineIds;
     }
 
     const rankedChapters = rankChapters(
@@ -154,31 +203,17 @@ export type ArchiveRecallDeps = {
     chapters: ArchiveChapter[];
 };
 
+/**
+ * The Archive Planner is retired: the Recall Picker took its Block View switch
+ * (`planner`) and runs inside memory recall, where it can decide which scene is
+ * recalled in full. This stays as the turn's "Planning search" stage, resolving at
+ * once, so a mod-supplied `plannerSceneIds` contract and the turn's timing are unchanged.
+ */
 export async function gatherPlannerSceneIds(
-    state: TurnState,
-    signal?: AbortSignal,
-    facade?: HostFacade,
+    _state: TurnState,
+    _signal?: AbortSignal,
+    _facade?: HostFacade,
 ): Promise<string[] | undefined> {
-    const plannerEndpoint = facade ? undefined : state.getUtilityEndpoint?.();
-    const plannerAvailable = facade ? hasHostModelRole(facade, 'utility') : Boolean(plannerEndpoint?.endpoint);
-    // Off in every preset (its picks never changed recall on the Turn Prep probes); read
-    // through the block switch so a user who turns it back on in Block View gets it.
-    const plannerBlockOn = isBlockEnabled('planner', facade?.config.aiTier ?? state.settings.aiTier, state.settings.moduleEnabled);
-    // The Block View block is the only switch (the Global Settings "Archive Agent Planner"
-    // toggle, a hidden second switch, was removed 2026-10-05).
-    if (plannerBlockOn && plannerAvailable) {
-        try {
-            return await runArchivePlanner(
-                plannerEndpoint,
-                facade?.data.input ?? state.input,
-                facade?.data.archiveIndex ?? state.archiveIndex,
-                signal,
-                facade ? (request: import('../turn/hostFacade').ModelRequest) => facade.model.call('utility', request) : undefined
-            );
-        } catch {
-            return undefined;
-        }
-    }
     return undefined;
 }
 
@@ -243,7 +278,7 @@ export async function gatherArchiveRecall(
     const knownSceneIds = new Set(archiveIndex.map((entry) => entry.sceneId));
     const filteredSceneIds = sceneIds.sceneIds.filter((sceneId) => knownSceneIds.has(sceneId));
     if (filteredSceneIds.length === 0) return [];
-    return fetchArchiveScenes(activeCampaignId, filteredSceneIds, recallInput.tokenBudget);
+    return fetchRecallScenes(activeCampaignId, filteredSceneIds, recallInput.tokenBudget, archiveIndex);
 }
 
 export function buildExcludeSceneIds(state: TurnState): Set<string> | undefined {

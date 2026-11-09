@@ -9,7 +9,7 @@ const LABEL_MAP: Record<string, string> = {
     'rerank-lore': 'Reranking Lore',
     'recommender': 'AI Recommender',
     'planner': 'Planner',
-    'archive-planner': 'Archive Planner',
+    'recall-picker': 'Recall Picker',
     'deep-search-chapters': 'Deep Search · Chapters',
     'deep-search-scenes': 'Deep Search · Scenes',
     'deep-search-summarize': 'Deep Search · Summarize',

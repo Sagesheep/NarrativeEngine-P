@@ -7,6 +7,7 @@ import { ChapterCard } from './ChapterCard';
 import { ResolvedStatePanel } from './ResolvedStatePanel';
 import { runCombinedSeal } from '../../services/turn/postTurnPipeline';
 import { backfillChapterSynopses, chaptersNeedingSynopsis } from '../../services/archive-memory/synopsisBackfill';
+import { backfillSceneTags, scenesNeedingAnalysis } from '../../services/archive-memory/sceneTagBackfill';
 import { toast } from '../Toast';
 import { ScreenSection } from '../primitives/ScreenSection';
 import type { ArchiveChapter } from '../../types';
@@ -56,6 +57,8 @@ export const ChapterTab: React.FC = () => {
     const [backfillProgress, setBackfillProgress] = useState<{ done: number; total: number } | null>(null);
     // AbortController for the in-flight backfill. Aborted on unmount or campaign switch.
     const backfillAbortRef = useRef<AbortController | null>(null);
+    const [tagProgress, setTagProgress] = useState<{ done: number; total: number } | null>(null);
+    const tagAbortRef = useRef<AbortController | null>(null);
     // WO-screen-modernization §1 — sticky-header search. A live campaign
     // carries 24 chapters; an unfiltered list of that size needs a filter.
     const [query, setQuery] = useState('');
@@ -79,6 +82,8 @@ export const ChapterTab: React.FC = () => {
         return () => {
             backfillAbortRef.current?.abort();
             backfillAbortRef.current = null;
+            tagAbortRef.current?.abort();
+            tagAbortRef.current = null;
         };
     }, []);
 
@@ -213,6 +218,53 @@ export const ChapterTab: React.FC = () => {
             }
         }
     }, [activeCampaignId, chapters, refreshChapters, getActiveSummarizerEndpoint]);
+
+    // One model call per scene missing tags or a definition, so it only ever runs from the
+    // button. A second click while running stops it; finished scenes keep their results.
+    const handleBackfillTags = useCallback(async () => {
+        if (tagAbortRef.current) {
+            tagAbortRef.current.abort();
+            return;
+        }
+        if (!activeCampaignId) return;
+        const provider = getActiveSummarizerEndpoint();
+        if (!provider || !provider.endpoint) {
+            toast.error('No summarizer AI configured');
+            return;
+        }
+
+        const ac = new AbortController();
+        tagAbortRef.current = ac;
+        setTagProgress({ done: 0, total: scenesNeedingAnalysis(archiveIndex).length });
+        const isActive = () => useAppStore.getState().activeCampaignId === activeCampaignId;
+
+        try {
+            const result = await backfillSceneTags({
+                index: archiveIndex,
+                provider,
+                fetchScenes: (sceneIds) => api.archive.fetchScenes(activeCampaignId, sceneIds),
+                patch: (patches) => api.archive.patchEvents(activeCampaignId, patches),
+                isActive,
+                signal: ac.signal,
+                onProgress: (done, total) => setTagProgress({ done, total }),
+            });
+            if (!isActive()) return;
+            useAppStore.getState().setArchiveIndex(await api.archive.getIndex(activeCampaignId));
+            const failures = result.failed > 0 ? ` ${result.failed} failed, run it again to retry.` : '';
+            if (result.stoppedOnErrors) toast.error(`Scene analysis stopped: the summarizer AI failed ${result.failed} times in a row. Check that it is running. ${result.tagged} analyzed.`);
+            else if (result.aborted) toast.warning(`Scene analysis stopped: ${result.tagged} analyzed.${failures}`);
+            else if (result.failed > 0) toast.warning(`Analyzed ${result.tagged} scenes.${failures}`);
+            else toast.success(`Analyzed ${result.tagged} scenes.`);
+        } catch (err) {
+            console.error(err);
+            if (isActive()) toast.error('Scene analysis failed');
+        } finally {
+            if (tagAbortRef.current === ac) {
+                tagAbortRef.current = null;
+                setTagProgress(null);
+            }
+        }
+    }, [activeCampaignId, archiveIndex, getActiveSummarizerEndpoint]);
 
     const handleRename = useCallback(async (chapterId: string, newTitle: string) => {
         if (!activeCampaignId) return;
@@ -353,6 +405,7 @@ export const ChapterTab: React.FC = () => {
     );
 
     // WO-07: button visibility — only show when ≥1 sealed chapter lacks `synopsis`.
+    const untaggedSceneCount = useMemo(() => scenesNeedingAnalysis(archiveIndex).length, [archiveIndex]);
     const missingSynopsisCount = useMemo(
         () => chaptersNeedingSynopsis(chapters).length,
         [chapters]
@@ -455,6 +508,28 @@ export const ChapterTab: React.FC = () => {
                             <>
                                 <Sparkles size={12} />
                                 <span>Generate missing synopses ({missingSynopsisCount})</span>
+                            </>
+                        )}
+                    </button>
+                </div>
+            )}
+
+            {(tagProgress !== null || untaggedSceneCount > 0) && (
+                <div className="-mx-4 sm:-mx-6 px-4 sm:mx-0 sm:px-0">
+                    <button
+                        onClick={handleBackfillTags}
+                        title="Uses one AI call per scene"
+                        className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded bg-amber-400/10 border border-amber-400/30 text-amber-400 hover:bg-amber-400/20 transition-colors text-[12px] font-bold uppercase tracking-wider"
+                    >
+                        {tagProgress !== null ? (
+                            <>
+                                <Loader2 size={12} className="animate-spin" />
+                                <span>Analyzing scenes… {tagProgress.done}/{tagProgress.total} (click to stop)</span>
+                            </>
+                        ) : (
+                            <>
+                                <Sparkles size={12} />
+                                <span>Tag and define scenes ({untaggedSceneCount} AI calls)</span>
                             </>
                         )}
                     </button>

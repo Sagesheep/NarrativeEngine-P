@@ -49,7 +49,7 @@ vi.mock('../../archiveMemory', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../../archiveMemory')>();
     return {
         ...actual,
-        fetchArchiveScenes: vi.fn(async (_campaignId: string, sceneIds: string[]) =>
+        fetchRecallScenes: vi.fn(async (_campaignId: string, sceneIds: string[]) =>
             sceneIds.map((sceneId) => ({ sceneId, content: `scene ${sceneId}` }) as unknown as ArchiveScene)),
     };
 });
@@ -57,7 +57,7 @@ vi.mock('../../archiveMemory', async (importOriginal) => {
 const { serviceRoles, configureModRoles, checkModRoles, enableModRoles, disableModRoles, roleFaultStore } =
     await import('../../roles');
 const { gatherMemoryRecallViaRole } = await import('../../turn/contextGatherer');
-const { fetchArchiveScenes } = await import('../../archiveMemory');
+const { fetchRecallScenes } = await import('../../archiveMemory');
 const { onActivate, onDisable } = await import('./fixtures/role-claimant/index.js');
 const fixtureManifest = JSON.parse(
     fs.readFileSync(
@@ -101,7 +101,7 @@ const askViaSite = (archiveIndex: ArchiveIndexEntry[], excludeSceneIds?: Set<str
 
 beforeEach(() => {
     roleFaultStore.clear();
-    vi.mocked(fetchArchiveScenes).mockClear();
+    vi.mocked(fetchRecallScenes).mockClear();
 });
 
 afterEach(() => {
@@ -144,13 +144,13 @@ describe('Phase 7.1.1 — a mod claims memory.recall', () => {
 
         // Reverse index order, capped at two — the fixture's marker. Core's
         // stub would have produced ['CORE-ANSWER'].
-        expect(vi.mocked(fetchArchiveScenes).mock.calls[0]?.[1]).toEqual(['003', '002']);
+        expect(vi.mocked(fetchRecallScenes).mock.calls[0]?.[1]).toEqual(['003', '002']);
     });
 
     it('disabling the claimant restores core on the next ask, with no restart', async () => {
         activateFixture();
         await askViaSite([indexEntry('001'), indexEntry('002')]);
-        expect(vi.mocked(fetchArchiveScenes).mock.calls[0]?.[1]).toEqual(['002', '001']);
+        expect(vi.mocked(fetchRecallScenes).mock.calls[0]?.[1]).toEqual(['002', '001']);
 
         onDisable({ log: () => {} });
         disableModRoles(fixtureManifest.id);
@@ -160,7 +160,7 @@ describe('Phase 7.1.1 — a mod claims memory.recall', () => {
 
         // Core's ranking, not the fixture's reversal — and on the very next
         // ask, with no restart and no reload.
-        expect(vi.mocked(fetchArchiveScenes).mock.calls[1]?.[1]).toEqual(['001']);
+        expect(vi.mocked(fetchRecallScenes).mock.calls[1]?.[1]).toEqual(['001']);
     });
 
     it('applies the host post-conditions to the claimant answer, in order', async () => {
@@ -173,7 +173,7 @@ describe('Phase 7.1.1 — a mod claims memory.recall', () => {
         const archiveIndex = [indexEntry('001'), indexEntry('002'), indexEntry('003')];
         await askViaSite(archiveIndex, new Set(['003']));
 
-        expect(vi.mocked(fetchArchiveScenes).mock.calls[0]?.[1]).toEqual(['002']);
+        expect(vi.mocked(fetchRecallScenes).mock.calls[0]?.[1]).toEqual(['002']);
         expect(roleFaultStore.getRecords().some((r) => r.kind === 'partial'),
             'an excluded id is the host\'s own dedup, not a contract breach — it must NOT fault').toBe(false);
     });
@@ -190,7 +190,7 @@ describe('Phase 7.1.1 — a mod claims memory.recall', () => {
 
         await askViaSite([indexEntry('001')]);
 
-        expect(vi.mocked(fetchArchiveScenes).mock.calls[0]?.[1]).toEqual(['001']);
+        expect(vi.mocked(fetchRecallScenes).mock.calls[0]?.[1]).toEqual(['001']);
         expect(roleFaultStore.getRecords()).toEqual(expect.arrayContaining([
             expect.objectContaining({ kind: 'partial', roleId: 'memory.recall' }),
         ]));

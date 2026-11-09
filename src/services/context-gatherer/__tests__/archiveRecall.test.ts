@@ -3,18 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
     retrieveArchiveMemory: vi.fn(),
     selectArchiveSceneIdsWithChapterFunnel: vi.fn(),
-    runArchivePlanner: vi.fn(),
 }));
 vi.mock('../../archiveMemory', () => ({
     retrieveArchiveMemory: mocks.retrieveArchiveMemory,
     fetchArchiveScenes: vi.fn(),
+    fetchRecallScenes: vi.fn(),
 }));
 vi.mock('../../archive-memory/archiveChapterEngine', () => ({
     rankChapters: vi.fn(() => []),
     selectArchiveSceneIdsWithChapterFunnel: mocks.selectArchiveSceneIdsWithChapterFunnel,
-}));
-vi.mock('../../archive-memory/archivePlanner', () => ({
-    runArchivePlanner: mocks.runArchivePlanner,
 }));
 
 import { gatherPlannerSceneIds, selectMemoryRecallIds, type MemoryRecallInput, type MemoryRecallCoreContext } from '../archiveRecall';
@@ -49,18 +46,17 @@ const context = (moduleEnabled?: Record<string, boolean>): MemoryRecallCoreConte
 beforeEach(() => {
     mocks.retrieveArchiveMemory.mockReset().mockReturnValue(['534', '533']);
     mocks.selectArchiveSceneIdsWithChapterFunnel.mockReset().mockResolvedValue(['209', '217']);
-    mocks.runArchivePlanner.mockReset().mockResolvedValue(['533']);
 });
 
 describe('selectMemoryRecallIds — the chapter funnel block', () => {
-    it('on Max with sealed chapters, uses archive-wide search with meaning search and planner by default', async () => {
+    it('on Max with sealed chapters, uses archive-wide search with meaning search by default', async () => {
         const ids = await selectMemoryRecallIds(input, context());
 
         expect(ids).toEqual(['534', '533']);
         expect(mocks.selectArchiveSceneIdsWithChapterFunnel).not.toHaveBeenCalled();
         const args = mocks.retrieveArchiveMemory.mock.calls[0];
         expect(args[8]).toEqual(['534', '533']); // meaning-search candidates
-        expect(args[11]).toEqual(['533']);       // planner picks
+        expect(args[11]).toEqual(['533']);       // a mod-supplied plannerSceneIds still reaches the ranker
     });
 
     it('a stored "off" from an older preset is respected too', async () => {
@@ -75,21 +71,64 @@ describe('selectMemoryRecallIds — the chapter funnel block', () => {
     });
 });
 
-describe('gatherPlannerSceneIds — the Archive Planner block', () => {
-    const plannerState = (moduleEnabled?: Record<string, boolean>) => ({
-        input: 'Therese is going to want what we promised her.',
-        archiveIndex: [{ sceneId: '001' }],
-        settings: { aiTier: 'max', enableArchivePlanner: true, moduleEnabled },
-        getUtilityEndpoint: () => ({ endpoint: 'http://utility.test/v1', modelName: 'm' }),
-    }) as unknown as TurnState;
-
-    it('is off on Max by default', async () => {
-        expect(await gatherPlannerSceneIds(plannerState())).toBeUndefined();
-        expect(mocks.runArchivePlanner).not.toHaveBeenCalled();
+describe('selectMemoryRecallIds — the Recall Picker block', () => {
+    const def = (sceneId: string) => ({ sceneId, definition: `Grey and Therese settle matter ${sceneId} in the study.` });
+    const pickerInput = {
+        ...input,
+        archiveIndex: [def('534'), def('533'), def('600')],
+        messages: [{ role: 'assistant', content: 'Therese waits.' }],
+    } as unknown as MemoryRecallInput;
+    const pickerContext = (answer: string | Error, over: Partial<MemoryRecallCoreContext> = {}): MemoryRecallCoreContext => ({
+        chapters: [],
+        aiTier: 'pro',
+        modelCall: answer instanceof Error ? vi.fn().mockRejectedValue(answer) : vi.fn().mockResolvedValue({ content: answer }),
+        ...over,
     });
 
-    it('a Block View toggle turns it back on', async () => {
-        expect(await gatherPlannerSceneIds(plannerState({ planner: true }))).toEqual(['533']);
-        expect(mocks.runArchivePlanner).toHaveBeenCalled();
+    beforeEach(() => {
+        // The normal recall depth gives two scenes; the picker reads up to 30 candidates.
+        mocks.retrieveArchiveMemory.mockImplementation((...args: unknown[]) => (args[4] === 30 ? ['534', '533', '600'] : ['534', '533']));
+    });
+
+    it('puts the picks first, then the engine order, as many scenes as the engine recalls', async () => {
+        const ctx = pickerContext('[3]');
+        expect(await selectMemoryRecallIds(pickerInput, ctx)).toEqual(['600', '534']);
+        const prompt = vi.mocked(ctx.modelCall!).mock.calls[0][0].prompt;
+        expect(prompt).toContain('[3] Grey and Therese settle matter 600 in the study.');
+        expect(prompt).toContain('Therese waits.');
+    });
+
+    it('keeps the engine order when the model fails, answers nonsense or picks nothing', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        for (const answer of [new Error('down'), 'no idea', '[]']) {
+            expect(await selectMemoryRecallIds(pickerInput, pickerContext(answer))).toEqual(['534', '533']);
+        }
+    });
+
+    it('is off on Lite, and a Block View toggle turns it off elsewhere', async () => {
+        const lite = pickerContext('[3]', { aiTier: 'lite' });
+        expect(await selectMemoryRecallIds(pickerInput, lite)).toEqual(['534', '533']);
+        expect(lite.modelCall).not.toHaveBeenCalled();
+        const off = pickerContext('[3]', { moduleEnabled: { planner: false } });
+        expect(await selectMemoryRecallIds(pickerInput, off)).toEqual(['534', '533']);
+        expect(off.modelCall).not.toHaveBeenCalled();
+    });
+
+    it('does not run without definitions or events to read', async () => {
+        const ctx = pickerContext('[1]');
+        expect(await selectMemoryRecallIds({ ...input, chapters: [] } as unknown as MemoryRecallInput, { ...ctx, chapters: [] })).toEqual(['534', '533']);
+        expect(ctx.modelCall).not.toHaveBeenCalled();
+    });
+});
+
+describe('gatherPlannerSceneIds — retired with the Archive Planner', () => {
+    it('resolves to nothing, whatever the Block View says', async () => {
+        const state = {
+            input: 'x',
+            archiveIndex: [{ sceneId: '001' }],
+            settings: { aiTier: 'max', moduleEnabled: { planner: true } },
+            getUtilityEndpoint: () => ({ endpoint: 'http://utility.test/v1' }),
+        } as unknown as TurnState;
+        expect(await gatherPlannerSceneIds(state)).toBeUndefined();
     });
 });

@@ -27,6 +27,24 @@ export type SceneEvent = {
     result?: string;
 };
 
+/** How central a tag is to a scene: 1 minor, 2 clear, 3 the core of the scene. */
+export type SceneTagLevel = 1 | 2 | 3;
+
+/** Defined tags only (see archive-memory/sceneTags.ts). `{}` means analysed, nothing fit. */
+export type SceneTags = Record<string, SceneTagLevel>;
+
+export type SceneHookType = 'promise' | 'debt' | 'secret' | 'threat' | 'grudge' | 'question';
+
+/** Something a scene left unfinished, kept so it can resurface when it matters again. */
+export type SceneHook = {
+    id: string;               // "<sceneId>:<n>"
+    type: SceneHookType;
+    with: string[];           // the other characters involved, never the player character
+    what: string;             // one short sentence
+    status: 'open' | 'closed';
+    closedBy?: string;        // scene that resolved it
+};
+
 /** Search index entry — one per scene, auto-built by server on every turn. */
 export type ArchiveIndexEntry = {
     sceneId: string;
@@ -40,6 +58,10 @@ export type ArchiveIndexEntry = {
     npcStrengths?: Record<string, number>;
     importance?: number;
     events?: SceneEvent[];
+    tags?: SceneTags;
+    hooks?: SceneHook[];
+    /** One or two AI-written sentences: who, where, what happened, what changed. */
+    definition?: string;
 };
 
 /** Full verbatim scene content fetched from .archive.md for recall injection. */
@@ -47,6 +69,8 @@ export type ArchiveScene = {
     sceneId: string;
     content: string;
     tokens: number;
+    /** 'short': `content` is the scene's one-line definition, not its text. Absent means full. */
+    form?: 'full' | 'short';
 };
 
 /** Soft cap: open chapters auto-seal when they reach this many scenes. */

@@ -30,7 +30,7 @@
  *     answer. It is also the instrument for item 2: "core steps aside" is only
  *     provable by watching that core's implementation DOES NOT RUN, and a spy
  *     is the only way to watch that.
- *   • `fetchArchiveScenes` — the host's fetch, which is the assertion surface
+ *   • `fetchRecallScenes` — the host's fetch, which is the assertion surface
  *     for which ids survived the post-conditions, in what order.
  *
  * Mod Management's side of item 4 (the conflict a user can see) is in
@@ -67,14 +67,14 @@ vi.mock('../../archiveMemory', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../../archiveMemory')>();
     return {
         ...actual,
-        fetchArchiveScenes: vi.fn(async (_campaignId: string, sceneIds: string[]) =>
+        fetchRecallScenes: vi.fn(async (_campaignId: string, sceneIds: string[]) =>
             sceneIds.map((sceneId) => ({ sceneId, content: `scene ${sceneId}` }) as unknown as ArchiveScene)),
     };
 });
 
 const { serviceRoles, configureModRoles, roleFaultStore } = await import('../../roles');
 const { gatherMemoryRecallViaRole } = await import('../../turn/contextGatherer');
-const { fetchArchiveScenes } = await import('../../archiveMemory');
+const { fetchRecallScenes } = await import('../../archiveMemory');
 const { askDefaultMemoryRecall } = await import('../../context-gatherer/archiveRecall');
 const { createLifecycleHost } = await import('../lifecycle/lifecycleHost');
 const { createLifecycleFaultStore } = await import('../lifecycle/lifecycleFaults');
@@ -254,7 +254,7 @@ const askViaSite = (archiveIndex: readonly ArchiveIndexEntry[] = ARCHIVE) =>
     gatherMemoryRecallViaRole(stubState(archiveIndex), [], undefined, undefined, undefined, undefined, undefined);
 
 /** The ids the host actually fetched on the Nth ask of this test. */
-const fetchedIds = (n = 0): string[] | undefined => vi.mocked(fetchArchiveScenes).mock.calls[n]?.[1];
+const fetchedIds = (n = 0): string[] | undefined => vi.mocked(fetchRecallScenes).mock.calls[n]?.[1];
 
 const roleFaultsFor = (modId: string) =>
     roleFaultStore.getRecords().filter((record) => record.modId === modId);
@@ -276,7 +276,7 @@ beforeEach(() => {
     faultStore.clear();
     host.reset();
     resetCounters();
-    vi.mocked(fetchArchiveScenes).mockClear();
+    vi.mocked(fetchRecallScenes).mockClear();
     vi.mocked(askDefaultMemoryRecall).mockClear();
 });
 
@@ -330,7 +330,7 @@ describe('Phase 7.9.3 · item 2 — core\'s default steps aside', () => {
         // a second fetch or a call to core's default; neither happens.
         expect(fetchedIds()).toEqual(['003', '002']);
         expect(vi.mocked(askDefaultMemoryRecall)).not.toHaveBeenCalled();
-        expect(vi.mocked(fetchArchiveScenes)).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(fetchRecallScenes)).toHaveBeenCalledTimes(1);
     });
 
     it('the default is stood aside, not deleted — it is still registered, listed and switchable', () => {
@@ -418,7 +418,7 @@ describe('Phase 7.9.3 · item 5 — the claiming mod throws', () => {
         // no-provider travel the same code path.
         expect(recalled).toBeUndefined();
         expect(vi.mocked(askDefaultMemoryRecall)).not.toHaveBeenCalled();
-        expect(vi.mocked(fetchArchiveScenes)).not.toHaveBeenCalled();
+        expect(vi.mocked(fetchRecallScenes)).not.toHaveBeenCalled();
         expect(faultyAskCount()).toBe(1);
 
         expect(roleFaultsFor(FAULTY)).toEqual([expect.objectContaining({
@@ -439,7 +439,7 @@ describe('Phase 7.9.3 · item 5 — the claiming mod throws', () => {
 
         // Three breaches, three asks, zero answers — no per-ask fallback the
         // whole way down.
-        expect(vi.mocked(fetchArchiveScenes)).not.toHaveBeenCalled();
+        expect(vi.mocked(fetchRecallScenes)).not.toHaveBeenCalled();
         expect(vi.mocked(askDefaultMemoryRecall)).not.toHaveBeenCalled();
 
         // The fourth ask: the claim is latched off for the session, so core's
@@ -542,7 +542,7 @@ describe('Phase 7.9.3 · also verify — absence is quiet, not broken', () => {
             const recalled = await askViaSite();
 
             expect(recalled).toBeUndefined();
-            expect(vi.mocked(fetchArchiveScenes)).not.toHaveBeenCalled();
+            expect(vi.mocked(fetchRecallScenes)).not.toHaveBeenCalled();
             expect(vi.mocked(askDefaultMemoryRecall)).not.toHaveBeenCalled();
             // Quiet: nobody home is not a breach.
             expect(roleFaultStore.getRecords().filter((r) => r.roleId === 'memory.recall')).toEqual([]);

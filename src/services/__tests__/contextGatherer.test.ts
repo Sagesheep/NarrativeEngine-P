@@ -7,6 +7,7 @@ vi.mock('../archiveMemory', () => ({
     recallArchiveScenes: vi.fn().mockResolvedValue([]),
     retrieveArchiveMemory: vi.fn().mockReturnValue([]),
     fetchArchiveScenes: vi.fn().mockResolvedValue([]),
+    fetchRecallScenes: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../archive-memory/archiveChapterEngine', () => ({
     rankChapters: vi.fn().mockReturnValue([]),
@@ -30,11 +31,12 @@ global.fetch = vi.fn().mockResolvedValue({
 } as Response);
 
 import { gatherContext } from '../turn/contextGatherer';
-import { fetchArchiveScenes } from '../archiveMemory';
+import { fetchArchiveScenes, fetchRecallScenes } from '../archiveMemory';
 import { gatherDynamicElevation } from '../archive-memory/dynamicElevation';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 
 const mockFetchArchiveScenes = vi.mocked(fetchArchiveScenes);
+const mockFetchRecallScenes = vi.mocked(fetchRecallScenes);
 
 const baseContext = (): GameContext => ({
     loreRaw: '',
@@ -137,9 +139,9 @@ describe('gatherContext', () => {
             .mockReturnValueOnce(['005', '006']);
 
         const pinnedScene: ArchiveScene = { sceneId: '006', content: 'pinned only', tokens: 10 };
-        mockFetchArchiveScenes
-            .mockResolvedValueOnce([existingScene])
-            .mockResolvedValueOnce([pinnedScene]);
+        // Recall fetches through fetchRecallScenes; pinned chapters through fetchArchiveScenes.
+        mockFetchRecallScenes.mockResolvedValueOnce([existingScene]);
+        mockFetchArchiveScenes.mockResolvedValueOnce([pinnedScene]);
 
         const state = makeState({
             activeCampaignId: 'c1',
@@ -160,7 +162,7 @@ describe('gatherContext', () => {
 
         const result = await gatherContext(state, 'look', deps);
 
-        const fetchedIds = mockFetchArchiveScenes.mock.calls[1]?.[1] ?? [];
+        const fetchedIds = mockFetchArchiveScenes.mock.calls[0]?.[1] ?? [];
         expect(fetchedIds).not.toContain('005');
         expect(fetchedIds).toContain('006');
         expect(result.archiveRecall).toEqual(expect.arrayContaining([existingScene, pinnedScene]));

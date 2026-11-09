@@ -112,12 +112,40 @@ describe('extractContextActivations — tiered weights', () => {
         expect(a['go']).toBe(1.0);
     });
 
-    it('npc ledger names and comma-split aliases all activate at 1.0', () => {
+    it('an NPC named in the player message activates by name and aliases at 1.0', () => {
         const ledger = [{ name: 'Malachar', aliases: 'The Dark One, Mal' }] as NPCEntry[];
-        const a = extractContextActivations('hi', [], ledger);
+        const a = extractContextActivations('I confront malachar', [], ledger);
         expect(a['malachar']).toBe(1.0);
         expect(a['the dark one']).toBe(1.0);
         expect(a['mal']).toBe(1.0);
+    });
+
+    it('an NPC nobody named stays inactive', () => {
+        const ledger = [{ name: 'Malachar', aliases: 'The Dark One, Mal' }] as NPCEntry[];
+        const a = extractContextActivations('hi', [asst('The rain falls.')], ledger);
+        expect(a['malachar']).toBeUndefined();
+        expect(a['the dark one']).toBeUndefined();
+    });
+
+    it('a name word activates the full name, weighted by where it was said', () => {
+        const ledger = [{ name: 'Rin Holmes', aliases: '' }, { name: 'Therese Soll', aliases: '' }] as NPCEntry[];
+        const a = extractContextActivations('hello Rin', [asst('Therese nods.')], ledger);
+        expect(a['rin holmes']).toBe(1.0);
+        expect(a['therese soll']).toBe(0.7);
+    });
+
+    it('does not match a name inside another word', () => {
+        const ledger = [{ name: 'Rin Holmes', aliases: 'Rin' }] as NPCEntry[];
+        const a = extractContextActivations('during the storm', [], ledger);
+        expect(a['rin holmes']).toBeUndefined();
+    });
+});
+
+describe('scoreEntry — NPC names ignore capitals', () => {
+    it('a stored display name matches its lowercase activation and IDF', () => {
+        // activation = 1.0 × 1 × 1.5 × 2(idf) = 3 ; relevance = 6
+        const r = scoreEntry(entry({ npcStrengths: { 'Rin Holmes': 1 } }), '', { 'rin holmes': 1.0 }, 1, { 'rin holmes': 2 });
+        expect(r.keywordRelevance).toBe(6);
     });
 });
 

@@ -5,7 +5,8 @@ import { safeSceneNum } from '../../utils/helpers';
 import { fuseRRF } from '../retrieval/lexicalFusion';
 import { computeArchiveIdf } from './idf';
 import { scoreEntry, extractContextActivations, expandActivationsWithFacts, applyEventBoost } from './scoring';
-import { computeDynamicMax, PLANNER_RELEVANCE_BOOST, type RecallDepth } from './dynamicMax';
+import { computeDynamicMax, DIVERGENCE_RELEVANCE_BONUS, PLANNER_RELEVANCE_BOOST, type RecallDepth } from './dynamicMax';
+import { computePairIdf, computeTagIdf, countOpenHooksByPerson, deriveActiveTags, scoreOpenHooks, scorePersonTagPairs, scoreSceneTags } from './sceneTags';
 
 /**
  * archive-memory/recall.ts
@@ -18,7 +19,7 @@ import { computeDynamicMax, PLANNER_RELEVANCE_BOOST, type RecallDepth } from './
 
 /**
  * Search the archive index with hybrid retrieval: an IDF-weighted keyword ranker fused with
- * the server's embedding ranker via RRF. Divergence scenes are force-surfaced. Returns the
+ * the server's embedding ranker via RRF. Returns the
  * matched scene IDs in fused (front-loaded) order, best first.
  */
 export function retrieveArchiveMemory(
@@ -78,6 +79,10 @@ export function retrieveArchiveMemory(
     const totalScenes = scopedIndex.length;
     const eventBoosts = applyEventBoost(scopedIndex, userMessage, recentMessages);
     const plannerSet = plannerSceneIds && plannerSceneIds.length > 0 ? new Set(plannerSceneIds) : null;
+    const activeTags = deriveActiveTags(index, userMessage);
+    const tagIdf = computeTagIdf(index);
+    const pairIdf = computePairIdf(index);
+    const hookCounts = countOpenHooksByPerson(index);
 
     // ─── Keyword ranker (IDF-weighted, with mainApp signals folded into relevance) ───
     const scored = scopedIndex.map(entry => {
@@ -86,7 +91,13 @@ export function retrieveArchiveMemory(
         );
         let relevance = keywordRelevance;
         relevance += eventBoosts.get(entry.sceneId) ?? 0;
+        relevance += scoreSceneTags(entry, activeTags, tagIdf);
+        relevance += scorePersonTagPairs(entry, activeTags, contextActivations, pairIdf);
+        relevance += scoreOpenHooks(entry, contextActivations, hookCounts);
         if (plannerSet?.has(entry.sceneId)) relevance += PLANNER_RELEVANCE_BOOST;
+        // A nudge, not a pass: only for scenes that already match this turn. The divergence
+        // register itself reaches the writer separately, whichever scenes are recalled.
+        if (relevance > 0 && divergenceSceneIds?.has(entry.sceneId)) relevance += DIVERGENCE_RELEVANCE_BONUS;
         return {
             sceneId: entry.sceneId,
             relevance,
@@ -109,29 +120,8 @@ export function retrieveArchiveMemory(
     // ─── RRF fusion ───
     const fused = fuseRRF(keywordRanked, embeddingRanked);
 
-    // ─── Divergence front-loading ───
-    // Divergence scenes (where the story left canon) must surface for continuity even when
-    // they don't match the current turn's keywords or embeddings. Matched ones keep their
-    // fused order; unmatched ones are injected after, by recency.
-    let ordered = fused;
-    if (divergenceSceneIds && divergenceSceneIds.size > 0) {
-        const fusedSet = new Set(fused);
-        const divInScope = scopedIndex
-            .map(e => e.sceneId)
-            .filter(id => divergenceSceneIds.has(id));
-        if (divInScope.length > 0) {
-            const divSet = new Set(divInScope);
-            const matchedDiv = fused.filter(id => divSet.has(id));
-            const unmatchedDiv = divInScope
-                .filter(id => !fusedSet.has(id))
-                .sort((a, b) => safeSceneNum(b) - safeSceneNum(a));
-            const rest = fused.filter(id => !divSet.has(id));
-            ordered = [...matchedDiv, ...unmatchedDiv, ...rest];
-        }
-    }
-
     const dynamicMax = computeDynamicMax(keywordRanked, embeddingRanked, recallDepth, topKeywordRelevance, maxScenes);
-    const result = ordered.slice(0, dynamicMax);
+    const result = fused.slice(0, dynamicMax);
 
     console.log(
         `[Archive Retrieval] Hybrid over ${index.length} entries: ` +
@@ -197,6 +187,105 @@ export async function fetchArchiveScenes(
             `(${usedTokens} tokens used of ${tokenBudget} budget).`
         );
 
+        return selected.sort((a, b) => safeSceneNum(a.sceneId) - safeSceneNum(b.sceneId));
+    } catch (err) {
+        console.warn('[Archive Retrieval] Error fetching scenes:', err);
+        return [];
+    }
+}
+
+/** Extra tokens a short line costs in the recall block beyond its own text (bullet, witness label). */
+const SHORT_LINE_OVERHEAD_TOKENS = 12;
+
+/**
+ * The one-line form of a scene for the recall block: its AI-written definition, or,
+ * for a scene archived before definitions existed, its extracted events.
+ */
+export function recallShortForm(entry: ArchiveIndexEntry | undefined): string | undefined {
+    if (!entry) return undefined;
+    if (entry.definition?.trim()) return entry.definition.trim();
+    const events = (entry.events ?? []).map(e => e.text.trim()).filter(Boolean);
+    return events.length > 0 ? events.join(' ') : undefined;
+}
+
+/**
+ * Recall in two forms, so the budget reaches far more scenes than full text alone
+ * (a median scene is ~1,275 tokens, so 3,000 tokens of full text held under two).
+ *
+ * `sceneIds` is best-first. The best scene is always given in full (cut to fit if it
+ * is huge). Every other scene gets the room its short line needs reserved; then, in
+ * rank order, a scene is given in full if it still fits whole, otherwise as its short
+ * line. A scene with no short form is given in full or not at all, as before. With
+ * no short forms anywhere this is exactly `fetchArchiveScenes`. Returned oldest first.
+ */
+export function fetchRecallScenes(
+    campaignId: string,
+    sceneIds: string[],
+    tokenBudget: number,
+    index: readonly ArchiveIndexEntry[],
+): Promise<ArchiveScene[]> {
+    const byId = new Map(index.map(e => [e.sceneId, e]));
+    const shortForms = new Map<string, string>();
+    for (const id of sceneIds) {
+        const line = recallShortForm(byId.get(id));
+        if (line) shortForms.set(id, line);
+    }
+    // Not async on this path: handing back fetchArchiveScenes' own promise keeps the
+    // turn's await steps, and so the base-app gate's trace, exactly as before.
+    if (shortForms.size === 0) return fetchArchiveScenes(campaignId, sceneIds, tokenBudget);
+    return fetchMixedRecallScenes(campaignId, sceneIds, tokenBudget, shortForms);
+}
+
+async function fetchMixedRecallScenes(
+    campaignId: string,
+    sceneIds: string[],
+    tokenBudget: number,
+    shortForms: ReadonlyMap<string, string>,
+): Promise<ArchiveScene[]> {
+    try {
+        const res = await fetch(`${API}/campaigns/${campaignId}/archive/scenes?ids=${sceneIds.join(',')}`);
+        if (!res.ok) {
+            console.warn('[Archive Retrieval] Failed to fetch scenes:', res.status);
+            return [];
+        }
+        const raw: { sceneId: string; content: string }[] = await res.json();
+        const contentById = new Map(raw.map(s => [safeSceneNum(s.sceneId), s]));
+        const ranked = sceneIds
+            .map(id => contentById.get(safeSceneNum(id)))
+            .filter((s): s is { sceneId: string; content: string } => Boolean(s));
+        if (ranked.length === 0) return [];
+
+        const lineCost = (sceneId: string): number => {
+            const line = shortForms.get(sceneId);
+            return line ? countTokens(line) + SHORT_LINE_OVERHEAD_TOKENS : 0;
+        };
+        let reserved = ranked.slice(1).reduce((sum, s) => sum + lineCost(s.sceneId), 0);
+        let used = 0;
+        const selected: ArchiveScene[] = [];
+
+        ranked.forEach((scene, i) => {
+            const ownLine = i === 0 ? 0 : lineCost(scene.sceneId);
+            reserved -= ownLine;
+            const room = tokenBudget - used - reserved;
+            const tokens = countTokens(scene.content);
+            if (tokens <= room) {
+                selected.push({ sceneId: scene.sceneId, content: scene.content, tokens, form: 'full' });
+                used += tokens;
+            } else if (i === 0 && room > 150) {
+                const content = scene.content.slice(0, Math.floor(room * 4)) + '\n[...scene truncated for context budget...]';
+                selected.push({ sceneId: scene.sceneId, content, tokens: room, form: 'full' });
+                used += room;
+            } else if (ownLine > 0 && ownLine <= tokenBudget - used - reserved) {
+                selected.push({ sceneId: scene.sceneId, content: shortForms.get(scene.sceneId)!, tokens: ownLine, form: 'short' });
+                used += ownLine;
+            }
+        });
+
+        const full = selected.filter(s => s.form === 'full').length;
+        console.log(
+            `[Archive Retrieval] Recall: ${full} full + ${selected.length - full} short of ${ranked.length} ` +
+            `(${used} tokens of ${tokenBudget} budget).`
+        );
         return selected.sort((a, b) => safeSceneNum(a.sceneId) - safeSceneNum(b.sceneId));
     } catch (err) {
         console.warn('[Archive Retrieval] Error fetching scenes:', err);

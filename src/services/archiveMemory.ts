@@ -16,4 +16,4 @@ export {
     type ScoreResult,
 } from './archive-memory/scoring';
 export { computeDynamicMax, PLANNER_RELEVANCE_BOOST, type RecallDepth } from './archive-memory/dynamicMax';
-export { retrieveArchiveMemory, fetchArchiveScenes, recallArchiveScenes } from './archive-memory/recall';
+export { retrieveArchiveMemory, fetchArchiveScenes, fetchRecallScenes, recallArchiveScenes } from './archive-memory/recall';

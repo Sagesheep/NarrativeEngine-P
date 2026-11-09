@@ -304,6 +304,24 @@ describe('buildPayload — scenario 2: full world context', () => {
         expect(allContent).toContain('[ARCHIVE RECALL');
     });
 
+    it('lists scenes recalled in brief after the verbatim ones, with who witnessed them', () => {
+        const recall = [
+            { sceneId: '010', content: 'Grey and Rin fight bandits at the ford; Rin is wounded.', tokens: 20, form: 'short' as const },
+            { sceneId: '020', content: 'FULL SCENE TEXT', tokens: 5, form: 'full' as const },
+        ];
+        const archiveIndex = [
+            { sceneId: '010', timestamp: 1, keywords: [], npcsMentioned: [], witnesses: ['Rin Holmes'], userSnippet: '' },
+            { sceneId: '020', timestamp: 2, keywords: [], npcsMentioned: [], witnesses: [], userSnippet: '' },
+        ];
+        const npcLedger = [{ id: 'npc-rin', name: 'Rin Holmes' }] as unknown as Parameters<typeof buildPayload>[0]['npcLedger'];
+        const result = buildPayload({ settings: baseSettings(), context: baseContext(), history: [], userMessage: userMsg, condensedUpToIndex: undefined, relevantLore: undefined, npcLedger, archiveRecall: recall, archiveIndex });
+        const allContent = result.messages.map(m => m.content as string).join('\n');
+
+        const block = allContent.slice(allContent.indexOf('[ARCHIVE RECALL'), allContent.indexOf('[END ARCHIVE RECALL]'));
+        expect(block.indexOf('FULL SCENE TEXT')).toBeLessThan(block.indexOf('[OTHER RELEVANT PAST SCENES — IN BRIEF]'));
+        expect(block).toContain('- Grey and Rin fight bandits at the ford; Rin is wounded. (witnessed by Rin Holmes)');
+    });
+
     it('active NPC context marker appears when matching NPCs are in ledger', () => {
         const result = buildPayload({ settings: baseSettings(), context: baseContext(), history: [], userMessage: userMsg, condensedUpToIndex: undefined, relevantLore: undefined, npcLedger: npcs });
         const allContent = result.messages

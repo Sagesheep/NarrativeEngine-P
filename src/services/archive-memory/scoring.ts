@@ -1,5 +1,6 @@
 import type { ArchiveIndexEntry, ChatMessage, NPCEntry } from '../../types';
 import { safeSceneNum } from '../../utils/helpers';
+import { namedNpcs } from '../npc/witnessCapture';
 
 /**
  * archive-memory/scoring.ts
@@ -44,8 +45,10 @@ export function scoreEntry(
     }
     const npcStrengths = entry.npcStrengths ?? {};
     for (const [npc, strength] of Object.entries(npcStrengths)) {
-        const a = contextActivations[npc];
-        if (a) activation += a * strength * 1.5 * (idf[npc] ?? 1);
+        // The index stores display names ("Rin Holmes"); activations and IDF key on lowercase.
+        const key = npc.toLowerCase();
+        const a = contextActivations[key];
+        if (a) activation += a * strength * 1.5 * (idf[key] ?? 1);
     }
 
     // Fallback: legacy keyword matching for old entries without strength matrices.
@@ -76,8 +79,6 @@ export function scoreEntry(
         else if (witnesses.length > 0) keywordRelevance *= 0.3;
     }
 
-    // Divergence is intentionally NOT boosted here — it is force-surfaced post-fusion in
-    // retrieveArchiveMemory. Boosting it here too would double-count it.
     return { keywordRelevance, recency, importance };
 }
 
@@ -115,14 +116,19 @@ export function extractContextActivations(
     }
 
     if (npcLedger) {
-        for (const npc of npcLedger) {
-            activations[npc.name.toLowerCase()] = 1.0;
-            if (npc.aliases) {
-                for (const alias of npc.aliases.split(',').map(a => a.trim().toLowerCase()).filter(Boolean)) {
-                    activations[alias] = 1.0;
+        // Only NPCs named in the current exchange count. Activating the whole ledger gave
+        // every scene with any known NPC a match, whoever this turn was actually about.
+        const activateNpcs = (text: string, weight: number) => {
+            for (const npc of namedNpcs(text, npcLedger)) {
+                const name = npc.name.toLowerCase();
+                activations[name] = Math.max(activations[name] ?? 0, weight);
+                for (const alias of (npc.aliases ?? '').split(',').map(a => a.trim().toLowerCase()).filter(Boolean)) {
+                    activations[alias] = Math.max(activations[alias] ?? 0, weight);
                 }
             }
-        }
+        };
+        activateNpcs(last3.map(m => m.content || '').join('\n'), 0.7);
+        activateNpcs(userMessage, 1.0);
     }
 
     return activations;
@@ -199,7 +205,9 @@ export function applyEventBoost(
         if (!entry.events || entry.events.length === 0) continue;
         let bonus = 0;
         for (const event of entry.events) {
-            if (event.importance >= 7) {
+            // A flat bonus for importance ignores the current turn. Tagged scenes earn
+            // their rank from tags that match it; this remains for scenes not yet tagged.
+            if (event.importance >= 7 && entry.tags === undefined) {
                 bonus += 1.5;
             }
             if (event.characters) {

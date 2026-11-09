@@ -195,20 +195,45 @@ describe('retrieveArchiveMemory — planner boost', () => {
 
 // ─── Divergence front-loading (replaces the old +5, no double-count) ────────
 
-describe('retrieveArchiveMemory — divergence front-loading', () => {
-    it('forces an unmatched divergence scene to the front of the result', () => {
+describe('retrieveArchiveMemory — divergence marks', () => {
+    it('does not surface a divergence scene that has nothing to do with this turn', () => {
         const index = [
             makeEntry({ sceneId: '1', keywordStrengths: { topic: 5 } }),
-            makeEntry({ sceneId: '2', keywordStrengths: { topic: 5 } }),
-            makeEntry({ sceneId: 'DIV', keywordStrengths: { offtopic: 5 } }), // no match this turn
+            makeEntry({ sceneId: 'DIV', keywordStrengths: { offtopic: 5 } }),
         ];
         const result = retrieveArchiveMemory(
             index, 'topic', [], undefined, undefined,
             undefined, undefined, undefined,
             undefined,
-            new Set(['DIV']), // divergence scene
+            new Set(['DIV']),
         );
-        expect(result[0]).toBe('DIV');
+        expect(result).toEqual(['1']);
+    });
+
+    it('breaks a tie in favour of a divergence scene that also matches', () => {
+        const index = [
+            makeEntry({ sceneId: '1', keywordStrengths: { topic: 5 } }),
+            makeEntry({ sceneId: '2', keywordStrengths: { topic: 5 } }),
+        ];
+        const result = retrieveArchiveMemory(
+            index, 'topic', [], undefined, undefined,
+            undefined, undefined, undefined,
+            undefined,
+            new Set(['1']),
+        );
+        expect(result[0]).toBe('1');
+    });
+
+    it('cannot lock other scenes out when marked scenes outnumber the recall limit', () => {
+        const marked = Array.from({ length: 30 }, (_, i) => makeEntry({ sceneId: String(i + 1), keywordStrengths: { offtopic: 5 } }));
+        const index = [...marked, makeEntry({ sceneId: '31', keywordStrengths: { topic: 5 } })];
+        const result = retrieveArchiveMemory(
+            index, 'topic', [], undefined, undefined,
+            undefined, undefined, undefined,
+            undefined,
+            new Set(marked.map(e => e.sceneId)),
+        );
+        expect(result).toContain('31');
     });
 });
 

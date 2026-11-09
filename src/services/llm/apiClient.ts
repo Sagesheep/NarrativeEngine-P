@@ -1,4 +1,4 @@
-import type { AppSettings, ArchiveChapter, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, SceneEvent, ChapterRefitPreview, ChapterRefitResult } from '../../types';
+import type { AppSettings, ArchiveChapter, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, SceneEvent, ChapterRefitPreview, ChapterRefitResult, SceneHook, SceneTags } from '../../types';
 
 import { API_BASE as API } from '../../lib/apiBase';
 import { encryptSettingsProviders } from '../infrastructure/settingsCrypto';
@@ -97,7 +97,7 @@ export const api = {
                 console.warn('[Archive] Failed to patch witnesses:', err);
             }
         },
-        async patchEvents(campaignId: string, patches: { sceneId: string; events: SceneEvent[] }[]): Promise<void> {
+        async patchEvents(campaignId: string, patches: { sceneId: string; events?: SceneEvent[]; tags?: SceneTags; hooks?: SceneHook[]; definition?: string }[]): Promise<void> {
             try {
                 const res = await fetch(`${API}/campaigns/${campaignId}/archive/events`, {
                     method: 'PATCH',

@@ -55,7 +55,7 @@ vi.mock('../chatEngine', () => ({
 vi.mock('../characterProfileParser', () => ({ scanCharacterProfile: vi.fn() }));
 vi.mock('../characterTraitParser', () => ({ scanCharacterTraits: vi.fn() }));
 vi.mock('../inventoryParser', () => ({ scanInventory: vi.fn() }));
-vi.mock('../archive-memory/sceneEventExtractor', () => ({ extractSceneEvents: vi.fn() }));
+vi.mock('../archive-memory/sceneEventExtractor', () => ({ analyzeScene: vi.fn() }));
 vi.mock('../campaign-state/divergenceRegister', () => ({ mergeSealEntries: vi.fn(), EMPTY_REGISTER: {} }));
 vi.mock('../../store/campaignStore', () => ({ saveDivergenceRegister: vi.fn().mockResolvedValue(undefined) }));
 
@@ -64,14 +64,14 @@ import { backgroundQueue } from '../infrastructure/backgroundQueue';
 import { scanCharacterProfile } from '../characterProfileParser';
 import { scanCharacterTraits } from '../characterTraitParser';
 import { scanInventory } from '../inventoryParser';
-import { extractSceneEvents } from '../archive-memory/sceneEventExtractor';
+import { analyzeScene } from '../archive-memory/sceneEventExtractor';
 import { api } from '../llm/apiClient';
 
 const mockApi = vi.mocked(api);
 const mockScanCharacterProfile = vi.mocked(scanCharacterProfile);
 const mockScanCharacterTraits = vi.mocked(scanCharacterTraits);
 const mockScanInventory = vi.mocked(scanInventory);
-const mockExtractSceneEvents = vi.mocked(extractSceneEvents);
+const mockAnalyzeScene = vi.mocked(analyzeScene);
 
 const ASSISTANT_CONTENT = 'The goblin falls.';
 const ALL_MSGS: ChatMessage[] = [{ id: 'm1', role: 'assistant', content: ASSISTANT_CONTENT, timestamp: 1000 }];
@@ -259,15 +259,15 @@ describe('Campaign-id guard: race condition regression tests', () => {
         mockScanCharacterTraits.mockResolvedValueOnce(EMPTY_TRAITS);
         mockScanInventory.mockResolvedValueOnce([]);
 
-        const eventsDeferred = deferred<any[]>();
-        mockExtractSceneEvents.mockReturnValueOnce(eventsDeferred.promise);
+        const eventsDeferred = deferred<any>();
+        mockAnalyzeScene.mockReturnValueOnce(eventsDeferred.promise);
 
         const callbacks = makeCallbacks();
         await runPostTurnPipeline(makeState(), callbacks, ASSISTANT_CONTENT, ALL_MSGS);
 
         // Switch campaign while Event-Extraction is still pending
         mockActiveCampaignId = 'campaign-2';
-        eventsDeferred.resolve([{ subject: 'A', predicate: 'met', object: 'B', summary: 'A met B', importance: 3, sceneId: '001', chapterId: 'CH01', source: 'llm' }]);
+        eventsDeferred.resolve({ events: [{ subject: 'A', predicate: 'met', object: 'B', summary: 'A met B', importance: 3, sceneId: '001', chapterId: 'CH01', source: 'llm' }], tags: {}, hooks: [], resolvedHookIds: [] });
         await waitForBackgroundDrain();
 
         // The synchronous setArchiveIndex (L259, pre-switch) fires once;
@@ -284,14 +284,14 @@ describe('Campaign-id guard: race condition regression tests', () => {
         mockScanCharacterTraits.mockResolvedValueOnce(EMPTY_TRAITS);
         mockScanInventory.mockResolvedValueOnce([]);
 
-        const eventsDeferred = deferred<any[]>();
-        mockExtractSceneEvents.mockReturnValueOnce(eventsDeferred.promise);
+        const eventsDeferred = deferred<any>();
+        mockAnalyzeScene.mockReturnValueOnce(eventsDeferred.promise);
 
         const callbacks = makeCallbacks();
         await runPostTurnPipeline(makeState(), callbacks, ASSISTANT_CONTENT, ALL_MSGS);
 
         mockActiveCampaignId = null;
-        eventsDeferred.resolve([{ subject: 'A', predicate: 'met', object: 'B', summary: 'A met B', importance: 3, sceneId: '001', chapterId: 'CH01', source: 'llm' }]);
+        eventsDeferred.resolve({ events: [{ subject: 'A', predicate: 'met', object: 'B', summary: 'A met B', importance: 3, sceneId: '001', chapterId: 'CH01', source: 'llm' }], tags: {}, hooks: [], resolvedHookIds: [] });
         await waitForBackgroundDrain();
 
         expect(callbacks.setArchiveIndex).toHaveBeenCalledTimes(1);

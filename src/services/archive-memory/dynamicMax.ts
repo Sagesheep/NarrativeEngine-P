@@ -23,6 +23,10 @@ const DEPTH_TIERS: Record<RecallDepth, { high: number; mid: number; low: number 
 // not the old flat +3.5 which would have swamped the keyword score.
 export const PLANNER_RELEVANCE_BOOST = 2.0;
 
+// Small on purpose: on a long campaign most scenes carry a divergence entry, so anything
+// bigger than a tie-breaker would rank the mark above what the scene is actually about.
+export const DIVERGENCE_RELEVANCE_BONUS = 0.5;
+
 export function computeDynamicMax(
     keywordRanked: string[],
     embeddingRanked: string[],

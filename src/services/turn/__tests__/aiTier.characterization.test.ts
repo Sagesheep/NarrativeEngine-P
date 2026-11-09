@@ -63,7 +63,7 @@ const EXPECTED: Record<AiTier, Record<TierFeature, boolean>> = {
         lodSlottedRag: false,
     },
     pro: {
-        introEngine: false, planner: false, expandQuery: false, reranker: false, archiveFunnel: false,
+        introEngine: false, planner: true, expandQuery: false, reranker: false, archiveFunnel: false,
         deepScan: true, recommender: true, recommenderThinking: false, npcStance: true,
         importanceRating: false, witnessAux: false, npcValidate: true, npcProfileGen: true,
         npcUpdate: true, drivesBackfill: false, profileScan: false, inventoryScan: false, locationScan: false, locationEnrich: true, sealChapter: true,
@@ -75,7 +75,7 @@ const EXPECTED: Record<AiTier, Record<TierFeature, boolean>> = {
         lodSlottedRag: false,
     },
     max: {
-        introEngine: true, planner: false, expandQuery: false, reranker: true, archiveFunnel: false,
+        introEngine: true, planner: true, expandQuery: false, reranker: true, archiveFunnel: false,
         deepScan: true, recommender: true, recommenderThinking: false, npcStance: true,
         importanceRating: true, witnessAux: true, npcValidate: true, npcProfileGen: true,
         npcUpdate: true, drivesBackfill: false, profileScan: true, inventoryScan: true, locationScan: true, locationEnrich: true, sealChapter: true,
