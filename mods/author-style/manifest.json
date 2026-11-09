@@ -1,0 +1,23 @@
+{
+  "id": "author-style",
+  "name": "Author Prose Style",
+  "version": "1.0.0",
+  "description": "Select a generic prose voice archetype for narrative generation. Dropdown in chat rail; reads your choice each turn.",
+  "tables": [
+    {
+      "name": "settings",
+      "recordShape": "single-object",
+      "label": "Prose Author Settings",
+      "keepOnCleanCopy": true
+    }
+  ],
+  "native": {
+    "js": "index.js",
+    "hooks": {
+      "install": "onInstall",
+      "activate": "onActivate",
+      "disable": "onDisable"
+    },
+    "generateInterceptor": "interceptPrompt"
+  }
+}
