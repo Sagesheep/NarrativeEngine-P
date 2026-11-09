@@ -98,7 +98,7 @@ function recallPickerCandidates(
     input: MemoryRecallInput,
     context: MemoryRecallCoreContext,
     engineIds: string[],
-): { engineCandidates: string[]; candidates: PickerCandidate[] } | null {
+): PickerCandidate[] | null {
     if (engineIds.length === 0) return null;
     if (!isBlockEnabled('planner', context.aiTier, context.moduleEnabled)) return null;
     const hasModel = Boolean(context.modelCall) || Boolean((context.utilityProvider as EndpointConfig | undefined)?.endpoint);
@@ -109,14 +109,14 @@ function recallPickerCandidates(
     const candidates = engineCandidates
         .map(sceneId => ({ sceneId, line: recallShortForm(byId.get(sceneId)) }))
         .filter((c): c is PickerCandidate => Boolean(c.line));
-    return candidates.length < 2 ? null : { engineCandidates, candidates };
+    return candidates.length < 2 ? null : candidates;
 }
 
 async function pickMemoryRecallIds(
     input: MemoryRecallInput,
     context: MemoryRecallCoreContext,
     engineIds: string[],
-    { engineCandidates, candidates }: { engineCandidates: string[]; candidates: PickerCandidate[] },
+    candidates: PickerCandidate[],
 ): Promise<string[]> {
     const lastReply = [...input.messages].reverse().find(m => m.role === 'assistant' && typeof m.content === 'string')?.content;
     const picks = await runRecallPicker({
@@ -127,7 +127,7 @@ async function pickMemoryRecallIds(
         modelCall: context.modelCall,
     });
     if (!picks || picks.length === 0) return engineIds;
-    return applyRecallPicks(engineCandidates, picks, engineIds.length);
+    return applyRecallPicks(engineIds, picks);
 }
 
 /** Select IDs only. The host performs archive fetches after a provider answers. */

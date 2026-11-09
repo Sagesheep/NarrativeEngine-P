@@ -22,12 +22,12 @@ describe('parseRecallPicks', () => {
 });
 
 describe('applyRecallPicks', () => {
-    it('puts picks first, then the engine order, at the engine count', () => {
-        expect(applyRecallPicks(['1', '2', '3', '4'], ['3'], 3)).toEqual(['3', '1', '2']);
+    it('puts picks first, then everything the engine recalled, without repeats', () => {
+        expect(applyRecallPicks(['1', '2', '3'], ['3'])).toEqual(['3', '1', '2']);
     });
 
-    it('never drops a pick to fit the count', () => {
-        expect(applyRecallPicks(['1', '2'], ['9', '8', '7'], 2)).toEqual(['9', '8', '7']);
+    it('adds picks from outside the engine list rather than pushing engine hits out', () => {
+        expect(applyRecallPicks(['1', '2'], ['9', '8'])).toEqual(['9', '8', '1', '2']);
     });
 });
 

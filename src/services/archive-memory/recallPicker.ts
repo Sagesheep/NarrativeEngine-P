@@ -107,10 +107,12 @@ export async function runRecallPicker(params: {
 }
 
 /**
- * The final recall order: the picker's picks first, then the engine's other
- * candidates in its own order, as many scenes as the engine would have recalled.
+ * The final recall order: the picker's picks first, then everything the engine
+ * recalled on its own. Picks are added, never swapped in: a pick pushing out an
+ * engine hit lost a right scene on the Turn Prep probes (P5s), and an extra
+ * scene costs only a ~45-token brief line.
  */
-export function applyRecallPicks(engineOrder: readonly string[], picks: readonly string[], count: number): string[] {
+export function applyRecallPicks(engineIds: readonly string[], picks: readonly string[]): string[] {
     const picked = new Set(picks);
-    return [...picks, ...engineOrder.filter(id => !picked.has(id))].slice(0, Math.max(count, picks.length));
+    return [...picks, ...engineIds.filter(id => !picked.has(id))];
 }

@@ -11,12 +11,35 @@ import type { ArchiveIndexEntry } from '../../types';
 
 let _idfCache: { sig: string; idf: Record<string, number> } | null = null;
 
+const definitionWordsCache = new WeakMap<ArchiveIndexEntry, Record<string, number>>();
+
+/**
+ * The words a scene is matched on by the keyword ranker. A scene with an AI-written
+ * definition is matched on the words of that definition; otherwise on the keywords the
+ * server pulled from its full text. Full-text keywords gave ~570 matching scenes per
+ * turn and buried good meaning-search hits; on the Turn Prep probes (578-scene copy)
+ * definition words put a target in the top 10 for 9/9 probes instead of 7/9 (summed
+ * target rank 34 vs 59). Blending some full-text keywords back in did not help.
+ */
+export function sceneSearchWords(entry: ArchiveIndexEntry): Record<string, number> {
+    if (!entry.definition) return entry.keywordStrengths ?? {};
+    let words = definitionWordsCache.get(entry);
+    if (!words) {
+        words = {};
+        for (const w of entry.definition.toLowerCase().match(/[a-z]{3,}/g) ?? []) words[w] = 1;
+        definitionWordsCache.set(entry, words);
+    }
+    return words;
+}
+
 function indexSignature(index: ArchiveIndexEntry[], campaignId?: string): string {
     if (index.length === 0) return campaignId ? `${campaignId}:empty` : '';
     const first = index[0].sceneId;
     const last = index[index.length - 1].sceneId;
     const tsLast = index[index.length - 1].timestamp;
-    return `${campaignId ?? ''}:${index.length}:${first}:${last}:${tsLast}`;
+    // Definitions arrive after the scene (post-turn, or the Chapters backfill) and change the words.
+    const defined = index.reduce((n, e) => n + (e.definition ? 1 : 0), 0);
+    return `${campaignId ?? ''}:${index.length}:${first}:${last}:${tsLast}:${defined}`;
 }
 
 export function computeArchiveIdf(index: ArchiveIndexEntry[], campaignId?: string): Record<string, number> {
@@ -28,7 +51,7 @@ export function computeArchiveIdf(index: ArchiveIndexEntry[], campaignId?: strin
 
     for (const entry of index) {
         const seen = new Set<string>();
-        const kwStrengths = entry.keywordStrengths ?? {};
+        const kwStrengths = sceneSearchWords(entry);
         const npcStrengths = entry.npcStrengths ?? {};
         if (Object.keys(kwStrengths).length > 0 || Object.keys(npcStrengths).length > 0) {
             for (const kw of Object.keys(kwStrengths)) {

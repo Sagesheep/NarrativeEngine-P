@@ -1,6 +1,7 @@
 import type { ArchiveIndexEntry, ChatMessage, NPCEntry } from '../../types';
 import { safeSceneNum } from '../../utils/helpers';
 import { namedNpcs } from '../npc/witnessCapture';
+import { sceneSearchWords } from './idf';
 
 /**
  * archive-memory/scoring.ts
@@ -36,9 +37,10 @@ export function scoreEntry(
     // Intrinsic importance (permanent, no decay). Tiebreak only.
     const importance = entry.importance ?? 5;
 
-    // Activation strength: IDF-weighted keyword-strength-matrix dot product.
+    // Activation strength: IDF-weighted keyword-strength-matrix dot product, over the
+    // scene's definition words when it has a definition (see sceneSearchWords).
     let activation = 0;
-    const kwStrengths = entry.keywordStrengths ?? {};
+    const kwStrengths = sceneSearchWords(entry);
     for (const [keyword, strength] of Object.entries(kwStrengths)) {
         const a = contextActivations[keyword];
         if (a) activation += a * strength * (idf[keyword] ?? 1);

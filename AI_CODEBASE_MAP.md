@@ -557,7 +557,7 @@ The final user message is a **contribution registry** (Project 2): 10 built-in m
 1. `extractContextActivations` (user 1.0, recent assistant 0.7, older 0.3, NPC ledger 1.0).
 2. `expandActivationsWithFacts` (1-hop 0.5×, 2-hop 0.25×).
 3. Range/exclude scoping → `computeArchiveIdf` (BM25 smoothing) → `applyEventBoost`.
-4. `scoreEntry`: IDF-weighted keyword relevance + event boost + planner boost 2.0 (mod-supplied `plannerSceneIds` only; the built-in Archive Planner was retired) + recency/importance tiebreak.
+4. `scoreEntry`: IDF-weighted keyword relevance (a scene with a definition is matched on its definition's words, `idf.ts` `sceneSearchWords`; others on full-text keywords) + event boost + planner boost 2.0 (mod-supplied `plannerSceneIds` only; the built-in Archive Planner was retired) + recency/importance tiebreak.
 5. Embedding ranker (server-side, scope-filtered) → `fuseRRF` (k=60).
 6. `computeDynamicMax` slice. Tags, open hooks and a small divergence bonus score inside the keyword ranker (`sceneTags.ts`); divergence no longer jumps the queue.
 7. Recall Picker (`recallPicker.ts`, block `planner`, Pro/Max): a utility model reads the definitions of the top 30 candidates and picks up to 5; picks go first. Skipped synchronously when off or nothing to read.

@@ -90,9 +90,9 @@ describe('selectMemoryRecallIds — the Recall Picker block', () => {
         mocks.retrieveArchiveMemory.mockImplementation((...args: unknown[]) => (args[4] === 30 ? ['534', '533', '600'] : ['534', '533']));
     });
 
-    it('puts the picks first, then the engine order, as many scenes as the engine recalls', async () => {
+    it('puts the picks first, then everything the engine recalled', async () => {
         const ctx = pickerContext('[3]');
-        expect(await selectMemoryRecallIds(pickerInput, ctx)).toEqual(['600', '534']);
+        expect(await selectMemoryRecallIds(pickerInput, ctx)).toEqual(['600', '534', '533']);
         const prompt = vi.mocked(ctx.modelCall!).mock.calls[0][0].prompt;
         expect(prompt).toContain('[3] Grey and Therese settle matter 600 in the study.');
         expect(prompt).toContain('Therese waits.');
