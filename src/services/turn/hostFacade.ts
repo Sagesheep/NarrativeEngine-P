@@ -1,3 +1,4 @@
+import { normalizeSceneRecallBudget, type SceneRecallBudget } from '../archive-memory/recallBudget';
 import type {
     AiTier,
     ArchiveChapter,
@@ -106,6 +107,7 @@ export interface FacadeConfig {
     readonly moduleEnabled: Readonly<Record<string, boolean>> | undefined;
     readonly contextLimit: number;
     readonly archiveRecallDepth: 'lean' | 'standard' | 'deep';
+    readonly sceneRecallBudget: SceneRecallBudget;
     readonly autoArchiveStaleNPCsTurns: number;
     readonly divergenceScanBudget: number;
     readonly enableArchivePlanner: boolean;
@@ -206,6 +208,7 @@ type FacadeSettings = {
     moduleEnabled?: Record<string, boolean>;
     contextLimit: number;
     archiveRecallDepth?: 'lean' | 'standard' | 'deep';
+    sceneRecallBudget?: number;
     autoArchiveStaleNPCsTurns?: number;
     divergenceScanBudget?: number;
     enableArchivePlanner?: boolean;
@@ -257,6 +260,7 @@ function readFacadeSettings(settings: FacadeSettings): FacadeConfig {
         moduleEnabled: settings.moduleEnabled ? Object.freeze({ ...settings.moduleEnabled }) : undefined,
         contextLimit: settings.contextLimit,
         archiveRecallDepth: settings.archiveRecallDepth ?? 'standard',
+        sceneRecallBudget: normalizeSceneRecallBudget(settings.sceneRecallBudget),
         autoArchiveStaleNPCsTurns: settings.autoArchiveStaleNPCsTurns ?? 0,
         divergenceScanBudget: settings.divergenceScanBudget ?? 0,
         enableArchivePlanner: settings.enableArchivePlanner ?? false,

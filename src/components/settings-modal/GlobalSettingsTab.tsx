@@ -11,6 +11,7 @@ import {
 } from '../chat/readingPrefs';
 import { MAX_STORY_TIMEOUT_SECONDS, MIN_STORY_TIMEOUT_SECONDS, normalizeStoryTimeoutSeconds } from '../../services/llm/timeouts';
 import { computeLoreBudget, normalizeLoreDepth } from '../../services/lore/loreBudget';
+import { SCENE_RECALL_BUDGETS, normalizeSceneRecallBudget } from '../../services/archive-memory/recallBudget';
 
 /**
  * The six groups this tab divides into, in the order the blocks already appear
@@ -269,6 +270,40 @@ export function GlobalSettingsTab() {
 
       {/* Deep Archive Search and the Recall Picker are switched in Block View only
           (their second switches here were removed 2026-10-05). */}
+
+      {/* Scene Recall Space — the archive recall token budget (archive-memory/recallBudget.ts) */}
+      <div className="bg-void p-3 border border-border rounded space-y-2">
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold">
+              Scene Recall Space
+            </label>
+            <span className="text-terminal font-bold font-mono bg-terminal/10 px-2 py-0.5 rounded text-[10px]">
+              ≤{normalizeSceneRecallBudget(settings.sceneRecallBudget).toLocaleString()} tok
+            </span>
+          </div>
+          <p className="text-[9px] text-text-dim leading-tight">
+            How much of each turn's prompt past scenes may use. The best match comes in full, the
+            others as one-line summaries. More space lets long scenes arrive whole instead of cut,
+            and costs up to that many extra tokens per turn on the story model. 3k: default.
+            4k or 6k: for large context windows.
+          </p>
+        </div>
+        <div className="flex border border-border overflow-hidden rounded">
+          {SCENE_RECALL_BUDGETS.map(budget => (
+            <button
+              key={budget}
+              onClick={() => updateSettings({ sceneRecallBudget: budget })}
+              className={`flex-1 py-1.5 text-[10px] uppercase tracking-wider transition-colors focus:outline-none ${normalizeSceneRecallBudget(settings.sceneRecallBudget) === budget
+                ? 'bg-terminal text-void font-bold'
+                : 'bg-void text-text-dim hover:text-text-primary'
+              }`}
+            >
+              {budget / 1000}k
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Retrieval algorithm (IDF+RRF vs classic) — kill-switch for the lore/rules ranker */}
       <div className="flex items-center justify-between bg-void p-3 border border-border rounded">

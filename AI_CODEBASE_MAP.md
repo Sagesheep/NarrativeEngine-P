@@ -561,7 +561,7 @@ The final user message is a **contribution registry** (Project 2): 10 built-in m
 5. Embedding ranker (server-side, scope-filtered) → `fuseRRF` (k=60).
 6. `computeDynamicMax` slice. Tags, open hooks and a small divergence bonus score inside the keyword ranker (`sceneTags.ts`); divergence no longer jumps the queue.
 7. Recall Picker (`recallPicker.ts`, block `planner`, Pro/Max): a utility model reads the definitions of the top 30 candidates and picks up to 5; picks go first. Skipped synchronously when off or nothing to read.
-8. `fetchRecallScenes`: the first scene in full, the rest as one-line definitions (`form: 'short'`, rendered by `world.ts` as "IN BRIEF") within the 3,000-token budget.
+8. `fetchRecallScenes`: the first scene in full, the rest as one-line definitions (`form: 'short'`, rendered by `world.ts` as "IN BRIEF") within the recall budget: the player's Scene Recall Space setting, 3k (default) / 4k / 6k (`recallBudget.ts`, Settings → Global → Memory & retrieval).
 
 `dynamicMax.ts` — consensus-based recall ceiling: DEPTH_TIERS lean {5,4,3} / standard {10,7,5} / deep {12,9,7}.
 `dynamicElevation.ts` (248 lines, WO-11) — scoped vector search (`scopeSceneIds`) → synopsis-tier scenes surfaced verbatim below the cache boundary; reuses `lodRenderer`.

@@ -1,3 +1,4 @@
+import { DEFAULT_SCENE_RECALL_BUDGET, normalizeSceneRecallBudget } from '../../services/archive-memory/recallBudget';
 import type { AppSettings, LLMProvider, AIPreset, ApiFormat, AiTier } from '../../types';
 import { set as idbSet } from 'idb-keyval';
 import { encryptSettingsProviders } from '../../services/infrastructure/settingsCrypto';
@@ -109,6 +110,7 @@ export const defaultSettings: AppSettings = {
     retrievalAlgorithm: 'idf-rrf',
     loreDepth: 'balanced',
     archiveRecallDepth: 'standard',
+    sceneRecallBudget: DEFAULT_SCENE_RECALL_BUDGET,
     uiScale: 1.0,
     ...READING_DEFAULTS,
     betaUi: false,
@@ -447,6 +449,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         retrievalAlgorithm: (raw.retrievalAlgorithm as 'classic' | 'idf-rrf') ?? 'idf-rrf',
         loreDepth: normalizeLoreDepth(raw.loreDepth),
         archiveRecallDepth: (raw.archiveRecallDepth as 'lean' | 'standard' | 'deep') ?? 'standard',
+        sceneRecallBudget: normalizeSceneRecallBudget(raw.sceneRecallBudget),
         matureMode: (raw.matureMode as boolean) ?? false,
         aiTier: raw.aiTier as AiTier | undefined,
         uiScale: (raw.uiScale as number) ?? 1.0,

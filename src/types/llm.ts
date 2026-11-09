@@ -183,6 +183,8 @@ export type AppSettings = {
     enableArchivePlanner?: boolean;
     retrievalAlgorithm?: 'classic' | 'idf-rrf';
     loreDepth?: 'lean' | 'balanced' | 'deep';  // lore RAG ceiling as a share of contextLimit + relevance-floor leniency; default 'balanced' (services/lore/loreBudget.ts)
+    /** Tokens past scenes may use per turn: 3000 (default), 4000 or 6000. See archive-memory/recallBudget.ts. */
+    sceneRecallBudget?: 3000 | 4000 | 6000;
     archiveRecallDepth?: 'lean' | 'standard' | 'deep';  // archive recall ceiling; default 'standard' (desktop). 'lean' = mobile parity (3/4/5)
     matureMode?: boolean;            // default false; gates mature-tier NPC traits/wants (NPC Agency Phase 2)
     /** WO-C §9.3 (C2) — feature flag for the optional AI adaptation pass on SillyTavern card

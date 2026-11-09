@@ -168,6 +168,17 @@ describe('gatherContext', () => {
         expect(result.archiveRecall).toEqual(expect.arrayContaining([existingScene, pinnedScene]));
     });
 
+    it('recalls past scenes within the Scene Recall Space the player chose (3,000 by default)', async () => {
+        const { retrieveArchiveMemory } = await import('../archiveMemory');
+        const archiveIndex = [{ sceneId: '005', timestamp: 1, keywords: [], npcsMentioned: [], witnesses: [], userSnippet: '' }];
+        for (const [sceneRecallBudget, expected] of [[undefined, 3000], [6000, 6000], [12345, 3000]] as const) {
+            vi.mocked(retrieveArchiveMemory).mockReturnValueOnce(['005']);
+            mockFetchRecallScenes.mockClear();
+            await gatherContext(makeState({ activeCampaignId: 'c1', archiveIndex, settings: { sceneRecallBudget } as any }), 'look', noDeps());
+            expect(mockFetchRecallScenes.mock.calls[0]?.[2]).toBe(expected);
+        }
+    });
+
     it('does not call clearPinnedChapters when pinnedChapterIds is empty', async () => {
         const clearPinnedChapters = vi.fn();
         const state = makeState();
