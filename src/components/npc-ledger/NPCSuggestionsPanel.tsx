@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { UserPlus, X, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
-import { addNpcFromSelection } from '../../services/npc/manualAdd';
-import { toast } from '../Toast';
+import { acceptNpcSuggestion } from './acceptNpcSuggestion';
 import type { NpcSuggestion } from '../../types';
 
 type Props = {
@@ -35,38 +34,12 @@ export function NPCSuggestionsPanel({ suggestions }: Props) {
         return n;
     });
 
-    const acceptOne = async (name: string): Promise<boolean> => {
-        const state = useAppStore.getState();
-        if (!state.activeCampaignId) {
-            toast.warning('No active campaign.');
-            return false;
-        }
-        const result = await addNpcFromSelection({
-            rawText: name,
-            ledger: state.npcLedger ?? [],
-            messages: state.messages,
-            campaignId: state.activeCampaignId,
-            storyProvider: state.getActiveStoryEndpoint() ?? state.getActiveUtilityEndpoint(),
-            updateProvider: state.getActiveUtilityEndpoint() ?? state.getActiveStoryEndpoint(),
-            addNPC: state.addNPC,
-            updateNPC: state.updateNPC,
-        });
-        if (result.ok) {
-            dismissNpcSuggestion(name);
-            toast.success(result.message);
-            return true;
-        }
-        if (result.kind === 'ambiguous') toast.warning(result.message);
-        else toast.error(result.message);
-        return false;
-    };
-
     const acceptMany = async (names: string[]) => {
         if (busy || names.length === 0) return;
         setBusy(true);
         for (const name of names) {
             setActiveName(name);
-            await acceptOne(name);
+            await acceptNpcSuggestion(name);
         }
         setActiveName(null);
         setBusy(false);
@@ -165,4 +138,4 @@ export function NPCSuggestionsPanel({ suggestions }: Props) {
             )}
         </div>
     );
-}
+}

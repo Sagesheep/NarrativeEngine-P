@@ -6,6 +6,7 @@ import { ChatAttachmentChip } from './ChatAttachmentChip';
 import type { ChatAttachment } from '../hooks/useChatAttachment';
 import { GalleryPicker, GalleryArmedChips, GallerySuggestions } from './GalleryComposerBar';
 import type { useGalleryMention } from '../hooks/useGalleryMention';
+import { NpcSuggestionChips } from './NpcSuggestionChips';
 
 /**
  * Bottom composer row: active-preset selector, deep-search armed chip,
@@ -85,6 +86,7 @@ export function ChatComposer({
                     )}
                 </>
             )}
+            {!gallery?.pickerOpen && <NpcSuggestionChips />}
             {attachment && onCaptionChange && onRemoveAttachment && (
                 <ChatAttachmentChip
                     attachment={attachment}
