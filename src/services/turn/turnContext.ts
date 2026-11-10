@@ -68,6 +68,7 @@ export type TurnContext = {
      * one end per turn however many attempts it took.
      */
     turnId: string;
+    userMessageId?: string;
 
     // ── Inputs (set at creation from TurnState) ────────────────────────────
     /** The original user input string (before engine-roll appends). */

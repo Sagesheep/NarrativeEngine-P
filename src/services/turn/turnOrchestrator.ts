@@ -23,6 +23,7 @@ export type TurnCallbacks = {
     addMessage: (msg: ChatMessage) => void;
     updateLastAssistant: (content: string) => void;
     updateLastMessage: (patch: Partial<ChatMessage>) => void;
+    updateMessageById?: (id: string, patch: Partial<ChatMessage>) => void;
     /**
      * Patches the LAST assistant message (scans back from the tail). Use this
      * instead of `updateLastMessage` whenever the patch is meant for the

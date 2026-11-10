@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { AlertCircle, RotateCw } from 'lucide-react';
-import type { ChatMessage, DebugSection, RelationshipMemoryFault, RelationshipMemoryRecord, RelationshipStance } from '../types';
-import { DebugPayloadView } from './DebugPayloadView';
+import type { ChatMessage, RelationshipMemoryFault, RelationshipMemoryRecord, RelationshipStance } from '../types';
+import { DebugPayloadView, type DebugPayloadData } from './DebugPayloadView';
 import { ToolCallChips } from './chat/ToolCallChips';
 import { proseForTTS } from '../services/tts/proseStripper';
 import { hasSwipeSet } from '../services/turn/pendingCommit';
@@ -327,7 +327,7 @@ export function MessageBubble({
                 )}
 
                 {hasDebug && (
-                    <DebugPayloadView debugPayload={msg.debugPayload as { sections?: DebugSection[]; raw?: unknown }} />
+                    <DebugPayloadView debugPayload={msg.debugPayload as DebugPayloadData} />
                 )}
             </div>
             {!isUser && !isEditing && actionRail}

@@ -23,12 +23,18 @@ const classificationBg: Record<string, string> = {
 // into thinking the Director's payload duplicates the GM's payload.
 const UTILITY_BADGE = 'NOT SENT TO GM';
 
+export interface DebugPayloadData {
+    sections?: DebugSection[];
+    raw?: unknown;
+    sentRequests?: string[];
+}
+
 interface DebugPayloadViewProps {
-    debugPayload: { sections?: DebugSection[]; raw?: unknown };
+    debugPayload: DebugPayloadData;
 }
 
 export const DebugPayloadView: React.FC<DebugPayloadViewProps> = ({ debugPayload }) => {
-    const { sections, raw } = debugPayload;
+    const { sections, raw, sentRequests } = debugPayload;
     const hasSections = sections && sections.length > 0;
 
     return (
@@ -40,6 +46,12 @@ export const DebugPayloadView: React.FC<DebugPayloadViewProps> = ({ debugPayload
                 )}
             </summary>
             <div className="mt-2 space-y-1 max-h-[50vh] overflow-y-auto">
+                {sentRequests?.map((body, index) => (
+                    <details key={index}>
+                        <summary className="cursor-pointer text-terminal">Sent request {index + 1}</summary>
+                        <pre className="bg-void p-2 max-h-[300px] overflow-auto whitespace-pre-wrap break-all font-mono">{body}</pre>
+                    </details>
+                ))}
                 {hasSections ? (
                     sections.map((section, idx) => {
                         const colorClass = classificationColors[section.classification || ''] || 'text-text-dim border-border/40';
@@ -77,7 +89,7 @@ export const DebugPayloadView: React.FC<DebugPayloadViewProps> = ({ debugPayload
                             </details>
                         );
                     })
-                ) : (
+                ) : raw !== undefined && (
                     <pre className="bg-void p-2 overflow-x-auto overflow-y-auto max-h-[300px] text-text-dim text-[9px] font-mono leading-tight whitespace-pre-wrap break-all">
                         {JSON.stringify(raw, null, 2)}
                     </pre>

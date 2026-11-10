@@ -188,6 +188,7 @@ export function addUserTurnMessage(
     callbacks: TurnCallbacks,
 ): void {
     const userMsgId = uid();
+    ctx.userMessageId = userMsgId;
     callbacks.addMessage({
         id: userMsgId,
         role: 'user',
@@ -621,6 +622,18 @@ export async function runGenerationStage(
     const stripLLMSceneHeader = (text: string): string =>
         text.replace(/^Scene\s*#\d+\s*\|?\s*/i, '');
 
+    const sentRequests: string[] = [];
+    const { userMessageId } = ctx;
+    const { updateMessageById } = callbacks;
+    const captureRequest = state.settings.debugMode && userMessageId && updateMessageById
+        ? (body: string) => {
+            sentRequests.push(body);
+            updateMessageById(userMessageId, {
+                debugPayload: { sections: ctx.payloadDebugSections, raw: payload, sentRequests: [...sentRequests] },
+            });
+        }
+        : undefined;
+
     let accumulatedContent = '';
     const armed = state.armedRoll;
 
@@ -940,7 +953,9 @@ export async function runGenerationStage(
             abortController,
             state.sampling,
             (state.provider as EndpointConfig).thinkingEffort as ThinkingEffort | undefined,
-            'story-generation'
+            'story-generation',
+            undefined,
+            captureRequest
         );
     };
 

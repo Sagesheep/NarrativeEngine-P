@@ -39,11 +39,14 @@ describe('utilityCallTracker', () => {
         const { startUtilityCall, getCallHistory, clearHistory } = await import('../llm/utilityCallTracker');
         clearHistory();
         const handle = startUtilityCall('err-test', 'ep', 60000);
+        handle.recordRequestBody('{"attempt":1}');
+        handle.recordRequestBody('{"attempt":2}');
         handle.settleError('timeout', 'took too long');
         const entry = getCallHistory().find(h => h.label === 'err-test');
         expect(entry).toBeDefined();
         expect(entry!.status).toBe('timeout');
         expect(entry!.errorMessage).toBe('took too long');
+        expect(entry!.sentRequests).toEqual(['{"attempt":1}', '{"attempt":2}']);
     });
 
     it('extend moves the deadline forward', async () => {

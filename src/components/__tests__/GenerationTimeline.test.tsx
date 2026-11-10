@@ -1,20 +1,25 @@
+import { useSyncExternalStore } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EMPTY_RUN, recordGenerationPhase } from '../chat/generationTimelineState';
 import type { PipelinePhase } from '../../types';
 
 const fixture = vi.hoisted(() => ({
-    state: { pipelinePhase: 'idle', activeCampaignId: 'a', settings: { aiTier: 'max' }, messages: [] as { role: string; retryable?: boolean }[] },
+    state: { pipelinePhase: 'idle', activeCampaignId: 'a', settings: { aiTier: 'max', debugMode: false }, messages: [] as { role: string; retryable?: boolean; debugPayload?: unknown }[] },
     listeners: new Set<(state: unknown, previous: unknown) => void>(),
     calls: { active: [] as unknown[], history: [] as unknown[] },
     gather: [] as unknown[],
 }));
-vi.mock('../../store/useAppStore', () => ({ useAppStore: {
+vi.mock('../../store/useAppStore', () => ({ useAppStore: Object.assign(
+    (select: (state: typeof fixture.state) => unknown) => useSyncExternalStore(
+        listener => { fixture.listeners.add(listener); return () => fixture.listeners.delete(listener); },
+        () => select(fixture.state),
+    ), {
     getState: () => fixture.state,
     subscribe: (listener: (state: unknown, previous: unknown) => void) => {
         fixture.listeners.add(listener); return () => fixture.listeners.delete(listener);
     },
-} }));
+}) }));
 vi.mock('../../services/turn/gatherProgress', () => ({ useGatherStageRecords: () => fixture.gather }));
 vi.mock('../../services/llm/utilityCallTracker', () => ({ useUtilityCalls: () => fixture.calls }));
 import { GenerationTimeline } from '../chat/GenerationTimeline';
@@ -25,13 +30,25 @@ function update(patch: Partial<typeof fixture.state>) {
     fixture.listeners.forEach(listener => listener(fixture.state, previous));
 }
 beforeEach(() => {
-    fixture.state = { pipelinePhase: 'idle', activeCampaignId: 'a', settings: { aiTier: 'max' }, messages: [] };
+    fixture.state = { pipelinePhase: 'idle', activeCampaignId: 'a', settings: { aiTier: 'max', debugMode: false }, messages: [] };
     fixture.calls = { active: [], history: [] }; fixture.gather = [];
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
 });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('generation timeline', () => {
+    it('shows each captured Story AI request only in debug mode', () => {
+        render(<GenerationTimeline />);
+        act(() => update({
+            pipelinePhase: 'generating',
+            messages: [{ role: 'user', debugPayload: { sentRequests: ['{"messages":[]}', '{"tools":[]}'] } }],
+        }));
+        expect(screen.queryByText('Sent request 1')).not.toBeInTheDocument();
+        act(() => update({ settings: { aiTier: 'max', debugMode: true } }));
+        expect(screen.getByText('Sent request 1')).toBeInTheDocument();
+        expect(screen.getByText('Sent request 2')).toBeInTheDocument();
+        expect(screen.getByText('{"messages":[]}')).toBeInTheDocument();
+    });
     it('records all actual phases even when React batches a whole turn', () => {
         render(<GenerationTimeline />);
         act(() => {
@@ -60,7 +77,7 @@ describe('generation timeline', () => {
         fixture.gather = [{ label: 'Planner', startedAt: now }, { label: 'Recall', startedAt: now, endedAt: now }];
         fixture.calls.history = [
             { id: 'old', label: 'old-call', startedAt: now - 10000, settledAt: now, status: 'success' },
-            { id: 'new', label: 'planner', endpointName: 'Utility', startedAt: now, settledAt: now, status: 'error', errorMessage: 'Connection failed' },
+            { id: 'new', label: 'planner', endpointName: 'Utility', startedAt: now, settledAt: now, status: 'error', errorMessage: 'Connection failed', sentRequests: ['{"messages":[{"content":"Plan retrieval"}]}'] },
         ];
         view.rerender(<GenerationTimeline />);
         expect(screen.getByText('Planner')).toBeInTheDocument();
@@ -68,6 +85,10 @@ describe('generation timeline', () => {
         expect(screen.getByText('Failed')).toBeInTheDocument();
         expect(screen.getByText('Connection failed')).toBeInTheDocument();
         expect(screen.queryByText('old call')).not.toBeInTheDocument();
+        expect(screen.queryByText('Sent request 1')).not.toBeInTheDocument();
+        act(() => update({ settings: { aiTier: 'max', debugMode: true } }));
+        expect(screen.getByText('Sent request 1')).toBeInTheDocument();
+        expect(screen.getByText('{"messages":[{"content":"Plan retrieval"}]}')).toBeInTheDocument();
     });
     it('can collapse without losing the turn record', () => {
         render(<GenerationTimeline />);

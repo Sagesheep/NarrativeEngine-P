@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
+import { DebugPayloadView, type DebugPayloadData } from '../DebugPayloadView';
 import { useGatherStageRecords } from '../../services/turn/gatherProgress';
 import { useUtilityCalls } from '../../services/llm/utilityCallTracker';
 import type { UtilityCallRecord } from '../../services/llm/utilityCallTracker';
@@ -12,7 +13,7 @@ function duration(start: number, end: number): string {
 function callName(label: string): string {
     return label.replace(/[-_]/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
 }
-function CallRow({ call, now }: { call: UtilityCallRecord; now: number }) {
+function CallRow({ call, now, debugMode }: { call: UtilityCallRecord; now: number; debugMode: boolean }) {
     const status = call.status === 'success' ? 'Complete' : call.status === 'running' ? 'Running'
         : call.status === 'aborted' ? 'Stopped' : call.status === 'timeout' ? 'Timed out' : 'Failed';
     return <li className="generation-call" data-status={call.status}>
@@ -21,6 +22,7 @@ function CallRow({ call, now }: { call: UtilityCallRecord; now: number }) {
             <div className="generation-call-detail">
                 <span>{status} · {call.endpointName}</span>
                 {call.errorMessage && <p>{call.errorMessage}</p>}
+                {debugMode && !!call.sentRequests?.length && <DebugPayloadView debugPayload={{ sentRequests: call.sentRequests }} />}
             </div>
         </details>
         <span className="generation-call-status">{status}</span>
@@ -36,6 +38,17 @@ export function GenerationTimeline() {
     const [now, setNow] = useState(Date.now);
     const gather = useGatherStageRecords();
     const calls = useUtilityCalls();
+    const debugMode = useAppStore(state => !!state.settings.debugMode);
+    const firstGeneration = run.steps.find(step => step.phase === 'generating');
+    const debugPayload = useAppStore(state => {
+        if (!state.settings.debugMode || !firstGeneration) return undefined;
+        for (let i = state.messages.length - 1; i >= 0; i--) {
+            const message = state.messages[i];
+            if (message.role !== 'user') continue;
+            return message.debugPayload as DebugPayloadData | undefined;
+        }
+        return undefined;
+    });
 
     // Subscribe to writes, not rendered props: synchronous phases must not disappear
     // when React batches multiple store updates into one render.
@@ -72,12 +85,13 @@ export function GenerationTimeline() {
                         <div className="generation-step-line"><span className="generation-step-mark" aria-hidden="true">{step.status === 'running' ? '●' : step.status === 'finished' ? '✓' : '!'}</span>
                             <span>{PHASE_LABELS[step.phase]}</span><span className="generation-duration">{duration(step.startedAt, step.endedAt ?? now)}</span></div>
                         <span className="generation-state">{step.status === 'running' ? 'Running' : step.status === 'finished' ? 'Finished' : 'Stopped'}</span>
+                        {step === firstGeneration && debugPayload && <DebugPayloadView debugPayload={debugPayload} />}
                         {step.phase === 'gathering-context' && tasks.length > 0 && <details className="generation-context" open={step.status === 'running'}>
                             <summary>Context tasks · may run in parallel</summary><ul>{tasks.map(task => <li key={`${task.label}-${task.startedAt}`}><span>{task.label}</span><span>{task.endedAt === undefined && run.status === 'running' ? 'Running' : task.endedAt !== undefined ? 'Finished' : 'Stopped'}</span></li>)}</ul>
                         </details>}
                     </li>)}
                 </ol>
-                {records.length > 0 && <section className="generation-calls"><h3>Model calls</h3><ul>{records.map(call => <CallRow key={call.id} call={call} now={now} />)}</ul></section>}
+                {records.length > 0 && <section className="generation-calls"><h3>Model calls</h3><ul>{records.map(call => <CallRow key={call.id} call={call} now={now} debugMode={debugMode} />)}</ul></section>}
                 <p className="generation-footnote">Only observed steps are shown. Disabled or unused steps are omitted.</p>
             </>}
         </div>

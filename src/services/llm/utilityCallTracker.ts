@@ -16,6 +16,7 @@ export type UtilityCallRecord = {
     durationMs?: number;
     errorMessage?: string;
     verbose?: Record<string, unknown>;
+    sentRequests?: string[];
 };
 
 const MAX_HISTORY = 50;
@@ -38,6 +39,7 @@ function notifyDeadline(id: string) {
 
 export type UtilityCallHandle = {
     id: string;
+    recordRequestBody: (body: string) => void;
     /** Resolves when the deadline elapses without an extension. Re-armed by extend(). Never rejects. */
     deadlinePromise: Promise<void>;
     /** Push the deadline forward by ms (default 60000). No-op if already settled. */
@@ -106,6 +108,13 @@ export function startUtilityCall(
     const handle: UtilityCallHandle = {
         id,
         deadlinePromise,
+        recordRequestBody(body) {
+            const call = active.find(c => c.id === id);
+            if (!call) return;
+            const updated = { ...call, sentRequests: [...(call.sentRequests ?? []), body] };
+            active = active.map(c => c.id === id ? updated : c);
+            emit();
+        },
         extend(ms = 60000) {
             const idx = active.findIndex(c => c.id === id);
             if (idx === -1) return;

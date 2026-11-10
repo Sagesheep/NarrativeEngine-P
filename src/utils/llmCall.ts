@@ -1,7 +1,7 @@
 import type { EndpointConfig, ProviderConfig, ThinkingEffort } from '../types';
 import { getQueueForEndpoint, type LLMCallPriority } from '../services/llm/llmRequestQueue';
 import { getApiFormat, getChatUrl, buildChatHeaders, buildChatBody, extractContent } from './llmApiHelper';
-import { startUtilityCall } from '../services/llm/utilityCallTracker';
+import { startUtilityCall, type UtilityCallHandle } from '../services/llm/utilityCallTracker';
 import { recordCacheUsage, type LLMUsage } from '../services/llm/cacheTelemetry';
 import { llmFetch } from '../services/llm/llmFetch';
 
@@ -51,7 +51,7 @@ export async function llmCall(
         ? AbortSignal.any([opts.signal, ownAbort.signal])
         : ownAbort.signal;
 
-    const inner = runInner(provider, prompt, { ...opts, signal: combinedSignal });
+    const inner = runInner(provider, prompt, { ...opts, signal: combinedSignal }, handle);
 
     try {
         const result = await Promise.race([
@@ -88,6 +88,7 @@ async function runInner(
         thinkingEffort?: ThinkingEffort;
         trackingLabel?: string;
     },
+    call?: UtilityCallHandle,
 ): Promise<string> {
     const url = getChatUrl(provider);
     const headers = buildChatHeaders(provider);
@@ -121,7 +122,7 @@ async function runInner(
                 headers,
                 body: JSON.stringify(body),
                 signal: opts?.signal,
-            });
+            }, call);
         } catch (e) {
             queue.releaseSlot();
             throw e;

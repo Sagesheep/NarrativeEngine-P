@@ -291,6 +291,10 @@ ${textToUse}` : attachmentBlock)
             addMessage: storeSnapshot.addMessage,
             updateLastAssistant: updateLastAssistant,
             updateLastMessage: storeSnapshot.updateLastMessage,
+            updateMessageById: (id, patch) => useAppStore.setState(live => {
+                if (live.activeCampaignId !== storeSnapshot.activeCampaignId) return live;
+                return { messages: live.messages.map(message => message.id === id ? { ...message, ...patch } : message) };
+            }),
             updateLastAssistantMessage: updateLastAssistantMessage,
             updateContext: updateContext,
             getFreshLocationState: () => {

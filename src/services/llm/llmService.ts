@@ -35,6 +35,7 @@ export async function sendMessage(
     /** Optional: fires with the CUMULATIVE reasoning/thinking text as it streams.
      *  Additive — existing chat callers omit it and behave exactly as before. */
     onReasoning?: (reasoning: string) => void,
+    onRequestBody?: (body: string) => void,
 ) {
     const format = getApiFormat(provider);
     const url = getChatUrl(provider, { stream: true });
@@ -85,10 +86,15 @@ export async function sendMessage(
         const queue = getQueueForEndpoint(provider.endpoint);
         await queue.acquireSlot('normal');
         try {
+            const body = JSON.stringify(payload);
+            if (!controller.signal.aborted) {
+                onRequestBody?.(body);
+                if (settings.debugMode && !onRequestBody) trackerHandle.recordRequestBody(body);
+            }
             const res = await llmFetch(fetchUrl, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify(payload),
+                body,
                 signal: controller.signal
             });
 

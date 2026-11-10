@@ -138,7 +138,7 @@ export async function describeImage(
     const queue = getQueueForEndpoint(provider.endpoint);
     await queue.acquireSlot('normal');
     try {
-        const res = await llmFetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal });
+        const res = await llmFetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal }, handle);
         if (!res.ok) {
             const errBody = await res.text();
             if (res.status === 429 || res.status === 503 || res.status === 529) queue.onRateLimitHit();
@@ -209,7 +209,7 @@ export async function captionImage(
     const queue = getQueueForEndpoint(provider.endpoint);
     await queue.acquireSlot('normal');
     try {
-        const res = await llmFetch(url, { method: 'POST', headers: buildChatHeaders(provider), body: JSON.stringify(body), signal });
+        const res = await llmFetch(url, { method: 'POST', headers: buildChatHeaders(provider), body: JSON.stringify(body), signal }, handle);
         if (!res.ok) {
             const errBody = await res.text();
             if (res.status === 429 || res.status === 503 || res.status === 529) queue.onRateLimitHit();
