@@ -45,7 +45,7 @@ export function fixtureSettings(): AppSettings {
         debugMode: false,
         aiTier: 'pro',
         matureMode: false,
-        rulesBudgetPct: 10,
+        rulesBudgetPct: 0.10,
         autoCondenseEnabled: false,
         autoArchiveStaleNPCsTurns: 0,
         moduleEnabled: {},

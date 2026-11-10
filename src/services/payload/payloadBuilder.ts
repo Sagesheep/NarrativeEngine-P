@@ -6,7 +6,7 @@ import { createTraceCollector } from './traceCollector';
 import { computeBudgets } from './budgets';
 import { buildStable } from './stable';
 import { buildWorld } from './world';
-import { buildVolatile } from './volatile';
+import { buildVolatile, positionBlocksTokens } from './volatile';
 import { buildHistory } from './history';
 import { buildPinnedMemoriesBlock } from './pinnedMemories';
 import { composeVolatileBlock, renderVolatileSegments, type VolatileSegment } from './volatileSegments';
@@ -23,6 +23,30 @@ import { isBlockEnabled } from '../turn/blockEnablement';
 import { BUILTIN_IDS } from './contributions/builtins';
 import { interceptorFaultStore, formatInterceptorFaultReason } from '../mods/interceptors/interceptorFaults';
 import { RELATIONSHIP_STANCE_TOKEN_BUDGET } from '../npc/relationshipStance';
+import { customTokens, resolveAllocation } from './contextAllocation';
+
+/** GM reminder, writer-reasoning line, block separators — the small fixed parts of the final message. */
+const FINAL_USER_OVERHEAD_ESTIMATE = 120;
+
+/** Tokens of the latest player + writer exchange still in the live history. */
+function latestExchangeTokens(history: ChatMessage[], condensedUpToIndex: number | undefined): number {
+    const live = condensedUpToIndex !== undefined && condensedUpToIndex >= 0 ? history.slice(condensedUpToIndex + 1) : history;
+    let total = 0;
+    let sawAssistant = false;
+    for (let i = live.length - 1; i >= 0; i--) {
+        const msg = live[i];
+        const text = typeof msg.content === 'string' ? msg.content : '';
+        if (msg.role === 'assistant') {
+            if (sawAssistant) break;
+            sawAssistant = true;
+            total += countTokens(text);
+        } else if (msg.role === 'user') {
+            total += countTokens(text);
+            if (sawAssistant) break;
+        }
+    }
+    return total;
+}
 
 export type BuildPayloadOptions = {
     settings: AppSettings;
@@ -170,25 +194,60 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
     // going away stays quiet here (Phase 7.5 §3). The four ids read below are
     // core's own structural parts; every other allocation is resolved through
     // a segment's id, so this file names no feature.
-    const { rulesBudget, budgetMap } = computeBudgets(limit, settings.rulesBudgetPct, !!deepContextSummary);
+    const { rulesBudget: autoRulesBudget, budgetMap } = computeBudgets(limit, settings.rulesBudgetPct, !!deepContextSummary);
     const stableBudget = budgetMap.get('stable');
     const worldBudget = budgetMap.get('world');
-    const volatileBudget = budgetMap.get('volatile');
     const npcFloor = budgetMap.get('npc');
+    // Context Allocation: a custom Rules share is a share of the whole Max Context Limit.
+    const rulesBudget = customTokens(settings, 'rules') !== undefined
+        ? Math.min(customTokens(settings, 'rules')!, limit)
+        : autoRulesBudget;
     const { stableContent, stableTokens, retrievedRulesContent } = buildStable({ settings, context, relevantRules, rulesManifest, rulesBudget, budgetStable: stableBudget, collector });
-    const { worldContent, currentWorldTokens, divergenceContent, divergenceTokens, plannerEventTypes: resolvedEventTypes, relationsBlock } = buildWorld({ history, userMessage, condensedUpToIndex, relevantLore, npcLedger, archiveRecall, recommendedNPCNames, semanticFactText, archiveIndex, timelineEvents, deepContextSummary, divergenceRegister, chapters, onStageNpcIds, loreRaw: context.loreRaw, agencyDigest: context.agencyDigest, arcDigest: context.arcDigest, budgetWorld: worldBudget, npcBudgetFloor: npcFloor, plannerEventTypes, matureMode: settings.matureMode, collector, elevatedScenes, slottedRagSnippets, relationshipMemoryEnabled: context.relationshipMemory === true });
-    const { volatileContent, volatileTokens } = buildVolatile({ context, inventoryCategories, profileFields, budgetVolatile: volatileBudget, collector, plannerEventTypes: resolvedEventTypes, userMessage, history, npcLedger, locationLedger, directorWorldFacts, directorBrief });
     // Phase 7.5 — subsystem segments. `buildPayload` hands each one its budget
     // (resolved by the segment's own id) plus the two relevance inputs, and
     // gets back text, an optional trace and any facts the segment establishes.
     // Nothing here knows what a segment renders. Zero segments is the quiet
-    // path: no text, no trace, no fact, no error.
+    // path: no text, no trace, no fact, no error. Rendered before the world
+    // block so their size is known to the allocation; traced in the same place.
     const renderedSegments = renderVolatileSegments(volatileSegments, (segmentId) => ({
         budget: budgetMap.get(segmentId),
         history,
         userMessage,
     }));
     const segmentTokens = renderedSegments.reduce((sum, segment) => sum + segment.tokens, 0);
+
+    // Context Allocation — everything that is not an allocation row is fixed for this turn
+    // and is charged first, so the rows and the recent conversation share what remains.
+    const pinnedBlock = pinnedExcerpts && pinnedExcerpts.length > 0 ? buildPinnedMemoriesBlock(pinnedExcerpts) : '';
+    const pinnedTokens = pinnedBlock ? countTokens(pinnedBlock) : 0;
+    const sceneNoteTokens = context.sceneNoteActive && context.sceneNote
+        ? countTokens(`[SCENE NOTE: VOLATILE GUIDANCE]\n${context.sceneNote}`)
+        : 0;
+    const rulesRetrievedTokens = retrievedRulesContent ? countTokens(retrievedRulesContent) : 0;
+    const relationshipStanceBudget = relationshipStances && relationshipStances.length > 0
+        ? Math.min(
+            relationshipStances.reduce((sum, stance) => sum + RELATIONSHIP_STANCE_TOKEN_BUDGET[stance.tier], 0),
+            npcFloor,
+        )
+        : undefined;
+    const finalUserExtrasEstimate = [directorBrief, watchdogNudge, absoluteCommand, nextTurnOocBrief]
+        .reduce((sum, text) => sum + (text ? countTokens(text) : 0), 0)
+        + (relationshipStanceBudget ?? 0) + FINAL_USER_OVERHEAD_ESTIMATE;
+    const allocation = resolveAllocation({
+        settings,
+        limit,
+        hasDeepContext: !!deepContextSummary,
+        fixedTokens: stableTokens + rulesRetrievedTokens + pinnedTokens + sceneNoteTokens + segmentTokens
+            + countTokens(userMessage) + finalUserExtrasEstimate
+            + positionBlocksTokens(context, locationLedger ?? []),
+        latestExchangeTokens: latestExchangeTokens(history, condensedUpToIndex),
+    });
+    if (allocation.squeezed.length > 0) {
+        collector.addTrace({ source: 'Context Allocation', classification: 'volatile_state', tokens: 0, reason: `Not enough room this turn; reduced: ${allocation.squeezed.join(', ')}`, included: true, position: 'system_dynamic' });
+    }
+
+    const { worldContent, currentWorldTokens, divergenceContent, divergenceTokens, plannerEventTypes: resolvedEventTypes, relationsBlock } = buildWorld({ history, userMessage, condensedUpToIndex, relevantLore, npcLedger, archiveRecall, recommendedNPCNames, semanticFactText, archiveIndex, timelineEvents, deepContextSummary, divergenceRegister, chapters, onStageNpcIds, loreRaw: context.loreRaw, agencyDigest: context.agencyDigest, arcDigest: context.arcDigest, budgetWorld: worldBudget, npcBudgetFloor: npcFloor, allocation: { pool: allocation.pool, npcFloor: allocation.npcFloor, npcs: allocation.npcs, facts: allocation.facts, recall: allocation.recall, lore: allocation.lore }, plannerEventTypes, matureMode: settings.matureMode, collector, elevatedScenes, slottedRagSnippets, relationshipMemoryEnabled: context.relationshipMemory === true });
+    const { volatileContent, volatileTokens } = buildVolatile({ context, inventoryCategories, profileFields, budgetVolatile: Math.max(1, allocation.state), collector, plannerEventTypes: resolvedEventTypes, userMessage, history, npcLedger, locationLedger, directorWorldFacts, directorBrief });
     for (const segment of renderedSegments) {
         if (!segment.trace || !segment.text) continue;
         collector.addTrace({
@@ -201,59 +260,6 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             preview: segment.text,
         });
     }
-    const fitted = buildHistory({
-        history,
-        condensedUpToIndex,
-        userMessage,
-        limit,
-        stableTokens: stableTokens + divergenceTokens,
-        currentWorldTokens,
-        volatileTokens: volatileTokens + segmentTokens,
-        context,
-        collector,
-        // WO-09: plumb the existing `chapters` and `archiveIndex` params
-        // (already in buildPayload's signature) plus the two LOD knobs.
-        chapters,
-        archiveIndex,
-        lodSummaryChapters: settings.lodSummaryChapters,
-        lodImportanceBonus: settings.lodImportanceBonus,
-    });
-
-    // --- 8. Final Assembly ---
-    // Stable, divergence, and pinned blocks get cache_control: ephemeral for Anthropic prompt caching.
-    // These blocks change infrequently across turns, making them ideal cache hit candidates.
-    const cacheControl = { type: 'ephemeral' as const };
-    const messages: OpenAIMessage[] = [];
-    if (stableContent) messages.push({ role: 'system', content: stableContent, cache_control: cacheControl });
-    if (divergenceContent) messages.push({ role: 'system', content: divergenceContent, cache_control: cacheControl });
-    if (pinnedExcerpts && pinnedExcerpts.length > 0) {
-        messages.push({ role: 'system', content: buildPinnedMemoriesBlock(pinnedExcerpts), cache_control: cacheControl });
-    }
-
-    // Push history BEFORE the volatile block so the growing campaign log rides in the cached prefix.
-    messages.push(...fitted);
-
-    // Stamp cache_control: ephemeral on the last history message so prefix-caching covers all of history.
-    // WO-09b: widened the role check from `user || assistant` to `system || user || assistant` so
-    // the LOD-only history shape (every chat message at or before `condensedUpToIndex` → `fitted`
-    // contains only the LOD `system` message) still lands a cache breakpoint. Without this, the
-    // LOD block would be emitted after the prior breakpoint but receive none itself, falling outside
-    // the cached prefix. The final volatile user message is appended below and is never stamped here.
-    //
-    // WO-09c §1: `tool`-role history messages are intentionally NOT stamped here — tool-role
-    // stamping was not authorized by WO-09/09b/09c (not a type-capability issue: the internal
-    // OpenAIMessage type can carry cache_control on any role). Tool-message caching is out of
-    // scope and left for a separate design decision. The Claude wire transform preserves any
-    // marker already placed on `system`/`user`/`assistant` messages; unstamped messages (including
-    // all `tool` messages) keep their current wire shapes.
-    if (fitted.length > 0) {
-        const last = messages.length - 1;
-        const lastMsg = messages[last];
-        if (lastMsg.role === 'system' || lastMsg.role === 'user' || lastMsg.role === 'assistant') {
-            messages[last] = { ...lastMsg, cache_control: { type: 'ephemeral' } };
-        }
-    }
-
     // Fold the per-turn volatile world/NPC block and the GM reminder into the final user message
     // (below the cache boundary) so they never perturb the cached prefix.
     // RAG-retrieved rules are per-turn dynamic (re-selected by semantic match to user input),
@@ -327,12 +333,6 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         if (overlay.onStageNpcNames !== undefined) facts.onStageNpcNames = overlay.onStageNpcNames;
     }
 
-    const relationshipStanceBudget = relationshipStances && relationshipStances.length > 0
-        ? Math.min(
-            relationshipStances.reduce((sum, stance) => sum + RELATIONSHIP_STANCE_TOKEN_BUDGET[stance.tier], 0),
-            npcFloor,
-        )
-        : undefined;
     const registry = finalUserRegistry ?? createFinalUserRegistryWithExtensions();
     const contributions = registry.collect(
         {
@@ -388,6 +388,66 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             id: suppression.id,
             reason: formatInterceptorFaultReason({ modName: modId, kind: 'suppressed', id: suppression.id }),
         });
+    }
+
+    const fitted = buildHistory({
+        history,
+        condensedUpToIndex,
+        userMessage,
+        limit,
+        stableTokens: stableTokens + divergenceTokens,
+        currentWorldTokens,
+        volatileTokens: volatileTokens + segmentTokens,
+        context,
+        collector,
+        // WO-09: plumb the existing `chapters` and `archiveIndex` params
+        // (already in buildPayload's signature) plus the two LOD knobs.
+        chapters,
+        archiveIndex,
+        lodSummaryChapters: settings.lodSummaryChapters,
+        lodImportanceBonus: settings.lodImportanceBonus,
+        // Context Allocation: count every part of the prompt, not only the blocks above —
+        // the final message is assembled already, so its true size is known; plus pinned
+        // memories, the Scene Note (it rides inside history) and the reply reserve.
+        extraReservedTokens: Math.max(0, countTokens(assembled.text) - currentWorldTokens - volatileTokens - segmentTokens - countTokens(userMessage))
+            + pinnedTokens + sceneNoteTokens + allocation.reply,
+        currentSceneMin: allocation.currentSceneMin,
+        olderHistoryCap: allocation.olderHistoryCap,
+    });
+
+    // --- 8. Final Assembly ---
+    // Stable, divergence, and pinned blocks get cache_control: ephemeral for Anthropic prompt caching.
+    // These blocks change infrequently across turns, making them ideal cache hit candidates.
+    const cacheControl = { type: 'ephemeral' as const };
+    const messages: OpenAIMessage[] = [];
+    if (stableContent) messages.push({ role: 'system', content: stableContent, cache_control: cacheControl });
+    if (divergenceContent) messages.push({ role: 'system', content: divergenceContent, cache_control: cacheControl });
+    if (pinnedBlock) {
+        messages.push({ role: 'system', content: pinnedBlock, cache_control: cacheControl });
+    }
+
+    // Push history BEFORE the volatile block so the growing campaign log rides in the cached prefix.
+    messages.push(...fitted);
+
+    // Stamp cache_control: ephemeral on the last history message so prefix-caching covers all of history.
+    // WO-09b: widened the role check from `user || assistant` to `system || user || assistant` so
+    // the LOD-only history shape (every chat message at or before `condensedUpToIndex` → `fitted`
+    // contains only the LOD `system` message) still lands a cache breakpoint. Without this, the
+    // LOD block would be emitted after the prior breakpoint but receive none itself, falling outside
+    // the cached prefix. The final volatile user message is appended below and is never stamped here.
+    //
+    // WO-09c §1: `tool`-role history messages are intentionally NOT stamped here — tool-role
+    // stamping was not authorized by WO-09/09b/09c (not a type-capability issue: the internal
+    // OpenAIMessage type can carry cache_control on any role). Tool-message caching is out of
+    // scope and left for a separate design decision. The Claude wire transform preserves any
+    // marker already placed on `system`/`user`/`assistant` messages; unstamped messages (including
+    // all `tool` messages) keep their current wire shapes.
+    if (fitted.length > 0) {
+        const last = messages.length - 1;
+        const lastMsg = messages[last];
+        if (lastMsg.role === 'system' || lastMsg.role === 'user' || lastMsg.role === 'assistant') {
+            messages[last] = { ...lastMsg, cache_control: { type: 'ephemeral' } };
+        }
     }
 
     messages.push({ role: 'user', content: assembled.text });

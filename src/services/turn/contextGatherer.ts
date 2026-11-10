@@ -1,4 +1,4 @@
-import { effectiveSceneRecallBudget } from '../archive-memory/recallBudget';
+import { retrievalBudget } from '../payload/contextAllocation';
 import type { ArchiveChapter, TimelineEvent } from '../../types';
 import type { TurnState } from './turnOrchestrator';
 import { gatherSemanticCandidates } from '../context-gatherer/semanticCandidates';
@@ -189,7 +189,7 @@ export async function gatherMemoryRecallViaRole(
         excludeSceneIds: [...(excludeSceneIds ?? [])],
         divergenceSceneIds: [...getDivergenceSceneIds((data?.divergenceRegister ?? state.divergenceRegister) || EMPTY_REGISTER)],
         depth: facade?.config.archiveRecallDepth ?? state.settings.archiveRecallDepth ?? 'standard',
-        tokenBudget: facade?.config.sceneRecallBudget ?? effectiveSceneRecallBudget(state.settings.sceneRecallBudget, state.settings.contextLimit),
+        tokenBudget: facade?.config.sceneRecallBudget ?? retrievalBudget(state.settings, 'recall'),
     };
 
     setMemoryRecallDefaultContext({

@@ -85,7 +85,7 @@ function baseSettings(): AppSettings {
         debugMode: true,
         contextLimit: 8192,
         matureMode: false,
-        rulesBudgetPct: 10,
+        rulesBudgetPct: 0.10,
     } as unknown as AppSettings;
 }
 

@@ -185,6 +185,10 @@ export type AppSettings = {
     loreDepth?: 'lean' | 'balanced' | 'deep';  // lore RAG ceiling as a share of contextLimit + relevance-floor leniency; default 'balanced' (services/lore/loreBudget.ts)
     /** Tokens past scenes may use per turn: any whole number from 500, default 3000, capped at contextLimit when used. See archive-memory/recallBudget.ts. */
     sceneRecallBudget?: number;
+    /** Context Allocation screen: custom share of `contextLimit` per prompt part, as a percentage
+     *  (0–100). An absent row is Automatic (today's rule). Rules lives in `rulesBudgetPct`.
+     *  See services/payload/contextAllocation.ts. */
+    contextAllocation?: Partial<Record<'currentScene' | 'npcs' | 'recall' | 'facts' | 'lore' | 'state' | 'olderHistory' | 'reply', number>>;
     archiveRecallDepth?: 'lean' | 'standard' | 'deep';  // archive recall ceiling; default 'standard' (desktop). 'lean' = mobile parity (3/4/5)
     matureMode?: boolean;            // default false; gates mature-tier NPC traits/wants (NPC Agency Phase 2)
     /** WO-C §9.3 (C2) — feature flag for the optional AI adaptation pass on SillyTavern card

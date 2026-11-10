@@ -9,7 +9,7 @@ import { isBlockEnabled } from '../turn/blockEnablement';
 import type { SemanticCandidates } from './semanticCandidates';
 import type { HostFacade } from '../turn/hostFacade';
 import type { RecallDepth } from '../archive-memory/dynamicMax';
-import { effectiveSceneRecallBudget } from '../archive-memory/recallBudget';
+import { retrievalBudget } from '../payload/contextAllocation';
 
 export interface MemoryRecallInput {
     readonly campaignId: string;
@@ -263,7 +263,7 @@ export async function gatherArchiveRecall(
         excludeSceneIds: [...(excludeSceneIds ?? [])],
         divergenceSceneIds: [...divergenceSceneIds],
         depth: archiveRecallDepth,
-        tokenBudget: facade?.config.sceneRecallBudget ?? effectiveSceneRecallBudget(state.settings.sceneRecallBudget, state.settings.contextLimit),
+        tokenBudget: facade?.config.sceneRecallBudget ?? retrievalBudget(state.settings, 'recall'),
     };
     setMemoryRecallDefaultContext({
         chapters: deps.chapters,

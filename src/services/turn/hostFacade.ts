@@ -1,4 +1,4 @@
-import { effectiveSceneRecallBudget } from '../archive-memory/recallBudget';
+import { retrievalBudget } from '../payload/contextAllocation';
 import type {
     AiTier,
     ArchiveChapter,
@@ -260,7 +260,7 @@ function readFacadeSettings(settings: FacadeSettings): FacadeConfig {
         moduleEnabled: settings.moduleEnabled ? Object.freeze({ ...settings.moduleEnabled }) : undefined,
         contextLimit: settings.contextLimit,
         archiveRecallDepth: settings.archiveRecallDepth ?? 'standard',
-        sceneRecallBudget: effectiveSceneRecallBudget(settings.sceneRecallBudget, settings.contextLimit),
+        sceneRecallBudget: retrievalBudget(settings, 'recall'),
         autoArchiveStaleNPCsTurns: settings.autoArchiveStaleNPCsTurns ?? 0,
         divergenceScanBudget: settings.divergenceScanBudget ?? 0,
         enableArchivePlanner: settings.enableArchivePlanner ?? false,

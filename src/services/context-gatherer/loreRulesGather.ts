@@ -1,7 +1,8 @@
 import type { LoreChunk } from '../../types';
 import type { TurnState } from '../turn/turnOrchestrator';
 import { retrieveRelevantLore } from '../lore/loreRetriever';
-import { computeLoreBudget, normalizeLoreDepth } from '../lore/loreBudget';
+import { normalizeLoreDepth } from '../lore/loreBudget';
+import { retrievalBudget } from '../payload/contextAllocation';
 import { retrieveRelevantRules } from '../rules/rulesRetriever';
 import type { SemanticCandidates } from './semanticCandidates';
 
@@ -24,7 +25,7 @@ export function gatherLoreAndRules(
         : messages;
 
     const loreDepth = normalizeLoreDepth(state.settings.loreDepth);
-    const loreBudget = computeLoreBudget(state.settings.contextLimit, loreDepth);
+    const loreBudget = retrievalBudget(state.settings, 'lore');
     const relevantLore = loreChunks.length > 0
         ? retrieveRelevantLore(loreChunks, context.canonState, context.headerIndex, input, loreBudget, messages, semanticLoreIds, state.settings.retrievalAlgorithm ?? 'idf-rrf', recommendedLoreIds, loreDepth)
         : undefined;

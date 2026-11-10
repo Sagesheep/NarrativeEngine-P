@@ -11,7 +11,7 @@ import {
 } from '../chat/readingPrefs';
 import { MAX_STORY_TIMEOUT_SECONDS, MIN_STORY_TIMEOUT_SECONDS, normalizeStoryTimeoutSeconds } from '../../services/llm/timeouts';
 import { computeLoreBudget, normalizeLoreDepth } from '../../services/lore/loreBudget';
-import { MIN_SCENE_RECALL_BUDGET, effectiveSceneRecallBudget, normalizeSceneRecallBudget } from '../../services/archive-memory/recallBudget';
+import { ContextAllocationSection } from './ContextAllocationSection';
 
 /**
  * The six groups this tab divides into, in the order the blocks already appear
@@ -21,6 +21,7 @@ import { MIN_SCENE_RECALL_BUDGET, effectiveSceneRecallBudget, normalizeSceneReca
 const GLOBAL_GROUPS = [
   { id: 'interface', label: 'Interface' },
   { id: 'model', label: 'Model & play' },
+  { id: 'allocation', label: 'Context allocation' },
   { id: 'memory', label: 'Memory & retrieval' },
   { id: 'display', label: 'Display' },
   { id: 'images', label: 'Images' },
@@ -37,17 +38,6 @@ export function GlobalSettingsTab() {
   // state simply has no effect.
   const [activeGroup, setActiveGroup] = useState<string>('interface');
   const [storyTimeoutDraft, setStoryTimeoutDraft] = useState<string | null>(null);
-  const [recallSpaceDraft, setRecallSpaceDraft] = useState<string | null>(null);
-  const recallSpace = normalizeSceneRecallBudget(settings.sceneRecallBudget);
-  const recallSpaceUsed = effectiveSceneRecallBudget(settings.sceneRecallBudget, settings.contextLimit);
-  const commitRecallSpace = () => {
-    if (recallSpaceDraft === null) return;
-    const n = Math.round(Number(recallSpaceDraft));
-    if (Number.isFinite(n) && recallSpaceDraft.trim() !== '') {
-      updateSettings({ sceneRecallBudget: Math.max(MIN_SCENE_RECALL_BUDGET, Math.min(n, settings.contextLimit || n)) });
-    }
-    setRecallSpaceDraft(null);
-  };
 
   return (
     <div data-ui="global-root" className="mt-8 pt-6 border-t border-border space-y-4">
@@ -276,61 +266,18 @@ export function GlobalSettingsTab() {
       </div>
       </div>
 
+      <div data-ui="settings-section" data-group="allocation" data-active={activeGroup === 'allocation' ? 'true' : undefined} className="contents">
+      <h4 data-ui="settings-group" className="hidden">Context allocation</h4>
+      <ContextAllocationSection />
+      </div>
+
       <div data-ui="settings-section" data-group="memory" data-active={activeGroup === 'memory' ? 'true' : undefined} className="contents">
       <h4 data-ui="settings-group" className="hidden">Memory &amp; retrieval</h4>
 
       {/* Deep Archive Search and the Recall Picker are switched in Block View only
           (their second switches here were removed 2026-10-05). */}
 
-      {/* Scene Recall Space — the archive recall token budget (archive-memory/recallBudget.ts) */}
-      <div className="bg-void p-3 border border-border rounded space-y-2">
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold">
-              Scene Recall Space
-            </label>
-            <span className="text-terminal font-bold font-mono bg-terminal/10 px-2 py-0.5 rounded text-[10px]">
-              ≤{recallSpaceUsed.toLocaleString()} tok
-            </span>
-          </div>
-          <p className="text-[9px] text-text-dim leading-tight">
-            How many tokens of each turn's prompt past scenes may use. The best match comes in
-            full, the others as one-line summaries. More space lets long scenes arrive whole
-            instead of cut, and costs up to that many tokens per turn on the story model.
-            Default 3,000; 4,000–6,000 suits large context windows. At least
-            {' '}{MIN_SCENE_RECALL_BUDGET}, and never more than the context limit
-            ({(settings.contextLimit || 0).toLocaleString()}).
-          </p>
-          {recallSpaceUsed < recallSpace && (
-            <p className="text-[9px] text-amber-400 leading-tight mt-1">
-              Capped at the context limit: recall uses {recallSpaceUsed.toLocaleString()}.
-            </p>
-          )}
-        </div>
-        <input
-          type="number"
-          aria-label="Scene recall space in tokens"
-          min={MIN_SCENE_RECALL_BUDGET}
-          max={settings.contextLimit || undefined}
-          step={500}
-          value={recallSpaceDraft ?? String(recallSpace)}
-          onChange={e => setRecallSpaceDraft(e.target.value)}
-          onBlur={commitRecallSpace}
-          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-          className="w-full h-7 bg-surface border border-border rounded px-2 text-xs text-text font-mono focus:outline-none focus:border-terminal"
-        />
-        <div className="flex flex-wrap gap-1.5">
-          {[3000, 4000, 6000].map(tokens => (
-            <button key={tokens} type="button" onClick={() => {
-              setRecallSpaceDraft(null);
-              updateSettings({ sceneRecallBudget: tokens });
-            }}
-              className="px-2 py-1 text-[10px] font-mono border border-border rounded hover:border-terminal">
-              {tokens / 1000}k
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Scene Recall Space and the Rules budget are rows of Context Allocation. */}
 
       {/* Retrieval algorithm (IDF+RRF vs classic) — kill-switch for the lore/rules ranker */}
       <div className="flex items-center justify-between bg-void p-3 border border-border rounded">
@@ -422,31 +369,10 @@ export function GlobalSettingsTab() {
           </p>
         </div>
 
-        {/* Rules Context Budget Slider */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] text-text-dim uppercase tracking-wider">
-              Rules Context Budget
-            </label>
-            <span className="text-terminal font-bold font-mono bg-terminal/10 px-2 py-0.5 rounded text-[10px]">
-              {Math.round((settings.rulesBudgetPct ?? 0.10) * 100)}%
-            </span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={0.5}
-            step={0.05}
-            value={settings.rulesBudgetPct ?? 0.10}
-            onChange={(e) => updateSettings({ rulesBudgetPct: parseFloat(e.target.value) })}
-            className="w-full h-1.5 bg-border rounded-lg appearance-none cursor-pointer accent-terminal"
-          />
-          <div className="flex justify-between text-[8px] text-text-dim mt-0.5">
-            <span>0%</span>
-            <span>25%</span>
-            <span>50%</span>
-          </div>
-        </div>
+        {/* Rules Context Budget moved to Context Allocation (the Rules row). */}
+        <p className="text-[9px] text-text-dim leading-tight">
+          Rules context budget: {Math.round((settings.rulesBudgetPct ?? 0.10) * 1000) / 10}% of the context limit. Change it in Context Allocation.
+        </p>
 
         {/* Auto-Generate Keywords Toggle */}
         <div className="flex items-center justify-between py-1.5 border-t border-border/30">

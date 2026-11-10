@@ -6,6 +6,7 @@ import { countTokens } from '../infrastructure/tokenizer';
 import { minifyBookkeepingStub, minifySelectedInventory, minifySelectedProfile } from '../turn/contextMinifier';
 import { queryTraits, formatTraitsForContext } from '../retrieval/semanticMemory';
 import type { TraceCollector } from './traceCollector';
+import { fitBlock } from './fitToBudget';
 import { connectionBand } from '../locationParser';
 import { formatDayRange } from '../location/distance';
 import { travelUnitWords } from '../location/travelUnit';
@@ -38,6 +39,8 @@ export function buildVolatile(opts: {
     let notebookBlock = '';
     let locationBlock = '';
     let travelBlockStr = '';
+    const cappedStateTokens = () =>
+        [characterBlock, inventoryBlock, profileBlock, notebookBlock].reduce((sum, s) => sum + (s ? countTokens(s) : 0), 0);
 
     const hasSmart = context.smartBookkeepingActive;
     const hasStructured = (context.inventoryItems?.length ?? 0) > 0 || context.characterProfileData?.name;
@@ -141,7 +144,7 @@ export function buildVolatile(opts: {
         }
     }
     if (context.mapWorldSetting) {
-        const settingBlock = `[MAP WORLD SETTING]\n${String(context.mapWorldSetting.label).slice(0, 80)}: ${String(context.mapWorldSetting.guidance).slice(0, 700)}\nApply this setting to new scene details, encounters and characters. Preserve established campaign facts and history.`;
+        const settingBlock = buildMapWorldSettingBlock(context);
         volatileParts.push(settingBlock);
         collector.addTrace({ source: 'Map world setting', classification: 'volatile_state', tokens: countTokens(settingBlock), reason: 'Player-selected world setting', included: true, position: 'system_dynamic', preview: settingBlock });
     }
@@ -159,7 +162,10 @@ export function buildVolatile(opts: {
         // Notebook is the only unbounded volatile source. Reserve whatever budget remains after the
         // higher-priority character/inventory/profile parts and admit newest-first entries until full,
         // so a large notebook can't silently overrun the context window.
-        const usedTokens = countTokens(volatileParts.join('\n\n'));
+        // Context Allocation: the Current State allowance covers the player's own state
+        // (character, inventory, profile, notebook). Position blocks — movement contract,
+        // location, travel, map — are always sent and are not charged to it.
+        const usedTokens = cappedStateTokens();
         const notebookBudget = budgetVolatile > 0 ? Math.max(0, budgetVolatile - usedTokens) : Infinity;
         const sorted = context.notebook
             .slice()
@@ -184,6 +190,34 @@ export function buildVolatile(opts: {
         if (droppedNotes > 0) {
             collector.addTrace({ source: 'Scene Notebook', classification: 'volatile_state', tokens: 0, reason: `Trimmed ${droppedNotes} notebook entr${droppedNotes === 1 ? 'y' : 'ies'} to fit volatile budget (${budgetVolatile} t)`, included: false, position: 'system_dynamic' });
         }
+    }
+
+    // Over the Current State allowance (notebook already cut above): trim inventory,
+    // then profile, then the character stub, keeping each block's header.
+    if (budgetVolatile > 0 && cappedStateTokens() > budgetVolatile) {
+        const replacePart = (from: string, to: string) => {
+            const i = volatileParts.indexOf(from);
+            if (i < 0) return;
+            if (to) volatileParts[i] = to;
+            else volatileParts.splice(i, 1);
+        };
+        const tok = (s: string) => (s ? countTokens(s) : 0);
+        const before = cappedStateTokens();
+        const trims: [() => string, (s: string) => void][] = [
+            [() => inventoryBlock, s => { inventoryBlock = s; }],
+            [() => profileBlock, s => { profileBlock = s; }],
+            [() => characterBlock, s => { characterBlock = s; }],
+        ];
+        for (const [get, set] of trims) {
+            const over = cappedStateTokens() - budgetVolatile;
+            if (over <= 0) break;
+            const current = get();
+            if (!current) continue;
+            const fitted = fitBlock(current, Math.max(0, tok(current) - over - 4));
+            replacePart(current, fitted);
+            set(fitted);
+        }
+        collector.addTrace({ source: 'Current State', classification: 'volatile_state', tokens: cappedStateTokens(), reason: `Trimmed from ${before} t to fit the Current State allowance (${budgetVolatile} t): notebook, then inventory, then profile`, included: true, position: 'system_dynamic' });
     }
 
     const volatileContent = volatileParts.join('\n\n');
@@ -223,6 +257,29 @@ export function buildVolatile(opts: {
 // byte-identical to the pre-clock output. Returns '' only when there is NEITHER a resolved
 // place NOR a `worldDay` (a day with no place still emits `[LOCATION]\nDay: N`).
 const LOCATION_BLOCK_CHAR_CAP = 400;
+
+function buildMapWorldSettingBlock(context: GameContext): string {
+    if (!context.mapWorldSetting) return '';
+    return `[MAP WORLD SETTING]\n${String(context.mapWorldSetting.label).slice(0, 80)}: ${String(context.mapWorldSetting.guidance).slice(0, 700)}\nApply this setting to new scene details, encounters and characters. Preserve established campaign facts and history.`;
+}
+
+/**
+ * Tokens of the position blocks `buildVolatile` always sends (movement contract,
+ * location, travel, map setting, checkpoint encounter, discoveries). They are not
+ * part of the Current State allowance, so the Context Allocation counts them as
+ * fixed before sizing the other parts.
+ */
+export function positionBlocksTokens(context: GameContext, locationLedger: LocationEntry[] = []): number {
+    const parts = [
+        buildMovementContract(context, locationLedger),
+        buildLocationBlock(context, locationLedger),
+        buildTravelBlock(context, locationLedger),
+        buildMapWorldSettingBlock(context),
+        buildMapEncounterBlock(context),
+        buildMapDiscoveriesBlock(context),
+    ].filter(Boolean);
+    return parts.reduce((sum, p) => sum + countTokens(p) + 1, 0);
+}
 
 export function buildLocationBlock(context: GameContext, ledger: LocationEntry[]): string {
     const hasDay = context.worldDay !== undefined && Number.isFinite(context.worldDay);

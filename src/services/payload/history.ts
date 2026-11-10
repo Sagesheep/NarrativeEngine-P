@@ -22,6 +22,13 @@ export function buildHistory(opts: {
     archiveIndex?: ArchiveIndexEntry[];
     lodSummaryChapters?: number;
     lodImportanceBonus?: number;
+    /** Context Allocation: tokens of the prompt not covered by the parameters above
+     *  (retrieved rules, pinned memories, final-message parts, Scene Note, reply reserve). */
+    extraReservedTokens?: number;
+    /** Context Allocation: conversation space the recent messages keep before Older History. */
+    currentSceneMin?: number;
+    /** Context Allocation: custom Older History cap (undefined = half the conversation space). */
+    olderHistoryCap?: number;
 }): OpenAIMessage[] {
     const {
         history,
@@ -37,11 +44,14 @@ export function buildHistory(opts: {
         archiveIndex,
         lodSummaryChapters,
         lodImportanceBonus,
+        extraReservedTokens = 0,
+        currentSceneMin,
+        olderHistoryCap,
     } = opts;
 
     // --- 6. Fit History ---
     const userTokens = countTokens(userMessage);
-    const reservedTotal = stableTokens + currentWorldTokens + volatileTokens + userTokens;
+    const reservedTotal = stableTokens + currentWorldTokens + volatileTokens + userTokens + Math.max(0, extraReservedTokens);
     const historyBudget = Math.max(0, limit - reservedTotal - 200); // Small safety margin of 200 tokens
 
     // WO-09: render the condensed portion's sealed chapters through the LOD renderer.
@@ -76,6 +86,9 @@ export function buildHistory(opts: {
     let lodAllocation = 0;
     if (chapters && chapters.length > 0 && condensedUpToIndex !== undefined && condensedUpToIndex >= 0) {
         lodAllocation = Math.min(historyBudget, Math.max(200, Math.floor(historyBudget * 0.5)));
+        if (olderHistoryCap !== undefined) lodAllocation = Math.min(historyBudget, olderHistoryCap);
+        // The recent conversation keeps its minimum; Older History gets what is beyond it.
+        if (currentSceneMin !== undefined) lodAllocation = Math.max(0, Math.min(lodAllocation, historyBudget - currentSceneMin));
         const lodResult = renderLodChapters({
             chapters,
             archiveIndex: archiveIndex ?? [],

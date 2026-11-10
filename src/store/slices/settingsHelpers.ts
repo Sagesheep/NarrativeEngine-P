@@ -9,6 +9,7 @@ import { applyLocale, detectLocale, isLocaleCode } from '../../i18n';
 import { getBuiltinTokenCap } from '../../services/payload/contributions/builtins';
 import { migratePresetSlotThinking } from './slotThinking';
 import { normalizeLoreDepth } from '../../services/lore/loreBudget';
+import { normalizeContextAllocation } from '../../services/payload/contextAllocation';
 import { READING_DEFAULTS, clampReadingSize, normalizeReadingFont, normalizeReadingLeading, normalizeReadingWidth, normalizeReadingAlign } from '../../components/chat/readingPrefs';
 
 import { API_BASE as API } from '../../lib/apiBase';
@@ -450,6 +451,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         loreDepth: normalizeLoreDepth(raw.loreDepth),
         archiveRecallDepth: (raw.archiveRecallDepth as 'lean' | 'standard' | 'deep') ?? 'standard',
         sceneRecallBudget: normalizeSceneRecallBudget(raw.sceneRecallBudget),
+        contextAllocation: normalizeContextAllocation(raw.contextAllocation),
         matureMode: (raw.matureMode as boolean) ?? false,
         aiTier: raw.aiTier as AiTier | undefined,
         uiScale: (raw.uiScale as number) ?? 1.0,

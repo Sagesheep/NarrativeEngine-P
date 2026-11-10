@@ -12,6 +12,72 @@ import { dedupElevatedScenes, type ElevatedScene } from '../archive-memory/dynam
 import { renderSlottedRagBlock, type SlottedRagSnippet } from '../archive-memory/slottedRag';
 import { createWitnessResolver, witnessNames } from '../npc/witnessResolve';
 import type { TraceCollector } from './traceCollector';
+import { fitBlock, fitLines, fitText } from './fitToBudget';
+
+// ── Context Allocation: which row each world block draws from ──
+export type WorldRow = 'npcs' | 'facts' | 'recall' | 'lore';
+export type WorldAllocation = {
+    /** Shared pool for Automatic rows (today's world budget). */
+    pool?: number;
+    /** Guaranteed slice for Automatic NPCs before they draw on the pool. */
+    npcFloor?: number;
+    /** Custom caps; undefined = Automatic (shares the pool). */
+    npcs?: number;
+    facts?: number;
+    recall?: number;
+    lore?: number;
+};
+type WorldBlock = { source: string; content: string; tokens: number; reason: string; fit?: (budget: number) => string };
+const WORLD_BLOCK_ROW: Record<string, WorldRow> = {
+    'Active NPCs': 'npcs',
+    'Agency Digest': 'npcs',
+    'Archive Recall': 'recall',
+    'Recent Scene Events': 'recall',
+    'Dynamic Elevation': 'recall',
+    'Slotted RAG': 'recall',
+    'Deep Archive Context': 'recall',
+    'RAG Lore': 'lore',
+    'Raw Lore (Legacy)': 'lore',
+    'Arc Digest': 'lore',
+    'Scoped Knowledge': 'facts',
+    'Semantic Facts': 'facts',
+    'Resolved World State': 'facts',
+};
+const WORLD_ROW_LABEL: Record<WorldRow, string> = {
+    npcs: 'Active NPCs',
+    facts: 'Canon Facts',
+    recall: 'Archive Recall',
+    lore: 'Lore',
+};
+
+/**
+ * Public facts trimmed to `cap`: pinned facts first, then the newest, rendered in
+ * their usual order. Deterministic for a given register and cap, so the cached
+ * [ESTABLISHED FACTS] block does not change between turns.
+ */
+function fitPublicFacts(register: DivergenceRegister, chapters: ArchiveChapter[] | undefined, fullText: string, cap: number): string {
+    if (cap <= 0) return '';
+    if (countTokens(fullText) <= cap) return fullText;
+    const entries = register.entries;
+    const rank = entries.map((e, i) => ({ i, pinned: !!e.pinned }))
+        .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.i - a.i)
+        .map(r => r.i);
+    const render = (k: number) => {
+        const keep = new Set(rank.slice(0, k));
+        return renderRegisterForPayload({ ...register, entries: entries.filter((_, i) => keep.has(i)) }, chapters, undefined, undefined, true);
+    };
+    let lo = 0;
+    let hi = entries.length;
+    while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        const text = render(mid);
+        if (text && countTokens(text) <= cap) lo = mid;
+        else if (!text) lo = mid; // nothing active yet in this subset — keep growing
+        else hi = mid - 1;
+    }
+    const text = lo > 0 ? render(lo) : '';
+    return text && countTokens(text) <= cap ? text : '';
+}
 
 const RECENT_SCENE_WINDOW = 3;      // mobile used 2; desktop can see a touch deeper
 const SCENE_EVENTS_TOKEN_BUDGET = 350; // mobile rationed ~200; desktop has headroom
@@ -114,6 +180,9 @@ export function buildWorld(opts: {
     arcDigest?: string;
     budgetWorld: number;
     npcBudgetFloor: number;
+    /** Context Allocation caps for this turn (contextAllocation.ts). Absent → every
+     *  row is Automatic: the shared pool is `budgetWorld` and NPCs get `npcBudgetFloor`. */
+    allocation?: WorldAllocation;
     plannerEventTypes?: SceneEventType[];
     matureMode?: boolean;
     collector: TraceCollector;
@@ -147,6 +216,7 @@ export function buildWorld(opts: {
         arcDigest,
         budgetWorld,
         npcBudgetFloor,
+        allocation,
         plannerEventTypes: plannerEventTypesOpt,
         matureMode,
         collector,
@@ -156,7 +226,8 @@ export function buildWorld(opts: {
     } = opts;
 
     // --- 3. Gather trimmable World Context (Medium Priority) ---
-    const worldBlocks: { source: string; content: string; tokens: number; reason: string }[] = [];
+    // `fit` trims a block to an allowance; blocks without one use the generic line trimmer.
+    const worldBlocks: WorldBlock[] = [];
     let divergenceRegText = '';
     let divergenceTokens = 0;
     // WO-4 §4: the on-stage NPC↔NPC relations block is split out of the structural
@@ -215,11 +286,26 @@ export function buildWorld(opts: {
                     return `- ${s.content}${names.length > 0 ? ` (witnessed by ${names.join(', ')})` : ''}`;
                 }).join('\n')}`
                 : '';
-            const text = `[ARCHIVE RECALL — VERBATIM PAST SCENES]\n${[fullText, shortText].filter(Boolean).join('\n\n')}\n[END ARCHIVE RECALL]`;
+            const wrapRecall = (full: string, short: string) =>
+                `[ARCHIVE RECALL — VERBATIM PAST SCENES]\n${[full, short].filter(Boolean).join('\n\n')}\n[END ARCHIVE RECALL]`;
+            const text = wrapRecall(fullText, shortText);
             const reason = shortRecall.length > 0
                 ? `Verbatim history (${fullRecall.length} scenes, ${shortRecall.length} in brief)`
                 : `Verbatim history (${filteredRecall.length} scenes)`;
-            worldBlocks.push({ source: 'Archive Recall', content: text, tokens: countTokens(text), reason });
+            // Over its allowance, the full scene is cut to an excerpt and the brief
+            // reminders are kept; with no room for an excerpt, only reminders remain.
+            const fitRecall = (budget: number): string => {
+                const shell = countTokens(wrapRecall('', shortText));
+                const room = budget - shell - 4;
+                if (fullText && room >= 120) {
+                    const cut = fitText(fullText, room - 2);
+                    const candidate = wrapRecall(cut === fullText ? cut : `${cut} …`, shortText);
+                    if (countTokens(candidate) <= budget) return candidate;
+                }
+                const briefLines = shortText ? shortText.split('\n').slice(1) : [];
+                return fitLines({ head: '[ARCHIVE RECALL — VERBATIM PAST SCENES]\n[OTHER RELEVANT PAST SCENES — IN BRIEF]', lines: briefLines, foot: '[END ARCHIVE RECALL]', budget });
+            };
+            worldBlocks.push({ source: 'Archive Recall', content: text, tokens: countTokens(text), reason, fit: fitRecall });
         }
 
         // Post-filter regular-recall IDs available to elevation dedup.
@@ -436,11 +522,15 @@ export function buildWorld(opts: {
             // a token count as well, and the count meant a BPE encode per active
             // NPC per turn whose result was discarded.
             const npcSegments: string[] = [];
+            // Per-NPC core line (always-on tier) beside the full line, so the block can be
+            // trimmed NPC by NPC: on-stage cores first, then full detail, then mentioned NPCs.
+            const npcTiers: { core: string; full: string; onStage: boolean }[] = [];
 
             // Field caps scale with the NPC budget shared by every active NPC
             // (npcFieldLimits.ts). Only NPCs on stage get the scaled caps; ones merely
             // mentioned stay at the floor. With no on-stage list, every NPC scales.
-            const scaledLimits = npcFieldLimits(npcBudgetFloor, activeNPCs.length);
+            // A custom Active NPCs allowance scales them instead of the floor.
+            const scaledLimits = npcFieldLimits(allocation?.npcs ?? npcBudgetFloor, activeNPCs.length);
             const limitsFor = (npc: NPCEntry): NpcFieldLimits =>
                 onStageSet.size === 0 || onStageSet.has(npc.id) ? scaledLimits : NPC_FIELD_FLOORS;
 
@@ -475,6 +565,7 @@ export function buildWorld(opts: {
                 const extLine = extParts.length > 0 ? extParts.join(' | ') : '';
                 const fullLine = extLine ? `${coreLine} | ${extLine}` : coreLine;
                 npcSegments.push(fullLine);
+                npcTiers.push({ core: coreLine, full: fullLine, onStage: onStageSet.size === 0 || onStageSet.has(npc.id) });
             }
 
             // On-stage NPC↔NPC relations (sparse, directed). Routed through the canonical
@@ -498,12 +589,31 @@ export function buildWorld(opts: {
                 : '';
             relationsBlock = relationBlock;
 
-            const npcText = `[ACTIVE NPC CONTEXT]\n${npcSegments.join('\n')}\n[END NPC CONTEXT]`;
+            const wrapNpcs = (lines: string[]) => `[ACTIVE NPC CONTEXT]\n${lines.join('\n')}\n[END NPC CONTEXT]`;
+            const npcText = wrapNpcs(npcSegments);
+            const fitNpcs = (budget: number): string => {
+                // Priority: on-stage core lines, mentioned core lines, then upgrade to full
+                // detail in the same order. Kept NPCs stay in their original order.
+                const order = npcTiers.map((_, i) => i).sort((a, b) => Number(npcTiers[b].onStage) - Number(npcTiers[a].onStage));
+                const chosen = new Map<number, string>();
+                const render = () => wrapNpcs([...chosen.entries()].sort((a, b) => a[0] - b[0]).map(([, l]) => l));
+                for (const i of order) {
+                    chosen.set(i, npcTiers[i].core);
+                    if (countTokens(render()) > budget) { chosen.delete(i); break; }
+                }
+                for (const i of order) {
+                    if (!chosen.has(i) || npcTiers[i].full === npcTiers[i].core) continue;
+                    chosen.set(i, npcTiers[i].full);
+                    if (countTokens(render()) > budget) chosen.set(i, npcTiers[i].core);
+                }
+                return chosen.size > 0 ? render() : '';
+            };
             worldBlocks.push({
                 source: 'Active NPCs',
                 content: npcText,
                 tokens: countTokens(npcText),
                 reason: `NPCs detected in context (${activeNPCs.length}, tiered core+extended)`,
+                fit: fitNpcs,
             });
         }
     }
@@ -552,7 +662,8 @@ export function buildWorld(opts: {
                 return `• ${e.text}${whoStr} [#${e.sceneRef}]`;
             });
             const content = `[FACTS KNOWN TO ON-STAGE CHARACTERS]\n${lines.join('\n')}\n[END FACTS KNOWN TO ON-STAGE CHARACTERS]`;
-            worldBlocks.push({ source: 'Scoped Knowledge', content, tokens: countTokens(content), reason: `Per-fact knowledge bounded to present cast (${scoped.length})` });
+            // Over its allowance, the newest facts are kept.
+            worldBlocks.push({ source: 'Scoped Knowledge', content, tokens: countTokens(content), reason: `Per-fact knowledge bounded to present cast (${scoped.length})`, fit: (budget) => fitBlock(content, budget, 'last') });
         }
     }
 
@@ -575,13 +686,24 @@ export function buildWorld(opts: {
     // byte-identical across turns when the on-stage cast changes. Scoped (knownBy-defined)
     // facts are surfaced per-turn in the [FACTS KNOWN TO ON-STAGE CHARACTERS] world block
     // above. Not added to worldBlocks; emitted as its own cached system message by payloadBuilder.
+    //
+    // Context Allocation: the public facts are capped by the Canon Facts allowance (custom),
+    // or by the shared pool (Automatic, today's "reserve facts first"). Over the cap, pinned
+    // facts are kept first, then the newest. The cap does not change from turn to turn, so
+    // the trimmed block stays byte-identical and the prompt cache still holds.
+    const factsCap = allocation?.facts ?? allocation?.pool ?? budgetWorld;
     if (divergenceRegister && divergenceRegister.entries.length > 0) {
-        const regText = renderRegisterForPayload(divergenceRegister, chapters, undefined, undefined, true);
+        const fullText = renderRegisterForPayload(divergenceRegister, chapters, undefined, undefined, true);
+        const regText = fullText ? fitPublicFacts(divergenceRegister, chapters, fullText, factsCap) : '';
+        const fullTokens = fullText ? countTokens(fullText) : 0;
         if (regText) {
             divergenceRegText = regText;
             divergenceTokens = countTokens(regText);
-            collector.addTrace({ source: 'Established Facts', classification: 'world_context', tokens: divergenceTokens, reason: `Campaign canon — public facts (${divergenceRegister.entries.length} entries)`, included: true, position: 'system_cacheable', preview: regText });
+            const trimmedNote = regText !== fullText ? ` — trimmed from ${fullTokens} t to fit the Canon Facts allowance (${factsCap} t); pinned and newest kept` : '';
+            collector.addTrace({ source: 'Established Facts', classification: 'world_context', tokens: divergenceTokens, reason: `Campaign canon — public facts (${divergenceRegister.entries.length} entries)${trimmedNote}`, included: true, position: 'system_cacheable', preview: regText });
             collector.addSection({ label: 'Established Facts', role: 'system', tokens: divergenceTokens, content: regText, classification: 'world_context' });
+        } else if (fullText) {
+            collector.addTrace({ source: 'Established Facts', classification: 'world_context', tokens: fullTokens, reason: `Omitted: no Canon Facts allowance left (${factsCap} t)`, included: false, position: 'system_cacheable' });
         }
     }
 
@@ -589,58 +711,71 @@ export function buildWorld(opts: {
         worldBlocks.push({ source: 'Semantic Facts', content: semanticFactText, tokens: countTokens(semanticFactText), reason: 'Injected verified facts' });
     }
 
-    // --- 4. Budget & Trim World Context (two-phase: NPC floor decoupled) ---
-    // Divergence is emitted as its own (high-priority, cacheable) system message but draws from
-    // the same world allocation, so reserve its tokens up front rather than letting the trimmable
-    // blocks consume the full budget and overrun once divergence is added back in payloadBuilder.
-    //
-    // Phase 2 (877c6eb): the [ACTIVE NPC CONTEXT] block gets a guaranteed `npcBudgetFloor` slice,
-    // decoupled from the world budget so lore/archive pressure can never starve the scene's
-    // actors. The NPC block is trimmed first against its floor; any unused floor flows back to
-    // the general world pool for the remaining blocks. Fixes the packing-order problem where NPCs
-    // (packed mid-stream) could be starved by lore pressure.
-    const npcBlockIndex = worldBlocks.findIndex(b => b.source === 'Active NPCs');
-    const npcBlock = npcBlockIndex >= 0 ? worldBlocks[npcBlockIndex] : null;
+    // --- 4. Fit World Context to the Context Allocation ---
+    // Each block belongs to one allocation row (WORLD_BLOCK_ROW). A row with a custom
+    // allowance spends only that allowance; Automatic rows share one pool, as before:
+    // public facts are charged first (above), then Active NPCs (their floor first, then
+    // the pool), then the remaining blocks in their usual order. A block over what is
+    // left is trimmed to fit — the full scene cut to an excerpt, NPCs reduced to their
+    // core lines, the oldest facts dropped — and is omitted only when nothing useful fits.
+    const custom: Partial<Record<WorldRow, number>> = {
+        npcs: allocation?.npcs,
+        facts: allocation?.facts,
+        recall: allocation?.recall,
+        lore: allocation?.lore,
+    };
+    const remaining: Partial<Record<WorldRow, number>> = {};
+    for (const row of Object.keys(custom) as WorldRow[]) {
+        if (custom[row] !== undefined) remaining[row] = custom[row]!;
+    }
+    let pool = Math.max(0, allocation?.pool ?? budgetWorld);
+    let npcFloorLeft = custom.npcs === undefined ? Math.max(0, allocation?.npcFloor ?? npcBudgetFloor) : 0;
+    if (divergenceTokens > 0) {
+        if (remaining.facts !== undefined) remaining.facts = Math.max(0, remaining.facts - divergenceTokens);
+        else pool = Math.max(0, pool - divergenceTokens);
+    }
+    const allowanceFor = (row: WorldRow) =>
+        remaining[row] !== undefined ? remaining[row]! : pool + (row === 'npcs' ? npcFloorLeft : 0);
+    const charge = (row: WorldRow, tokens: number) => {
+        if (remaining[row] !== undefined) { remaining[row] = Math.max(0, remaining[row]! - tokens); return; }
+        if (row === 'npcs') {
+            const fromFloor = Math.min(npcFloorLeft, tokens);
+            npcFloorLeft -= fromFloor;
+            tokens -= fromFloor;
+        }
+        pool = Math.max(0, pool - tokens);
+    };
 
     let worldContent = '';
     let currentWorldTokens = 0;
-
-    // Phase 1: the NPC block (if present) is admitted against its dedicated floor. Unused floor
-    // flows back to the world pool. If the block exceeds the floor it still gets admitted (NPCs
-    // are the headline of a scene) but the overflow counts against the general world budget.
-    let npcFloorUsed = 0;
-    if (npcBlock) {
-        if (npcBlock.tokens <= npcBudgetFloor) {
-            worldContent = npcBlock.content;
-            currentWorldTokens = npcBlock.tokens;
-            npcFloorUsed = npcBlock.tokens;
-            collector.addTrace({ source: npcBlock.source, classification: 'world_context', tokens: npcBlock.tokens, reason: npcBlock.reason, included: true, position: 'system_dynamic' });
-            collector.addSection({ label: npcBlock.source, role: 'system', tokens: npcBlock.tokens, content: npcBlock.content, classification: 'world_context' });
-        } else {
-            // Block exceeds the floor — admit it whole (NPCs headline the scene) but the overflow
-            // counts against the world budget; the remaining blocks get the residual.
-            worldContent = npcBlock.content;
-            currentWorldTokens = npcBlock.tokens;
-            npcFloorUsed = npcBudgetFloor; // only the floor portion is "decoupled"; overflow is on the world budget
-            collector.addTrace({ source: npcBlock.source, classification: 'world_context', tokens: npcBlock.tokens, reason: `${npcBlock.reason} (exceeded ${npcBudgetFloor}t NPC floor; overflow charged to world budget)`, included: true, position: 'system_dynamic' });
-            collector.addSection({ label: npcBlock.source, role: 'system', tokens: npcBlock.tokens, content: npcBlock.content, classification: 'world_context' });
+    const admit = (block: WorldBlock) => {
+        const row = WORLD_BLOCK_ROW[block.source] ?? 'facts';
+        const allowance = allowanceFor(row);
+        const label = `${WORLD_ROW_LABEL[row]} allowance`;
+        let content = block.content;
+        let tokens = block.tokens;
+        let reason = block.reason;
+        if (tokens > allowance) {
+            content = allowance > 0 ? (block.fit ? block.fit(allowance) : fitBlock(block.content, allowance)) : '';
+            const fittedTokens = content ? countTokens(content) : 0;
+            if (!content || fittedTokens > allowance) {
+                collector.addTrace({ source: block.source, classification: 'world_context', tokens: block.tokens, reason: `Omitted: ${block.tokens} t, ${allowance} t of the ${label} left`, included: false, position: 'system_dynamic' });
+                return;
+            }
+            reason = `${block.reason} — trimmed from ${block.tokens} t to fit the ${label} (${allowance} t)`;
+            tokens = fittedTokens;
         }
-    }
-    // Unused NPC floor flows back to the world pool.
-    const worldPoolAfterNpc = Math.max(0, budgetWorld - divergenceTokens - npcFloorUsed);
+        charge(row, tokens);
+        worldContent += (worldContent ? '\n\n' : '') + content;
+        currentWorldTokens += tokens;
+        collector.addTrace({ source: block.source, classification: 'world_context', tokens, reason, included: true, position: 'system_dynamic' });
+        collector.addSection({ label: block.source, role: 'system', tokens, content, classification: 'world_context' });
+    };
 
-    // Phase 2: trim the remaining blocks against the residual world pool.
+    const npcBlockIndex = worldBlocks.findIndex(b => b.source === 'Active NPCs');
+    if (npcBlockIndex >= 0) admit(worldBlocks[npcBlockIndex]);
     for (let i = 0; i < worldBlocks.length; i++) {
-        if (i === npcBlockIndex) continue; // already admitted
-        const block = worldBlocks[i];
-        if (currentWorldTokens + block.tokens <= worldPoolAfterNpc + npcFloorUsed) {
-            worldContent += (worldContent ? '\n\n' : '') + block.content;
-            currentWorldTokens += block.tokens;
-            collector.addTrace({ source: block.source, classification: 'world_context', tokens: block.tokens, reason: block.reason, included: true, position: 'system_dynamic' });
-            collector.addSection({ label: block.source, role: 'system', tokens: block.tokens, content: block.content, classification: 'world_context' });
-        } else {
-            collector.addTrace({ source: block.source, classification: 'world_context', tokens: block.tokens, reason: `Dropped: Exceeds World budget (${worldPoolAfterNpc + npcFloorUsed} t residual after ${divergenceTokens} t divergence reserve + ${npcFloorUsed} t NPC floor)`, included: false, position: 'system_dynamic' });
-        }
+        if (i !== npcBlockIndex) admit(worldBlocks[i]);
     }
 
     return { worldContent, currentWorldTokens, divergenceContent: divergenceRegText, divergenceTokens, plannerEventTypes, relationsBlock };

@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { buildPayload } from '../payload/payloadBuilder';
+import { countTokens } from '../infrastructure/tokenizer';
 import { DEFAULT_RULES } from '../rules/defaultRules';
 import type {
     GameContext,
@@ -474,7 +475,7 @@ describe('buildPayload — scenario 4: archive recall witness labels', () => {
 
 // ── Scenario 5: World-budget trim ─────────────────────────────────────────────
 describe('buildPayload — scenario 5: world-budget trim', () => {
-    it('trace has included:false entry with reason containing "Exceeds World budget" when budget is tiny', () => {
+    it('trims or omits world blocks over the allowance when the budget is tiny (never sends them whole)', () => {
         const smallSettings = {
             ...baseSettings(),
             contextLimit: 500,
@@ -502,10 +503,12 @@ describe('buildPayload — scenario 5: world-budget trim', () => {
 
         const result = buildPayload({ settings: smallSettings, context: baseContext(), history: [], userMessage: 'Hello', condensedUpToIndex: undefined, relevantLore: bigLore, npcLedger: undefined, archiveRecall: archive });
 
-        const droppedTrace = (result.trace ?? []).find(
-            t => !t.included && typeof t.reason === 'string' && t.reason.includes('Exceeds World budget')
-        );
-        expect(droppedTrace).toBeDefined();
+        const world = (result.trace ?? []).filter(t => t.classification === 'world_context' && t.position === 'system_dynamic');
+        const cut = world.filter(t => typeof t.reason === 'string' && (t.reason.includes('trimmed from') || t.reason.startsWith('Omitted:')));
+        expect(cut.length).toBeGreaterThan(0);
+        // What was sent fits the world allowance at this limit.
+        const sent = world.filter(t => t.included).reduce((sum, t) => sum + t.tokens, 0);
+        expect(sent).toBeLessThan(500);
     });
 });
 
@@ -1221,7 +1224,7 @@ describe('buildPayload — volatile notebook budget', () => {
 
 // ── Scenario 13: divergence reserved in world budget (regression) ───────────────
 describe('buildPayload — divergence reserved in world budget', () => {
-    it('drops more world blocks when divergence consumes part of the world budget', () => {
+    it('caps public facts at the shared pool and leaves less for lore when facts are large', () => {
         const smallSettings = { ...baseSettings(), contextLimit: 700 } as unknown as AppSettings;
         const lore: LoreChunk[] = [
             makeLoreChunk({ id: 'lc1', category: 'faction', header: 'Faction One', content: 'A'.repeat(300), tokens: 60 }),
@@ -1234,20 +1237,18 @@ describe('buildPayload — divergence reserved in world budget', () => {
         const withDiv = buildPayload({ settings: smallSettings, context: baseContext(), history: [], userMessage: 'Hello', condensedUpToIndex: undefined, relevantLore: lore, npcLedger: undefined, archiveRecall: undefined, recommendedNPCNames: undefined, semanticFactText: undefined, archiveIndex: undefined, timelineEvents: undefined, inventoryCategories: undefined, profileFields: undefined, deepContextSummary: undefined, divergenceRegister: bigDiv });
         const withoutDiv = buildPayload({ settings: smallSettings, context: baseContext(), history: [], userMessage: 'Hello', condensedUpToIndex: undefined, relevantLore: lore });
 
-        const droppedWith = (withDiv.trace ?? []).filter(
-            t => !t.included && typeof t.reason === 'string' && t.reason.includes('World budget')
-        ).length;
-        const droppedWithout = (withoutDiv.trace ?? []).filter(
-            t => !t.included && typeof t.reason === 'string' && t.reason.includes('World budget')
-        ).length;
+        const loreSent = (r: typeof withDiv) => (r.trace ?? [])
+            .filter(t => t.source === 'RAG Lore' && t.included)
+            .reduce((sum, t) => sum + t.tokens, 0);
 
-        // Reserving divergence tokens means at least as many world blocks are dropped as without it.
-        expect(droppedWith).toBeGreaterThanOrEqual(droppedWithout);
-        // And the drop reason now mentions the divergence reserve.
-        const reserveTrace = (withDiv.trace ?? []).find(
-            t => !t.included && typeof t.reason === 'string' && t.reason.includes('divergence reserve')
-        );
-        expect(reserveTrace).toBeDefined();
+        // Facts are charged first, so lore gets no more room than without them.
+        expect(loreSent(withDiv)).toBeLessThanOrEqual(loreSent(withoutDiv));
+        // The facts themselves no longer bypass the budget: they are cut to fit (or omitted).
+        const facts = (withDiv.trace ?? []).find(t => t.source === 'Established Facts');
+        expect(facts).toBeDefined();
+        expect(String(facts!.reason)).toMatch(/trimmed from|Omitted/);
+        const factsMsg = withDiv.messages.find(m => typeof m.content === 'string' && m.content.startsWith('[ESTABLISHED FACTS]'));
+        if (factsMsg) expect(countTokens(factsMsg.content as string)).toBeLessThan(countTokens('The capital fell. '.repeat(80)));
     });
 });
 
