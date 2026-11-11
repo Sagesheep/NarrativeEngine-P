@@ -43,8 +43,14 @@ export function ProvidersTab() {
 
     const activeProvider = settings.providers.find(p => p.id === activeTab) || settings.providers[0];
 
+    const addAndSelectProvider = (newProvider: LLMProvider) => {
+        addProvider(newProvider);
+        setActiveTab(newProvider.id);
+        setTestResult(null);
+    };
+
     const handleAddProvider = () => {
-        const newProvider: LLMProvider = {
+        addAndSelectProvider({
             id: uid(),
             label: `Provider ${settings.providers.length + 1}`,
             endpoint: 'http://localhost:11434/v1',
@@ -52,10 +58,16 @@ export function ProvidersTab() {
             modelName: '',
             apiFormat: 'openai',
             streamingEnabled: true,
-        };
-        addProvider(newProvider);
-        setActiveTab(newProvider.id);
-        setTestResult(null);
+        });
+    };
+
+    const handleDuplicateProvider = (provider: LLMProvider) => {
+        addAndSelectProvider({
+            ...structuredClone(provider),
+            id: uid(),
+            label: `${provider.label || provider.modelName || 'Provider'} (copy)`,
+        });
+        setIsExpanded(true);
     };
 
     const handleRemoveProvider = (id: string) => {
@@ -169,7 +181,18 @@ export function ProvidersTab() {
     return (
         <div data-ui="providers" className="flex flex-col">
             <div data-ui="provider-list" className="flex flex-col mb-6">
-                <label className="text-text-dim text-xs uppercase tracking-widest mb-2 font-bold">Providers</label>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                    <label className="text-text-dim text-xs uppercase tracking-widest font-bold">Providers</label>
+                    {activeProvider && (
+                        <button
+                            type="button"
+                            onClick={() => handleDuplicateProvider(activeProvider)}
+                            className="px-2 py-1 border border-border rounded text-xs text-text-dim hover:border-terminal hover:text-terminal transition-colors"
+                        >
+                            Duplicate Provider
+                        </button>
+                    )}
+                </div>
                 <div className="flex items-center gap-1 border-b border-border overflow-x-auto pb-px">
                     {settings.providers.map((p) => (
                         <button
