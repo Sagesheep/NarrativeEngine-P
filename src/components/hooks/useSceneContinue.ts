@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { isSwipeLockedByCombat } from '../../services/combat/combatLocks';
 import { useAppStore } from '../../store/useAppStore';
 import {
     generateSceneContinuation,
@@ -38,7 +39,7 @@ export function useSceneContinue(messageId: string | null) {
     const streamingSlotRef = useRef<number | null>(null);
 
     const runSceneContinue = useCallback(async () => {
-        if (!messageId) return;
+        if (!messageId || isSwipeLockedByCombat(messageId)) return;
         if (continueLoading) return;
 
         const store = useAppStore.getState();

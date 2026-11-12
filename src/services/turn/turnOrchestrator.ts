@@ -1,5 +1,5 @@
 import { useAppStore } from '../../store/useAppStore';
-import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact, ArmedGalleryRecall } from '../../types';
+import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact, ArmedGalleryRecall, CombatProposal } from '../../types';
 import type { OneShotEventId } from '../oneshot/oneShotEvents';
 import { createTurnContext } from './turnContext';
 import { buildHostFacade } from './hostFacade';
@@ -62,6 +62,7 @@ export type TurnCallbacks = {
     /** Stage a GM-proposed inventory change for user confirmation (Phase 6). The
      *  proposal does not mutate inventory until the user confirms it in the UI. */
     stageInventoryProposal?: (proposal: InventoryProposal) => void;
+    stageCombatProposal?: (proposal: CombatProposal) => void;
     /** WO-05: Director phase UI hook. Fires 'running' just before the Director
      *  call begins and 'done' after it settles (success, abort, timeout, or
      *  parse-failure — `runDirectorBrief` always returns). The UI uses this to
@@ -158,6 +159,7 @@ export type TurnState = {
      *  combines this signal with the turn's abort signal via `AbortSignal.any`
      *  so an outer stop still aborts the Director (preserves WO-04 behavior). */
     directorSkipController?: AbortController | null;
+    combatToolAllowed?: boolean;
 };
 
 

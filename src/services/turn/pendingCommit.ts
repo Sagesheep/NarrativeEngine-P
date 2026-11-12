@@ -1,4 +1,5 @@
 import type { ChatMessage, NPCEntry, SceneStakes, PipelinePhase } from '../../types';
+import { settleCombatNotesOnCommit } from '../combat/combatCommitHooks';
 import type { TurnCallbacks, TurnState } from './turnOrchestrator';
 import type { TurnContext } from './turnContext';
 import type { OpenAIMessage } from '../llm/llmService';
@@ -290,6 +291,9 @@ export function buildCommitCallbacks(
             // wire it for parity so a late proposal doesn't crash.
             window.dispatchEvent(new CustomEvent('stage-inventory-proposal', { detail: proposal }));
         },
+        stageCombatProposal: (proposal) => {
+            useAppStore.getState().setCombatProposal(proposal);
+        },
     };
 }
 
@@ -463,6 +467,7 @@ async function runCommitPendingTurn(): Promise<void> {
     // normal historical message. Flush immediately (commit path should not debounce).
     retirePendingMessage(pendingMsg.id, activeCampaignId);
     clearPendingTurnSnapshot();
+    settleCombatNotesOnCommit({ messageId: pendingMsg.id, messageTimestamp: pendingMsg.timestamp, sceneStakes });
 
     // Phase 3.2 / `EVENTS.md` §6.4 — the single point at which a pending turn
     // becomes ordinary history, downstream of `runPostTurnPipeline`, so every

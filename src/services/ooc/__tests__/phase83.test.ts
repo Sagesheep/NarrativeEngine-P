@@ -259,22 +259,23 @@ type EnemyModState = {
 };
 
 describe('Phase 8.3 — the mod publishes inCombat identical to the host-computed value', () => {
-    it('inCombat is false when no active encounter exists', async () => {
+    it('inCombat has no opinion when no active encounter exists, so the host value stands', async () => {
         const modState: EnemyModState = { encounters: [], instances: [] };
         registerModFact(MOD, 'inCombat', () => {
             const encounter = modState.encounters.find(e => e.status === 'active');
-            if (!encounter) return false;
+            if (!encounter) return undefined;
             const wave = encounter.waves.find(w => w.id === encounter.activeWaveId);
-            if (!wave) return false;
+            if (!wave) return undefined;
             const byId = new Map(modState.instances.map(i => [i.id, i]));
-            return wave.activeInstanceIds.some(id => {
+            const live = wave.activeInstanceIds.some(id => {
                 const inst = byId.get(id);
                 return inst && !inst.defeated;
             });
+            return live ? true : undefined;
         }, { claims: 'inCombat' });
 
         const result = runFactPublishers();
-        expect(result?.facts.inCombat).toBe(false);
+        expect(result?.facts.inCombat).toBeUndefined();
     });
 
     it('inCombat is true for a live encounter with active undefeated instances', async () => {

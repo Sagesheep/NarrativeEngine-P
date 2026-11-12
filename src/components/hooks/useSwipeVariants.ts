@@ -11,6 +11,7 @@ import type { SwipeVariant, ChatMessage } from '../../types';
 import { toast } from '../Toast';
 import { debouncedSaveCampaignState } from '../../store/slices/campaignSlice';
 import { emitCoreEvent } from '../../services/mods/events';
+import { isSwipeLockedByCombat } from '../../services/combat/combatLocks';
 
 /**
  * useSwipeVariants — manages the swipe set on the LATEST GM message.
@@ -113,7 +114,7 @@ export function useSwipeVariants(messageId: string | null) {
     }, [messageId]);
 
     const nextSwipe = useCallback(() => {
-        if (!messageId) return;
+        if (!messageId || isSwipeLockedByCombat(messageId)) return;
         const msg = useAppStore.getState().messages.find(m => m.id === messageId);
         if (!msg?.swipeSet) return;
         const current = msg.swipeActiveIndex ?? 0;
@@ -127,7 +128,7 @@ export function useSwipeVariants(messageId: string | null) {
     }, [messageId, setSwipeIndex]);
 
     const prevSwipe = useCallback(() => {
-        if (!messageId) return;
+        if (!messageId || isSwipeLockedByCombat(messageId)) return;
         const msg = useAppStore.getState().messages.find(m => m.id === messageId);
         if (!msg?.swipeSet) return;
         const current = msg.swipeActiveIndex ?? 0;
@@ -137,7 +138,7 @@ export function useSwipeVariants(messageId: string | null) {
     // ── Generate a new swipe variant ──
     // guidance: optional free-text instruction from the player for this variant.
     const generateSwipe = useCallback(async (guidance?: string) => {
-        if (!messageId) return;
+        if (!messageId || isSwipeLockedByCombat(messageId)) return;
         if (swipeGenLoading) return;
 
         const store = useAppStore.getState();

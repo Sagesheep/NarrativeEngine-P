@@ -3,6 +3,7 @@ import { Loader2, Sparkles, Plus, Trash2, ChevronDown, ChevronRight } from '../i
 import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_ENCOUNTER_TYPES, DEFAULT_ENCOUNTER_TONES, DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHY, DEFAULT_WORLD_WHAT } from '../../store/useAppStore';
 import { populateEngineTags } from '../../services/chatEngine';
 import { Toggle } from './Toggle';
+import { CombatSettingsSection } from './CombatSettingsSection';
 import { NPCPressureInspector } from '../NPCPressureInspector';
 import { buildDefaultDiceSystem } from '../../types';
 import { validateBands } from '../../services/engine/diceTier';
@@ -324,6 +325,8 @@ export function EnginesTab() {
 
                 {/* Dice Fairness Engine (generalized) */}
                 <DiceFairnessSection context={context} updateContext={updateContext} />
+
+                <CombatSettingsSection context={context} updateContext={updateContext} />
 
             </div>
 

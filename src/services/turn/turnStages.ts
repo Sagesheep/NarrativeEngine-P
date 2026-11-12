@@ -44,6 +44,7 @@ import { runPromptInterceptors } from '../mods/interceptors';
 import { runFactPublishers } from '../mods/facts';
 import { blockTokenCap, isBlockEnabled } from './blockEnablement';
 import { BUILTIN_IDS, getBuiltinTokenCap } from '../payload/contributions/builtins';
+import { combatNoteRegistryOption } from '../combat/combatTurnNotes';
 
 const MAX_TOOL_CALLS_PER_TURN = 5;
 
@@ -508,6 +509,7 @@ export function buildTurnPayload(
         // `undefined` when no mod registered a publisher, which is the
         // byte-identical zero-mod path.
         publishedFacts: ctx.publishedFacts,
+        ...combatNoteRegistryOption(context),
     });
 
     ctx.payload = payloadResult.messages;
@@ -660,7 +662,8 @@ export async function runGenerationStage(
         // When the player armed a manual roll, the resolved fact is already in the payload;
         // offering the tool too would let the model double-roll (WO-H).
         const allowDiceTool = context.diceFairnessActive === false && !armed;
-        const tools = allowTools ? getToolDefinitions({ allowDiceTool }) : undefined;
+        const allowCombatTool = state.combatToolAllowed === true;
+        const tools = allowTools ? getToolDefinitions({ allowDiceTool, allowCombatTool }) : undefined;
 
         callbacks.setPipelinePhase?.('generating');
         callbacks.setLoadingStatus?.(null);
@@ -691,7 +694,7 @@ export async function runGenerationStage(
                     }
 
                     const engineText = stripLLMSceneHeader(finalText);
-                    const dispatchResult = toolHandler({ arguments: toolCall.arguments, loreChunks, notebook: state.context.notebook, diceSystem: context.diceSystem });
+                    const dispatchResult = toolHandler({ arguments: toolCall.arguments, loreChunks, notebook: state.context.notebook, diceSystem: context.diceSystem, npcLedger: state.npcLedger });
                     if (dispatchResult.accumulation === 'overwrite') {
                         accumulatedContent = engineText;
                     } else {
@@ -725,6 +728,9 @@ export async function runGenerationStage(
                     }
                     if (dispatchResult.proposal) {
                         callbacks.stageInventoryProposal?.(dispatchResult.proposal);
+                    }
+                    if (dispatchResult.combatProposal) {
+                        callbacks.stageCombatProposal?.({ id: uid(), messageId: assistantMsgId, source: 'tool', ...dispatchResult.combatProposal });
                     }
 
                     const toolMsgId = uid();

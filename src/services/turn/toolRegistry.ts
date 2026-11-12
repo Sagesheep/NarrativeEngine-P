@@ -4,7 +4,9 @@ import {
     handleNotebookTool,
     handleDiceTool,
     handleProposeInventoryTool,
+    handleStartCombatTool,
 } from './toolHandlers';
+import type { ParsedCombatArgs } from '../combat/combatProposal';
 
 /**
  * Phase 4 — Tool Registry
@@ -38,6 +40,7 @@ export type ToolDispatchContext = {
     notebook: GameContext['notebook'];
     /** Dice system config (for dice rolls). */
     diceSystem: DiceSystemConfig | null | undefined;
+    npcLedger?: import('../../types').NPCEntry[];
 };
 
 export type ToolDispatchResult = {
@@ -51,6 +54,7 @@ export type ToolDispatchResult = {
     contextPatch?: Partial<GameContext>;
     /** Optional inventory proposal to stage for user confirmation. */
     proposal?: InventoryProposal;
+    combatProposal?: ParsedCombatArgs;
 };
 
 export type ToolHandlerFn = (
@@ -98,11 +102,22 @@ const handleProposeInventory: ToolHandlerFn = (ctx) => {
     };
 };
 
+const handleStartCombat: ToolHandlerFn = (ctx) => {
+    const { toolResult, proposal } = handleStartCombatTool(ctx.arguments, ctx.npcLedger ?? []);
+    return {
+        toolResult,
+        accumulation: 'append',
+        traceResult: true,
+        ...(proposal ? { combatProposal: proposal } : {}),
+    };
+};
+
 export const TOOL_REGISTRY: Record<string, ToolHandlerFn> = {
     query_campaign_lore: handleLore,
     update_scene_notebook: handleNotebook,
     roll_dice: handleDice,
     propose_inventory_change: handleProposeInventory,
+    start_combat: handleStartCombat,
 };
 
 /**
@@ -125,6 +140,7 @@ export function validateToolRegistry(): void {
         'update_scene_notebook',
         'roll_dice',
         'propose_inventory_change',
+        'start_combat',
     ];
     for (const name of expected) {
         const handler = TOOL_REGISTRY[name];

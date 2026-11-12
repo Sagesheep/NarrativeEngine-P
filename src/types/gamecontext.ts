@@ -9,6 +9,8 @@ import type { ArcRecord } from './arc';
 export type { ArcRecord };
 import type { LootTree } from './loot';
 import type { GalleryEntry } from './gallery';
+import type { CombatSettings, CombatSheet, CombatTelemetry, CombatTurnNote } from './combat';
+import { normalizeCombatConfig } from './combat';
 import type { TravelMode } from '../services/location/travelModes';
 import type { TravelUnit } from '../services/location/travelUnit';
 
@@ -264,17 +266,12 @@ export type GameContext = {
     agencyDigest?: string;             // player-visible tick digest, folded into next GM call
     arcDigest?: string;                // Arc Engine: current-rung surface line, folded into next GM call
     arcs?: ArcRecord[];                // Arc Engine (System 2): active + retired arcs for this campaign
-    combatModeActive?: boolean;        // combat master switch (Phase 7 wiring; type-only now)
-    combatConfig?: {                   // combat tuning knobs (Phase 7 wiring; type-only now)
-        mookJitterRange?: number;
-        defaultWeaponDie?: number;
-        recoveryBands?: Record<'healthy' | 'wounded' | 'critical', number>;
-        combatAutoDetect?: boolean;
-        autoEnterThreshold?: number;
-        askThreshold?: number;
-        confirmOnBorderline?: boolean;
-        combatKeywords?: string[];
-    };
+    combatModeActive?: boolean;
+    combatConfig?: CombatSettings;
+    combatSheet?: CombatSheet;
+    combatAftermath?: CombatTurnNote;
+    combatDeclined?: CombatTurnNote;
+    combatTelemetry?: CombatTelemetry;
     statLabelMap?: Record<string, string>;
     lootTree?: LootTree;
     activeLootProfileId?: string;
@@ -704,5 +701,6 @@ export function migrateLegacyContext(ctx: Partial<GameContext>): GameContext {
     if (!merged.diceSystem) {
         merged.diceSystem = migrateDiceConfig(merged);
     }
+    merged.combatConfig = normalizeCombatConfig(merged.combatConfig);
     return merged;
 }

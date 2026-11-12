@@ -1292,14 +1292,15 @@ export async function onActivate(ctx) {
             'inCombat',
             () => {
                 const encounter = state.encounters.find(e => e.status === 'active');
-                if (!encounter) return false;
+                if (!encounter) return undefined;
                 const wave = encounter.waves.find(w => w.id === encounter.activeWaveId);
-                if (!wave) return false;
+                if (!wave) return undefined;
                 const byId = new Map(state.instances.map(i => [i.id, i]));
-                return wave.activeInstanceIds.some(id => {
+                const live = wave.activeInstanceIds.some(id => {
                     const inst = byId.get(id);
                     return inst && !inst.defeated;
                 });
+                return live ? true : undefined;
             },
             { claims: 'inCombat' },
         );

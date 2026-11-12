@@ -22,6 +22,9 @@ import { uid } from '../utils/uid';
 import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
 import type { ModelRequest, ModelResponse } from './turn/hostFacade';
+import { guardStatPatch } from './combat/combatSheet';
+
+export type TraitScanOptions = { combatStatLock?: boolean };
 
 const VALID_CATEGORIES: ReadonlySet<DivergenceCategory> = new Set([
     'locations', 'npc_events', 'promises_debts', 'world_state', 'party_facts', 'rules_lore', 'misc',
@@ -36,7 +39,8 @@ export async function scanCharacterTraits(
     provider: ProviderConfig | EndpointConfig | undefined,
     messages: ChatMessage[],
     currentProfile: CharacterProfileState,
-    modelCall?: (request: ModelRequest) => Promise<ModelResponse>
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
+    options: TraitScanOptions = {},
 ): Promise<CharacterProfileState> {
     const recentMessages = messages.slice(-15);
     if (recentMessages.length === 0) return currentProfile;
@@ -123,7 +127,7 @@ export async function scanCharacterTraits(
             return currentProfile;
         }
         const parsed = JSON.parse(clean.substring(braceStart, braceEnd + 1));
-        return normalizeParsedProfile(parsed, currentProfile);
+        return normalizeParsedProfile(parsed, currentProfile, options.combatStatLock === true);
     } catch (e) {
         console.warn('[CharacterTraitParser] Parse failed — returning current profile unchanged:', e);
         return currentProfile;
@@ -136,9 +140,10 @@ export async function scanCharacterTraits(
  * importance, validates category/eventTags, enforces the 10-trait cap, and
  * merges-by-id with the prior profile (anti-drop backstop).
  */
-function normalizeParsedProfile(
+export function normalizeParsedProfile(
     parsed: unknown,
     fallback: CharacterProfileState,
+    combatStatLock = false,
 ): CharacterProfileState {
     if (!parsed || typeof parsed !== 'object') return fallback;
     const obj = parsed as Record<string, unknown>;
@@ -155,11 +160,11 @@ function normalizeParsedProfile(
     let stats: Record<string, number> | undefined;
     if (obj.stats && typeof obj.stats === 'object') {
         const s = obj.stats as Record<string, unknown>;
-        const out: Record<string, number> = { ...(fallback.stats ?? {}) };
+        const incoming: Record<string, number> = {};
         for (const [k, v] of Object.entries(s)) {
-            if (typeof v === 'number') out[k] = v;
+            if (typeof v === 'number') incoming[k] = v;
         }
-        stats = out;
+        stats = { ...(fallback.stats ?? {}), ...guardStatPatch(incoming, combatStatLock) };
     } else {
         stats = fallback.stats;
     }

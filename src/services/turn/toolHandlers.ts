@@ -1,4 +1,5 @@
-import type { GameContext, LoreChunk, DiceSystemConfig, DieType, InventoryProposal } from '../../types';
+import type { GameContext, LoreChunk, DiceSystemConfig, DieType, InventoryProposal, NPCEntry } from '../../types';
+import { parseCombatArgs, type ParsedCombatArgs } from '../combat/combatProposal';
 import { searchLoreByQuery } from '../lore/loreRetriever';
 import { uid } from '../../utils/uid';
 import { mapTier } from '../engine/diceTier';
@@ -125,7 +126,7 @@ const PROPOSE_INVENTORY_TOOL = {
                 op:              { type: 'string' as const, enum: ['grant', 'remove', 'equip', 'relocate'], description: "Operation. Default 'grant'." },
                 kind:            { type: 'string' as const, enum: ['weapon', 'armor', 'consumable', 'misc'], description: "Item kind. Default 'misc'." },
                 quality:         { type: 'string' as const, enum: ['common', 'uncommon', 'rare', 'epic', 'legendary'], description: "Rarity/quality tier. Default 'common'." },
-                scalingStat:     { type: 'string' as const, enum: ['PWR', 'SPD', 'WIL'], description: "Scaling stat for weapons. Default 'PWR'." },
+                scalingStat:     { type: 'string' as const, enum: ['STR', 'DEX', 'INT', 'WIS', 'CHA'], description: "Ability a weapon scales with. Default 'STR'." },
                 range:           { type: 'string' as const, enum: ['Close', 'Reach', 'Ranged'], description: "Weapon range. Default 'Close'." },
                 properties:      { type: 'array' as const, items: { type: 'string' as const }, description: 'Flavor tags, e.g. ["fire","heavy"].' },
                 equip:           { type: 'boolean' as const, description: 'Equip on confirm (weapons/armor). Default false.' },
@@ -138,11 +139,70 @@ const PROPOSE_INVENTORY_TOOL = {
     },
 } as const;
 
-export function getToolDefinitions(opts: { allowDiceTool: boolean }): unknown[] {
+const START_COMBAT_TOOL = {
+    type: 'function' as const,
+    function: {
+        name: 'start_combat',
+        description:
+            "Hand a fight to the game engine. Call this when hostile action against or by the player's party is about to be resolved by force. " +
+            "Do NOT call it for threats, tension, intimidation, arguments, remembered or off-screen fights, or friendly sparring mentioned in passing. " +
+            "Never include the player character in combatants. Never supply numbers (HP, damage, AC, bonuses): the engine sets them from the tier. " +
+            "Do not use roll_dice to resolve a fight while this tool is available; call start_combat instead. " +
+            "After calling, do not narrate any attack, hit, miss, wound or outcome; the player confirms and the engine resolves the fight.",
+        parameters: {
+            type: 'object' as const,
+            properties: {
+                combatants: {
+                    type: 'array' as const,
+                    minItems: 1,
+                    maxItems: 12,
+                    description: 'Everyone besides the player character who takes part. Repeat a name for identical foes ("Bandit", "Bandit").',
+                    items: {
+                        type: 'object' as const,
+                        properties: {
+                            name: { type: 'string' as const, description: 'Short display name.' },
+                            side: { type: 'string' as const, enum: ['enemy', 'ally', 'neutral'], description: "Default 'enemy'." },
+                            tier: { type: 'string' as const, enum: ['minion', 'grunt', 'elite', 'boss', 'legendary'], description: "Threat level. Default 'grunt'." },
+                            archetype: { type: 'string' as const, enum: ['bulwark', 'assassin', 'caster', 'skirmisher', 'brute'], description: 'Optional fighting style.' },
+                            species: { type: 'string' as const, description: 'Optional species or kind, e.g. "wolf".' },
+                            npcName: { type: 'string' as const, description: 'Exact name of a known NPC this combatant is, if any.' },
+                            look: { type: 'string' as const, description: 'Optional short description.' },
+                            attack: { type: 'string' as const, enum: ['melee', 'ranged'], description: 'Optional. How it fights: melee or ranged.' },
+                        },
+                        required: ['name'],
+                    },
+                },
+                map: {
+                    type: 'object' as const,
+                    description: 'Optional rough layout.',
+                    properties: {
+                        size: { type: 'string' as const, enum: ['small', 'medium', 'large'] },
+                        theme: { type: 'string' as const },
+                        features: {
+                            type: 'array' as const,
+                            items: {
+                                type: 'object' as const,
+                                properties: { kind: { type: 'string' as const }, where: { type: 'string' as const } },
+                            },
+                        },
+                    },
+                },
+                reason: { type: 'string' as const, description: 'One line shown to the player, e.g. "The bandits rush you from the treeline."' },
+            },
+            required: ['combatants', 'reason'],
+        },
+    },
+} as const;
+
+export const START_COMBAT_TOOL_RESULT =
+    'Combat has been proposed to the player and will be resolved by the game engine. Write at most three sentences that bring the scene to the instant violence begins. Do not describe any attack, hit, miss, wound or outcome. Then stop.';
+
+export function getToolDefinitions(opts: { allowDiceTool: boolean; allowCombatTool?: boolean }): unknown[] {
     const tools: unknown[] = [...BASE_TOOLS];
     if (opts.allowDiceTool) tools.push(ROLL_DICE_TOOL);
     // propose_inventory_change is combat-independent — always offered.
     tools.push(PROPOSE_INVENTORY_TOOL);
+    if (opts.allowCombatTool) tools.push(START_COMBAT_TOOL);
     return tools;
 }
 
@@ -209,7 +269,7 @@ export function handleNotebookTool(
 const VALID_OPS = new Set<string>(['grant', 'remove', 'equip', 'relocate']);
 const VALID_KINDS = new Set<string>(['weapon', 'armor', 'consumable', 'misc']);
 const VALID_QUALITIES = new Set<string>(['common', 'uncommon', 'rare', 'epic', 'legendary']);
-const VALID_SCALING_STATS = new Set<string>(['PWR', 'SPD', 'WIL']);
+const VALID_SCALING_STATS = new Set<string>(['STR', 'DEX', 'INT', 'WIS', 'CHA']);
 const VALID_RANGES = new Set<string>(['Close', 'Reach', 'Ranged']);
 
 /**
@@ -237,7 +297,7 @@ export function handleProposeInventoryTool(
     const quality: InventoryProposal['quality'] = VALID_QUALITIES.has(rawQuality) ? (rawQuality as InventoryProposal['quality']) : 'common';
 
     const rawScalingStat = typeof args.scalingStat === 'string' ? args.scalingStat : '';
-    const scalingStat: InventoryProposal['scalingStat'] = VALID_SCALING_STATS.has(rawScalingStat) ? (rawScalingStat as InventoryProposal['scalingStat']) : 'PWR';
+    const scalingStat: InventoryProposal['scalingStat'] = VALID_SCALING_STATS.has(rawScalingStat) ? (rawScalingStat as InventoryProposal['scalingStat']) : 'STR';
 
     const rawRange = typeof args.range === 'string' ? args.range : '';
     const range: InventoryProposal['range'] = VALID_RANGES.has(rawRange) ? (rawRange as InventoryProposal['range']) : 'Close';
@@ -267,6 +327,19 @@ export function handleProposeInventoryTool(
         toolResult: JSON.stringify({ status: 'staged', name, op, kind, quality, fromLocationTag, locationTag }),
         proposal,
     };
+}
+
+export type StartCombatHandlerResult = {
+    toolResult: string;
+    proposal?: ParsedCombatArgs;
+};
+
+export function handleStartCombatTool(toolArguments: string, npcLedger: readonly NPCEntry[] = []): StartCombatHandlerResult {
+    const parsed = parseCombatArgs(toolArguments, npcLedger);
+    if (!parsed.ok) {
+        return { toolResult: `start_combat was not accepted: ${parsed.error}. Fix the arguments and call it again, or continue the scene in narration.` };
+    }
+    return { toolResult: START_COMBAT_TOOL_RESULT, proposal: parsed.value };
 }
 
 function parseAndRoll(expr: string): { total: number; breakdown: string; sides: number; count: number } {

@@ -7,6 +7,7 @@ import type { ChatAttachment } from '../hooks/useChatAttachment';
 import { GalleryPicker, GalleryArmedChips, GallerySuggestions } from './GalleryComposerBar';
 import type { useGalleryMention } from '../hooks/useGalleryMention';
 import { NpcSuggestionChips } from './NpcSuggestionChips';
+import { StartCombatButton } from '../combat/StartCombatButton';
 
 /**
  * Bottom composer row: active-preset selector, deep-search armed chip,
@@ -151,6 +152,7 @@ export function ChatComposer({
                     placeholder="What do you do?"
                     className="flex-1 bg-transparent px-2 py-2.5 text-sm text-text-primary placeholder:text-text-dim/40 font-mono resize-none border-none outline-none min-h-[40px] leading-5"
                 />
+                <StartCombatButton isStreaming={isStreaming} />
                 <button
                     onClick={isStreaming ? onStop : onSend}
                     disabled={!isStreaming && ((!input.trim() && !attachment?.caption.trim()) || oocBusy || !!attachmentBusy)}

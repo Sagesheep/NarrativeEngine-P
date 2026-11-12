@@ -7,7 +7,7 @@ import { computeBudgets } from './budgets';
 import { buildStable } from './stable';
 import { buildWorld } from './world';
 import { buildVolatile, positionBlocksTokens } from './volatile';
-import { buildHistory } from './history';
+import { buildHistory, detachTrailingEngineLog } from './history';
 import { buildPinnedMemoriesBlock } from './pinnedMemories';
 import { composeVolatileBlock, renderVolatileSegments, type VolatileSegment } from './volatileSegments';
 import { assembleContributions } from './contributions/assemble';
@@ -140,6 +140,7 @@ export type BuildPayloadOptions = {
      *  is byte-identical to the pre-5.4 path and keeps the Phase 0.2 gate
      *  green. */
     publishedFacts?: FactPublicationResult;
+    engineCombatActive?: boolean;
 };
 
 export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMessage[]; trace?: PayloadTrace[]; debugSections?: DebugSection[] } {
@@ -179,6 +180,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         interception,
         publishedFacts,
         volatileSegments,
+        engineCombatActive,
     } = options;
     const isDebug = settings.debugMode === true;
     const injectionReserve = normalizeInjections(context.promptInjections)
@@ -302,7 +304,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         // default that a segment may override below. With no segment the value
         // is `false`, which is 5.4's "absence stays false" rule holding by
         // construction rather than by a conditional.
-        inCombat: false,
+        inCombat: engineCombatActive === true,
     };
 
     // Phase 7.5 — facts established by subsystem segments. Merged key-by-key
@@ -390,7 +392,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         });
     }
 
-    const fitted = buildHistory({
+    const { history: fitted, engineText: trailingEngineLog } = detachTrailingEngineLog(buildHistory({
         history,
         condensedUpToIndex,
         userMessage,
@@ -413,7 +415,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
             + pinnedTokens + sceneNoteTokens + allocation.reply,
         currentSceneMin: allocation.currentSceneMin,
         olderHistoryCap: allocation.olderHistoryCap,
-    });
+    }));
 
     // --- 8. Final Assembly ---
     // Stable, divergence, and pinned blocks get cache_control: ephemeral for Anthropic prompt caching.
@@ -450,7 +452,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         }
     }
 
-    messages.push({ role: 'user', content: assembled.text });
+    messages.push({ role: 'user', content: trailingEngineLog ? `${trailingEngineLog}\n\n${assembled.text}` : assembled.text });
 
     for (const contributionTrace of assembled.traces) collector.addTrace(contributionTrace);
 

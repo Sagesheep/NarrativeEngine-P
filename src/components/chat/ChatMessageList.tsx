@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import type { RefObject } from 'react';
+import { useState, useMemo, Fragment } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { ChatMessage, AppSettings, PipelinePhase, StreamingStats, RelationshipMemoryFault, RelationshipMemoryRecord } from '../../types';
 import { MessageBubble } from '../MessageBubble';
@@ -10,6 +10,11 @@ import { normalizeReadingAlign, normalizeReadingFont, readingStyleVars } from '.
 import type { useSwipeVariants } from '../hooks/useSwipeVariants';
 import type { useSceneContinue } from '../hooks/useSceneContinue';
 import type { useMessageEditor } from '../hooks/useMessageEditor';
+import type { CombatLockProps } from '../message/MessageActionRail';
+import { useAppStore } from '../../store/useAppStore';
+import { isRewindDeleteLocked, isSwipeLockedByCombat } from '../../services/combat/combatLocks';
+import { rewriteCombatBeat } from '../../services/combat/combatNarration';
+import { useTranslation } from '../../i18n/useTranslation';
 
 /**
  * The scrollable message column: empty state, load-older paging, the
@@ -37,6 +42,9 @@ export function ChatMessageList({
     relationshipMemoriesNpcToMc = [],
     relationshipMemoriesNpcToNpc = [],
     relationshipMemoryFaults = [],
+    compact = false,
+    fromMessageId = null,
+    offer,
 }: {
     scrollContainerRef: RefObject<HTMLDivElement | null>;
     bottomRef: RefObject<HTMLDivElement | null>;
@@ -62,9 +70,30 @@ export function ChatMessageList({
     relationshipMemoriesNpcToMc?: RelationshipMemoryRecord[];
     relationshipMemoriesNpcToNpc?: RelationshipMemoryRecord[];
     relationshipMemoryFaults?: RelationshipMemoryFault[];
+    compact?: boolean;
+    fromMessageId?: string | null;
+    offer?: { messageId: string; node: ReactNode };
 }) {
+    const { t } = useTranslation();
+    const combatProposal = useAppStore(s => s.combatProposal);
+    const combatSession = useAppStore(s => s.combatSession);
+    const combatLockFor = (msg: ChatMessage): CombatLockProps | undefined => {
+        const swipeLocked = isSwipeLockedByCombat(msg.id, combatProposal);
+        const rewindDeleteLocked = isRewindDeleteLocked(msg, combatSession);
+        if (!swipeLocked && !rewindDeleteLocked && !msg.combatBeat) return undefined;
+        return {
+            swipeLocked,
+            rewindDeleteLocked,
+            sessionActive: !!combatSession,
+            ...(msg.combatBeat ? { onRewrite: () => { void rewriteCombatBeat(msg.id); } } : {}),
+        };
+    };
     const [visibleCount, setVisibleCount] = useState(10);
     const [loadStep, setLoadStep] = useState(10);
+    const [showEarlier, setShowEarlier] = useState(false);
+    const fightStart = compact && fromMessageId ? messages.findIndex(m => m.id === fromMessageId) : -1;
+    const fightOnly = fightStart >= 0 && !showEarlier;
+    const shown = fightOnly ? messages.slice(fightStart) : messages.slice(-visibleCount);
 
     // WO-11.6 — Map tool_call_id -> result content, sourced from the (filtered-out)
     // `tool` role messages, so each assistant bubble can surface what its tool call
@@ -85,6 +114,7 @@ export function ChatMessageList({
             className="chat-panel story-journal flex-1 overflow-y-auto relative"
             data-reading-font={normalizeReadingFont(settings.readingFont)}
             data-reading-align={normalizeReadingAlign(settings.readingAlign)}
+            data-compact={compact ? 'true' : undefined}
             style={readingStyleVars(settings)}
         >
             <div className="journal-pages">
@@ -92,7 +122,19 @@ export function ChatMessageList({
                 <ChatEmptyState onCreateCharacter={onCreateCharacter} />
             )}
 
-            {messages.length > visibleCount && (
+            {fightOnly && fightStart > 0 && (
+                <div className="flex justify-center py-2">
+                    <button
+                        type="button"
+                        onClick={() => setShowEarlier(true)}
+                        className="text-xs text-terminal/70 hover:text-terminal bg-terminal/10 hover:bg-terminal/20 px-4 py-2 rounded transition-colors"
+                    >
+                        {t('combat.feed.showEarlier')}
+                    </button>
+                </div>
+            )}
+
+            {!fightOnly && messages.length > visibleCount && (
                 <div className="flex justify-center py-2">
                     <button
                         onClick={() => setVisibleCount(prev => {
@@ -107,9 +149,9 @@ export function ChatMessageList({
                 </div>
             )}
 
-            {messages.slice(-visibleCount).filter(msg => msg.role !== 'tool').map((msg, idx, arr) => (
+            {shown.filter(msg => msg.role !== 'tool').map((msg, idx, arr) => (
+                <Fragment key={msg.id}>
                 <MessageBubble
-                    key={msg.id}
                     message={msg}
                     isStreaming={isStreaming}
                     isLastMessage={idx === arr.length - 1}
@@ -141,7 +183,10 @@ export function ChatMessageList({
                     swipeGenLoading={swipe.swipeGenLoading}
                     globalIsStreaming={isStreaming}
                     onRetry={onRetry}
+                    combatLock={combatLockFor(msg)}
                 />
+                {offer?.messageId === msg.id && offer.node}
+                </Fragment>
             ))}
 
             <UtilityCallStrip />

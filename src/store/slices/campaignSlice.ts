@@ -16,6 +16,7 @@ import { API_BASE as API } from '../../lib/apiBase';
 
 import { createDebouncedSave, createTableSlice } from '../../services/tables/genericAccessor';
 import { locationTableDescriptor } from '../../services/tables/locationTable';
+import { combatTableSave, type CombatSlice } from './combatSlice';
 let autoBackupTimer: ReturnType<typeof setInterval> | null = null;
 
 function preOpBackup(campaignId: string | null, trigger: string) {
@@ -109,6 +110,7 @@ export function cancelPendingSaves() {
     if (loreTimer)  { clearTimeout(loreTimer);  loreTimer  = null; }
     if (npcTimer)   { clearTimeout(npcTimer);   npcTimer   = null; }
     locationLedgerSave.cancel();
+    combatTableSave.cancel();
     for (const { timer } of divergenceSaves.values()) clearTimeout(timer);
     divergenceSaves.clear();
 }
@@ -120,7 +122,7 @@ export function cancelPendingSaves() {
  */
 export function hasPendingSaves(): boolean {
     return stateTimer !== null || loreTimer !== null || npcTimer !== null
-        || divergenceSaves.size > 0 || locationLedgerSave.pending();
+        || divergenceSaves.size > 0 || locationLedgerSave.pending() || combatTableSave.pending();
 }
 
 /** Immediately fires any pending debounced saves so the latest in-memory state is on
@@ -171,6 +173,7 @@ export async function flushAllPendingSaves(): Promise<void> {
     }
 
     saves.push(locationLedgerSave.flush());
+    saves.push(combatTableSave.flush());
 
     if (saves.length > 0) await Promise.all(saves);
 }
@@ -448,7 +451,7 @@ export type CampaignSlice = {
 
 // ── Combined state needed for cross-slice access ───────────────────────
 
-type CampaignDeps = CampaignSlice & {
+type CampaignDeps = CampaignSlice & Pick<CombatSlice, 'combatSession' | 'combatProposal'> & {
     settings: import('../../types').AppSettings;
     messages: ChatMessage[];
     condenser: CondenserState;
@@ -550,7 +553,10 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
             emitCoreEvent('campaign.closing', { campaignId: currentId, nextCampaignId: id });
         }
 
-        set({ activeCampaignId: id, relationshipMemoriesNpcToMc: [], relationshipMemoriesNpcToNpc: [], relationshipMemoryFaults: [] } as Partial<CampaignDeps>);
+        set({
+            activeCampaignId: id, relationshipMemoriesNpcToMc: [], relationshipMemoriesNpcToNpc: [], relationshipMemoryFaults: [],
+            ...(id !== currentId ? { combatSession: null, combatProposal: null } : {}),
+        } as Partial<CampaignDeps>);
         const s = get();
         debouncedSaveSettings(s.settings, id);
 

@@ -25,6 +25,7 @@ import { loadMods } from './server/lib/modLoader.js';
 import { registerModTables } from './server/lib/modTableRegistry.js';
 import { mountGenericTableRoutes, mountModTableRoutes, serverTableRegistry } from './server/lib/tableRegistry.js';
 import { registerLocationTable } from './server/lib/locationTable.js';
+import { registerCombatTable } from './server/lib/combatTable.js';
 import { initDb, markVectorStoreUnavailable } from './server/lib/vectorStore.js';
 import { warmup as warmupEmbedder } from './server/lib/embedder.js';
 import { warmupTts } from './server/lib/tts.js';
@@ -125,6 +126,7 @@ try {
     markVectorStoreUnavailable(err.message);
 }
 registerLocationTable(serverTableRegistry);
+registerCombatTable(serverTableRegistry);
 warmupEmbedder().catch(err => console.error('[Embedder] Warmup failed:', err.message));
 warmupTts().catch(err => console.error('[TTS] Warmup failed:', err.message));
 

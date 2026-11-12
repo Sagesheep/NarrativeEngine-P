@@ -14,6 +14,9 @@ export type InventoryItem = {
     notes: string;
     status?: string;
     locationTag?: string;
+    quality?: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+    scalingStat?: 'STR' | 'DEX' | 'INT' | 'WIS' | 'CHA';
+    range?: 'Close' | 'Reach' | 'Ranged';
 };
 
 // Staged inventory change proposed by the GM via the `propose_inventory_change`
@@ -25,7 +28,7 @@ export type InventoryProposal = {
     op: 'grant' | 'remove' | 'equip' | 'relocate';
     kind: 'weapon' | 'armor' | 'consumable' | 'misc';
     quality: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
-    scalingStat: 'PWR' | 'SPD' | 'WIL';
+    scalingStat: 'STR' | 'DEX' | 'INT' | 'WIS' | 'CHA';
     range: 'Close' | 'Reach' | 'Ranged';
     properties: string[];
     equip: boolean;

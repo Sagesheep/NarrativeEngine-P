@@ -3,6 +3,7 @@ import { backgroundQueue } from '../../../infrastructure/backgroundQueue';
 import { isBlockEnabled } from '../../blockEnablement';
 import type { PostCommitTrackContext, PostTurnTrack } from '../types';
 import { assertStillActive } from '../guarded';
+import { isCombatStatLockActive } from '../../../combat/combatSheet';
 
 export const traitScanTrack: PostTurnTrack<PostCommitTrackContext> = {
     id: 'track.trait-scan',
@@ -25,6 +26,7 @@ export const traitScanTrack: PostTurnTrack<PostCommitTrackContext> = {
                 ctx.scanMessages,
                 traitProfile,
                 ctx.storyModelCall,
+                { combatStatLock: isCombatStatLockActive(ctx.freshContext) },
             );
             if (!assertStillActive(ctx.activeCampaignId, 'Trait-Scan')) return;
             ctx.guardedUpdateContext({

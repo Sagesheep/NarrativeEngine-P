@@ -1,0 +1,37 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`grid fights end to end > plays a seeded golden fight on the grid 1`] = `
+[
+  "1|1|0|Combat begins. Kira against Bandit 2, Bandit 1.",
+  "2|1|0|Initiative: Kira 21, Bandit 2 5, Bandit 1 2.",
+  "3|1|1|Kira moves 6 squares toward Bandit 1.",
+  "4|1|1|Kira ends the turn.",
+  "5|1|2|Bandit 2 moves 5 squares toward Kira.",
+  "6|1|2|Bandit 2 attacks Kira and misses.",
+  "7|1|2|Bandit 2 ends the turn.",
+  "8|1|3|Bandit 1 moves 2 squares toward Kira.",
+  "9|1|3|Bandit 1 attacks Kira and misses.",
+  "10|1|3|Bandit 1 ends the turn.",
+  "11|2|3|Round 2 begins.",
+  "12|2|4|Kira hits Bandit 1 for 4 slashing.",
+  "13|2|4|Kira ends the turn.",
+  "14|2|5|Bandit 2 lands a critical hit on Kira for 6 physical.",
+  "15|2|5|Bandit 2 ends the turn.",
+  "16|2|6|Bandit 1 hits Kira for 3 physical.",
+  "17|2|6|Bandit 1 ends the turn.",
+  "18|3|6|Round 3 begins.",
+  "19|3|7|Kira attacks Bandit 1 and misses.",
+  "20|3|7|Kira ends the turn.",
+  "21|3|8|Bandit 2 lands a critical hit on Kira for 10 physical.",
+  "22|3|8|Bandit 2 ends the turn.",
+  "23|3|9|Bandit 1 lands a critical hit on Kira for 8 physical.",
+  "24|3|9|Bandit 1 ends the turn.",
+  "25|4|9|Round 4 begins.",
+  "26|4|10|Kira hits Bandit 1 for 4 slashing.",
+  "27|4|10|Bandit 1 is down.",
+  "28|4|10|Kira ends the turn.",
+  "29|4|11|Bandit 2 hits Kira for 4 physical.",
+  "30|4|11|Kira falls unconscious.",
+  "31|4|11|The fight is lost.",
+]
+`;

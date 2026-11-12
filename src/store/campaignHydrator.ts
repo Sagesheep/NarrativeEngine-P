@@ -13,6 +13,7 @@ import { migrateV1ToV2 } from '../services/campaign-state/divergenceRegister';
 import { migratePCIntoContext } from '../services/character/migratePC';
 import { retireLegacyNpcFields } from '../services/npc/retireLegacyFields';
 import { loadLocationTable } from '../services/tables/locationTable';
+import { loadCombatTable } from '../services/tables/combatTable';
 import { hydrateModTables, saveModTable } from '../services/mods/modTables';
 import { fetchMods } from '../services/mods/modClient';
 import { emitCoreEvent } from '../services/mods/events';
@@ -260,7 +261,7 @@ export function rebuildSceneStamps(
 }
 
 export async function hydrateCampaign(campaignId: string) {
-    const [state, chunks, npcs, locations, archiveIndex, timeline, chapters, entities, divReg, modTables] = await Promise.all([
+    const [state, chunks, npcs, locations, archiveIndex, timeline, chapters, entities, divReg, modTables, combat] = await Promise.all([
         loadCampaignState(campaignId),
         getLoreChunks(campaignId),
         getNPCLedger(campaignId),
@@ -277,6 +278,7 @@ export async function hydrateCampaign(campaignId: string) {
         // mods installed this resolves to {} (empty map), byte-identical to
         // the prior behaviour (the field was absent before; now it is `{}`).
         hydrateModTablesFromServer(campaignId),
+        loadCombatTable(campaignId),
     ]);
     const relationshipMemories = state?.context?.relationshipMemory === true ? await loadRelationshipMemories(campaignId) : { npcToMc: [], npcToNpc: [] };
 
@@ -387,6 +389,8 @@ export async function hydrateCampaign(campaignId: string) {
         relationshipMemoryFaults: [],
         pinnedExcerpts: state?.pinnedExcerpts ?? [],
         modTables: hydratedModTables,
+        combatSession: combat?.session ?? null,
+        combatProposal: null,
     });
 
     // Phase 3.2 / `EVENTS.md` §6.2 — after the single `setState` that makes a

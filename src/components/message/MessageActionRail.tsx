@@ -2,6 +2,14 @@ import { Edit2, Trash2, Loader2, Check, X, Volume2, Square, RotateCw, Play, Paus
 import type { ChatMessage } from '../../types';
 import { hasSwipeSet } from '../../services/turn/pendingCommit';
 import { MessageActionsOverlay } from './MessageActionsOverlay';
+import { useTranslation } from '../../i18n/useTranslation';
+
+export type CombatLockProps = {
+    swipeLocked: boolean;
+    rewindDeleteLocked: boolean;
+    sessionActive: boolean;
+    onRewrite?: () => void;
+};
 
 /**
  * Hover action rail beside a message bubble: edit/save, swipe-sheet, rewind,
@@ -44,6 +52,7 @@ export function MessageActionRail({
     onSpeak,
     onPauseResume,
     onDelete,
+    combatLock,
 }: {
     msg: ChatMessage;
     isEditing?: boolean;
@@ -60,7 +69,10 @@ export function MessageActionRail({
     onSpeak: () => void;
     onPauseResume: () => void;
     onDelete: (id: string) => void;
+    combatLock?: CombatLockProps;
 }) {
+    const { t } = useTranslation();
+    const rewindLockReason = combatLock?.rewindDeleteLocked ? t(combatLock.sessionActive ? 'combat.lock.duringFight' : 'combat.lock.combatMessage') : undefined;
     return (
         <div data-ui="msg-rail" className="flex flex-col gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-void-darker border border-border p-1 rounded-md self-start sticky top-1/2 -translate-y-1/2 z-10">
             {isEditing ? (
@@ -81,14 +93,34 @@ export function MessageActionRail({
                     )}
                     {msg.role === 'assistant' && hasSwipeSet(msg) && onOpenSwipeSheet && (
                         <button
-                            title="Browse variants (swipe)"
+                            title={combatLock?.swipeLocked ? t('combat.lock.answerFirst') : 'Browse variants (swipe)'}
+                            disabled={combatLock?.swipeLocked || undefined}
                             onClick={() => onOpenSwipeSheet(msg.id)}
                             className="text-text-dim hover:text-terminal p-1.5 bg-void-lighter rounded"
                         >
                             <RefreshCw size={14} />
                         </button>
                     )}
-                    {msg.role === 'assistant' && !hasSwipeSet(msg) && (
+                    {msg.role === 'assistant' && msg.combatBeat && combatLock?.onRewrite && (
+                        <button
+                            title={t('combat.beat.rewrite')}
+                            aria-label={t('combat.beat.rewrite')}
+                            onClick={combatLock.onRewrite}
+                            className="text-text-dim hover:text-terminal p-1.5 bg-void-lighter rounded"
+                        >
+                            <RotateCw size={14} />
+                        </button>
+                    )}
+                    {msg.role === 'assistant' && !hasSwipeSet(msg) && !msg.combatBeat && rewindLockReason && (
+                        <button
+                            title={rewindLockReason}
+                            disabled
+                            className="text-text-dim p-1.5 bg-void-lighter rounded opacity-30 cursor-not-allowed"
+                        >
+                            <Rewind size={14} />
+                        </button>
+                    )}
+                    {msg.role === 'assistant' && !hasSwipeSet(msg) && !msg.combatBeat && !rewindLockReason && (
                         <button
                             title="Rewind to here (destructive — regenerates from this point)"
                             onClick={() => {
@@ -119,9 +151,15 @@ export function MessageActionRail({
                             {ttsPaused ? <Play size={14} /> : <Pause size={14} />}
                         </button>
                     )}
-                    <button title="Delete" onClick={() => onDelete(msg.id)} className="text-text-dim hover:text-red-400 p-1.5 bg-void-lighter rounded">
-                        <Trash2 size={14} />
-                    </button>
+                    {rewindLockReason ? (
+                        <button title={rewindLockReason} disabled className="text-text-dim p-1.5 bg-void-lighter rounded opacity-30 cursor-not-allowed">
+                            <Trash2 size={14} />
+                        </button>
+                    ) : (
+                        <button title="Delete" onClick={() => onDelete(msg.id)} className="text-text-dim hover:text-red-400 p-1.5 bg-void-lighter rounded">
+                            <Trash2 size={14} />
+                        </button>
+                    )}
                     {/* Phase 4.4 — mod entries that claimed `message.actions`.
                         Renders `null` when no mod has claimed the region or
                         while editing (MOUNTS.md §2.5/§2.8). Mod entries sort

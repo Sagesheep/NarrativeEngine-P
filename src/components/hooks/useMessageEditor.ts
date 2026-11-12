@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { isRewindDeleteLocked } from '../../services/combat/combatLocks';
 import type { ChatMessage } from '../../types';
 import { api } from '../../services/llm/apiClient';
 import type { ArchiveManagerDeps } from '../../services/archive-memory/archiveManager';
@@ -131,6 +132,7 @@ export function useMessageEditor(deps: UseMessageEditorDeps) {
         const msgs = deps.messages;
         const idx = msgs.findIndex(m => m.id === id);
         if (idx === -1) return;
+        if (isRewindDeleteLocked(msgs[idx])) return;
 
         // Swipe Generation v1 — if the pending message is at or after the
         // rewind target, discard the pending snapshot so nothing commits.
@@ -172,6 +174,8 @@ export function useMessageEditor(deps: UseMessageEditorDeps) {
     // recalling deleted text. Falls back to a plain on-screen delete when the message has no
     // sceneId (un-archived turn / pre-WO-F save).
     const handleDeleteOutput = async (id: string) => {
+        const target = deps.messages.find(m => m.id === id);
+        if (target && isRewindDeleteLocked(target)) return;
         // Swipe Generation v1 — if the deleted message IS the pending-commit
         // message, discard the snapshot so nothing commits. No sceneId exists
         // for a pending turn, so skip the archive delete below.

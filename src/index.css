@@ -80,6 +80,33 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 }
 
+:root {
+  --combat-floor: #EDEDEA;
+  --combat-grid-line: rgba(0, 0, 0, 0.10);
+  --combat-wall: #3F4247;
+  --combat-cover: #D3D3CC;
+  --combat-cover-stroke: #5C5C57;
+  --combat-difficult: #E4DCC4;
+  --combat-difficult-hatch: #6F6857;
+  --combat-hazard: rgba(192, 57, 43, 0.28);
+  --combat-hazard-mark: #8E2A1F;
+  --combat-party: #4C1D95;
+  --combat-enemy: #D64535;
+  --combat-neutral: #B7791F;
+  --combat-token-text: #FFFFFF;
+  --combat-hp-good: #15803D;
+  --combat-hp-warn: #B45309;
+  --combat-hp-bad: #B91C1C;
+  --combat-hp-track: rgba(0, 0, 0, 0.15);
+  --combat-reach: rgba(109, 40, 217, 0.18);
+  --combat-path: #6D28D9;
+  --combat-target: rgba(192, 57, 43, 0.22);
+  --combat-los-clear: #15803D;
+  --combat-los-blocked: #B91C1C;
+  --combat-cursor: #1A1A1A;
+  --combat-board-bg: #FAFAF8;
+}
+
 /*
  * Dark Theme Overrides
  * ────────────────────
@@ -137,6 +164,31 @@
   --color-command-fill:   #0A0A0B;  /* near-black; the gold border defines the shape */
   --color-command-label:  #D9B44A;  /* label text — 9.2:1 on the fill                */
   --color-command-accent: #E8C25A;  /* border + icon + ARMED segment fill            */
+
+  --combat-floor: #2A2D35;
+  --combat-grid-line: rgba(255, 255, 255, 0.07);
+  --combat-wall: #7A808D;
+  --combat-cover: #363A44;
+  --combat-cover-stroke: #A9AFBC;
+  --combat-difficult: #32332C;
+  --combat-difficult-hatch: #A39E86;
+  --combat-hazard: rgba(224, 85, 85, 0.30);
+  --combat-hazard-mark: #FFB4A8;
+  --combat-party: #C4B5FD;
+  --combat-enemy: #D94848;
+  --combat-neutral: #E0B04A;
+  --combat-token-text: #0E0F12;
+  --combat-hp-good: #4ADE80;
+  --combat-hp-warn: #FBBF24;
+  --combat-hp-bad: #F87171;
+  --combat-hp-track: rgba(255, 255, 255, 0.15);
+  --combat-reach: rgba(167, 139, 250, 0.22);
+  --combat-path: #A78BFA;
+  --combat-target: rgba(224, 85, 85, 0.25);
+  --combat-los-clear: #4ADE80;
+  --combat-los-blocked: #F87171;
+  --combat-cursor: #EBEBEB;
+  --combat-board-bg: #141519;
 }
 
 @layer base {
@@ -637,6 +689,17 @@ html[data-has-bg="true"] [data-ui="stage"] .story-journal [data-ui="msg"] {
   html [data-ui="stage"] .story-journal [data-ui="msg-row"][data-role="user"] { width: 88%; }
 }
 
+
+html [data-ui="stage"] .story-journal[data-compact="true"] { padding: 12px 14px 20px; }
+html [data-ui="stage"] .story-journal[data-compact="true"] .journal-pages { max-width: none; }
+html [data-ui="stage"] .story-journal[data-compact="true"] [data-ui="msg-row"] { margin-bottom: 16px; padding-right: 36px; }
+html [data-ui="stage"] .story-journal[data-compact="true"] [data-ui="msg-row"][data-role="user"] { width: 92%; padding-right: 0; padding-left: 36px; }
+html [data-ui="stage"] .story-journal[data-compact="true"] [data-ui="msg-meta"] { margin-bottom: 8px; padding-bottom: 5px; }
+html [data-ui="stage"] .story-journal[data-compact="true"] .journal-prose { font-size: calc(var(--reading-size, 17px) * 0.94); }
+html [data-ui="stage"] .story-journal[data-compact="true"] [data-ui="msg-row"][data-role="system"] { margin-bottom: 10px; }
+html [data-ui="stage"] .story-journal[data-compact="true"] [data-ui="msg"][data-role="system"] { padding: 4px 10px; background: transparent; border-left: 2px solid var(--color-border); }
+html [data-ui="stage"] .story-journal[data-compact="true"] [data-role="system"] [data-ui="msg-meta"] { display: none; }
+html [data-ui="stage"] .story-journal[data-compact="true"] [data-role="system"] .journal-prose { font: 11.5px/1.5 var(--font-mono); color: var(--color-text-dim); }
 
 /* Live generation workflow, independent of mod-owned right-rail panels. */
 .generation-workspace { display: flex; flex: 1; min-height: 0; min-width: 0; }

@@ -8,6 +8,9 @@ import { formatAttachmentBlock } from '../services/vision/describeImage';
 import { commitPendingTurn, findRetryableMessage, persistPendingTurn } from '../services/turn/pendingCommit';
 import { debouncedSaveCampaignState } from '../store/slices/campaignSlice';
 import type { InventoryProposal } from '../types';
+import { isCombatToolAllowed } from '../services/combat/combatProposal';
+import { stageProposal } from '../services/combat/combatController';
+import { abortCombatNarration } from '../services/combat/combatNarration';
 import type { useSceneContinue } from '../components/hooks/useSceneContinue';
 
 /**
@@ -123,6 +126,7 @@ export function useChatOperations({
         const textToUse = overrideText || input.trim();
         const imageOnly = !textToUse && !overrideText && !!hasAttachment?.();
         if ((!textToUse && !imageOnly) || isStreaming || oocBusy) return;
+        if (useAppStore.getState().combatSession) return;
 
         // WO-A2 §2.1 Trigger B — first-send intercept. If no PC exists and the
         // user hasn't dismissed the prompt for this campaign, block the send
@@ -286,6 +290,7 @@ ${textToUse}` : attachmentBlock)
             },
             nextTurnOocBrief: useAskGmBrief,
             directorSkipController: directorAbortRef.current,
+            combatToolAllowed: isCombatToolAllowed(context, storeSnapshot.combatSession, storeSnapshot.combatProposal),
         }, {
             onCheckingNotes: setIsCheckingNotes,
             addMessage: storeSnapshot.addMessage,
@@ -324,6 +329,7 @@ ${textToUse}` : attachmentBlock)
             archiveNPC: storeSnapshot.archiveNPC,
             restoreNPC: storeSnapshot.restoreNPC,
             stageInventoryProposal: (proposal) => setPendingProposal(proposal),
+            stageCombatProposal: (proposal) => stageProposal(proposal),
             // Durable-commit v1: flush the finished turn (text + pendingCommit + swipe
             // set) the moment it is staged, so an improper close or an idle timeout
             // before the deferred commit leaves a recoverable turn on disk instead of
@@ -354,6 +360,7 @@ ${textToUse}` : attachmentBlock)
         // Scene Continue v1: abort an in-flight continue too (the global Stop owns
         // every streaming operation — no second stop button is built).
         sceneContinue.getAbortController()?.abort();
+        abortCombatNarration();
         setStreaming(false);
         setIsCheckingNotes(false);
         setLoadingStatus(null);

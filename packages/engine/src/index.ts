@@ -28,6 +28,33 @@ export type { AxisSpread, AxisEnvelope, GroupEnvelope, AxisModifier, GroupModifi
 export { buildVoiceDirective } from './npc/hexVoiceGuide';
 export type { HexAxis, PersonalityHex } from './npc/types';
 
+export {
+    createRng, ABILITY_KEYS, TIER_LEVEL, abilityMod, proficiencyForLevel,
+    PC_POINT_BUY, POINT_BUY_COST, OP_POINT_BUY_COST, INVALID_POINT_COST,
+    DEFAULT_ABILITIES, ARCHETYPE_KEYS, ARCHETYPE_PRESETS,
+    getPointCost, validateAllocation, allocateAbility,
+    createDefaultSheet, deriveSheet, levelForBudget,
+    TIER_TABLE, DEFAULT_JITTER_RANGE, BASE_ENEMY_ABILITIES, DEFAULT_DAMAGE_TYPE, buildTierBlock,
+    PC_COMBATANT_ID, WEAPON_QUALITY_DICE, UNARMED_DIE, FALLBACK_WEAPON_DIE, buildPcCombatant,
+    DEFEND_CONDITION, isHostile, canTarget, currentActorId, checkOutcome, applyAction,
+    chooseEngineTurn, stepEngine, runEngineTurns, createCombat, hpBand, simulateFights, HAZARD_DAMAGE_DIE,
+    freshTurn, currentTurn, checkAttack, reachable, pathTo, deriveMapSeed,
+    TILE_KINDS, DEFAULT_SPEED, REACH_DISTANCE, RANGED_DISTANCE, HAZARD_AVOID_PENALTY, HALF_COVER_BONUS, THREE_QUARTER_COVER_BONUS,
+    inBounds, tileAt, isWalkable, isWalkableTile, distance, samePos, canStep, traceLine, hasLineOfSight, coverBetween,
+    speedOf, rangeOf, sameTeam,
+    MAP_SIZES, SPAWN_COLUMNS, MAX_MAP_FEATURES, MAX_BLOCKED_SHARE, DEFAULT_HAZARD_TYPE,
+    tileForKind, normalizeMapSize, isFullyConnected, openArena, buildTerrain, placeCombatants, buildGrid,
+    buildMapFromSeed, isValidGrid, ensureGrid,
+} from './combat/index';
+export type {
+    AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget,
+    CombatSheet, DerivedSheet, Rng, PointBuyConfig, PointBuyAllocation,
+    Side, Controller, CombatantStatus, DamageSpec, Combatant, CombatOutcome, CombatState,
+    CombatAction, CombatEvent, TierBlock, CombatantSpec, CombatSpec, WeaponQuality, PcWeapon,
+    PcCombatantInput, TierRow, HpBand, SimulationResult, SimulationOptions, AttackCheck, SpawnEntry,
+    AttackRange, Tile, Grid, Pos, MapSize, MapFeatureSpec, MapSpec, TurnState, TemplateOverlay,
+} from './combat/index';
+
 export { resolveLootDrop } from './loot/lootEngine';
 export type {
     LootNodeId, LootPoolEntry, LootPool, LootPickNode, LootDrawSpec,

@@ -11,10 +11,12 @@ export function SwipeIndicator({
     msg,
     onPrev,
     onNext,
+    lockedTitle,
 }: {
     msg: ChatMessage;
     onPrev: () => void;
     onNext: () => void;
+    lockedTitle?: string;
 }) {
     const swipeSet = msg.swipeSet;
     if (!swipeSet) return null;
@@ -28,9 +30,9 @@ export function SwipeIndicator({
         <div className="flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest text-text-dim select-none">
             <button
                 onClick={onPrev}
-                disabled={atFirst}
+                disabled={atFirst || !!lockedTitle}
                 className="p-0.5 rounded text-text-dim hover:text-ice disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                title="Previous variant"
+                title={lockedTitle ?? 'Previous variant'}
             >
                 <ChevronLeft size={12} />
             </button>
@@ -39,9 +41,9 @@ export function SwipeIndicator({
             </span>
             <button
                 onClick={onNext}
-                disabled={atLast}
+                disabled={atLast || !!lockedTitle}
                 className="p-0.5 rounded text-text-dim hover:text-ice disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                title="Next variant"
+                title={lockedTitle ?? 'Next variant'}
             >
                 <ChevronRight size={12} />
             </button>
@@ -59,16 +61,18 @@ export function ContinueButton({
     loading,
     disabled,
     onClick,
+    lockedTitle,
 }: {
     loading: boolean;
     disabled: boolean;
     onClick: () => void;
+    lockedTitle?: string;
 }) {
     return (
         <button
             onClick={onClick}
-            disabled={disabled}
-            title="Continue — extend this reply"
+            disabled={disabled || !!lockedTitle}
+            title={lockedTitle ?? 'Continue — extend this reply'}
             className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase tracking-widest text-text-dim hover:text-ice border border-border/50 hover:border-ice/50 transition-colors disabled:opacity-30 disabled:pointer-events-none"
         >
             {loading ? <Loader2 size={12} className="animate-spin" /> : <FastForward size={12} />}

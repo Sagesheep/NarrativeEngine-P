@@ -11,7 +11,8 @@ import { MessageMarkdown } from './message/MessageMarkdown';
 import { SwipeIndicator, ContinueButton } from './message/SwipeIndicator';
 import { ReasoningViewer } from './message/ReasoningViewer';
 import { InlineMessageEditor } from './message/InlineMessageEditor';
-import { MessageActionRail } from './message/MessageActionRail';
+import { MessageActionRail, type CombatLockProps } from './message/MessageActionRail';
+import { useTranslation } from '../i18n/useTranslation';
 import { MessageBelowSlots } from './message/MessageBelowSlots';
 import { SceneImageAttachmentView } from './message/SceneImageAttachmentView';
 import { splitAttachmentBlock } from '../services/vision/describeImage';
@@ -52,6 +53,7 @@ interface MessageBubbleProps {
     relationshipMemories?: RelationshipMemoryRecord[];
     relationshipMemoryFaults?: RelationshipMemoryFault[];
     relationshipStances?: RelationshipStance[];
+    combatLock?: CombatLockProps;
 }
 
 export function MessageBubble({
@@ -79,7 +81,10 @@ export function MessageBubble({
     relationshipMemories = [],
     relationshipMemoryFaults = [],
     relationshipStances = [],
+    combatLock,
 }: MessageBubbleProps) {
+    const { t } = useTranslation();
+    const swipeLockedTitle = combatLock?.swipeLocked ? t('combat.lock.answerFirst') : undefined;
     let markdownContent: string = typeof msg.displayContent === 'string'
         ? msg.displayContent
         : (typeof msg.content === 'string' ? msg.content : '');
@@ -168,6 +173,7 @@ export function MessageBubble({
             onSpeak={tts.handleSpeak}
             onPauseResume={tts.handlePauseResume}
             onDelete={onDelete}
+            combatLock={combatLock}
         />
     );
 
@@ -306,12 +312,29 @@ export function MessageBubble({
                     </div>
                 )}
 
+                {msg.combatBeat?.failed && !isEditing && (
+                    <div className="mt-2 mb-1 flex items-center gap-2 py-2 px-3 bg-void-darker border border-amber-500/30 rounded">
+                        <AlertCircle size={12} className="text-amber-400 shrink-0" />
+                        <span className="text-[11px] text-amber-400/80 truncate flex-1">{t('combat.beat.failed')}</span>
+                        {combatLock?.onRewrite && (
+                            <button
+                                onClick={combatLock.onRewrite}
+                                className="text-[10px] uppercase tracking-wider text-text-dim hover:text-amber-300 shrink-0 flex items-center gap-1"
+                            >
+                                <RotateCw size={10} />
+                                {t('combat.beat.retry')}
+                            </button>
+                        )}
+                    </div>
+                )}
+
                 {hasSwipeSet(msg) && (
                     <div className="mt-2 flex items-center justify-center gap-3 select-none">
                         <SwipeIndicator
                             msg={msg}
                             onPrev={() => onSwipeNavigate?.(msg.id, 'prev')}
                             onNext={() => onSwipeNavigate?.(msg.id, 'next')}
+                            lockedTitle={swipeLockedTitle}
                         />
                         <ContinueButton
                             loading={!!sceneContinueLoading}
@@ -322,6 +345,7 @@ export function MessageBubble({
                                 msg.swipeSet?.[msg.swipeActiveIndex ?? 0]?.streaming === true
                             }
                             onClick={() => onSceneContinue?.(msg.id)}
+                            lockedTitle={swipeLockedTitle}
                         />
                     </div>
                 )}

@@ -67,6 +67,8 @@ export function InventoryStagingBar({
                 importance: 5,
                 notes: [p.description, p.properties.length ? `(${p.properties.join(', ')})` : ''].filter(Boolean).join(' '),
                 locationTag: normalizeLocationTag(p.locationTag),
+                ...(p.kind === 'weapon' || p.kind === 'armor' ? { quality: p.quality } : {}),
+                ...(p.kind === 'weapon' ? { scalingStat: p.scalingStat, range: p.range } : {}),
             };
             store.addInventoryItem(newItem);
             toast.success(`Added ${p.name}`);

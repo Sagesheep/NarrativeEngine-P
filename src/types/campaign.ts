@@ -69,6 +69,7 @@ export type ChatMessage = {
     attachments?: SceneImageAttachment[];
     /** WO-3 — computed for the Cognitive Process panel only; never assembled into a payload. */
     relationshipStances?: RelationshipStance[];
+    combatBeat?: { sessionId: string; fromSeq: number; toSeq: number; block?: string; failed?: boolean };
 };
 
 export type Campaign = {

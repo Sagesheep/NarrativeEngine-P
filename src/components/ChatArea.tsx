@@ -36,6 +36,11 @@ import { AskGmPanel } from './ooc/AskGmPanel';
 import { BetaArmedRow } from './beta/BetaArmedRow';
 import { BetaCommandPalette } from './beta/BetaCommandPalette';
 import { ArmedAskGmNote } from './ooc/ArmedAskGmNote';
+import { CombatProposalDialog } from './combat/CombatProposalDialog';
+import { CombatScreen } from './combat/CombatScreen';
+import { CombatAllocationHint, CombatOfferChip, CombatProposalChip } from './combat/StartCombatButton';
+import { useCombatLifecycle } from './combat/useCombatLifecycle';
+import { abortCombat, declineProposal, playerAction, skipEngineAnimation, startFromProposal } from '../services/combat/combatController';
 
 /**
  * A selector must not allocate: a fresh `[]` makes the store snapshot compare
@@ -217,6 +222,22 @@ export function ChatArea() {
         },
     });
 
+    const combat = useCombatLifecycle(isStreaming);
+    const combatBusy = useAppStore(s => s.combatBusy);
+    const inCombat = !!combat.session;
+    const feedScrollRef = useRef<HTMLDivElement>(null);
+    const [minimisedProposalId, setMinimisedProposalId] = useState<string | null>(null);
+    const proposalMinimised = !!combat.proposal && minimisedProposalId === combat.proposal.id;
+
+    const wasInCombat = useRef(inCombat);
+    useEffect(() => {
+        const was = wasInCombat.current;
+        wasInCombat.current = inCombat;
+        if (!was || inCombat) return;
+        const sc = scrollContainerRef.current;
+        if (sc) sc.scrollTop = sc.scrollHeight;
+    }, [inCombat]);
+
     const { isSaving, handleForceSave, handleOpenArchive } = useChatPersistence();
     /**
      * Send, honouring anything the gallery is still offering.
@@ -272,6 +293,28 @@ export function ChatArea() {
         // their own departure line and the journey still commits on send.
     };
 
+    const messageListProps = {
+        bottomRef,
+        messages,
+        isStreaming,
+        settings,
+        relationshipMemoriesNpcToMc,
+        relationshipMemoriesNpcToNpc,
+        relationshipMemoryFaults,
+        editor,
+        pendingMessageId,
+        swipe,
+        sceneContinue,
+        onCreateCharacter: () => useAppStore.getState().togglePCPanel(),
+        loadingStatus,
+        pipelinePhase,
+        streamingStats,
+        directorBriefRunning,
+        onSkipDirectorBrief: handleSkipDirectorBrief,
+        onOpenSwipeSheet: setSwipeSheetMessageId,
+        onRetry: retry.retryStoryAI,
+    };
+
     return (
         <div data-ui="stage" className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
             {context.sceneNoteActive && (
@@ -293,38 +336,43 @@ export function ChatArea() {
             <SelectionActionsMenu />
 
             <div className="generation-workspace">
+            {combat.session ? (
+                <CombatScreen
+                    key={combat.session.state.id}
+                    session={combat.session}
+                    busy={combatBusy}
+                    onAction={(action) => { void playerAction(action); }}
+                    onEnd={() => { void abortCombat(); }}
+                    onSkip={skipEngineAnimation}
+                    feedScrollRef={feedScrollRef}
+                    feed={
+                        <ChatMessageList
+                            {...messageListProps}
+                            scrollContainerRef={feedScrollRef}
+                            compact
+                            fromMessageId={combat.session.startedAtMessageId}
+                        />
+                    }
+                />
+            ) : (
             <div className="story-workspace">
             <ChatMessageList
+                {...messageListProps}
                 scrollContainerRef={scrollContainerRef}
-                bottomRef={bottomRef}
-                messages={messages}
-                isStreaming={isStreaming}
-                settings={settings}
-                relationshipMemoriesNpcToMc={relationshipMemoriesNpcToMc}
-                relationshipMemoriesNpcToNpc={relationshipMemoriesNpcToNpc}
-                relationshipMemoryFaults={relationshipMemoryFaults}
-                editor={editor}
-                pendingMessageId={pendingMessageId}
-                swipe={swipe}
-                sceneContinue={sceneContinue}
-                onCreateCharacter={() => useAppStore.getState().togglePCPanel()}
-                loadingStatus={loadingStatus}
-                pipelinePhase={pipelinePhase}
-                streamingStats={streamingStats}
-                directorBriefRunning={directorBriefRunning}
-                onSkipDirectorBrief={handleSkipDirectorBrief}
-                onOpenSwipeSheet={setSwipeSheetMessageId}
-                onRetry={retry.retryStoryAI}
+                {...(combat.showOffer && combat.offerKey ? { offer: { messageId: combat.offerKey, node: <CombatOfferChip onDismiss={combat.dismissOffer} /> } } : {})}
             />
             <div className="chat-side-rail">
                 <ReadingControls />
                 <ChatNavFabs scrollContainerRef={scrollContainerRef} />
             </div>
             </div>
+            )}
 
             <GenerationTimeline />
             </div>
 
+            {!combat.session && (
+            <>
             <ChatActionStrip
                 isStreaming={isStreaming}
                 isSaving={isSaving}
@@ -352,6 +400,8 @@ export function ChatArea() {
                     />
                 )}
                 {betaUi && <BetaArmedRow />}
+                {proposalMinimised && <CombatProposalChip onOpen={() => setMinimisedProposalId(null)} />}
+                <CombatAllocationHint variant="notice" />
                 <ChatComposer
                     input={input}
                     inputRef={inputRef}
@@ -370,6 +420,20 @@ export function ChatArea() {
                     gallery={galleryMention}
                 />
             </div>
+            </>
+            )}
+
+            {combat.proposal && (
+                <CombatProposalDialog
+                    key={combat.proposal.id}
+                    proposal={combat.proposal}
+                    open={!proposalMinimised}
+                    onStart={(proposal) => { void startFromProposal(proposal); }}
+                    onDecline={declineProposal}
+                    onMinimise={() => setMinimisedProposalId(combat.proposal?.id ?? null)}
+                    onClosed={() => inputRef.current?.focus()}
+                />
+            )}
 
             {oocOpen && (
                 <AskGmPanel

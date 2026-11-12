@@ -10,6 +10,9 @@ import type { ChatMessage, ProviderConfig, EndpointConfig, CharacterProfile } fr
 import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
 import type { ModelRequest, ModelResponse } from './turn/hostFacade';
+import { guardHpPatch, guardStatPatch } from './combat/combatSheet';
+
+export type ProfileScanOptions = { combatStatLock?: boolean };
 
 export type ProfileOp = Partial<CharacterProfile> & { op?: 'set' | 'add_to_list' | 'remove_from_list' | 'update_list_item' };
 
@@ -17,7 +20,8 @@ export async function scanCharacterProfile(
     provider: ProviderConfig | EndpointConfig | undefined,
     messages: ChatMessage[],
     currentProfile: CharacterProfile,
-    modelCall?: (request: ModelRequest) => Promise<ModelResponse>
+    modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
+    options: ProfileScanOptions = {},
 ): Promise<CharacterProfile> {
     const recentMessages = messages.slice(-15);
     if (recentMessages.length === 0) return currentProfile;
@@ -42,14 +46,14 @@ export async function scanCharacterProfile(
         const objMatch = text.match(/\{[\s\S]*\}/);
         const patch = objMatch ? JSON.parse(objMatch[0]) : {};
         if (!patch || typeof patch !== 'object') return currentProfile;
-        return applyPatch(currentProfile, patch);
+        return applyProfilePatch(currentProfile, patch, options.combatStatLock === true);
     } catch (e) {
         console.error('[CharacterProfileParser]', e);
         return currentProfile;
     }
 }
 
-function applyPatch(profile: CharacterProfile, patch: Record<string, unknown>): CharacterProfile {
+export function applyProfilePatch(profile: CharacterProfile, patch: Record<string, unknown>, combatStatLock = false): CharacterProfile {
     const next: CharacterProfile = JSON.parse(JSON.stringify(profile));
     if ('name' in patch && typeof patch.name === 'string') next.name = patch.name;
     if ('race' in patch && typeof patch.race === 'string') next.race = patch.race;
@@ -57,14 +61,14 @@ function applyPatch(profile: CharacterProfile, patch: Record<string, unknown>): 
     if ('level' in patch && typeof patch.level === 'number') next.level = patch.level;
     if ('hp' in patch && patch.hp && typeof patch.hp === 'object') {
         const p = patch.hp as Partial<{ current: number; max: number }>;
-        next.hp = { current: p.current ?? next.hp.current, max: p.max ?? next.hp.max };
+        next.hp = guardHpPatch(next.hp, p, combatStatLock);
     }
     if ('mp' in patch && patch.mp && typeof patch.mp === 'object') {
         const p = patch.mp as Partial<{ current: number; max: number }>;
         next.mp = { current: p.current ?? (next.mp?.current || 0), max: p.max ?? (next.mp?.max || 0) };
     }
     if ('stats' in patch && patch.stats && typeof patch.stats === 'object') {
-        next.stats = { ...next.stats, ...(patch.stats as Record<string, number>) };
+        next.stats = { ...next.stats, ...guardStatPatch(patch.stats as Record<string, number>, combatStatLock) };
     }
     if ('skills' in patch && Array.isArray(patch.skills)) next.skills = patch.skills as string[];
     if ('abilities' in patch && Array.isArray(patch.abilities)) next.abilities = patch.abilities as string[];

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
 import { scanCharacterProfile } from '../../../services/characterProfileParser';
 import { toast } from '../../Toast';
+import { CombatAllocationPanel } from './CombatAllocationPanel';
 import type { EndpointConfig, ProviderConfig, CharacterProfile } from '../../../types';
 
 // Local copy of the ledger's tab union -- deliberately not imported from
@@ -58,7 +59,7 @@ export function StatsTab({ onNavigateTab }: { onNavigateTab?: (tab: LedgerTab) =
         try {
             const provider = getActiveStoryEndpoint();
             if (!provider) return;
-            const newProfile = await scanCharacterProfile(provider as ProviderConfig | EndpointConfig, messages, characterProfileData as unknown as CharacterProfile);
+            const newProfile = await scanCharacterProfile(provider as ProviderConfig | EndpointConfig, messages, characterProfileData as unknown as CharacterProfile, undefined, { combatStatLock: context.combatModeActive === true });
             setCharacterProfileData(newProfile as unknown as CharacterProfile);
             updateContext({ characterProfileLastScene: getCurrentSceneId() });
         } catch (e) {
@@ -73,6 +74,8 @@ export function StatsTab({ onNavigateTab }: { onNavigateTab?: (tab: LedgerTab) =
 
     return (
         <div className="px-4 py-4 space-y-4">
+            <CombatAllocationPanel />
+
             <div className="flex items-center gap-2">
                 <button
                     onClick={() => setRawEdit(!rawEdit)}

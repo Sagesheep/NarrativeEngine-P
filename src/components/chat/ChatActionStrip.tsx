@@ -91,6 +91,7 @@ export function ChatActionStrip({
     const armedLoot = useAppStore(s => s.armedLoot);
     const openLootRollModal = useAppStore(s => s.openLootRollModal);
     const { t } = useTranslation();
+    const combatActive = useAppStore(s => !!s.combatSession);
 
     const ordered = useComposerActions();
 
@@ -101,6 +102,7 @@ export function ChatActionStrip({
                     return renderComposerBuiltin(entry.entryId, {
                         t: t as unknown as (key: string, vars?: Record<string, string | number>) => string,
                         isStreaming,
+                        combatActive,
                         isSaving,
                         messagesCount,
                         onForceSave,
@@ -166,6 +168,7 @@ const NO_LAST_GOOD: { current: ChromeState | undefined } = { current: undefined 
 function renderComposerBuiltin(id: string, deps: {
     t: (key: string, vars?: Record<string, string | number>) => string;
     isStreaming: boolean;
+    combatActive: boolean;
     isSaving: boolean;
     messagesCount: number;
     onForceSave: () => void;
@@ -202,7 +205,7 @@ function renderComposerBuiltin(id: string, deps: {
                 <button
                     key="trim"
                     onClick={deps.onTrim}
-                    disabled={deps.isStreaming || deps.messagesCount < 6}
+                    disabled={deps.isStreaming || deps.combatActive || deps.messagesCount < 6}
                     className="flex-shrink-0 flex items-center gap-1.5 bg-void border border-terminal/30 hover:border-terminal text-terminal text-[10px] sm:text-[11px] uppercase tracking-wider px-3 h-[32px] rounded-sm transition-all hover:bg-terminal/5 disabled:opacity-30 disabled:cursor-not-allowed whitespace-nowrap"
                     title="Trim history"
                 >

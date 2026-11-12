@@ -6,6 +6,54 @@ import { renderLodChapters } from './lodRenderer';
 
 const THINK_TAG_REGEX = /<think[\s\S]*?<\/think>\s*/gi;
 
+export const ENGINE_LOG_NAMES: ReadonlySet<string> = new Set(['combat-log', 'combat-result']);
+export const ENGINE_LOG_PREFIX = '[Engine log]\n';
+
+type HistoryKind = 'engine' | 'beat' | 'other';
+
+export function isEngineLogMessage(msg: Pick<ChatMessage, 'role' | 'name'>): boolean {
+    return msg.role === 'system' && !!msg.name && ENGINE_LOG_NAMES.has(msg.name);
+}
+
+function isRenderedEngineLog(msg: OpenAIMessage): msg is OpenAIMessage & { content: string } {
+    return msg.role === 'user' && !msg.name && !msg.tool_calls
+        && typeof msg.content === 'string' && msg.content.startsWith(ENGINE_LOG_PREFIX);
+}
+
+export function detachTrailingEngineLog(fitted: OpenAIMessage[]): { history: OpenAIMessage[]; engineText: string | null } {
+    let end = fitted.length;
+    while (end > 0 && isRenderedEngineLog(fitted[end - 1])) end--;
+    if (end === fitted.length) return { history: fitted, engineText: null };
+    const engineText = fitted.slice(end).map(m => m.content as string).join('\n\n');
+    return { history: fitted.slice(0, end), engineText };
+}
+
+function mergeEngineTurns(messages: OpenAIMessage[], kinds: HistoryKind[]): OpenAIMessage[] {
+    const out: OpenAIMessage[] = [];
+    const outKinds: HistoryKind[] = [];
+    for (let i = 0; i < messages.length; i++) {
+        const cur = messages[i];
+        const kind = kinds[i];
+        const last = out.length - 1;
+        const prev = out[last];
+        const prevKind = outKinds[last];
+        const mergeable = !!prev
+            && prev.role === cur.role
+            && (cur.role === 'user' || cur.role === 'assistant')
+            && (kind !== 'other' || prevKind !== 'other')
+            && !prev.tool_calls && !cur.tool_calls
+            && typeof prev.content === 'string' && typeof cur.content === 'string';
+        if (mergeable) {
+            out[last] = { ...prev, content: `${prev.content}\n\n${cur.content}` };
+            outKinds[last] = prevKind === kind ? kind : 'other';
+            continue;
+        }
+        out.push(cur);
+        outKinds.push(kind);
+    }
+    return out;
+}
+
 export function buildHistory(opts: {
     history: ChatMessage[];
     condensedUpToIndex?: number;
@@ -123,10 +171,13 @@ export function buildHistory(opts: {
 
     const fitted: OpenAIMessage[] = [];
     const fittedEphemeral: boolean[] = [];
+    const fittedKinds: HistoryKind[] = [];
     let historyUsed = 0;
     for (let i = candidateMessages.length - 1; i >= 0; i--) {
         const msg = candidateMessages[i];
         let content = msg.content ?? null;
+        const engineLog = isEngineLogMessage(msg);
+        if (engineLog && typeof content === 'string') content = `${ENGINE_LOG_PREFIX}${content}`;
         if (msg.role === 'user' && typeof content === 'string') {
             content = content.replace(/\n?\[(?:DICE OUTCOMES:|SURPRISE EVENT:|ENCOUNTER EVENT:|WORLD_EVENT:|LOOT DROP:)[^\]]*\]/g, '');
         }
@@ -138,15 +189,16 @@ export function buildHistory(opts: {
         if (historyUsed + cost > verbatimBudget) break;
 
         const openAIMsg: OpenAIMessage = {
-            role: msg.role as 'system' | 'user' | 'assistant' | 'tool',
+            role: engineLog ? 'user' : msg.role as 'system' | 'user' | 'assistant' | 'tool',
             content
         };
-        if (msg.name) openAIMsg.name = msg.name;
+        if (msg.name && !engineLog) openAIMsg.name = msg.name;
         if (msg.tool_calls) openAIMsg.tool_calls = msg.tool_calls;
         if (msg.tool_call_id) openAIMsg.tool_call_id = msg.tool_call_id;
 
         fitted.unshift(openAIMsg);
         fittedEphemeral.unshift(!!msg.ephemeral);
+        fittedKinds.unshift(engineLog ? 'engine' : msg.combatBeat ? 'beat' : 'other');
         historyUsed += cost;
     }
 
@@ -171,7 +223,12 @@ export function buildHistory(opts: {
     }
 
     // Protect orphaned tools
-    while (fitted.length > 0 && fitted[0].role === 'tool') fitted.shift();
+    while (fitted.length > 0 && fitted[0].role === 'tool') { fitted.shift(); fittedKinds.shift(); }
+    if (fittedKinds.some(k => k !== 'other')) {
+        const merged = mergeEngineTurns(fitted, fittedKinds);
+        fitted.length = 0;
+        fitted.push(...merged);
+    }
 
     // WO-09: capture the verbatim-window shape BEFORE prepending LOD so the
     // Fitted History trace/section below stay semantically unchanged (they

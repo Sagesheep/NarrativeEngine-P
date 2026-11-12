@@ -9,6 +9,7 @@ export * from './archive';
 export * from './divergence';
 export * from './map';
 export * from './gamecontext';
+export * from './combat';
 export * from './arc';
 export * from './loot';
 export * from './location';

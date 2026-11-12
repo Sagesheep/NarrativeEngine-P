@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { buildPcCombatant, createCombat } from '@narrative/engine';
 import { ChatArea } from '../ChatArea';
-import type { ChatMessage, AppSettings, GameContext, CondenserState } from '../../types';
+import type { ChatMessage, AppSettings, GameContext, CondenserState, CombatProposal, CombatSession, CombatSheet } from '../../types';
 
 const { mockAnswerOocQuestion, mockSummarizeAskGmConversation } = vi.hoisted(() => ({ mockAnswerOocQuestion: vi.fn(), mockSummarizeAskGmConversation: vi.fn() }));
 
@@ -181,7 +182,7 @@ vi.mock('../../services/archive-memory/archiveChapterEngine', () => ({
 
 import { useAppStore } from '../../store/useAppStore';
 import { runTurn } from '../../services/turn/turnOrchestrator';
-import { commitPendingTurn } from '../../services/turn/pendingCommit';
+import { commitPendingTurn, hasSwipeSet } from '../../services/turn/pendingCommit';
 import { answerOocQuestion } from '../../services/ooc/oocService';
 
 function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
@@ -381,6 +382,65 @@ describe('ChatArea', () => {
         render(<ChatArea />);
         const saveBtn = screen.getByText(/SAVE CAMPAIGN/i).closest('button')!;
         await user.click(saveBtn);
+    });
+
+    it('replaces the chat body with the combat screen while a fight is active and returns to the latest message after it', () => {
+        const state = useAppStore.getState() as unknown as { messages: ChatMessage[]; combatSession: CombatSession | null };
+        state.messages = [makeMessage({ id: 'before', role: 'assistant', content: 'The road was quiet.' }), makeMessage({ id: 'gm', role: 'assistant', content: 'Bandits!' })];
+        const sheet: CombatSheet = { abilities: { STR: 15, DEX: 14, CON: 14, INT: 8, WIS: 10, CHA: 10 }, budget: 'NORMAL', level: 3, needsAllocation: false };
+        const created = createCombat({ id: 'f', combatants: [{ name: 'Bandit', side: 'enemy', tier: 'grunt' }] }, buildPcCombatant({ name: 'Kira', sheet }), 2);
+        const pcIndex = created.state.order.indexOf('pc');
+        state.combatSession = {
+            state: { ...created.state, turnIndex: pcIndex, turn: { actorId: 'pc', moveLeft: 6, actionUsed: false } },
+            log: created.events, narratedThroughSeq: 0, startedAtMessageId: 'gm', reason: '',
+        };
+        try {
+            const view = render(<ChatArea />);
+            expect(screen.getByTestId('combat-screen')).toBeInTheDocument();
+            expect(screen.queryByPlaceholderText('What do you do?')).toBeNull();
+            expect(screen.queryByText(/SAVE CAMPAIGN/i)).toBeNull();
+            const feed = screen.getByTestId('combat-feed');
+            expect(within(feed).getByText('Bandits!')).toBeInTheDocument();
+            expect(within(feed).queryByText('The road was quiet.')).toBeNull();
+            const height = vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(900);
+            const setTop = vi.spyOn(Element.prototype, 'scrollTop', 'set');
+            state.combatSession = null;
+            view.rerender(<ChatArea />);
+            expect(screen.queryByTestId('combat-screen')).toBeNull();
+            expect(screen.getByPlaceholderText('What do you do?')).toBeInTheDocument();
+            const panel = document.querySelector('.chat-panel');
+            expect(setTop.mock.calls.some((call, i) => call[0] === 900 && setTop.mock.contexts[i] === panel)).toBe(true);
+            height.mockRestore();
+            setTop.mockRestore();
+        } finally {
+            state.combatSession = null;
+        }
+    });
+
+    it('minimises the combat proposal on Escape to a chip above the composer, keeping the proposal and the swipe lock', async () => {
+        const state = useAppStore.getState() as unknown as { messages: ChatMessage[]; combatProposal: CombatProposal | null };
+        const pending = makeMessage({
+            id: 'gm', role: 'assistant', content: 'Steel is drawn.', pendingCommit: true, swipeActiveIndex: 0,
+            swipeSet: [{ id: 'v1', text: 'Steel is drawn.', sceneStakes: 'dangerous', tagPresent: true }, { id: 'v2', text: 'Alt', sceneStakes: 'dangerous', tagPresent: true }],
+        });
+        state.messages = [pending];
+        state.combatProposal = { id: 'p', messageId: 'gm', reason: 'Bandits!', source: 'tool', combatants: [{ name: 'Bandit', side: 'enemy', tier: 'grunt' }] };
+        vi.mocked(hasSwipeSet).mockImplementation((msg?: ChatMessage) => !!msg?.swipeSet?.length && !!msg.pendingCommit);
+        try {
+            render(<ChatArea />);
+            const dialog = screen.getByRole('dialog');
+            expect(within(dialog).getByRole('heading', { name: 'Bandits!' })).toBeInTheDocument();
+            await userEvent.setup().keyboard('{Escape}');
+            expect(screen.queryByRole('dialog')).toBeNull();
+            expect(state.combatProposal).not.toBeNull();
+            expect(document.activeElement).toBe(screen.getByPlaceholderText('What do you do?'));
+            expect(screen.getAllByTitle('Answer the combat prompt first.').length).toBeGreaterThan(0);
+            await userEvent.setup().click(screen.getByTestId('combat-proposal-chip'));
+            expect(screen.getByRole('dialog')).toBeInTheDocument();
+        } finally {
+            state.combatProposal = null;
+            vi.mocked(hasSwipeSet).mockImplementation(() => false);
+        }
     });
 
     it('shows load more button when messages exceed visibleCount', () => {
