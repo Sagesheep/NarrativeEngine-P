@@ -1,4 +1,7 @@
-import type { Archetype, AugmentId, CombatEvent, CombatState, CombatTier, EffectId, FormId, GlyphAbility, MapSpec } from '@narrative/engine';
+import type {
+    Archetype, AugmentId, CombatEvent, CombatState, CombatTier, EffectId, FormId, GlyphAbility, MapSpec, ParleyEffect, ParleyIntent,
+    ParleyRating,
+} from '@narrative/engine';
 
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget, CombatSheet, DerivedSheet,
@@ -7,6 +10,7 @@ export type {
     AreaType as CombatAreaType, MapDensity as CombatMapDensity, HazardKind as CombatHazardKind,
     TerrainLabels as CombatTerrainLabels, ResolvedMapSpec as CombatResolvedMap,
     GlyphAbility, FormId, EffectId, AugmentId, CombatCondition,
+    ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord,
 } from '@narrative/engine';
 
 export type CombatPartyControl = 'solo' | 'engine' | 'player';
@@ -41,6 +45,7 @@ export type ProposedCombatant = {
     npcId?: string;
     look?: string;
     attack?: ProposedAttackStyle;
+    included?: boolean;
 };
 
 export type ProposedAttackStyle = 'melee' | 'ranged';
@@ -72,6 +77,31 @@ export type CombatSession = {
     reason: string;
     map?: CombatMapSpec;
     postedThroughSeq?: number;
+    excluded?: string[];
+    parley?: PendingParley;
+    parleyLines?: ParleyLine[];
+};
+
+export type ParleyRatingSource = 'tool' | 'json' | 'default' | 'engine';
+
+export type PendingParley = {
+    attemptId: string;
+    words: string;
+    lineMessageId: string;
+    stage: 'rating' | 'rolled';
+    intent?: ParleyIntent;
+    rating?: ParleyRating;
+    speakerId?: string;
+    source?: ParleyRatingSource;
+    eventSeq?: number;
+};
+
+export type ParleyLine = {
+    attemptId: string;
+    words: string;
+    intent?: ParleyIntent;
+    rating?: ParleyRating;
+    success?: boolean;
 };
 
 export type CombatTurnNote = {
@@ -83,6 +113,18 @@ export type CombatTurnNote = {
 export type CombatTelemetry = {
     dangerousCommits: number;
     dangerousWithoutProposal: number;
+    parleyRatings?: Partial<Record<ParleyRating, number>>;
+    parleyIntents?: Partial<Record<ParleyIntent, number>>;
+    parleyOutcomes?: Partial<Record<ParleyEffect | 'success', number>>;
+    parleySources?: Partial<Record<ParleyRatingSource, number>>;
+};
+
+export type CombatFallen = {
+    name: string;
+    pcId?: string;
+    mode: 'hardcore' | 'ironman';
+    at: number;
+    stage: 'fallen' | 'creating';
 };
 
 export const COMBAT_TIERS: readonly CombatTier[] = ['minion', 'grunt', 'elite', 'boss', 'legendary'];

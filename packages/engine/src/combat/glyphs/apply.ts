@@ -336,7 +336,7 @@ function summon(ctx: Ctx, augments: GlyphAbility['effects'][number]['augments'])
         id,
         name,
         side: isPlayerSide(ctx.user.side) ? 'ally' : ctx.user.side,
-        controller: 'engine',
+        controller: isPlayerSide(ctx.user.side) && s.partyControl === 'player' ? 'player' : 'engine',
         tier,
         abilities: block.abilities,
         maxHp: block.maxHp,

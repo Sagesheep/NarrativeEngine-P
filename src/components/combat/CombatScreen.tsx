@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { Map as MapIcon, BookOpen } from 'lucide-react';
-import { canAttackWith, currentTurn, findKitAbility } from '@narrative/engine';
+import { canAttackWith, currentTurn, edgeTiles, findKitAbility } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { ChatMessage, CombatAction, CombatSession } from '../../types';
@@ -9,6 +9,7 @@ import { playerActorId } from '../../services/combat/combatController';
 import { CombatBoard } from './CombatBoard';
 import { CombatInitiativeStrip } from './CombatInitiativeStrip';
 import { CombatActionBar } from './CombatActionBar';
+import { CombatParleyBox } from './CombatParleyBox';
 import { attackableTargets } from './combatVisuals';
 import { useContainerWidth } from './useContainerWidth';
 import { needsAim, useAbilityAim } from './useAbilityAim';
@@ -26,7 +27,7 @@ function countBeats(messages: readonly ChatMessage[], sessionId: string): number
 
 export function CombatScreen({
     session,
-    busy,
+    busy: engineBusy,
     onAction,
     onEnd,
     onSkip,
@@ -42,6 +43,7 @@ export function CombatScreen({
     feedScrollRef: RefObject<HTMLDivElement | null>;
 }) {
     const { t } = useTranslation();
+    const busy = engineBusy || !!session.parley;
     const rootRef = useRef<HTMLDivElement | null>(null);
     const surfaceRef = useRef<HTMLDivElement | null>(null);
     const width = useContainerWidth(rootRef);
@@ -81,6 +83,15 @@ export function CombatScreen({
     };
 
     const actorId = playerActorId(session.state);
+    const [seenActor, setSeenActor] = useState(actorId);
+    const [showEdges, setShowEdges] = useState(false);
+    if (seenActor !== actorId) {
+        setSeenActor(actorId);
+        setAimingId(null);
+        setPicking(false);
+        setShowEdges(false);
+    }
+    const edges = useMemo(() => (showEdges ? edgeTiles(session.state) : null), [showEdges, session.state]);
     const aim = useAbilityAim(session.state, actorId, aimingId, act, () => setAimingId(null));
     const liveAim = aim && !busy ? aim : null;
 
@@ -176,14 +187,16 @@ export function CombatScreen({
                             onPickEnd={() => setPicking(false)}
                             surfaceRef={surfaceRef}
                             aim={liveAim}
+                            edges={edges}
                         />
                     )}
                 </div>
                 <div data-testid="combat-feed" hidden={feedHidden} className={`combat-feed min-h-0 min-w-0 flex flex-col ${narrow ? '' : 'border-l border-border'}`}>
                     {feed}
+                    <CombatParleyBox session={session} busy={busy} />
                 </div>
             </div>
-            <CombatActionBar session={session} busy={busy} targetId={targetId} onAction={act} onPick={pick} onSkip={onSkip} aimingId={liveAim ? aimingId : null} onAim={startAim} />
+            <CombatActionBar session={session} busy={busy} targetId={targetId} onAction={act} onPick={pick} onSkip={onSkip} aimingId={liveAim ? aimingId : null} onAim={startAim} onShowEdges={() => setShowEdges(v => !v)} />
         </div>
     );
 }

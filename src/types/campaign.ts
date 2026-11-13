@@ -70,6 +70,7 @@ export type ChatMessage = {
     /** WO-3 — computed for the Cognitive Process panel only; never assembled into a payload. */
     relationshipStances?: RelationshipStance[];
     combatBeat?: { sessionId: string; fromSeq: number; toSeq: number; block?: string; failed?: boolean };
+    combatParley?: { sessionId: string; attemptId: string; part: 'line' | 'reply' };
 };
 
 export type Campaign = {

@@ -10,10 +10,11 @@ export const COMBAT_NOTES_ORDER = 650;
 export const COMBAT_DECLINED_TEXT = 'The player declined engine-run combat. Resolve this confrontation in narration.';
 export const COMBAT_AFTERMATH_DIRECTIVE = 'Continue the story from this outcome. Do not replay or re-narrate the fight.';
 
-export function renderCombatNotes(context: Pick<GameContext, 'combatAftermath' | 'combatDeclined'>): string {
+export function renderCombatNotes(context: Pick<GameContext, 'combatAftermath' | 'combatDeclined' | 'combatSuccession'>): string {
     const parts: string[] = [];
     if (context.combatDeclined?.text) parts.push(`[COMBAT NOTE]\n${context.combatDeclined.text}`);
     if (context.combatAftermath?.text) parts.push(`[COMBAT AFTERMATH]\n${context.combatAftermath.text}\n${COMBAT_AFTERMATH_DIRECTIVE}`);
+    if (context.combatSuccession?.text) parts.push(`[NEW PLAYER CHARACTER]\n${context.combatSuccession.text}`);
     return parts.join('\n\n');
 }
 

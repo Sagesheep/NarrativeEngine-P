@@ -4,11 +4,11 @@ import { Swords, X, Plus, Shuffle, Minus } from 'lucide-react';
 import { AREA_TYPES, MAP_DENSITIES, buildMapFromSeed, normalizeMapSize, placeCombatants, resolveMapSpec } from '@narrative/engine';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useAppStore } from '../../store/useAppStore';
-import { COMBAT_TIERS, PROPOSED_COMBATANT_SIDES, MAX_PROPOSED_COMBATANTS } from '../../types';
+import { COMBAT_TIERS, PROPOSED_COMBATANT_SIDES, MAX_PROPOSED_COMBATANTS, normalizeCombatConfig } from '../../types';
 import type { CombatAreaType, CombatMapDensity, CombatProposal, CombatResolvedMap, ProposedCombatant } from '../../types';
 import { combatMapTexts, resolveCombatMap } from '../../services/combat/combatMap';
 import { dedupeCombatantNames, hasEnemy } from '../../services/combat/combatProposal';
-import { newMapSeed } from '../../services/combat/combatController';
+import { isIncluded, newMapSeed } from '../../services/combat/combatController';
 import { compendiumFor } from '../../services/combat/compendiumLookup';
 import type { CompendiumSource } from '../../services/combat/compendiumLookup';
 import { Backdrop } from '../primitives/Backdrop';
@@ -87,6 +87,7 @@ export function CombatProposalDialog({
     const headingId = useId();
     const modTables = useAppStore(s => s.modTables);
     const moduleEnabled = useAppStore(s => s.settings?.moduleEnabled);
+    const partyControl = useAppStore(s => normalizeCombatConfig(s.context?.combatConfig).partyControl);
     const [roster, setRoster] = useState<ProposedCombatant[]>(proposal.combatants);
     const [draftName, setDraftName] = useState('');
     const [mapSeed, setMapSeed] = useState<number>(() => proposal.mapSeed ?? newMapSeed());
@@ -102,6 +103,7 @@ export function CombatProposalDialog({
         [proposal.map, area, density, size, initial],
     );
     const canStart = !loading && hasEnemy(roster);
+    const fighting = useMemo(() => roster.filter(c => isIncluded(c, partyControl)), [roster, partyControl]);
     const panelRef = useRef<HTMLDivElement | null>(null);
     const startRef = useRef<HTMLButtonElement | null>(null);
     const openedAt = useRef(0);
@@ -236,7 +238,7 @@ export function CombatProposalDialog({
                                 <Shuffle size={11} /> {t('combat.proposal.newLayout')}
                             </button>
                         </div>
-                        <MapPreview map={map} mapSeed={mapSeed} roster={roster} />
+                        <MapPreview map={map} mapSeed={mapSeed} roster={fighting} />
                     </div>
                     <div className="space-y-2 min-w-0">
                         {loading && <p className="text-[11px] text-text-dim">{t('combat.proposal.loading')}</p>}
@@ -273,6 +275,19 @@ export function CombatProposalDialog({
                                         </button>
                                     </div>
                                     <div data-testid={`combat-source-${i}`} className="text-[10px] text-text-dim">{sourceLabel(sources[i])}</div>
+                                    {partyControl === 'solo' && c.side === 'ally' && (
+                                        <div data-testid={`combat-solo-${i}`} className="flex items-center gap-2 text-[10px] text-text-dim">
+                                            {!isIncluded(c, partyControl) && <span>{t('combat.proposal.stayingOut', { name: c.name })}</span>}
+                                            <button
+                                                type="button"
+                                                aria-pressed={isIncluded(c, partyControl)}
+                                                onClick={() => update(i, { included: !isIncluded(c, partyControl) })}
+                                                className="border border-border px-1.5 py-0.5 rounded-sm hover:text-text-primary"
+                                            >
+                                                {t(isIncluded(c, partyControl) ? 'combat.proposal.exclude' : 'combat.proposal.include')}
+                                            </button>
+                                        </div>
+                                    )}
                                 </li>
                             ))}
                         </ul>

@@ -13,10 +13,11 @@ export const BEAT_DIRECTIVE =
     'Narrate only the events listed, in order. Every listed hit, miss, and fall must appear and nothing may be added: no extra attacks, no new wounds, no deaths, no one fleeing or yielding, no new arrivals. Do not state numbers. Do not act or speak for the player character beyond the listed actions. Two to five sentences.';
 
 export const BEAT_TRACKING_LABEL = 'combat-beat';
+export const PARLEY_REPLY_TRACKING_LABEL = 'combat-parley-reply';
 
 export type BeatRange = { fromSeq: number; toSeq: number };
 
-type BeatJob = BeatRange & { sessionId: string; campaignId: string; block: string };
+type BeatJob = BeatRange & { sessionId: string; campaignId: string; block: string; attemptId?: string };
 
 const queue: BeatJob[] = [];
 const queuedThrough = new Map<string, number>();
@@ -65,18 +66,34 @@ export function computeBeatRanges(
     return ranges;
 }
 
-export function buildCombatBlock(state: CombatState, log: readonly CombatEvent[], range: BeatRange): string {
+function rangeEvents(log: readonly CombatEvent[], range: BeatRange): CombatEvent[] {
+    return log.filter(e => e.seq >= range.fromSeq && e.seq <= range.toSeq && e.type !== 'rejected');
+}
+
+export function beatLines(state: CombatState, log: readonly CombatEvent[], range: BeatRange): string[] {
     const atEnd = stateAtSeq(state, log, range.toSeq);
-    const roster = atEnd.order.map(id => atEnd.combatants[id]).filter(c => isPresent(c)).map(c => {
-        const role = c.side === 'player' ? 'player character' : c.side;
-        const look = c.look ? ` — ${c.look.slice(0, 80)}` : '';
-        const where = positionPhrase(atEnd, c);
-        return `- ${c.name} (${role})${look}: ${hpBandLabel(c)}${where ? `, ${where}` : ''}`;
-    });
-    const inRange = log.filter(e => e.seq >= range.fromSeq && e.seq <= range.toSeq && e.type !== 'rejected');
-    const lines = groupEventsByTurn(inRange)
-        .flatMap(group => turnLines(group, atEnd, { numbers: false }))
-        .map((line, i) => `${i + 1}. ${line}`);
+    return groupEventsByTurn(rangeEvents(log, range)).flatMap(group => turnLines(group, atEnd, { numbers: false }));
+}
+
+export function rosterLines(state: CombatState, log: readonly CombatEvent[], range: BeatRange): string[] {
+    const atEnd = stateAtSeq(state, log, range.toSeq);
+    const fledHere = new Set(rangeEvents(log, range)
+        .filter(e => e.type === 'flee' && e.data.success === true && e.actorId)
+        .map(e => e.actorId as string));
+    return atEnd.order
+        .map(id => atEnd.combatants[id])
+        .filter(c => isPresent(c) && (c.status !== 'fled' || fledHere.has(c.id)))
+        .map(c => {
+            const role = c.side === 'player' ? 'player character' : c.side;
+            const look = c.look ? ` — ${c.look.slice(0, 80)}` : '';
+            const where = c.status === 'fled' ? null : positionPhrase(atEnd, c);
+            return `- ${c.name} (${role})${look}: ${hpBandLabel(c)}${where ? `, ${where}` : ''}`;
+        });
+}
+
+export function buildCombatBlock(state: CombatState, log: readonly CombatEvent[], range: BeatRange): string {
+    const roster = rosterLines(state, log, range);
+    const lines = beatLines(state, log, range).map((line, i) => `${i + 1}. ${line}`);
     return [
         '[COMBAT BEAT — resolved by the game engine]',
         'Combatants:',
@@ -96,6 +113,12 @@ export function beatHistory(messages: readonly ChatMessage[], beatId: string): C
     let end = before.length;
     while (end > 0 && isEngineLogMessage(before[end - 1])) end--;
     return before.slice(0, end);
+}
+
+function parleyLineId(messages: readonly ChatMessage[], reply: ChatMessage): string | undefined {
+    const attemptId = reply.combatParley?.attemptId;
+    if (!attemptId) return undefined;
+    return messages.find(m => m.combatParley?.attemptId === attemptId && m.combatParley.part === 'line')?.id;
 }
 
 function patchMessage(id: string, patch: Partial<ChatMessage>, campaignId: string): void {
@@ -128,8 +151,8 @@ export async function streamBeat(messageId: string, block: string, campaignId: s
     const payload = buildPayload({
         settings: store.settings,
         context: store.context,
-        history: beatHistory(store.messages, messageId),
-        userMessage: `${block}\n\n${BEAT_DIRECTIVE}`,
+        history: beatHistory(store.messages, parleyLineId(store.messages, existing) ?? messageId),
+        userMessage: existing.combatParley ? block : `${block}\n\n${BEAT_DIRECTIVE}`,
         condensedUpToIndex: store.condenser.condensedUpToIndex,
         npcLedger: store.npcLedger,
         archiveIndex: store.archiveIndex,
@@ -161,7 +184,7 @@ export async function streamBeat(messageId: string, block: string, campaignId: s
             controller,
             { temperature: store.getActivePreset()?.sampling?.temperature ?? 0.7 },
             undefined,
-            BEAT_TRACKING_LABEL,
+            existing.combatParley ? PARLEY_REPLY_TRACKING_LABEL : BEAT_TRACKING_LABEL,
         );
     });
     if (inFlight === controller) inFlight = null;
@@ -179,6 +202,7 @@ async function runJob(job: BeatJob): Promise<void> {
         content: '',
         timestamp: Date.now(),
         combatBeat: { sessionId: job.sessionId, fromSeq: job.fromSeq, toSeq: job.toSeq, block: job.block },
+        ...(job.attemptId ? { combatParley: { sessionId: job.sessionId, attemptId: job.attemptId, part: 'reply' as const } } : {}),
     });
     const session = useAppStore.getState().combatSession;
     if (session && session.state.id === job.sessionId && session.narratedThroughSeq < job.toSeq) {
@@ -186,6 +210,13 @@ async function runJob(job: BeatJob): Promise<void> {
     }
     debouncedSaveCampaignState();
     await streamBeat(messageId, job.block, job.campaignId);
+    if (!job.attemptId) return;
+    const live = useAppStore.getState();
+    const current = live.combatSession;
+    if (live.activeCampaignId === job.campaignId && current?.state.id === job.sessionId && current.parley?.attemptId === job.attemptId) {
+        live.setCombatSession({ ...current, parley: undefined });
+        debouncedSaveCampaignState();
+    }
 }
 
 function drain(): Promise<void> {
@@ -215,12 +246,25 @@ export function queueCombatNarration(session: CombatSession, cadence: CombatNarr
     const sessionId = session.state.id;
     const after = Math.max(session.narratedThroughSeq, queuedThrough.get(sessionId) ?? 0);
     const ranges = computeBeatRanges(session, cadence, after, final);
+    const queued: BeatRange[] = [];
     for (const range of ranges) {
-        queue.push({ ...range, sessionId, campaignId, block: buildCombatBlock(session.state, session.log, range) });
         queuedThrough.set(sessionId, range.toSeq);
+        if (beatLines(session.state, session.log, range).length === 0) continue;
+        queue.push({ ...range, sessionId, campaignId, block: buildCombatBlock(session.state, session.log, range) });
+        queued.push(range);
     }
-    if (ranges.length > 0) void drain();
-    return ranges;
+    if (queued.length > 0) void drain();
+    return queued;
+}
+
+export function queueParleyReply(session: CombatSession, attemptId: string, eventSeq: number, block: string): void {
+    installCampaignWatch();
+    const campaignId = useAppStore.getState().activeCampaignId;
+    if (!campaignId) return;
+    const sessionId = session.state.id;
+    queue.push({ fromSeq: eventSeq, toSeq: eventSeq, sessionId, campaignId, block, attemptId });
+    queuedThrough.set(sessionId, Math.max(queuedThrough.get(sessionId) ?? 0, eventSeq));
+    void drain();
 }
 
 export function waitForCombatNarration(): Promise<void> {
@@ -232,11 +276,19 @@ export function isBeatStreaming(): boolean {
     return running !== null;
 }
 
+const abortHooks = new Set<() => void>();
+
+export function onCombatNarrationAbort(hook: () => void): () => void {
+    abortHooks.add(hook);
+    return () => { abortHooks.delete(hook); };
+}
+
 export function abortCombatNarration(): void {
     queue.length = 0;
     queuedThrough.clear();
     inFlight?.abort();
     inFlight = null;
+    for (const hook of abortHooks) hook();
 }
 
 export async function rewriteCombatBeat(messageId: string): Promise<boolean> {

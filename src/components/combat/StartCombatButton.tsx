@@ -3,6 +3,7 @@ import { Swords, Loader2, X } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { requestManualCombat } from '../../services/combat/combatManualStart';
+import { CombatFallenScreen } from './CombatFallenScreen';
 
 function useManualStart() {
     const [loading, setLoading] = useState(false);
@@ -31,7 +32,8 @@ export function CombatAllocationHint({ variant }: { variant: 'notice' | 'note' }
     const { t } = useTranslation();
     const pending = useCombatAllocationPending();
     const hasSession = useAppStore(s => !!s.combatSession);
-    if (!pending) return null;
+    const fallen = variant === 'notice' && !hasSession ? <CombatFallenScreen /> : null;
+    if (!pending) return fallen;
     if (variant === 'note') {
         return (
             <p data-testid="combat-alloc-note" className="text-[12px] text-amber-400 leading-relaxed">
@@ -44,6 +46,8 @@ export function CombatAllocationHint({ variant }: { variant: 'notice' | 'note' }
     }
     if (hasSession) return null;
     return (
+        <>
+        {fallen}
         <div data-testid="combat-alloc-hint" className="px-4 py-1 flex items-center gap-2 text-[11px] font-mono text-amber-300 border-b border-amber-500/20">
             <Swords size={12} className="shrink-0" />
             <span className="flex-1 min-w-0 truncate">{t('combat.allocPending.text')}</span>
@@ -51,6 +55,7 @@ export function CombatAllocationHint({ variant }: { variant: 'notice' | 'note' }
                 {t('combat.allocPending.action')}
             </button>
         </div>
+        </>
     );
 }
 

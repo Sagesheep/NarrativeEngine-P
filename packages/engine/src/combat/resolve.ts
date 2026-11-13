@@ -14,6 +14,13 @@ import {
 } from './core';
 import type { Draft } from './core';
 import { abilityReadiness, abilitySlot, checkAbility, resolveAbility } from './glyphs/apply';
+import {
+    abandonFight, attemptFlee, buildMoraleBook, canAbandon, checkFlee, checkParley, concedeFight, isEdgeTile, isRetreating,
+    PARLEY_INTENTS, PARLEY_RATINGS, resolveParley, rollMoraleIfDue,
+} from './party';
+
+const PARLEY_INTENT_SET: ReadonlySet<string> = new Set(PARLEY_INTENTS);
+const PARLEY_RATING_SET: ReadonlySet<string> = new Set(PARLEY_RATINGS);
 import { abilityTargets } from './glyphs/targeting';
 import { enemyKit } from './glyphs/kits';
 import { defaultCastingAbility } from './glyphs/numbers';
@@ -35,7 +42,10 @@ function startTurn(draft: Draft): void {
     if (!actor) return;
     draft.state.turnCount = (draft.state.turnCount ?? 0) + 1;
     draft.state.turn = freshTurn(draft.state, id);
+    if (actor.position) draft.state.turnStart = { actorId: id, pos: { ...actor.position } };
+    else delete draft.state.turnStart;
     actor.conditions = actor.conditions.filter(c => c.id !== DEFEND_CONDITION);
+    rollMoraleIfDue(draft, actor);
 }
 
 function endedText(c: Combatant, condition: string): string {
@@ -394,6 +404,39 @@ export function applyAction(state: CombatState, action: CombatAction): { state: 
         maybeAutoEnd(draft, actor.id);
         return closeDraft(draft);
     }
+    if (action.type === 'flee') {
+        const check = checkFlee(state, actor.id, turn);
+        if (!check.ok) return rejection(state, action, `cannot flee: ${(check.reason ?? 'unavailable').replace(/_/g, ' ')}`);
+        const draft = openDraft(state);
+        draft.state.turn = { ...turn, actionUsed: true };
+        const escaped = attemptFlee(draft, draft.state.combatants[actor.id]);
+        settleOutcome(draft);
+        if (escaped) {
+            if (!draft.state.outcome) advanceTurn(draft);
+        } else {
+            maybeAutoEnd(draft, actor.id);
+        }
+        return closeDraft(draft);
+    }
+    if (action.type === 'abandon') {
+        if (!canAbandon(state, actor.id)) return rejection(state, action, 'cannot abandon the fight now');
+        const draft = openDraft(state);
+        abandonFight(draft);
+        return closeDraft(draft);
+    }
+    if (action.type === 'parley') {
+        const check = checkParley(state, actor.id, turn);
+        if (!check.ok) return rejection(state, action, `cannot parley: ${(check.reason ?? 'unavailable').replace(/_/g, ' ')}`);
+        if (!PARLEY_INTENT_SET.has(action.intent) || !PARLEY_RATING_SET.has(action.rating)) return rejection(state, action, 'invalid parley');
+        const draft = openDraft(state);
+        draft.state.turn = { ...turn, actionUsed: true };
+        resolveParley(draft, draft.state.combatants[actor.id], action);
+        if (!draft.state.outcome) {
+            settleOutcome(draft);
+            maybeAutoEnd(draft, actor.id);
+        }
+        return closeDraft(draft);
+    }
     if (action.type === 'end_turn') {
         const draft = openDraft(state);
         const fresh = freshTurn(state, actor.id);
@@ -544,11 +587,38 @@ function weaponTurn(state: CombatState, actor: Combatant, turn: TurnState, targe
     return { actions: stop ? [{ type: 'move', actorId, to: stop }, end] : [end], state };
 }
 
+function retreatTurn(state: CombatState, actor: Combatant, turn: TurnState): { actions: CombatAction[]; state: CombatState } {
+    const actorId = actor.id;
+    const end: CombatAction = { type: 'end_turn', actorId };
+    const targets = state.order.map(id => state.combatants[id]).filter(c => !!c && canTarget(actor, c));
+    const grid = terrainOf(state);
+    if (!grid || !actor.position) {
+        if (!canAttackWith(turn) || targets.length === 0) return { actions: [end], state };
+        return weaponTurn(state, actor, turn, targets);
+    }
+    const standAndStrike = (): { actions: CombatAction[]; state: CombatState } => {
+        if (!canAttackWith(turn)) return { actions: [end], state };
+        const here = targets.filter(t => checkAttack(state, actorId, t.id).ok);
+        if (here.length === 0) return { actions: [end], state };
+        const pick = pickTarget(state, here, new Set());
+        return { actions: [{ type: 'attack', actorId, targetId: pick.id }, end], state: pick.state };
+    };
+    if (checkFlee(state, actorId, turn).ok) return { actions: [{ type: 'flee', actorId }, end], state };
+    if (isEdgeTile(grid, actor.position)) return standAndStrike();
+    const stop = turn.moveLeft > 0 ? approach(state, actor, turn, p => isEdgeTile(grid, p)) : null;
+    if (stop) return { actions: [{ type: 'move', actorId, to: stop }, end], state };
+    const open = searchMoves(state, actorId, { budget: Infinity, avoidHazards: true });
+    if (open && destinations(open).some(d => isEdgeTile(grid, d))) return standAndStrike();
+    if (!canAttackWith(turn) || targets.length === 0) return { actions: [end], state };
+    return weaponTurn(state, actor, turn, targets);
+}
+
 export function chooseEngineTurn(state: CombatState, actorId: string): { actions: CombatAction[]; state: CombatState } {
     const actor = state.combatants[actorId];
     const end: CombatAction = { type: 'end_turn', actorId };
     if (!actor || actor.status !== 'up') return { actions: [end], state };
     const turn = currentActorId(state) === actorId ? currentTurn(state) as TurnState : freshTurn(state, actorId);
+    if (isRetreating(state, actor)) return retreatTurn(state, actor, turn);
     if (!canAttackWith(turn)) return { actions: [end], state };
     const targets = state.order.map(id => state.combatants[id]).filter(c => !!c && canTarget(actor, c));
     if (targets.length === 0) return { actions: [end], state };
@@ -599,7 +669,7 @@ export function deriveMapSeed(seed: number): number {
 }
 
 function casterKitFields(c: { side: Combatant['side']; tier: Combatant['tier']; archetype?: Combatant['archetype'] }, abilities: Combatant['abilities'], damageType: string): Partial<Combatant> {
-    if (c.side !== 'enemy') return {};
+    if (c.side === 'neutral') return {};
     const kit = enemyKit(c.tier, c.archetype, damageType);
     if (kit.length === 0) return {};
     const row = TIER_TABLE[c.tier] ?? TIER_TABLE.grunt;
@@ -640,7 +710,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
             id,
             name: c.name,
             side: c.side,
-            controller: 'engine',
+            controller: c.side === 'ally' && spec.partyControl === 'player' ? 'player' : 'engine',
             tier: c.tier,
             ...(c.archetype ? { archetype: c.archetype } : {}),
             ...(c.npcId ? { npcId: c.npcId } : {}),
@@ -675,6 +745,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
     const grid = spec.map ? buildMapFromSeed(resolveMapSpec(spec.map, { combatants: spec.combatants.length }), mapSeed) : openArena('medium');
     const positions = placeCombatants(grid, Object.values(combatants).map(c => ({ id: c.id, side: c.side })));
     for (const [id, pos] of Object.entries(positions)) combatants[id].position = pos;
+    for (const c of Object.values(combatants)) c.startHp = c.hp;
 
     const state: CombatState = {
         id: spec.id,
@@ -690,7 +761,10 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
         mapSeed,
         turnCount: 0,
         ...(Number.isFinite(spec.maxSummons) ? { maxSummons: Math.max(0, Math.floor(spec.maxSummons as number)) } : {}),
+        ...(spec.partyControl ? { partyControl: spec.partyControl } : {}),
+        ...(spec.defeatMode ? { defeatMode: spec.defeatMode } : {}),
     };
+    state.morale = buildMoraleBook(state);
     const draft: Draft = { state, rng, events: [] };
     const roster = order.map(id => combatants[id]);
     emit(draft, {
@@ -707,9 +781,18 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
     return closeDraft(draft);
 }
 
-export type HpBand = 'unhurt' | 'hurt' | 'badly_hurt' | 'down';
+export function concedeCombat(state: CombatState): { state: CombatState; events: CombatEvent[] } {
+    if (state.outcome) return { state, events: [] };
+    const draft = openDraft(state);
+    concedeFight(draft);
+    return closeDraft(draft);
+}
+
+export type HpBand = 'unhurt' | 'hurt' | 'badly_hurt' | 'down' | 'fled' | 'yielded';
 
 export function hpBand(c: Pick<Combatant, 'hp' | 'maxHp' | 'status'>): HpBand {
+    if (c.status === 'fled') return 'fled';
+    if (c.status === 'surrendered') return 'yielded';
     if (c.status !== 'up' || c.hp <= 0) return 'down';
     if (c.hp >= c.maxHp) return 'unhurt';
     return c.hp * 2 > c.maxHp ? 'hurt' : 'badly_hurt';

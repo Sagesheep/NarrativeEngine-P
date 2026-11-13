@@ -1,5 +1,5 @@
 import {
-    applyAction, buildPcCombatant, createCombat, currentActorId, deriveMaxMp, stepEngine, validateAbility,
+    applyAction, buildPcCombatant, concedeCombat, createCombat, currentActorId, deriveMaxMp, stepEngine, validateAbility,
 } from '@narrative/engine';
 import type { AbilityKey, AttackRange, CombatantSpec, GlyphAbility, PcCombatantInput, WeaponQuality } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
@@ -12,8 +12,9 @@ import { uid } from '../../utils/uid';
 import { t } from '../../i18n';
 import { normalizeCombatConfig, normalizeSpellbook } from '../../types';
 import type {
-    CharacterProfile, ChatMessage, CombatAction, CombatNarrationCadence, CombatEvent, CombatProposal, CombatSession,
-    CombatState, Combatant, GameContext, InventoryItem, NPCEntry, ProposedCombatant,
+    CharacterProfile, ChatMessage, CombatAction, CombatFallen, CombatNarrationCadence, CombatEvent, CombatPartyControl,
+    CombatProposal, CombatSession, CombatState, Combatant, FateRecord, GameContext, InventoryItem, NPCEntry, ParleyRecord,
+    ProposedCombatant,
 } from '../../types';
 import { groupEventsByTurn, hpBandLabel, isGroupComplete, turnLines } from './combatEvents';
 import { compendiumFor, type CompendiumLookupState } from './compendiumLookup';
@@ -88,7 +89,7 @@ export function canPostCombatMessages(store: Pick<Store, 'messages' | 'pipelineP
     return store.pipelinePhase === 'idle' && !findPendingCommitMessage(store.messages);
 }
 
-function postMessage(name: string, content: string): ChatMessage {
+export function postMessage(name: string, content: string): ChatMessage {
     const msg: ChatMessage = { id: uid(), role: 'system', name, content, timestamp: Date.now() };
     useAppStore.getState().addMessage(msg);
     return msg;
@@ -112,7 +113,7 @@ export function postPendingLog(session: CombatSession): CombatSession {
     return postedThrough === after ? session : { ...session, postedThroughSeq: postedThrough };
 }
 
-function cadence(): CombatNarrationCadence {
+export function cadence(): CombatNarrationCadence {
     return normalizeCombatConfig(useAppStore.getState().context.combatConfig).narrationCadence;
 }
 
@@ -120,7 +121,7 @@ function storeSession(session: CombatSession): void {
     useAppStore.getState().setCombatSession(session);
 }
 
-function commitSession(session: CombatSession): CombatSession {
+export function commitSession(session: CombatSession): CombatSession {
     const posted = postPendingLog(session);
     storeSession(posted);
     queueCombatNarration(posted, cadence(), posted.state.outcome !== null);
@@ -212,8 +213,21 @@ export function rangeForAttack(attack: ProposedCombatant['attack']): AttackRange
     return undefined;
 }
 
-export function buildCombatantSpecs(combatants: readonly ProposedCombatant[], lookup: CompendiumLookupState): CombatantSpec[] {
-    return combatants.map(c => {
+export function isIncluded(c: Pick<ProposedCombatant, 'side' | 'included'>, partyControl: CombatPartyControl): boolean {
+    if (c.side !== 'ally') return true;
+    return partyControl === 'solo' ? c.included === true : c.included !== false;
+}
+
+export function excludedAllies(combatants: readonly ProposedCombatant[], partyControl: CombatPartyControl): string[] {
+    return combatants.filter(c => !isIncluded(c, partyControl)).map(c => c.name);
+}
+
+export function buildCombatantSpecs(
+    combatants: readonly ProposedCombatant[],
+    lookup: CompendiumLookupState,
+    partyControl: CombatPartyControl = 'engine',
+): CombatantSpec[] {
+    return combatants.filter(c => isIncluded(c, partyControl)).map(c => {
         const range = rangeForAttack(c.attack);
         const { overlay } = compendiumFor(c, lookup);
         return {
@@ -259,12 +273,15 @@ export async function startFromProposal(proposal: CombatProposal, seed?: number)
         const map = resolveCombatMap(proposal, store);
         const created = createCombat({
             id: uid(),
-            combatants: buildCombatantSpecs(proposal.combatants, store),
+            combatants: buildCombatantSpecs(proposal.combatants, store, config.partyControl),
             ...(config.mookJitterRange !== undefined ? { jitterRange: config.mookJitterRange } : {}),
             map,
             mapSeed: proposal.mapSeed ?? newMapSeed(),
             maxSummons: config.maxSummons,
+            partyControl: config.partyControl,
+            defeatMode: config.defeatMode,
         }, pc, fightSeed);
+        const excluded = excludedAllies(proposal.combatants, config.partyControl);
         const session: CombatSession = {
             state: created.state,
             log: created.events,
@@ -273,6 +290,7 @@ export async function startFromProposal(proposal: CombatProposal, seed?: number)
             startedAtMessageId: proposal.messageId,
             reason: proposal.reason,
             map,
+            ...(excluded.length > 0 ? { excluded } : {}),
         };
         commitSession(session);
         store.setCombatProposal(null);
@@ -295,7 +313,7 @@ export function playerActorId(state: CombatState): string | null {
 export async function playerAction(action: CombatAction): Promise<CombatEvent[]> {
     const store = useAppStore.getState();
     const session = store.combatSession;
-    if (!session || session.state.outcome || finishing || store.combatBusy || stepping) return [];
+    if (!session || session.state.outcome || finishing || store.combatBusy || stepping || session.parley) return [];
     if (isEngineTurn(session.state)) {
         void runEngineTurnsStepped();
         return [];
@@ -313,10 +331,17 @@ export async function playerAction(action: CombatAction): Promise<CombatEvent[]>
     return events;
 }
 
+export function isHardMode(state: CombatState): boolean {
+    return state.defeatMode === 'hardcore' || state.defeatMode === 'ironman';
+}
+
 export async function abortCombat(): Promise<void> {
     const session = useAppStore.getState().combatSession;
-    if (!session || finishing) return;
-    if (!session.state.outcome) {
+    if (!session || finishing || session.parley) return;
+    if (!session.state.outcome && isHardMode(session.state)) {
+        const conceded = concedeCombat(session.state);
+        commitSession({ ...session, state: conceded.state, log: [...session.log, ...conceded.events] });
+    } else if (!session.state.outcome) {
         const seq = session.state.eventSeq + 1;
         const event: CombatEvent = {
             seq, round: session.state.round, turn: session.state.turnCount ?? 0, type: 'combat_ended', data: { outcome: 'aborted' }, text: 'The fight is broken off.',
@@ -330,15 +355,25 @@ export async function abortCombat(): Promise<void> {
     await finishCombat();
 }
 
-export function conditionForCombatant(c: Combatant): NPCEntry['condition'] {
-    if (c.status !== 'up' || c.hp <= 0) return c.side === 'enemy' ? 'dead' : 'critical';
+function conditionFromHp(c: Combatant): NonNullable<NPCEntry['condition']> {
+    if (c.hp <= 0) return 'critical';
     const ratio = c.hp / Math.max(1, c.maxHp);
     if (ratio > 0.5) return 'healthy';
     if (ratio >= 0.25) return 'wounded';
     return 'critical';
 }
 
-function describe(c: Combatant): string {
+export function conditionForCombatant(c: Combatant): NPCEntry['condition'] | null {
+    if (c.status === 'fled') return null;
+    if (c.status === 'surrendered') return conditionFromHp(c);
+    if (c.status !== 'up' || c.hp <= 0) return c.side === 'enemy' ? 'dead' : 'critical';
+    return conditionFromHp(c);
+}
+
+function describe(c: Combatant, fate?: FateRecord): string {
+    if (fate?.dies && fate.pcId === c.id) return `${c.name} (dead)`;
+    if (c.status === 'fled') return `${c.name} (fled)`;
+    if (c.status === 'surrendered') return `${c.name} (yielded, ${hpBandLabel({ ...c, status: 'up' })})`;
     if (c.status !== 'up') return c.side === 'player' || c.side === 'ally' ? `${c.name} (unconscious)` : `${c.name} (down)`;
     return `${c.name} (${hpBandLabel(c)})`;
 }
@@ -347,33 +382,104 @@ function resultRoster(state: CombatState): Combatant[] {
     return state.order.map(id => state.combatants[id]).filter(c => !!c && !c.summonerId && c.status !== 'gone');
 }
 
+function names(list: readonly Combatant[]): string {
+    return list.map(c => c.name).join(', ');
+}
+
 export function buildResultText(state: CombatState): string {
     const all = resultRoster(state);
-    const down = all.filter(c => c.status !== 'up');
+    const down = all.filter(c => c.status === 'down');
+    const fled = all.filter(c => c.status === 'fled');
+    const yielded = all.filter(c => c.status === 'surrendered');
     const hurt = all.filter(c => c.status === 'up' && c.hp < c.maxHp);
     const outcome = state.outcome ?? 'aborted';
+    const dead = state.fate?.dies ? state.combatants[state.fate.pcId] : undefined;
     return [
         `Combat ended: ${outcome}.`,
-        down.length > 0 ? `Down: ${down.map(c => c.name).join(', ')}.` : 'No one is down.',
+        down.length > 0 ? `Down: ${names(down)}.` : 'No one is down.',
+        fled.length > 0 ? `Fled: ${names(fled)}.` : '',
+        yielded.length > 0 ? `Yielded: ${names(yielded)}.` : '',
         hurt.length > 0 ? `Hurt: ${hurt.map(c => `${c.name} (${hpBandLabel(c)})`).join(', ')}.` : '',
+        dead ? `${dead.name} has died.` : '',
     ].filter(Boolean).join(' ');
+}
+
+function successfulParley(session: CombatSession): { record: ParleyRecord; words?: string } | null {
+    const record = [...(session.state.parleys ?? [])].reverse().find(p => p.success);
+    if (!record) return null;
+    const words = session.parleyLines?.find(l => l.attemptId === record.attemptId)?.words;
+    return { record, ...(words ? { words } : {}) };
+}
+
+function quoteTerms(words: string): string {
+    return words.replace(/\s+/g, ' ').replace(/"/g, '\'').trim().slice(0, 600);
+}
+
+export const HARDCORE_CONSEQUENCE_TEXT = 'Choose and apply one severe, lasting consequence of this defeat: capture, enslavement, the loss of all their gear, a maiming, or a crushing debt. It must be a real loss. Do not soften it, undo it or skip it.';
+
+function outcomeLines(session: CombatSession, all: readonly Combatant[]): string[] {
+    const state = session.state;
+    const lines: string[] = [];
+    const party = all.filter(c => c.side === 'player' || c.side === 'ally');
+    const enemies = all.filter(c => c.side === 'enemy');
+    const fledEnemies = enemies.filter(c => c.status === 'fled');
+    const yielded = enemies.filter(c => c.status === 'surrendered');
+    const fledParty = party.filter(c => c.status === 'fled');
+    const pc = all.find(c => c.side === 'player');
+    const fate = state.fate;
+    const parley = successfulParley(session);
+    if (fledEnemies.length > 0) lines.push(`Escaped: ${names(fledEnemies)} fled the field and are still at large.`);
+    if (state.outcome === 'victory') {
+        if (yielded.length > 0) lines.push(`The enemies yielded: ${names(yielded)}. They are at the party's mercy; what is done with them is up to the party.`);
+        if (fledParty.length > 0) lines.push(`${names(fledParty)} left the field during the fight and can rejoin the party.`);
+    }
+    if (state.outcome === 'defeat' && !(fate?.dies)) {
+        lines.push('The party is unconscious and at the victors\' mercy. What the victors do next is your decision as the story AI.');
+    }
+    if (state.outcome === 'fled') {
+        if (state.ending?.carried) {
+            lines.push('The enemies agreed to let the party leave. The party carried its fallen with it; no one was left behind.');
+        } else {
+            if (state.ending?.abandoned) lines.push('The player chose to abandon the others and end the fight.');
+            if (fledParty.length > 0) lines.push(`Got away: ${names(fledParty)}.`);
+            const left = party.filter(c => c.status !== 'fled');
+            if (left.length > 0) {
+                lines.push(`Left behind on the field: ${left.map(c => describe(c, fate)).join(', ')}. What becomes of them is your decision as the story AI.`);
+            }
+        }
+    }
+    if (state.outcome === 'truce') {
+        lines.push('Both sides stopped fighting under a truce. This is not a defeat for the party.');
+        if (parley?.record.intent === 'bargain' && parley.words) {
+            lines.push(`The player offered these terms: "${quoteTerms(parley.words)}". This is the player's offer, not an accepted fact: decide what the enemies agreed to within it. Whatever was agreed, the story must honour it or show consequences for breaking it.`);
+        }
+    }
+    if (state.outcome === 'aborted') lines.push('The fight was broken off before it was decided.');
+    if (state.ending?.conceded) lines.push('The player conceded the fight.');
+    if (session.excluded && session.excluded.length > 0) lines.push(`Did not fight: ${session.excluded.join(', ')} stayed out of the fight.`);
+    if (isHardMode(state) && (state.outcome === 'defeat' || state.outcome === 'fled') && !state.ending?.carried) {
+        const downedAllies = party.filter(c => c.side === 'ally' && c.status === 'down');
+        if (downedAllies.length > 0) lines.push(`Downed allies (${names(downedAllies)}): their fate is the story's to decide.`);
+    }
+    if (fate && pc) {
+        if (fate.dies) lines.push(`${pc.name} died in this fight. The death is final.`);
+        else lines.push(`${pc.name} survived the defeat with 1 HP. ${HARDCORE_CONSEQUENCE_TEXT}`);
+    }
+    return lines;
 }
 
 export function buildAftermathText(session: CombatSession): string {
     const state = session.state;
     const all = resultRoster(state);
-    const casualties = all.filter(c => c.status !== 'up');
-    const survivors = all.filter(c => c.status === 'up');
+    const casualties = all.filter(c => c.status !== 'up' && c.status !== 'fled' && c.status !== 'surrendered');
+    const survivors = all.filter(c => c.status === 'up' || c.status === 'surrendered');
     const lines = [
         session.reason ? `Fight: ${session.reason}` : '',
         `Outcome: ${state.outcome ?? 'aborted'}.`,
-        `Casualties: ${casualties.length > 0 ? casualties.map(describe).join(', ') : 'none'}.`,
-        `Survivors: ${survivors.length > 0 ? survivors.map(describe).join(', ') : 'none'}.`,
+        `Casualties: ${casualties.length > 0 ? casualties.map(c => describe(c, state.fate)).join(', ') : 'none'}.`,
+        `Survivors: ${survivors.length > 0 ? survivors.map(c => describe(c, state.fate)).join(', ') : 'none'}.`,
+        ...outcomeLines(session, all),
     ];
-    if (state.outcome === 'defeat') {
-        lines.push('The party is unconscious and at the victors\' mercy. What the victors do next is your decision as the story AI.');
-    }
-    if (state.outcome === 'aborted') lines.push('The fight was broken off before it was decided.');
     return lines.filter(Boolean).join('\n');
 }
 
@@ -381,7 +487,8 @@ function writeBackPc(store: Store, state: CombatState): void {
     const pc = Object.values(state.combatants).find(c => c.side === 'player');
     const profile: CharacterProfile | undefined = store.context.characterProfileData;
     if (!pc || !profile) return;
-    const current = pc.status === 'up' ? Math.max(1, pc.hp) : 1;
+    if (state.fate?.dies && state.fate.pcId === pc.id) return;
+    const current = pc.status === 'up' || pc.status === 'fled' ? Math.max(1, pc.hp) : 1;
     const sheet = store.context.combatSheet;
     const maxMp = sheet ? deriveMaxMp(sheet) : (pc.maxMp ?? profile.mp?.max);
     const next: CharacterProfile = {
@@ -396,15 +503,18 @@ function writeBackNpcs(store: Store, state: CombatState): void {
     for (const c of Object.values(state.combatants)) {
         if (!c.npcId) continue;
         if (!store.npcLedger.some(n => n.id === c.npcId)) continue;
-        store.updateNPC(c.npcId, { condition: conditionForCombatant(c) });
+        const condition = conditionForCombatant(c);
+        if (condition) store.updateNPC(c.npcId, { condition });
     }
 }
 
 export function buildArchiveBody(session: CombatSession, messages: readonly ChatMessage[], resultText: string): string {
-    const beats = messages
-        .filter(m => m.combatBeat?.sessionId === session.state.id && !m.combatBeat.failed && m.content.trim())
-        .map(m => m.content.trim());
-    const body = beats.length > 0 ? beats : groupEventsByTurn(session.log).flatMap(g => turnLines(g, session.state, { numbers: true }));
+    const pcName = Object.values(session.state.combatants).find(c => c.side === 'player')?.name ?? 'The player';
+    const isLine = (m: ChatMessage) => m.combatParley?.sessionId === session.state.id && m.combatParley.part === 'line';
+    const isBeat = (m: ChatMessage) => m.combatBeat?.sessionId === session.state.id && !m.combatBeat.failed;
+    const kept = messages.filter(m => m.content.trim() && (isLine(m) || isBeat(m)));
+    const beats = kept.map(m => (isLine(m) ? `${pcName}: "${m.content.trim()}"` : m.content.trim()));
+    const body = kept.some(isBeat) ? beats : groupEventsByTurn(session.log).flatMap(g => turnLines(g, session.state, { numbers: true }));
     return [...body, resultText].join('\n\n');
 }
 
@@ -437,6 +547,20 @@ async function archiveFight(campaignId: string, session: CombatSession, resultMe
     }
 }
 
+export function fallenRecord(store: Pick<Store, 'context'>, state: CombatState): CombatFallen | null {
+    const fate = state.fate;
+    if (!fate?.dies) return null;
+    const pc = state.combatants[fate.pcId];
+    const playerCharacter = store.context.playerCharacter;
+    return {
+        name: playerCharacter?.name?.trim() || pc?.name || 'The player character',
+        ...(playerCharacter?.id ? { pcId: playerCharacter.id } : {}),
+        mode: fate.mode,
+        at: Date.now(),
+        stage: 'fallen',
+    };
+}
+
 async function runFinish(): Promise<void> {
     const initial = useAppStore.getState();
     const campaignId = initial.activeCampaignId;
@@ -455,7 +579,8 @@ async function runFinish(): Promise<void> {
         const resultText = buildResultText(state);
         const result = postMessage(COMBAT_RESULT_NAME, resultText);
         const aftermath = makeCombatNote(buildAftermathText(session));
-        useAppStore.getState().updateContext({ combatAftermath: aftermath } as Partial<GameContext>);
+        const fallen = fallenRecord(store, state);
+        useAppStore.getState().updateContext({ combatAftermath: aftermath, ...(fallen ? { combatFallen: fallen } : {}) } as Partial<GameContext>);
         debouncedSaveCampaignState();
         await archiveFight(campaignId, session, result.id, resultText);
         if (useAppStore.getState().activeCampaignId !== campaignId) return;

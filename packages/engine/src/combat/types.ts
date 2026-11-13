@@ -150,9 +150,58 @@ export type Combatant = {
     summonSeq?: number;
     expiresRound?: number;
     stunGuard?: boolean;
+    startHp?: number;
+    moraleRolled?: boolean;
+    routed?: boolean;
 };
 
 export type CombatOutcome = 'victory' | 'defeat' | 'fled' | 'truce' | 'aborted';
+
+export type PartyControl = 'solo' | 'engine' | 'player';
+
+export type DefeatMode = 'knockout' | 'hardcore' | 'ironman';
+
+export type Team = 'party' | 'enemy';
+
+export type ParleyIntent = 'ceasefire' | 'let_go' | 'surrender_demand' | 'bargain' | 'taunt' | 'other';
+
+export type ParleyRating = 'hopeless' | 'hard' | 'even' | 'easy';
+
+export type ParleyEffect = 'none' | 'failed' | 'truce' | 'let_go' | 'surrender';
+
+export type ParleyRecord = {
+    attemptId?: string;
+    round: number;
+    turn: number;
+    actorId: string;
+    speakerId?: string;
+    intent: ParleyIntent;
+    rating: ParleyRating;
+    dc?: number;
+    natural?: number;
+    total?: number;
+    success: boolean;
+    effect: ParleyEffect;
+};
+
+export type FateRecord = {
+    pcId: string;
+    mode: Exclude<DefeatMode, 'knockout'>;
+    natural?: number;
+    dies: boolean;
+};
+
+export type MoraleBook = {
+    startHp: Record<Team, number>;
+    leaders: Partial<Record<Team, string>>;
+};
+
+export type CombatEnding = {
+    conceded?: boolean;
+    abandoned?: boolean;
+    carried?: boolean;
+    parleyIntent?: ParleyIntent;
+};
 
 export type CombatState = {
     id: string;
@@ -171,6 +220,13 @@ export type CombatState = {
     barriers?: Barrier[];
     nextSummon?: number;
     maxSummons?: number;
+    partyControl?: PartyControl;
+    defeatMode?: DefeatMode;
+    morale?: MoraleBook;
+    turnStart?: { actorId: string; pos: Pos };
+    parleys?: ParleyRecord[];
+    fate?: FateRecord;
+    ending?: CombatEnding;
 };
 
 export type CombatAction =
@@ -178,7 +234,10 @@ export type CombatAction =
     | { type: 'defend'; actorId: string }
     | { type: 'move'; actorId: string; to: Pos }
     | { type: 'end_turn'; actorId: string }
-    | { type: 'use_ability'; actorId: string; abilityId: string; aim?: Pos | null };
+    | { type: 'use_ability'; actorId: string; abilityId: string; aim?: Pos | null }
+    | { type: 'flee'; actorId: string }
+    | { type: 'abandon'; actorId: string }
+    | { type: 'parley'; actorId: string; intent: ParleyIntent; rating: ParleyRating; speakerId?: string; attemptId?: string };
 
 export type CombatEvent = {
     seq: number;
@@ -229,6 +288,8 @@ export type CombatSpec = {
     map?: MapSpec;
     mapSeed?: number;
     maxSummons?: number;
+    partyControl?: PartyControl;
+    defeatMode?: DefeatMode;
 };
 
 export type WeaponQuality = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';

@@ -101,6 +101,10 @@ export function useChatOperations({
     const abortControllerRef = useRef<AbortController | null>(null);
     const streamStartRef = useRef<number>(0);
 
+    useEffect(() => useAppStore.subscribe((state, prev) => {
+        if (state.context?.combatFallen && !prev.context?.combatFallen) setPendingProposal(null);
+    }), []);
+
     useEffect(() => {
         if (pipelinePhase === 'generating') {
             streamStartRef.current = Date.now();

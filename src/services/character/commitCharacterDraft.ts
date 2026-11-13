@@ -30,6 +30,7 @@ export type CommitDeps = {
     updateContext: (patch: Record<string, unknown>) => void;
     /** Current characterProfileData (read); seeded with name only. */
     characterProfileData?: Partial<{ name: string; level: number; hp: { current: number; max: number } }> | null;
+    inventoryItems?: readonly InventoryItem[];
 };
 
 const DEFAULT_HP = { current: 20, max: 20 };
@@ -132,7 +133,7 @@ export function commitCharacterDraft(inputs: CommitInputs, deps: CommitDeps): vo
     });
 
     const startItems = parseStartingInventory(inputs.draft.answers?.[8] || '');
-    if (startItems.length > 0) deps.setInventoryItems(startItems);
+    if (startItems.length > 0) deps.setInventoryItems([...(deps.inventoryItems ?? []), ...startItems]);
 
     const profile: CharacterProfileState = (deps as { context?: { characterProfile?: CharacterProfileState } }).context?.characterProfile
         ?? { identity: {}, activeTraits: [] };

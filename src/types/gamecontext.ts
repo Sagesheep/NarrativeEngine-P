@@ -9,7 +9,7 @@ import type { ArcRecord } from './arc';
 export type { ArcRecord };
 import type { LootTree } from './loot';
 import type { GalleryEntry } from './gallery';
-import type { CombatSettings, CombatSheet, CombatTelemetry, CombatTurnNote, Spellbook } from './combat';
+import type { CombatFallen, CombatSettings, CombatSheet, CombatTelemetry, CombatTurnNote, Spellbook } from './combat';
 import { normalizeCombatConfig, normalizeSpellbook } from './combat';
 import type { TravelMode } from '../services/location/travelModes';
 import type { TravelUnit } from '../services/location/travelUnit';
@@ -272,6 +272,8 @@ export type GameContext = {
     spellbook?: Spellbook;
     combatAftermath?: CombatTurnNote;
     combatDeclined?: CombatTurnNote;
+    combatSuccession?: CombatTurnNote;
+    combatFallen?: CombatFallen;
     combatTelemetry?: CombatTelemetry;
     statLabelMap?: Record<string, string>;
     lootTree?: LootTree;

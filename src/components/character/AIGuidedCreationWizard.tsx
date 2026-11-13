@@ -318,6 +318,7 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
                 setInventoryItems,
                 updateContext,
                 characterProfileData,
+                inventoryItems: useAppStore.getState().inventoryItems,
             },
         );
         toast.success(`Character "${finalDraft.name}" created!`);

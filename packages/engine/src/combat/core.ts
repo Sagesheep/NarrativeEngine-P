@@ -106,10 +106,59 @@ export function checkOutcome(state: CombatState): CombatOutcome | null {
     if (state.outcome) return state.outcome;
     const all = Object.values(state.combatants).filter(countsForOutcome);
     const enemiesUp = all.some(c => c.side === 'enemy' && c.status === 'up');
-    const playersUp = all.some(c => isPlayerSide(c.side) && c.status === 'up');
-    if (!playersUp) return 'defeat';
+    const party = all.filter(c => isPlayerSide(c.side));
+    const playersUp = party.some(c => c.status === 'up');
     if (!enemiesUp) return 'victory';
+    if (!playersUp) return party.some(c => c.status === 'fled') ? 'fled' : 'defeat';
     return null;
+}
+
+export function playerCharacterOf(state: CombatState): Combatant | undefined {
+    return Object.values(state.combatants).find(c => c.side === 'player');
+}
+
+export const OUTCOME_TEXT: Readonly<Record<CombatOutcome, string>> = {
+    victory: 'The fight is won.',
+    defeat: 'The fight is lost.',
+    fled: 'The party gets away from the fight.',
+    truce: 'The fighting stops under a truce.',
+    aborted: 'The fight is broken off.',
+};
+
+export const HARDCORE_DEATH_MAX = 7;
+
+function fateApplies(state: CombatState, pc: Combatant | undefined): boolean {
+    const mode = state.defeatMode;
+    if (!pc || (mode !== 'hardcore' && mode !== 'ironman') || state.fate) return false;
+    if (state.ending?.conceded) return true;
+    if (state.ending?.carried) return false;
+    if (state.outcome !== 'defeat' && state.outcome !== 'fled') return false;
+    return pc.status === 'down';
+}
+
+export function rollFate(draft: Draft): void {
+    const s = draft.state;
+    const pc = playerCharacterOf(s);
+    if (!pc || !fateApplies(s, pc)) return;
+    const mode = s.defeatMode as 'hardcore' | 'ironman';
+    const natural = mode === 'hardcore' ? draft.rng.roll(20) : undefined;
+    const dies = mode === 'ironman' || (natural as number) <= HARDCORE_DEATH_MAX;
+    s.fate = { pcId: pc.id, mode, ...(natural !== undefined ? { natural } : {}), dies };
+    emit(draft, {
+        type: 'fate',
+        targetId: pc.id,
+        data: { mode, dies, ...(natural !== undefined ? { natural } : {}) },
+        text: dies
+            ? `${pc.name} dies${natural !== undefined ? ` (fate roll ${natural})` : ''}.`
+            : `${pc.name} survives, barely (fate roll ${natural}).`,
+    });
+}
+
+export function endFight(draft: Draft, outcome: CombatOutcome, data: Record<string, unknown> = {}): void {
+    if (draft.state.outcome) return;
+    draft.state.outcome = outcome;
+    emit(draft, { type: 'combat_ended', data: { outcome, ...data }, text: OUTCOME_TEXT[outcome] });
+    rollFate(draft);
 }
 
 export function rollDamage(rng: Rng, count: number, sides: number, bonus: number): number {
@@ -122,7 +171,7 @@ export function downText(target: Combatant): string {
     return isPlayerSide(target.side) ? `${target.name} falls unconscious.` : `${target.name} is down.`;
 }
 
-export function dismissSummon(draft: Draft, summon: Combatant, cause: 'expired' | 'summoner_down' | 'replaced' | 'destroyed'): void {
+export function dismissSummon(draft: Draft, summon: Combatant, cause: 'expired' | 'summoner_down' | 'summoner_left' | 'replaced' | 'destroyed'): void {
     if (summon.status === 'gone') return;
     summon.status = 'gone';
     summon.conditions = [];
@@ -172,8 +221,7 @@ export function applyDamage(target: Combatant, amount: number): { absorbed: numb
 export function settleOutcome(draft: Draft): void {
     const outcome = checkOutcome(draft.state);
     if (!outcome || draft.state.outcome) return;
-    draft.state.outcome = outcome;
-    emit(draft, { type: 'combat_ended', data: { outcome }, text: outcome === 'victory' ? 'The fight is won.' : 'The fight is lost.' });
+    endFight(draft, outcome);
 }
 
 export function setCondition(target: Combatant, cond: CombatCondition): void {
@@ -191,4 +239,5 @@ export const COMBAT_EVENT_TYPES: readonly string[] = [
     'combat_started', 'initiative', 'round', 'moved', 'attack', 'defend', 'end_turn', 'down', 'hazard', 'condition_ended',
     'combat_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed', 'teleported',
     'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
+    'flee', 'morale', 'parley', 'surrendered', 'fate',
 ];

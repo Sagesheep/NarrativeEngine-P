@@ -23,6 +23,7 @@ export function CombatInitiativeStrip({
     const state = session.state;
     const actingId = currentActorId(state);
     const listRef = useRef<HTMLOListElement | null>(null);
+    const hard = state.defeatMode === 'hardcore' || state.defeatMode === 'ironman';
 
     useEffect(() => {
         const list = listRef.current;
@@ -45,7 +46,7 @@ export function CombatInitiativeStrip({
                 {turnOrderForStrip(state).map(c => {
                     const acting = actingId === c.id;
                     const selected = selectedId === c.id;
-                    const hp = isParty(c) ? t('combat.panel.hp', { hp: c.hp, max: c.maxHp }) : t(BAND_KEY[hpBandLabel(c)]);
+                    const hp = isParty(c) && (c.status === 'up' || c.status === 'down') ? t('combat.panel.hp', { hp: c.hp, max: c.maxHp }) : t(BAND_KEY[hpBandLabel(c)]);
                     return (
                         <li key={c.id} data-combatant={c.id} className="shrink-0">
                             <button
@@ -69,11 +70,11 @@ export function CombatInitiativeStrip({
             </ol>
             <button
                 type="button"
-                onClick={() => { if (window.confirm(t('combat.panel.endConfirm'))) onEnd(); }}
+                onClick={() => { if (window.confirm(t(hard ? 'combat.panel.concedeConfirm' : 'combat.panel.endConfirm'))) onEnd(); }}
                 disabled={busy}
                 className="shrink-0 flex items-center gap-1 border border-border text-text-dim hover:text-text-primary text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-sm disabled:opacity-40"
             >
-                <Flag size={12} /> {t('combat.panel.end')}
+                <Flag size={12} /> {t(hard ? 'combat.panel.concede' : 'combat.panel.end')}
             </button>
         </div>
     );

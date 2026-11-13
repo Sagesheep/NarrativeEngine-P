@@ -1,9 +1,9 @@
 import { coverBetween, distance, hasLineOfSight, hpBand, terrainOf } from '@narrative/engine';
 import type { CombatEvent, CombatPos, CombatSide, CombatState, Combatant } from '../../types';
 
-export const ACTION_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'defend', 'end_turn', 'ability', 'turn_lost']);
-export const TURN_ACTION_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'end_turn', 'ability', 'turn_lost']);
-const ACTED_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'ability', 'turn_lost']);
+export const ACTION_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'defend', 'end_turn', 'ability', 'turn_lost', 'flee', 'parley']);
+export const TURN_ACTION_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'end_turn', 'ability', 'turn_lost', 'flee', 'parley']);
+const ACTED_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'ability', 'turn_lost', 'flee', 'parley']);
 
 export type TurnGroup = {
     actorId?: string;
@@ -120,13 +120,14 @@ export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq:
             target.hp = Math.min(target.maxHp, target.hp + event.data.damage);
         }
         if (event.type === 'shield') restoreTemp(target, event.data.tempBefore);
-        if (event.type === 'down' || event.type === 'dismissed') target.status = 'up';
+        if (event.type === 'down' || event.type === 'dismissed' || event.type === 'surrendered') target.status = 'up';
+        if (event.type === 'flee' && event.data.success === true) target.status = 'up';
         if (event.type === 'summoned') target.status = 'gone';
     }
     return { ...state, combatants, ...(state.barriers || barriers.length > 0 ? { barriers } : {}) };
 }
 
-export type HpBandLabel = 'unhurt' | 'hurt' | 'badly hurt' | 'down';
+export type HpBandLabel = 'unhurt' | 'hurt' | 'badly hurt' | 'down' | 'fled' | 'yielded';
 
 export function hpBandLabel(c: Pick<Combatant, 'hp' | 'maxHp' | 'status'>): HpBandLabel {
     const band = hpBand(c);
@@ -138,7 +139,7 @@ export type PositionPhrase = 'adjacent' | 'close' | 'at range' | 'behind cover' 
 export function positionPhrase(state: CombatState, c: Combatant): PositionPhrase | null {
     const grid = terrainOf(state);
     const pc = Object.values(state.combatants).find(x => x.side === 'player');
-    if (!grid || !pc || pc.id === c.id || !pc.position || !c.position) return null;
+    if (!grid || !pc || pc.id === c.id || pc.status === 'fled' || !pc.position || !c.position) return null;
     if (!hasLineOfSight(grid, pc.position, c.position)) return 'out of sight';
     if (coverBetween(grid, pc.position, c.position) > 0) {
         const label = grid.labels?.cover?.trim();
@@ -203,6 +204,7 @@ export const NARRATED_EVENT_TYPES: readonly string[] = [
     'attack', 'initiative', 'round', 'moved', 'hazard', 'combat_started', 'defend', 'end_turn', 'down', 'combat_ended',
     'condition_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed',
     'teleported', 'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
+    'flee', 'morale', 'parley', 'surrendered', 'fate',
 ];
 
 export function narrationLine(event: CombatEvent, state: CombatState): string {
@@ -288,6 +290,17 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
             return `${name(event.actorId)} is stunned and cannot act.`;
         case 'unaffected':
             return `${name(event.targetId)} shakes off the stun.`;
+        case 'flee':
+            if (event.data.success === true) return `${name(event.actorId)} breaks away and leaves the fight.`;
+            return `${name(event.actorId)} tries to break away but is cut off.`;
+        case 'morale':
+            return event.data.success === true ? '' : `${name(event.actorId)} loses its nerve and looks for a way out.`;
+        case 'parley':
+            return '';
+        case 'surrendered':
+            return `${name(event.targetId)} lowers its weapons and yields.`;
+        case 'fate':
+            return event.data.dies === true ? `${name(event.targetId)} does not survive.` : `${name(event.targetId)} clings to life.`;
         default:
             return '';
     }

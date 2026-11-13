@@ -4,6 +4,7 @@ import { normalizeCombatConfig } from '../../types';
 import type { ChatMessage, CombatProposal, GameContext } from '../../types';
 import { isEngineTurn, resumeStoredSession, startFromProposal } from '../../services/combat/combatController';
 import { wasMessageProposed } from '../../services/combat/combatCommitHooks';
+import { resumeParley } from '../../services/combat/combatParley';
 
 export function proposalIsOrphaned(proposal: CombatProposal | null, messages: readonly ChatMessage[]): boolean {
     if (!proposal || !proposal.messageId) return false;
@@ -50,10 +51,13 @@ export function useCombatLifecycle(isStreaming: boolean) {
     }, [proposal, messages]);
 
     const sessionId = session?.state.id ?? null;
-    const needsResume = !!session && (session.state.outcome !== null || isEngineTurn(session.state));
+    const parleyId = session?.parley?.attemptId ?? null;
+    const needsResume = !!session && (!!parleyId || session.state.outcome !== null || isEngineTurn(session.state));
     useEffect(() => {
-        if (needsResume) resumeStoredSession();
-    }, [activeCampaignId, sessionId, needsResume]);
+        if (!needsResume) return;
+        if (parleyId) void resumeParley();
+        else resumeStoredSession();
+    }, [activeCampaignId, sessionId, needsResume, parleyId]);
 
     const confirmStart = normalizeCombatConfig(context.combatConfig).confirmStart;
     useEffect(() => {

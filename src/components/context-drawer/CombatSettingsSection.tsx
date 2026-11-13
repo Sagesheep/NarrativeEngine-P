@@ -17,6 +17,11 @@ type CombatSettingsSectionProps = {
 const selectClass = 'w-full bg-surface border border-border px-3 py-2 text-[13px] font-mono text-text-primary focus:border-terminal outline-none transition-colors';
 const labelClass = 'text-[12px] text-text-dim uppercase tracking-wider mb-1 block';
 
+function countsText(counts: Partial<Record<string, number>> | undefined): string {
+    const entries = Object.entries(counts ?? {}).filter(([, n]) => typeof n === 'number' && n > 0);
+    return entries.length > 0 ? entries.map(([k, n]) => `${k} ${n}`).join(', ') : '–';
+}
+
 export function CombatSettingsSection({ context, updateContext }: CombatSettingsSectionProps) {
     const { t } = useTranslation();
     const setCharacterProfileData = useAppStore((s) => s.setCharacterProfileData);
@@ -60,6 +65,15 @@ export function CombatSettingsSection({ context, updateContext }: CombatSettings
                         {t('combat.settings.telemetry', { total: telemetry.dangerousCommits, missed: telemetry.dangerousWithoutProposal })}
                     </p>
                 )}
+                {active && debugMode && telemetry?.parleyRatings && (
+                    <p data-testid="combat-parley-telemetry" className="text-[11px] text-text-dim font-mono">
+                        {t('combat.settings.parleyTelemetry', {
+                            ratings: countsText(telemetry.parleyRatings),
+                            outcomes: countsText(telemetry.parleyOutcomes),
+                            sources: countsText(telemetry.parleySources),
+                        })}
+                    </p>
+                )}
                 {active && (
                     <div className="space-y-3">
                         <div>
@@ -87,6 +101,12 @@ export function CombatSettingsSection({ context, updateContext }: CombatSettings
                                     <option key={v} value={v}>{t(`combat.settings.defeatMode.${v}`)}</option>
                                 ))}
                             </select>
+                            {config.defeatMode !== 'knockout' && (
+                                <p data-testid="combat-defeat-warning" className="mt-1 text-[11px] text-amber-400 leading-relaxed">
+                                    {t(config.defeatMode === 'ironman' ? 'combat.settings.defeatMode.ironmanWarn' : 'combat.settings.defeatMode.hardcoreWarn')}
+                                </p>
+                            )}
+                            <p className="mt-1 text-[11px] text-text-dim leading-relaxed">{t('combat.settings.snapshotNote')}</p>
                         </div>
                         <div>
                             <label className={labelClass} htmlFor="combat-narration-cadence">{t('combat.settings.narrationCadence.label')}</label>

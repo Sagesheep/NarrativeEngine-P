@@ -12,7 +12,7 @@ import { isTypingTarget } from './combatKeys';
 import { useTerrainNames } from './useTerrainNames';
 import {
     BAND_KEY, LEGEND_TILES, TILE_FILL, TILE_SIZE, attackableTargets, hpColor, initialLegendOpen, inspectCorner, isParty,
-    playerCharacter, posKey as key, rememberLegendDismissed, sideColor, terrainLabel, tileCenter as center, tokenAt,
+    isOnBoard, playerCharacter, posKey as key, rememberLegendDismissed, sideColor, terrainLabel, tileCenter as center, tokenAt,
 } from './combatVisuals';
 import type { Corner } from './combatVisuals';
 import { initialTileArt, rememberTileArt, tileUrl } from './tileAvailability';
@@ -370,6 +370,7 @@ export function CombatBoard({
     onPickEnd,
     surfaceRef,
     aim = null,
+    edges = null,
 }: {
     session: CombatSession;
     busy: boolean;
@@ -380,6 +381,7 @@ export function CombatBoard({
     onPickEnd?: () => void;
     surfaceRef?: RefObject<HTMLDivElement | null>;
     aim?: AbilityAim | null;
+    edges?: readonly CombatPos[] | null;
 }) {
     const { t } = useTranslation();
     const state = session.state;
@@ -443,7 +445,7 @@ export function CombatBoard({
         const condition = isParty(c) ? t('combat.board.hpState', { hp: c.hp, max: c.maxHp }) : t(BAND_KEY[hpBandLabel(c)]);
         const side = t(`combat.side.${c.side}`);
         const from = viewer?.position;
-        if (!from || !c.position || c.side === 'player') return t('combat.board.tokenSelf', { name: c.name, side, state: condition });
+        if (!from || !c.position || c.id === viewer?.id) return t('combat.board.tokenSelf', { name: c.name, side, state: condition });
         return t('combat.board.token', { name: c.name, side, state: condition, count: distance(from, c.position) });
     }, [t, viewer]);
 
@@ -629,6 +631,17 @@ export function CombatBoard({
                                     ? <rect key={`r${k}`} data-testid="combat-reachable" data-x={x} data-y={y} x={x * TILE_SIZE + 0.3} y={y * TILE_SIZE + 0.3} width={TILE_SIZE - 0.6} height={TILE_SIZE - 0.6} style={{ fill: 'var(--combat-reach)', stroke: 'var(--combat-path)', strokeWidth: 0.35, strokeOpacity: 0.7 }} />
                                     : <rect key={`r${k}`} data-testid="combat-reachable" data-x={x} data-y={y} x={x * TILE_SIZE} y={y * TILE_SIZE} width={TILE_SIZE} height={TILE_SIZE} style={{ fill: 'var(--combat-reach)' }} />;
                             })}
+                            {edges?.map(p => (
+                                <rect
+                                    key={`edge${p.x},${p.y}`}
+                                    data-testid="combat-edge"
+                                    x={p.x * TILE_SIZE + 0.6}
+                                    y={p.y * TILE_SIZE + 0.6}
+                                    width={TILE_SIZE - 1.2}
+                                    height={TILE_SIZE - 1.2}
+                                    style={{ fill: 'none', stroke: 'var(--combat-path)', strokeWidth: 0.6, strokeDasharray: '1.2 0.8' }}
+                                />
+                            ))}
                             {attackable.map(c => c.position && (
                                 <rect
                                     key={`t${c.id}`}
@@ -672,7 +685,7 @@ export function CombatBoard({
                             {state.order.map(id => {
                                 const c = state.combatants[id];
                                 const pos = shown[id] ?? c?.position;
-                                if (!c || !pos || c.status === 'gone') return null;
+                                if (!c || !pos || !isOnBoard(c)) return null;
                                 const { x, y } = center(pos);
                                 const r = TILE_SIZE * 0.36;
                                 const ring = 2 * Math.PI * (r + 0.9);
@@ -689,6 +702,7 @@ export function CombatBoard({
                                         onClick={() => onTile(c.position ?? pos)}
                                         onMouseEnter={() => setHover(c.position ?? pos)}
                                         data-summon={c.summonerId ? 'true' : undefined}
+                                        data-status={c.status}
                                         style={{ cursor: aim || (interactive && attackable.some(a => a.id === id)) ? 'crosshair' : 'pointer' }}
                                     >
                                         <title>{describeToken(c)}</title>
@@ -715,6 +729,12 @@ export function CombatBoard({
                                             {c.name.trim().charAt(0).toUpperCase() || '?'}
                                         </text>
                                         <ConditionBadges c={c} x={x} y={y} r={r} />
+                                        {c.status === 'surrendered' && (
+                                            <g data-testid="combat-yielded-mark" style={{ pointerEvents: 'none' }}>
+                                                <line x1={x + r * 0.5} y1={y - r - 2.4} x2={x + r * 0.5} y2={y - r + 0.6} style={{ stroke: 'var(--combat-token-text)', strokeWidth: 0.35 }} />
+                                                <rect x={x + r * 0.5} y={y - r - 2.4} width={1.8} height={1.2} style={{ fill: 'var(--combat-token-text)' }} />
+                                            </g>
+                                        )}
                                         {isParty(c) && c.status === 'up' && (
                                             <text x={x} y={y + r + 3.4} textAnchor="middle" style={{ fontSize: 2.3, fill: 'var(--combat-party)', pointerEvents: 'none' }}>
                                                 {c.hp}/{c.maxHp}

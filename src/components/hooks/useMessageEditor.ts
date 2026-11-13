@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { isRewindDeleteLocked } from '../../services/combat/combatLocks';
+import { isRewindDeleteLocked, isSuccessionPending } from '../../services/combat/combatLocks';
 import type { ChatMessage } from '../../types';
 import { api } from '../../services/llm/apiClient';
 import type { ArchiveManagerDeps } from '../../services/archive-memory/archiveManager';
@@ -68,7 +68,7 @@ export function useMessageEditor(deps: UseMessageEditorDeps) {
         if (!msg) return;
 
         const trimmed = inlineDraft.trim();
-        if (!trimmed) {
+        if (!trimmed || ((msg.role === 'user' || isSuccessionPending()) && isRewindDeleteLocked(msg))) {
             cancelEditing();
             return;
         }

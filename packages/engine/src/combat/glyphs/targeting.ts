@@ -42,7 +42,7 @@ export function livingAt(state: CombatState, p: Pos): Combatant | undefined {
 
 export function isEmptyTile(state: CombatState, terrain: Grid, p: Pos): boolean {
     if (!inBounds(terrain, p) || !isWalkable(terrain, p)) return false;
-    return !Object.values(state.combatants).some(c => c.status !== 'gone' && samePos(c.position, p));
+    return !Object.values(state.combatants).some(c => c.status !== 'gone' && c.status !== 'fled' && samePos(c.position, p));
 }
 
 export function directionOf(from: Pos, aim: Pos): Pos | null {

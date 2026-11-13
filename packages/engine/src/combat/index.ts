@@ -6,7 +6,15 @@ export type {
     PcCombatantInput, AttackRange, Tile, Grid, Pos, MapSize, MapSpec, TurnState, TemplateOverlay,
     AreaType, MapDensity, HazardKind, TerrainLabels, ResolvedMapSpec,
     FormId, EffectId, AugmentId, GlyphAbility, CombatCondition, Barrier,
+    PartyControl, DefeatMode, Team, ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord, MoraleBook, CombatEnding,
 } from './types';
+export {
+    MORALE_DC, MORALE_DC_LEADER_DOWN, PARLEY_DC, PARLEY_LOSING_SHIFT, PARLEY_FAILURE_STEP, PARLEY_INTENTS, PARLEY_RATINGS,
+    MECHANICAL_INTENTS, teamOfSide, isEdgeTile, edgeTiles, buildMoraleBook, teamLoss, lostHalf, isLeaderDown, isOutnumbered,
+    startedOnEdge, checkFlee, isRetreating, canAbandon, checkParley, resolveSpeaker, onlySummonedEnemies,
+    earlierParleyFailures, parleyDc,
+} from './party';
+export type { FleeReason, FleeCheck, ParleyReason } from './party';
 export { createRng } from './rng';
 export { ABILITY_KEYS, TIER_LEVEL, abilityMod, proficiencyForLevel } from './abilities';
 export {
@@ -22,10 +30,11 @@ export { PC_COMBATANT_ID, WEAPON_QUALITY_DICE, UNARMED_DIE, FALLBACK_WEAPON_DIE,
 export {
     DEFEND_CONDITION, isHostile, canTarget, currentActorId, checkOutcome, applyAction,
     chooseEngineTurn, stepEngine, runEngineTurns, createCombat, hpBand, HAZARD_DAMAGE_DIE,
-    freshTurn, currentTurn, checkAttack, reachable, pathTo, deriveMapSeed, hasUsableBonusAbility,
+    freshTurn, currentTurn, checkAttack, reachable, pathTo, deriveMapSeed, hasUsableBonusAbility, concedeCombat,
 } from './resolve';
 export {
     STUNNED, SLOWED, HASTED, SHIELDED, COMBAT_EVENT_TYPES, canAttackWith, hasCondition, countsForOutcome,
+    playerCharacterOf, OUTCOME_TEXT, HARDCORE_DEATH_MAX, isPlayerSide,
 } from './core';
 export * from './glyphs/index';
 export type { HpBand, AttackCheck } from './resolve';

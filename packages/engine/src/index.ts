@@ -58,6 +58,11 @@ export {
     normalizeMapSpec, normalizeLabels, cleanLabel, inferMapSpec, inferHazard, resolveMapSpec, mapSizeFor, defaultLabels,
     AREA_TYPES, MAP_DENSITIES, STRUCTURAL_AREAS, AREA_GENERATORS, DEFAULT_AREA_LABELS, DEFAULT_HAZARD_LABELS,
     shareBand, measuredRows, bandCounts, terrainShare,
+    concedeCombat, playerCharacterOf, OUTCOME_TEXT, HARDCORE_DEATH_MAX, isPlayerSide,
+    MORALE_DC, MORALE_DC_LEADER_DOWN, PARLEY_DC, PARLEY_LOSING_SHIFT, PARLEY_FAILURE_STEP, PARLEY_INTENTS, PARLEY_RATINGS,
+    MECHANICAL_INTENTS, teamOfSide, isEdgeTile, edgeTiles, buildMoraleBook, teamLoss, lostHalf, isLeaderDown, isOutnumbered,
+    startedOnEdge, checkFlee, isRetreating, canAbandon, checkParley, resolveSpeaker, onlySummonedEnemies,
+    earlierParleyFailures, parleyDc,
 } from './combat/index';
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget,
@@ -70,6 +75,8 @@ export type {
     AreaGenerator, AreaLayout, BandCounts,
     FormId, EffectId, AugmentId, GlyphAbility, CombatCondition, Barrier,
     FormSpec, EffectSpec, FormRoll, CasterStats, AbilityLimits, AimResult, AbilityCheck, AbilitySlot, StarterPresetId,
+    PartyControl, DefeatMode, Team, ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord, MoraleBook, CombatEnding,
+    FleeReason, FleeCheck, ParleyReason,
 } from './combat/index';
 
 export { resolveLootDrop } from './loot/lootEngine';

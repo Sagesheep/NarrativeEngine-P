@@ -1,5 +1,25 @@
 import { useAppStore } from '../../store/useAppStore';
-import type { CombatTelemetry, GameContext, SceneStakes } from '../../types';
+import type { CombatTelemetry, GameContext, ParleyRatingSource, ParleyRecord, SceneStakes } from '../../types';
+
+function bump<K extends string>(map: Partial<Record<K, number>> | undefined, key: K): Partial<Record<K, number>> {
+    const base: Partial<Record<K, number>> = { ...(map ?? {}) };
+    base[key] = (base[key] ?? 0) + 1;
+    return base;
+}
+
+export function countParleyTelemetry(record: Pick<ParleyRecord, 'rating' | 'intent' | 'effect' | 'success'>, source: ParleyRatingSource): void {
+    const store = useAppStore.getState();
+    const prev: CombatTelemetry = store.context.combatTelemetry ?? { dangerousCommits: 0, dangerousWithoutProposal: 0 };
+    store.updateContext({
+        combatTelemetry: {
+            ...prev,
+            parleyRatings: bump(prev.parleyRatings, record.rating),
+            parleyIntents: bump(prev.parleyIntents, record.intent),
+            parleyOutcomes: bump(prev.parleyOutcomes, record.success ? 'success' : record.effect),
+            parleySources: bump(prev.parleySources, source),
+        },
+    });
+}
 
 const proposedMessageIds = new Set<string>();
 
@@ -21,10 +41,12 @@ export function settleCombatNotesOnCommit(input: { messageId: string; messageTim
     const patch: Partial<GameContext> = {};
     if (context.combatDeclined && context.combatDeclined.createdAt < input.messageTimestamp) patch.combatDeclined = undefined;
     if (context.combatAftermath && context.combatAftermath.createdAt < input.messageTimestamp) patch.combatAftermath = undefined;
+    if (context.combatSuccession && context.combatSuccession.createdAt < input.messageTimestamp) patch.combatSuccession = undefined;
     if (context.combatModeActive === true && input.sceneStakes === 'dangerous') {
         const prev: CombatTelemetry = context.combatTelemetry ?? { dangerousCommits: 0, dangerousWithoutProposal: 0 };
         const proposed = proposedMessageIds.has(input.messageId) || store.combatProposal?.messageId === input.messageId;
         patch.combatTelemetry = {
+            ...prev,
             dangerousCommits: prev.dangerousCommits + 1,
             dangerousWithoutProposal: prev.dangerousWithoutProposal + (proposed ? 0 : 1),
         };

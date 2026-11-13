@@ -50,7 +50,7 @@ export function saveDc(stats: CasterStats): number {
 
 export function saveModifier(c: Combatant, key: AbilityKey): number {
     const base = abilityMod(c.abilities[key] ?? 10);
-    if (c.controller === 'player') {
+    if (c.side === 'player') {
         const proficient = key === 'CON' || key === (c.castingAbility ?? defaultCastingAbility(c.abilities));
         return base + (proficient ? proficiencyOf(c) : 0);
     }

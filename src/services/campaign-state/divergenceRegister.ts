@@ -56,7 +56,7 @@ export function buildSceneMap(
     messages: ChatMessage[]
 ): { sceneIdsByMessageId: Record<string, string>; index: Array<{ sceneId: string; importance?: number }> } {
     const sceneIdsByMessageId: Record<string, string> = {};
-    const userMessages = messages.filter(m => m.role === 'user');
+    const userMessages = messages.filter(m => m.role === 'user' && !m.combatParley);
     const pairCount = Math.min(userMessages.length, archiveIndex.length);
     const userTail = userMessages.slice(-pairCount);
     const archiveTail = archiveIndex.slice(-pairCount);

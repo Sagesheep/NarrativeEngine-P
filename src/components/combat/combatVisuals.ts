@@ -19,6 +19,8 @@ export const BAND_KEY = {
     hurt: 'combat.band.hurt',
     'badly hurt': 'combat.band.badlyHurt',
     down: 'combat.band.down',
+    fled: 'combat.band.fled',
+    yielded: 'combat.band.yielded',
 } as const;
 
 export function sideColor(side: Combatant['side']): string {
@@ -47,7 +49,7 @@ export function tileCenter(p: CombatPos): CombatPos {
 }
 
 export function tokenAt(state: CombatState, p: CombatPos): Combatant | undefined {
-    const all = Object.values(state.combatants).filter(c => c.status !== 'gone');
+    const all = Object.values(state.combatants).filter(c => c.status !== 'gone' && c.status !== 'fled');
     return all.find(c => c.status === 'up' && c.position?.x === p.x && c.position?.y === p.y)
         ?? all.find(c => c.position?.x === p.x && c.position?.y === p.y);
 }
@@ -70,6 +72,10 @@ export function inspectCorner(pos: CombatPos | undefined, width: number, height:
     const vertical = pos.y < height / 2 ? 'bottom' : 'top';
     const horizontal = pos.x < width / 2 ? 'right' : 'left';
     return `${vertical}-${horizontal}`;
+}
+
+export function isOnBoard(c: Pick<Combatant, 'status'>): boolean {
+    return c.status !== 'gone' && c.status !== 'fled';
 }
 
 export function turnOrderForStrip(state: CombatState): Combatant[] {

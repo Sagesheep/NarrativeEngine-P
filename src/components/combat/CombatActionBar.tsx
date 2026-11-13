@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
-import { Swords, Shield, Loader2, SkipForward, FastForward, Sparkles } from 'lucide-react';
-import { abilityCost, canAttackWith, checkAbility, currentActorId, currentTurn } from '@narrative/engine';
+import { Swords, Shield, Loader2, SkipForward, FastForward, Sparkles, Footprints, LogOut } from 'lucide-react';
+import { abilityCost, canAbandon, canAttackWith, checkAbility, checkFlee, currentActorId, currentTurn, usesMp } from '@narrative/engine';
 import type { TranslationKey } from '../../i18n/locales/en';
 import { useAppStore } from '../../store/useAppStore';
 import { normalizeCombatConfig } from '../../types';
@@ -17,6 +17,15 @@ const REASON_KEYS: Readonly<Record<string, TranslationKey>> = {
     'no target': 'combat.bar.noTarget',
     'the ability is recharging': 'combat.bar.recharging',
 };
+
+const FLEE_REASON_KEYS: Readonly<Record<string, TranslationKey>> = {
+    first_round: 'combat.bar.flee.firstRound',
+    not_on_edge: 'combat.bar.flee.notOnEdge',
+    started_off_edge: 'combat.bar.flee.startedOffEdge',
+    action_used: 'combat.board.actionUsed',
+};
+
+const EDGE_REASONS: ReadonlySet<string> = new Set(['not_on_edge', 'started_off_edge']);
 
 function Vitals({ c, moveLeft, label }: { c: Combatant; moveLeft: number | null; label: string }) {
     const { t } = useTranslation();
@@ -49,6 +58,7 @@ export function CombatActionBar({
     onSkip,
     aimingId = null,
     onAim,
+    onShowEdges,
 }: {
     session: CombatSession;
     busy: boolean;
@@ -58,6 +68,7 @@ export function CombatActionBar({
     onSkip: () => void;
     aimingId?: string | null;
     onAim?: (abilityId: string | null) => void;
+    onShowEdges?: () => void;
 }) {
     const { t } = useTranslation();
     const state = session.state;
@@ -66,6 +77,7 @@ export function CombatActionBar({
     const shown = player ?? playerCharacter(state);
     const turn = player ? currentTurn(state) : null;
     const actionLeft = !!turn && canAttackWith(turn);
+    const flee = player && turn ? checkFlee(state, player.id, turn) : null;
     const label = useAppStore(s => normalizeCombatConfig(s.context?.combatConfig).resourceLabel);
     const engineTurn = state.outcome === null && isEngineTurn(state);
     const actingId = currentActorId(state);
@@ -78,8 +90,11 @@ export function CombatActionBar({
     const kit = useMemo(() => (player?.kit ?? []).slice(0, 9).map((ability, index) => {
         const check = checkAbility(state, player!.id, ability.id);
         const reason = check.ok ? null : t(REASON_KEYS[check.reason ?? ''] ?? 'combat.bar.unavailable', { label });
-        return { ability, index, cost: abilityCost(ability), reason };
+        const recharge = player && !usesMp(player) ? Math.max(0, (player.cooldowns?.[ability.id] ?? 0) - state.round) : null;
+        return { ability, index, cost: abilityCost(ability), reason, recharge };
     }), [state, player, t, label]);
+    const fleeReason = flee && !flee.ok ? t(FLEE_REASON_KEYS[flee.reason ?? ''] ?? 'combat.bar.unavailable') : null;
+    const abandonable = !!player && canAbandon(state, player.id);
     const chooseAbility = (index: number) => {
         const entry = kit[index];
         if (!canAct || !entry || !onAim) return;
@@ -103,6 +118,18 @@ export function CombatActionBar({
     const defend = () => {
         if (!canAct || !player || !actionLeft) return;
         onAction({ type: 'defend', actorId: player.id });
+    };
+    const doFlee = () => {
+        if (!canAct || !player || !flee) return;
+        if (flee.ok) {
+            onAction({ type: 'flee', actorId: player.id });
+            return;
+        }
+        if (EDGE_REASONS.has(flee.reason ?? '')) onShowEdges?.();
+    };
+    const abandon = () => {
+        if (!canAct || !player || !abandonable) return;
+        if (window.confirm(t('combat.bar.abandonConfirm'))) onAction({ type: 'abandon', actorId: player.id });
     };
     const endTurn = () => {
         if (!canAct || !player) return;
@@ -148,7 +175,29 @@ export function CombatActionBar({
                     >
                         <Shield size={12} /> {t('combat.panel.defend')}
                     </button>
-                    {kit.map(({ ability, index, cost, reason }) => (
+                    <button
+                        type="button"
+                        data-testid="combat-flee"
+                        onClick={doFlee}
+                        aria-disabled={!flee?.ok}
+                        title={fleeReason ?? t(flee?.contested ? 'combat.bar.fleeContested' : 'combat.bar.fleeHelp')}
+                        className={`${buttonClass} border-border text-text-primary hover:bg-void-lighter ${flee?.ok ? '' : 'opacity-40'}`}
+                    >
+                        <Footprints size={12} /> {t('combat.bar.flee')}
+                        <span className="sr-only">{fleeReason ?? ''}</span>
+                    </button>
+                    {abandonable && (
+                        <button
+                            type="button"
+                            data-testid="combat-abandon"
+                            onClick={abandon}
+                            title={t('combat.bar.abandonHelp')}
+                            className={`${buttonClass} border-border text-text-primary hover:bg-void-lighter`}
+                        >
+                            <LogOut size={12} /> {t('combat.bar.abandon')}
+                        </button>
+                    )}
+                    {kit.map(({ ability, index, cost, reason, recharge }) => (
                         <button
                             key={ability.id}
                             type="button"
@@ -157,11 +206,11 @@ export function CombatActionBar({
                             disabled={!!reason}
                             aria-pressed={aimingId === ability.id}
                             aria-keyshortcuts={String(index + 1)}
-                            title={reason ?? t('combat.bar.abilityHelp', { name: ability.name, cost, label, key: index + 1 })}
+                            title={reason ?? (recharge === null ? t('combat.bar.abilityHelp', { name: ability.name, cost, label, key: index + 1 }) : t('combat.bar.abilityHelpCooldown', { name: ability.name, key: index + 1 }))}
                             className={`${buttonClass} border-terminal/50 text-terminal hover:bg-terminal/10 ${aimingId === ability.id ? 'bg-terminal/20' : ''}`}
                         >
                             <Sparkles size={12} /> <span className="max-w-[8rem] truncate normal-case">{ability.name}</span>
-                            <span className="text-text-dim">{cost}</span>
+                            <span className="text-text-dim">{recharge === null ? cost : recharge > 0 ? t('combat.bar.cooldownShort', { rounds: recharge }) : ''}</span>
                             <span className="sr-only">{reason ?? ''}</span>
                         </button>
                     ))}
