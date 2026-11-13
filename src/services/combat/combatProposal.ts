@@ -1,3 +1,4 @@
+import { normalizeMapSpec } from '@narrative/engine';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import {
     COMBAT_ARCHETYPES, COMBAT_TIERS, MAX_PROPOSED_COMBATANTS, PROPOSED_ATTACK_STYLES, PROPOSED_COMBATANT_SIDES,
@@ -9,7 +10,6 @@ import type {
 
 const NAME_MAX = 60;
 const TEXT_MAX = 160;
-const MAP_SIZES = ['small', 'medium', 'large'] as const;
 
 export type ParsedCombatArgs = {
     combatants: ProposedCombatant[];
@@ -76,22 +76,10 @@ function resolveNpcId(name: string | undefined, ledger: readonly NPCEntry[]): st
 function parseMap(raw: unknown): CombatMapSpec | undefined {
     const rec = asRecord(parseMaybeJson(raw));
     if (!rec) return undefined;
-    const map: CombatMapSpec = {};
-    if (typeof rec.size === 'string' && (MAP_SIZES as readonly string[]).includes(rec.size.toLowerCase())) {
-        map.size = rec.size.toLowerCase() as CombatMapSpec['size'];
-    }
-    const theme = cleanText(rec.theme, TEXT_MAX);
-    if (theme) map.theme = theme;
     const features = parseMaybeJson(rec.features);
-    if (Array.isArray(features)) {
-        const parsed = features
-            .map(f => asRecord(f))
-            .filter((f): f is Record<string, unknown> => !!f)
-            .map(f => ({ kind: cleanText(f.kind, 40), where: cleanText(f.where, 60) }))
-            .filter(f => f.kind)
-            .slice(0, 12);
-        if (parsed.length > 0) map.features = parsed;
-    }
+    const labels = parseMaybeJson(rec.labels);
+    const map: CombatMapSpec = normalizeMapSpec({ ...rec, features, labels });
+    delete map.size;
     return Object.keys(map).length > 0 ? map : undefined;
 }
 

@@ -59,7 +59,7 @@ describe('start_combat argument parsing', () => {
         expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(result.value.combatants).toEqual([{ name: 'Ogre', side: 'enemy', tier: 'elite' }]);
-        expect(result.value.map).toEqual({ size: 'large', theme: 'cave', features: [{ kind: 'wall', where: 'north edge' }] });
+        expect(result.value.map).toEqual({ place: 'cave, wall' });
     });
 
     it('caps the roster at 12', () => {

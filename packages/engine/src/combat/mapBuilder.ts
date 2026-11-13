@@ -1,6 +1,9 @@
 import { createRng } from './rng';
-import { TILE_KINDS, inBounds, isWalkable, isWalkableTile, neighbours, speedOf } from './grid';
-import type { CombatState, Grid, MapSize, MapSpec, Pos, Rng, Side, Tile } from './types';
+import { TILE_KINDS, inBounds, isFullyConnected, isWalkable, isWalkableTile, neighbours, speedOf } from './grid';
+import { AREA_DEFINITIONS, AREA_GENERATORS, AREA_TYPES, Canvas, DEFAULT_HAZARD_LABELS, SPAWN_COLUMNS, bandCounts } from './areas/index';
+import { clamp, pickOne } from './areas/canvas';
+import { defaultLabels, normalizeLabels, resolveMapSpec } from './mapSpec';
+import type { AreaType, CombatState, Grid, HazardKind, MapSize, MapSpec, Pos, ResolvedMapSpec, Rng, Side, TerrainLabels, Tile } from './types';
 
 export const MAP_SIZES: Readonly<Record<MapSize, { width: number; height: number }>> = {
     small: { width: 10, height: 8 },
@@ -8,253 +11,192 @@ export const MAP_SIZES: Readonly<Record<MapSize, { width: number; height: number
     large: { width: 18, height: 14 },
 };
 
-export const SPAWN_COLUMNS = 2;
-export const MAX_MAP_FEATURES = 6;
-export const MAX_BLOCKED_SHARE = 0.25;
+export { SPAWN_COLUMNS, isFullyConnected };
 export const DEFAULT_HAZARD_TYPE = 'fire';
 
 const MIN_GRID_SIDE = 4;
 const MAX_GRID_SIDE = 40;
-
-const KIND_PATTERNS: ReadonlyArray<[Exclude<Tile, 'floor'>, RegExp]> = [
-    ['hazard', /\b(hazards?|fires?|flames?|lava|magma|acid|poison|toxic|spikes?|traps?|embers?|burning|electri\w*|caustic|brazier)\b/],
-    ['wall', /\b(walls?|cliffs?|barricades?|fences?|palisades?|ruins?)\b/],
-    ['cover', /\b(cover|crates?|boulders?|rocks?|pillars?|columns?|trees?|carts?|wagons?|barrels?|tables?|statues?|cars?|debris|sandbags?)\b/],
-    ['difficult', /\b(difficult|mud|rubble|water|shallows?|bushes|brush|undergrowth|snow|ice|swamp|marsh|sand|scree|thicket|bog)\b/],
-];
-
-const HAZARD_TYPES: ReadonlyArray<[string, RegExp]> = [
-    ['fire', /\b(fires?|flames?|lava|magma|embers?|burning|brazier)\b/],
-    ['acid', /\b(acid|caustic)\b/],
-    ['poison', /\b(poison|toxic|venom)\b/],
-    ['lightning', /\b(electri\w*|lightning|sparks?)\b/],
-    ['piercing', /\b(spikes?|traps?|thorns?)\b/],
-    ['cold', /\b(cold|frost|freezing)\b/],
-];
-
-type ParsedSpec = { size: MapSize; theme?: string; features: Array<{ tile: Exclude<Tile, 'floor'>; kind: string; where: string }> };
+const MAX_HAZARD_TILES = 15;
+const MIN_HAZARD_TILES = 4;
 
 function asRecord(raw: unknown): Record<string, unknown> | null {
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
-}
-
-export function tileForKind(kind: string): Exclude<Tile, 'floor'> | null {
-    const lower = kind.trim().toLowerCase();
-    if (lower === 'wall' || lower === 'cover' || lower === 'difficult' || lower === 'hazard') return lower;
-    for (const [tile, re] of KIND_PATTERNS) if (re.test(lower)) return tile;
-    return null;
 }
 
 export function normalizeMapSize(raw: unknown): MapSize {
     return raw === 'small' || raw === 'medium' || raw === 'large' ? raw : 'medium';
 }
 
-function parseSpec(raw: unknown): ParsedSpec {
-    const rec = asRecord(raw);
-    if (!rec) return { size: 'medium', features: [] };
-    const theme = typeof rec.theme === 'string' && rec.theme.trim() ? rec.theme.trim().slice(0, 160) : undefined;
-    const list = Array.isArray(rec.features) ? rec.features : [];
-    const features: ParsedSpec['features'] = [];
-    for (const item of list) {
-        const f = asRecord(item);
-        if (!f || typeof f.kind !== 'string') continue;
-        const tile = tileForKind(f.kind);
-        if (!tile) continue;
-        features.push({ tile, kind: f.kind.toLowerCase(), where: typeof f.where === 'string' ? f.where.toLowerCase() : '' });
-        if (features.length >= MAX_MAP_FEATURES) break;
-    }
-    return { size: normalizeMapSize(rec.size), ...(theme ? { theme } : {}), features };
-}
-
-function hazardTypeFrom(text: string): string | null {
-    for (const [type, re] of HAZARD_TYPES) if (re.test(text)) return type;
-    return null;
-}
-
-type Region = (p: Pos) => boolean;
-
-function regionFor(where: string, width: number, height: number, rng: Rng): Region {
-    const north = /\bnorth/.test(where);
-    const south = /\bsouth/.test(where);
-    const east = /\beast/.test(where);
-    const west = /\bwest/.test(where);
-    const centre = /\b(centre|center|middle|central)\b/.test(where);
-    const corner = /\bcorners?\b/.test(where);
-    const edge = /\b(edges?|sides?|perimeter|border|rim)\b/.test(where);
-    const minX = SPAWN_COLUMNS;
-    const maxX = width - 1 - SPAWN_COLUMNS;
-    if (corner) {
-        const top = north || (!south && rng.next() < 0.5);
-        const left = west || (!east && rng.next() < 0.5);
-        return p => (left ? p.x <= minX + 2 : p.x >= maxX - 2) && (top ? p.y <= 2 : p.y >= height - 3);
-    }
-    if (edge) {
-        if (!north && !south && !east && !west) {
-            const top = rng.next() < 0.5;
-            return p => top ? p.y <= 1 : p.y >= height - 2;
-        }
-        return p => (!north || p.y <= 1) && (!south || p.y >= height - 2) && (!west || p.x <= minX + 1) && (!east || p.x >= maxX - 1);
-    }
-    if (north || south || east || west || centre) {
-        return p => {
-            if (north && p.y >= height / 3) return false;
-            if (south && p.y < (2 * height) / 3) return false;
-            if (west && p.x >= width / 3) return false;
-            if (east && p.x < (2 * width) / 3) return false;
-            if (centre && !north && !south && (p.y < height / 3 || p.y >= (2 * height) / 3)) return false;
-            if (centre && !east && !west && (p.x < width / 3 || p.x >= (2 * width) / 3)) return false;
-            return true;
-        };
-    }
-    return () => true;
-}
-
-type Builder = {
-    grid: Grid;
-    cap: number;
-    blocked: number;
-};
-
-function placeable(b: Builder, p: Pos): boolean {
-    return inBounds(b.grid, p) && p.x >= SPAWN_COLUMNS && p.x < b.grid.width - SPAWN_COLUMNS && b.grid.tiles[p.y * b.grid.width + p.x] === 'floor';
-}
-
-function setTile(b: Builder, p: Pos, tile: Tile, placed: number[]): boolean {
-    if (!placeable(b, p) || b.blocked >= b.cap) return false;
-    const idx = p.y * b.grid.width + p.x;
-    b.grid.tiles[idx] = tile;
-    b.blocked += 1;
-    placed.push(idx);
-    return true;
-}
-
-function candidates(b: Builder, region: Region): Pos[] {
-    const inRegion: Pos[] = [];
-    const any: Pos[] = [];
-    for (let y = 0; y < b.grid.height; y++) {
-        for (let x = 0; x < b.grid.width; x++) {
-            const p = { x, y };
-            if (!placeable(b, p)) continue;
-            any.push(p);
-            if (region(p)) inRegion.push(p);
-        }
-    }
-    return inRegion.length > 0 ? inRegion : any;
-}
-
-function pick<T>(list: readonly T[], rng: Rng): T | undefined {
-    if (list.length === 0) return undefined;
-    return list[rng.int(0, list.length - 1)];
-}
-
-const ORTHOGONAL: readonly Pos[] = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
-
-function growBlob(b: Builder, region: Region, tile: Tile, size: number, rng: Rng, placed: number[]): void {
-    const start = pick(candidates(b, region), rng);
-    if (!start || !setTile(b, start, tile, placed)) return;
-    const blob: Pos[] = [start];
-    while (blob.length < size) {
-        const frontier: Pos[] = [];
-        for (const cell of blob) {
-            for (const d of ORTHOGONAL) {
-                const p = { x: cell.x + d.x, y: cell.y + d.y };
-                if (placeable(b, p) && !frontier.some(f => f.x === p.x && f.y === p.y)) frontier.push(p);
-            }
-        }
-        const preferred = frontier.filter(region);
-        const next = pick(preferred.length > 0 ? preferred : frontier, rng);
-        if (!next || !setTile(b, next, tile, placed)) return;
-        blob.push(next);
-    }
-}
-
-function placeWall(b: Builder, region: Region, rng: Rng, placed: number[]): void {
-    const runs = rng.int(1, 2);
-    for (let r = 0; r < runs; r++) {
-        const start = pick(candidates(b, region), rng);
-        if (!start) return;
-        const length = rng.int(3, 5);
-        const horizontal = rng.next() < 0.5;
-        const dir = horizontal ? { x: rng.next() < 0.5 ? 1 : -1, y: 0 } : { x: 0, y: rng.next() < 0.5 ? 1 : -1 };
-        for (let i = 0; i < length; i++) {
-            if (!setTile(b, { x: start.x + dir.x * i, y: start.y + dir.y * i }, 'wall', placed)) break;
-        }
-    }
-}
-
-function placeCover(b: Builder, region: Region, rng: Rng, placed: number[]): void {
-    const clusters = rng.int(2, 3);
-    for (let c = 0; c < clusters; c++) {
-        const start = pick(candidates(b, region), rng);
-        if (!start || !setTile(b, start, 'cover', placed)) return;
-        if (rng.int(1, 2) === 2) {
-            const options = ORTHOGONAL.map(d => ({ x: start.x + d.x, y: start.y + d.y })).filter(p => placeable(b, p));
-            const second = pick(options, rng);
-            if (second) setTile(b, second, 'cover', placed);
-        }
-    }
-}
-
-function placeFeature(b: Builder, tile: Exclude<Tile, 'floor'>, where: string, rng: Rng): number[] {
-    const placed: number[] = [];
-    const region = regionFor(where, b.grid.width, b.grid.height, rng);
-    if (tile === 'wall') placeWall(b, region, rng, placed);
-    else if (tile === 'cover') placeCover(b, region, rng, placed);
-    else if (tile === 'difficult') growBlob(b, region, 'difficult', rng.int(4, 8), rng, placed);
-    else growBlob(b, region, 'hazard', rng.int(2, 4), rng, placed);
-    return placed;
-}
-
-export function isFullyConnected(grid: Grid): boolean {
-    let start: Pos | null = null;
-    let walkable = 0;
+export function hasHazardFreeRoute(grid: Grid): boolean {
+    const w = grid.width;
+    const seen = new Set<number>();
+    const stack: Pos[] = [];
     for (let y = 0; y < grid.height; y++) {
-        for (let x = 0; x < grid.width; x++) {
-            if (isWalkableTile(grid.tiles[y * grid.width + x])) {
-                walkable++;
-                if (!start) start = { x, y };
-            }
+        for (let x = 0; x < Math.min(SPAWN_COLUMNS, w); x++) {
+            const t = grid.tiles[y * w + x];
+            if (!isWalkableTile(t) || t === 'hazard') continue;
+            seen.add(y * w + x);
+            stack.push({ x, y });
         }
     }
-    if (!start) return false;
-    const seen = new Set<number>([start.y * grid.width + start.x]);
-    const stack: Pos[] = [start];
     while (stack.length > 0) {
         const here = stack.pop() as Pos;
+        if (here.x >= w - SPAWN_COLUMNS) return true;
         for (const next of neighbours(grid, here)) {
-            const idx = next.y * grid.width + next.x;
-            if (seen.has(idx)) continue;
+            const idx = next.y * w + next.x;
+            if (seen.has(idx) || grid.tiles[idx] === 'hazard') continue;
             seen.add(idx);
             stack.push(next);
         }
     }
-    return seen.size === walkable;
+    return false;
 }
 
-export function openArena(size: MapSize = 'medium'): Grid {
-    const { width, height } = MAP_SIZES[size];
-    return { width, height, tiles: new Array<Tile>(width * height).fill('floor') };
+function hazardsClearOfSpawns(grid: Grid): boolean {
+    for (let i = 0; i < grid.tiles.length; i++) {
+        if (grid.tiles[i] !== 'hazard') continue;
+        const x = i % grid.width;
+        if (x <= SPAWN_COLUMNS || x >= grid.width - SPAWN_COLUMNS - 1) return false;
+    }
+    return true;
+}
+
+function spawnColumnsClear(grid: Grid): boolean {
+    for (let y = 0; y < grid.height; y++) {
+        for (let x = 0; x < grid.width; x++) {
+            if (x >= SPAWN_COLUMNS && x < grid.width - SPAWN_COLUMNS) continue;
+            if (grid.tiles[y * grid.width + x] !== 'floor') return false;
+        }
+    }
+    return true;
+}
+
+export function isPlayableMap(grid: Grid): boolean {
+    return spawnColumnsClear(grid) && isFullyConnected(grid) && hasHazardFreeRoute(grid) && hazardsClearOfSpawns(grid);
+}
+
+function placeHazards(c: Canvas, area: AreaType, maxCount: number, rng: Rng): void {
+    const total = clamp(Math.round(Math.min(maxCount * 0.35, c.innerWidth * c.height * 0.06)), MIN_HAZARD_TILES, MAX_HAZARD_TILES);
+    const patches = total >= 9 ? rng.int(2, 3) : 2;
+    const sizes: number[] = [];
+    let left = total;
+    for (let i = 0; i < patches; i++) {
+        const share = i === patches - 1 ? left : Math.round(left / (patches - i));
+        sizes.push(clamp(share, 2, 5));
+        left -= sizes[i];
+    }
+    const lo = c.x0 + 1;
+    const hi = c.x1 - 1;
+    const allowed = (p: Pos) => p.x >= lo && p.x <= hi && c.free(p.x, p.y);
+    for (const size of sizes) {
+        for (let attempt = 0; attempt < 12; attempt++) {
+            const seeds = c.floorCells(p => allowed(p) && c.neighbourCount(p.x, p.y, 'hazard', false) === 0);
+            const wet = area === 'wetland' ? seeds.filter(p => c.neighbourCount(p.x, p.y, 'difficult', false) >= 2) : [];
+            const start = pickOne(wet.length > 0 ? wet : seeds, rng);
+            if (!start) return;
+            const cells = c.blob(start, size, rng, allowed);
+            if (cells.length < 2) continue;
+            c.place(cells, 'hazard', 'hazard');
+            if (hasHazardFreeRoute(c.grid())) break;
+            c.removePiece(c.pieces.length - 1);
+        }
+    }
+}
+
+function lastIndex(c: Canvas, kind: 'optional' | 'structural'): number {
+    for (let i = c.pieces.length - 1; i >= 0; i--) if (c.pieces[i].kind === kind) return i;
+    return -1;
+}
+
+function trimOne(c: Canvas, rows: readonly [number, number]): boolean {
+    const inRows = (idx: number) => {
+        const y = Math.floor(idx / c.width);
+        return y >= rows[0] && y <= rows[1];
+    };
+    for (let i = c.pieces.length - 1; i >= 0; i--) {
+        const piece = c.pieces[i];
+        if (piece.kind !== 'optional') continue;
+        for (let k = piece.cells.length - 1; k >= 0; k--) {
+            if (!inRows(piece.cells[k])) continue;
+            c.tiles[piece.cells[k]] = 'floor';
+            piece.cells.splice(k, 1);
+            if (piece.cells.length === 0) c.pieces.splice(i, 1);
+            return true;
+        }
+    }
+    for (let i = c.pieces.length - 1; i >= 0; i--) {
+        const piece = c.pieces[i];
+        if (piece.kind !== 'structural') continue;
+        for (let k = piece.cells.length - 1; k >= 0; k--) {
+            const idx = piece.cells[k];
+            if (!inRows(idx)) continue;
+            const p = c.posOf(idx);
+            if (c.neighbourCount(p.x, p.y, 'floor', false) === 0) continue;
+            c.tiles[idx] = 'floor';
+            piece.cells.splice(k, 1);
+            if (piece.cells.length === 0) c.pieces.splice(i, 1);
+            return true;
+        }
+    }
+    return false;
+}
+
+function topUpDifficult(c: Canvas, rows: readonly [number, number], rng: Rng): boolean {
+    const inRows = (p: Pos) => p.y >= rows[0] && p.y <= rows[1];
+    const near = c.floorCells(p => inRows(p) && c.neighbourCount(p.x, p.y, 'difficult', false) > 0);
+    const spot = pickOne(near.length > 0 ? near : c.floorCells(inRows), rng);
+    return !!spot && c.place([spot], 'difficult', 'optional') > 0;
+}
+
+function enforceBand(c: Canvas, area: AreaType, spec: ResolvedMapSpec, rng: Rng): void {
+    const { min, max, rows } = bandCounts(area, spec.density, c.width, c.height);
+    for (let guard = 0; guard < 600 && c.count(rows) > max; guard++) if (!trimOne(c, rows)) break;
+    for (let guard = 0; guard < 40 && c.count(rows) < min; guard++) AREA_DEFINITIONS[area].extra(c, rng);
+    for (let guard = 0; guard < 600 && c.count(rows) < min; guard++) if (!topUpDifficult(c, rows, rng)) break;
+    for (let guard = 0; guard < 600 && c.count(rows) > max; guard++) if (!trimOne(c, rows)) break;
+}
+
+function buildArea(area: AreaType, spec: ResolvedMapSpec, rng: Rng): Grid | null {
+    const { width, height } = MAP_SIZES[spec.size];
+    const c = Canvas.from(AREA_GENERATORS[area](width, height, spec.density, rng));
+    while (!c.connected()) {
+        let idx = lastIndex(c, 'optional');
+        if (idx < 0) idx = lastIndex(c, 'structural');
+        if (idx < 0) return null;
+        c.removePiece(idx);
+    }
+    if (spec.hazard !== 'none') placeHazards(c, area, bandCounts(area, spec.density, width, height).max, rng);
+    enforceBand(c, area, spec, rng);
+    const grid: Grid = {
+        width,
+        height,
+        tiles: [...c.tiles],
+        area,
+        labels: { ...spec.labels },
+        ...(spec.hazard !== 'none' && c.tiles.includes('hazard') ? { hazardType: spec.hazard } : {}),
+    };
+    return isPlayableMap(grid) ? grid : null;
+}
+
+export function openArena(size: MapSize = 'medium', labels?: TerrainLabels): Grid {
+    const { width, height } = MAP_SIZES[normalizeMapSize(size)];
+    return { width, height, tiles: new Array<Tile>(width * height).fill('floor'), area: 'open', labels: { ...defaultLabels('open'), ...(labels ?? {}) } };
+}
+
+export function generateMap(spec: ResolvedMapSpec, rng: Rng): Grid {
+    try {
+        const built = buildArea(spec.area, spec, rng);
+        if (built) return built;
+        const fallback = buildArea('open', { ...spec, area: 'open' }, rng);
+        if (fallback) return fallback;
+    } catch (e) {
+        void e;
+    }
+    return openArena(spec.size, spec.labels);
 }
 
 export function buildTerrain(spec: MapSpec | unknown, rng: Rng): Grid {
-    const parsed = parseSpec(spec);
-    const grid = openArena(parsed.size);
-    if (parsed.theme) grid.theme = parsed.theme;
-    const builder: Builder = { grid, cap: Math.floor(grid.width * grid.height * MAX_BLOCKED_SHARE), blocked: 0 };
-    const placed: Array<{ tile: Tile; kind: string; cells: number[] }> = [];
-    for (const feature of parsed.features) {
-        const cells = placeFeature(builder, feature.tile, feature.where, rng);
-        if (cells.length > 0) placed.push({ tile: feature.tile, kind: feature.kind, cells });
-    }
-    while (!isFullyConnected(grid) && placed.length > 0) {
-        const last = placed.pop() as { cells: number[] };
-        for (const idx of last.cells) grid.tiles[idx] = 'floor';
-    }
-    if (grid.tiles.includes('hazard')) {
-        const fromKinds = placed.filter(p => p.tile === 'hazard').map(p => hazardTypeFrom(p.kind)).find(Boolean);
-        grid.hazardType = fromKinds ?? hazardTypeFrom((parsed.theme ?? '').toLowerCase()) ?? DEFAULT_HAZARD_TYPE;
-    }
-    return grid;
+    return generateMap(resolveMapSpec(spec), rng);
 }
 
 export type SpawnEntry = { id: string; side: Side };
@@ -370,10 +312,23 @@ export function isValidGrid(raw: unknown): raw is Grid {
     return tiles.every(t => (TILE_KINDS as readonly unknown[]).includes(t));
 }
 
+function hazardLabelFor(hazardType: unknown): string {
+    if (typeof hazardType !== 'string' || !hazardType.trim()) return DEFAULT_HAZARD_LABELS.none;
+    const known = DEFAULT_HAZARD_LABELS[hazardType as HazardKind] as string | undefined;
+    return known ?? (normalizeLabels({ hazard: hazardType })?.hazard || DEFAULT_HAZARD_LABELS.none);
+}
+
+export function withMapLabels(grid: Grid): Grid {
+    const area: AreaType = (AREA_TYPES as readonly unknown[]).includes(grid.area) ? grid.area as AreaType : 'open';
+    const labels = { ...defaultLabels(area), hazard: hazardLabelFor(grid.hazardType), ...(normalizeLabels(grid.labels) ?? {}) };
+    const complete = grid.area === area && (['wall', 'cover', 'difficult', 'hazard'] as const).every(k => grid.labels?.[k] === labels[k]);
+    return complete ? grid : { ...grid, area, labels };
+}
+
 export function ensureGrid(state: CombatState): CombatState {
     const validGrid = isValidGrid(state.grid);
-    const grid = validGrid ? state.grid as Grid : openArena('medium');
-    let changed = !validGrid;
+    const grid = validGrid ? withMapLabels(state.grid as Grid) : openArena('medium');
+    let changed = !validGrid || grid !== state.grid;
     const ids = [...state.order, ...Object.keys(state.combatants).filter(id => !state.order.includes(id))];
     const kept: Pos[] = [];
     const missing: SpawnEntry[] = [];

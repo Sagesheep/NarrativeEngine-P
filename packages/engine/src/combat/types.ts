@@ -43,15 +43,46 @@ export type AttackRange = 'close' | 'reach' | 'ranged';
 
 export type Tile = 'floor' | 'wall' | 'cover' | 'difficult' | 'hazard';
 
-export type Grid = { width: number; height: number; tiles: Tile[]; theme?: string; hazardType?: string };
+export type AreaType = 'open' | 'scattered' | 'room' | 'rows' | 'corridors'
+    | 'cavern' | 'street' | 'ledge' | 'ruins' | 'wetland';
+
+export type MapDensity = 'sparse' | 'normal' | 'dense';
+
+export type HazardKind = 'none' | 'fire' | 'deep_water' | 'electric' | 'toxic' | 'pit';
+
+export type TerrainLabels = { wall?: string; cover?: string; difficult?: string; hazard?: string };
+
+export type Grid = {
+    width: number;
+    height: number;
+    tiles: Tile[];
+    theme?: string;
+    hazardType?: string;
+    area?: AreaType;
+    labels?: TerrainLabels;
+};
 
 export type Pos = { x: number; y: number };
 
 export type MapSize = 'small' | 'medium' | 'large';
 
-export type MapFeatureSpec = { kind: string; where: string };
+export type MapSpec = {
+    area?: AreaType;
+    density?: MapDensity;
+    hazard?: HazardKind;
+    labels?: TerrainLabels;
+    size?: MapSize;
+    place?: string;
+};
 
-export type MapSpec = { size?: MapSize; theme?: string; features?: MapFeatureSpec[] };
+export type ResolvedMapSpec = {
+    area: AreaType;
+    density: MapDensity;
+    hazard: HazardKind;
+    labels: Required<TerrainLabels>;
+    size: MapSize;
+    place?: string;
+};
 
 export type TurnState = { actorId: string; moveLeft: number; actionUsed: boolean };
 

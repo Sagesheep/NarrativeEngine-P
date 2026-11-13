@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
 import packageJson from './package.json'
+import { combatTilesPlugin } from './vite-plugins/combatTiles'
 
 // Absolute, forward-slashed glob for a folder directly under the project root.
 // The watcher matches absolute paths, so root-anchored globs are the only way
@@ -11,7 +12,7 @@ const projectRoot = fileURLToPath(new URL('.', import.meta.url)).replace(/\\/g, 
 const rootGlob = (dir: string) => `${projectRoot}/${dir}/**`
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), combatTilesPlugin(`${projectRoot}/public/assets/combat/tiles`)],
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
   },
@@ -52,7 +53,7 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
-      '/assets': {
+      '^/assets/(?!combat/)': {
         target: 'http://localhost:3001',
         changeOrigin: true,
       },

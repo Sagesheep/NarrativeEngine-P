@@ -66,6 +66,32 @@ export function neighbours(grid: Grid, p: Pos): Pos[] {
     return out;
 }
 
+export function isFullyConnected(grid: Grid): boolean {
+    let start: Pos | null = null;
+    let walkable = 0;
+    for (let y = 0; y < grid.height; y++) {
+        for (let x = 0; x < grid.width; x++) {
+            if (isWalkableTile(grid.tiles[y * grid.width + x])) {
+                walkable++;
+                if (!start) start = { x, y };
+            }
+        }
+    }
+    if (!start) return false;
+    const seen = new Set<number>([start.y * grid.width + start.x]);
+    const stack: Pos[] = [start];
+    while (stack.length > 0) {
+        const here = stack.pop() as Pos;
+        for (const next of neighbours(grid, here)) {
+            const idx = next.y * grid.width + next.x;
+            if (seen.has(idx)) continue;
+            seen.add(idx);
+            stack.push(next);
+        }
+    }
+    return seen.size === walkable;
+}
+
 export function traceLine(a: Pos, b: Pos): Pos[][] {
     const steps: Pos[][] = [[{ x: a.x, y: a.y }]];
     const dx = b.x - a.x;

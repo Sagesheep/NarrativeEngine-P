@@ -17,6 +17,7 @@ import type {
 } from '../../types';
 import { groupEventsByTurn, hpBandLabel, isGroupComplete, turnLines } from './combatEvents';
 import { compendiumFor, type CompendiumLookupState } from './compendiumLookup';
+import { resolveCombatMap } from './combatMap';
 import { queueCombatNarration, waitForCombatNarration } from './combatNarration';
 import { hasEnemy } from './combatProposal';
 import { makeCombatNote, COMBAT_DECLINED_TEXT } from './combatTurnNotes';
@@ -240,11 +241,12 @@ export async function startFromProposal(proposal: CombatProposal, seed?: number)
         const config = normalizeCombatConfig(store.context.combatConfig);
         const fightSeed = seed ?? Math.floor(Math.random() * 0xffffffff);
         const pc = buildPcCombatant(pcInput);
+        const map = resolveCombatMap(proposal, store);
         const created = createCombat({
             id: uid(),
             combatants: buildCombatantSpecs(proposal.combatants, store),
             ...(config.mookJitterRange !== undefined ? { jitterRange: config.mookJitterRange } : {}),
-            ...(proposal.map ? { map: proposal.map } : {}),
+            map,
             mapSeed: proposal.mapSeed ?? newMapSeed(),
         }, pc, fightSeed);
         const session: CombatSession = {
@@ -254,7 +256,7 @@ export async function startFromProposal(proposal: CombatProposal, seed?: number)
             postedThroughSeq: 0,
             startedAtMessageId: proposal.messageId,
             reason: proposal.reason,
-            ...(proposal.map ? { map: proposal.map } : {}),
+            map,
         };
         commitSession(session);
         store.setCombatProposal(null);

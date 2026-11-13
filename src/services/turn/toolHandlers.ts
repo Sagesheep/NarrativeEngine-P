@@ -174,17 +174,30 @@ const START_COMBAT_TOOL = {
                 },
                 map: {
                     type: 'object' as const,
-                    description: 'Optional rough layout.',
+                    description: 'Where the fight happens. Choose the closest area type; the engine builds the map. Name what the obstacles are in labels. Do not describe positions, sizes or layout.',
                     properties: {
-                        size: { type: 'string' as const, enum: ['small', 'medium', 'large'] },
-                        theme: { type: 'string' as const },
-                        features: {
-                            type: 'array' as const,
-                            items: {
-                                type: 'object' as const,
-                                properties: { kind: { type: 'string' as const }, where: { type: 'string' as const } },
+                        area: {
+                            type: 'string' as const,
+                            enum: ['open', 'scattered', 'room', 'rows', 'corridors', 'cavern', 'street', 'ledge', 'ruins', 'wetland'],
+                            description:
+                                'open: field, plaza, rooftop, arena. scattered: forest, graveyard, junkyard. room: tavern, hall, nightclub, throne room. ' +
+                                'rows: warehouse, server room, library, market. corridors: ship, dungeon, sewer, bunker. cavern: cave, mine, grotto. ' +
+                                'street: alley, road, canal side. ledge: mountain pass, rampart, bridge, catwalk. ruins: ruined town, collapsed temple, wreck. ' +
+                                'wetland: swamp, flooded cave, shoreline, ford.',
+                        },
+                        density: { type: 'string' as const, enum: ['sparse', 'normal', 'dense'], description: "Optional. How cluttered the place is. Default 'normal'." },
+                        hazard: { type: 'string' as const, enum: ['none', 'fire', 'deep_water', 'electric', 'toxic', 'pit'], description: "Optional. Default 'none'." },
+                        labels: {
+                            type: 'object' as const,
+                            description: 'Optional short names, a few words each, e.g. {"cover":"tombstones","difficult":"mud"}.',
+                            properties: {
+                                wall: { type: 'string' as const },
+                                cover: { type: 'string' as const },
+                                difficult: { type: 'string' as const },
+                                hazard: { type: 'string' as const },
                             },
                         },
+                        place: { type: 'string' as const, description: 'Optional, a few words, e.g. "server room", "forest road".' },
                     },
                 },
                 reason: { type: 'string' as const, description: 'One line shown to the player, e.g. "The bandits rush you from the treeline."' },

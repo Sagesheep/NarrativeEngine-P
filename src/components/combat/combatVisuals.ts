@@ -1,6 +1,6 @@
 import { canTarget, checkAttack } from '@narrative/engine';
 import { hpBandLabel } from '../../services/combat/combatEvents';
-import type { CombatPos, CombatState, CombatTile, Combatant } from '../../types';
+import type { CombatGrid, CombatPos, CombatState, CombatTile, Combatant } from '../../types';
 
 export const TILE_SIZE = 10;
 
@@ -12,7 +12,7 @@ export const TILE_FILL: Record<CombatTile, string> = {
     hazard: 'var(--combat-floor)',
 };
 
-export const LEGEND_TILES: readonly CombatTile[] = ['wall', 'cover', 'difficult', 'hazard'];
+export const LEGEND_TILES: readonly Exclude<CombatTile, 'floor'>[] = ['wall', 'cover', 'difficult', 'hazard'];
 
 export const BAND_KEY = {
     unhurt: 'combat.band.unhurt',
@@ -93,4 +93,10 @@ export function rememberLegendDismissed(): void {
     } catch {
         return;
     }
+}
+
+export function terrainLabel(grid: CombatGrid | undefined, tile: CombatTile): string | null {
+    if (!grid || tile === 'floor') return null;
+    const label = grid.labels?.[tile];
+    return typeof label === 'string' && label.trim() ? label.trim() : null;
 }

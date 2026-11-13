@@ -3,7 +3,8 @@ export type {
     CombatSheet, DerivedSheet, Rng,
     Side, Controller, CombatantStatus, DamageSpec, Combatant, CombatOutcome, CombatState,
     CombatAction, CombatEvent, TierBlock, CombatantSpec, CombatSpec, WeaponQuality, PcWeapon,
-    PcCombatantInput, AttackRange, Tile, Grid, Pos, MapSize, MapFeatureSpec, MapSpec, TurnState, TemplateOverlay,
+    PcCombatantInput, AttackRange, Tile, Grid, Pos, MapSize, MapSpec, TurnState, TemplateOverlay,
+    AreaType, MapDensity, HazardKind, TerrainLabels, ResolvedMapSpec,
 } from './types';
 export { createRng } from './rng';
 export { ABILITY_KEYS, TIER_LEVEL, abilityMod, proficiencyForLevel } from './abilities';
@@ -26,13 +27,23 @@ export type { HpBand, AttackCheck } from './resolve';
 export {
     TILE_KINDS, DEFAULT_SPEED, REACH_DISTANCE, RANGED_DISTANCE, HAZARD_AVOID_PENALTY, HALF_COVER_BONUS, THREE_QUARTER_COVER_BONUS,
     inBounds, tileAt, isWalkable, isWalkableTile, distance, samePos, canStep, traceLine, hasLineOfSight, coverBetween,
-    speedOf, rangeOf, sameTeam,
+    speedOf, rangeOf, sameTeam, isFullyConnected,
 } from './grid';
 export {
-    MAP_SIZES, SPAWN_COLUMNS, MAX_MAP_FEATURES, MAX_BLOCKED_SHARE, DEFAULT_HAZARD_TYPE,
-    tileForKind, normalizeMapSize, isFullyConnected, openArena, buildTerrain, placeCombatants, buildGrid,
-    buildMapFromSeed, isValidGrid, ensureGrid,
+    MAP_SIZES, SPAWN_COLUMNS, DEFAULT_HAZARD_TYPE,
+    normalizeMapSize, openArena, buildTerrain, generateMap, placeCombatants, buildGrid,
+    buildMapFromSeed, isValidGrid, ensureGrid, withMapLabels, hasHazardFreeRoute, isPlayableMap,
 } from './mapBuilder';
+export {
+    HAZARD_KINDS, MAP_SIZE_KEYS, LABEL_MAX, AREA_KEYWORDS, HAZARD_KEYWORDS, KEYWORD_COUNT,
+    normalizeMapSpec, normalizeLabels, cleanLabel, inferMapSpec, inferHazard, resolveMapSpec, mapSizeFor, defaultLabels,
+} from './mapSpec';
+export type { MapInference, ResolveOptions } from './mapSpec';
+export {
+    AREA_TYPES, MAP_DENSITIES, STRUCTURAL_AREAS, AREA_GENERATORS, DEFAULT_AREA_LABELS, DEFAULT_HAZARD_LABELS,
+    shareBand, measuredRows, bandCounts, terrainShare,
+} from './areas/index';
+export type { AreaGenerator, AreaLayout, BandCounts } from './areas/index';
 export type { SpawnEntry } from './mapBuilder';
 export { simulateFights } from './simulate';
 export type { SimulationResult, SimulationOptions } from './simulate';

@@ -1,9 +1,11 @@
-import type { Archetype, CombatEvent, CombatState, CombatTier } from '@narrative/engine';
+import type { Archetype, CombatEvent, CombatState, CombatTier, MapSpec } from '@narrative/engine';
 
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget, CombatSheet, DerivedSheet,
     Combatant, CombatState, CombatEvent, CombatAction, CombatOutcome, Side as CombatSide,
     Grid as CombatGrid, Pos as CombatPos, Tile as CombatTile, AttackRange, TemplateOverlay,
+    AreaType as CombatAreaType, MapDensity as CombatMapDensity, HazardKind as CombatHazardKind,
+    TerrainLabels as CombatTerrainLabels, ResolvedMapSpec as CombatResolvedMap,
 } from '@narrative/engine';
 
 export type CombatPartyControl = 'solo' | 'engine' | 'player';
@@ -44,8 +46,7 @@ export const PROPOSED_ATTACK_STYLES: readonly ProposedAttackStyle[] = ['melee', 
 
 export type CombatMapFeature = { kind: string; where: string };
 
-export type CombatMapSpec = {
-    size?: 'small' | 'medium' | 'large';
+export type CombatMapSpec = MapSpec & {
     theme?: string;
     features?: CombatMapFeature[];
 };

@@ -315,8 +315,8 @@ describe('tier tuning on the grid (1,000 seeded fights each)', () => {
     const tuningPc: PcCombatantInput = { name: 'PC', sheet, weapon: { quality: 'common', scalingStat: 'STR' } };
     const ranged = (n: number): CombatantSpec[] => enemies('grunt', n).map(e => ({ ...e, range: 'ranged' as const }));
     const maps: Array<[string, MapSpec]> = [
-        ['open arena', { size: 'medium' }],
-        ['scattered cover', { size: 'medium', features: [{ kind: 'cover', where: 'scattered' }, { kind: 'cover', where: 'scattered' }, { kind: 'cover', where: 'centre' }] }],
+        ['open arena', { size: 'medium', area: 'open', density: 'sparse' }],
+        ['scattered cover', { size: 'medium', area: 'scattered', density: 'normal' }],
     ];
     const cases: Array<[string, CombatantSpec[], number, number]> = [
         ['2 minions', enemies('minion', 2), 0.9, 1],

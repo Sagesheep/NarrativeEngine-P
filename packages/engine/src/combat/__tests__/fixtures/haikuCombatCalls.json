@@ -1,0 +1,241 @@
+[
+  {
+    "scene": 1,
+    "title": "Forest road bandit ambush",
+    "args": {
+      "combatants": [
+        {"name": "Bandit", "side": "enemy", "tier": "grunt", "archetype": "skirmisher", "species": "human", "attack": "melee"},
+        {"name": "Bandit", "side": "enemy", "tier": "grunt", "archetype": "skirmisher", "species": "human", "attack": "melee"},
+        {"name": "Bandit", "side": "enemy", "tier": "grunt", "archetype": "skirmisher", "species": "human", "attack": "ranged"}
+      ],
+      "map": {
+        "size": "medium",
+        "theme": "forest road beside an overturned merchant cart",
+        "features": [
+          {"kind": "overturned merchant cart", "where": "center of the road"},
+          {"kind": "trees", "where": "both edges of the road"}
+        ]
+      },
+      "reason": "Three bandits leap out of the trees to ambush you on the forest road."
+    }
+  },
+  {
+    "scene": 2,
+    "title": "Tavern brawl with Tomas",
+    "args": {
+      "combatants": [
+        {"name": "Thug", "side": "enemy", "tier": "grunt", "archetype": "brute", "species": "human", "attack": "melee"},
+        {"name": "Thug", "side": "enemy", "tier": "grunt", "archetype": "brute", "species": "human", "attack": "melee"},
+        {"name": "Thug Boss", "side": "enemy", "tier": "elite", "archetype": "brute", "species": "human", "attack": "melee"},
+        {"name": "Tomas", "side": "ally", "tier": "grunt", "species": "human", "npcName": "Tomas", "attack": "melee"}
+      ],
+      "map": {
+        "size": "small",
+        "theme": "crowded tavern common room",
+        "features": [
+          {"kind": "bar counter", "where": "along one wall"},
+          {"kind": "tables and chairs", "where": "scattered across the floor"},
+          {"kind": "staircase", "where": "back corner"}
+        ]
+      },
+      "reason": "A brawl erupts in the tavern as two thugs and their boss move in on you, and Tomas jumps in to help."
+    }
+  },
+  {
+    "scene": 3,
+    "title": "Flooded cave rat-king",
+    "args": {
+      "combatants": [
+        {"name": "Giant Rat", "side": "enemy", "tier": "minion", "species": "giant rat", "archetype": "skirmisher", "attack": "melee"},
+        {"name": "Giant Rat", "side": "enemy", "tier": "minion", "species": "giant rat", "archetype": "skirmisher", "attack": "melee"},
+        {"name": "Giant Rat", "side": "enemy", "tier": "minion", "species": "giant rat", "archetype": "skirmisher", "attack": "melee"},
+        {"name": "Giant Rat", "side": "enemy", "tier": "minion", "species": "giant rat", "archetype": "skirmisher", "attack": "melee"},
+        {"name": "Rat-King", "side": "enemy", "tier": "boss", "species": "rat", "archetype": "brute", "attack": "melee"}
+      ],
+      "map": {
+        "size": "large",
+        "theme": "flooded cave",
+        "features": [
+          {"kind": "deep water", "where": "across the middle of the floor"},
+          {"kind": "dry ledges", "where": "along the cave walls"}
+        ]
+      },
+      "reason": "A pack of giant rats and their huge rat-king swarm out of the flooded cave to attack you."
+    }
+  },
+  {
+    "scene": 4,
+    "title": "Castle rampart assault",
+    "args": {
+      "combatants": [
+        {"name": "Crossbowman", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "caster", "attack": "ranged"},
+        {"name": "Crossbowman", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "skirmisher", "attack": "ranged"},
+        {"name": "Knight", "side": "enemy", "tier": "elite", "species": "human", "archetype": "bulwark", "attack": "melee"}
+      ],
+      "map": {
+        "size": "medium",
+        "theme": "castle rampart walkway",
+        "features": [
+          {"kind": "crenellations", "where": "along the outer edge of the walkway"},
+          {"kind": "stairs", "where": "at each end of the rampart"}
+        ]
+      },
+      "reason": "Two crossbowmen open fire from behind the battlements while a knight advances along the rampart."
+    }
+  },
+  {
+    "scene": 5,
+    "title": "Graveyard necromancer and skeletons",
+    "args": {
+      "combatants": [
+        {"name": "Necromancer", "side": "enemy", "tier": "elite", "species": "human", "archetype": "caster", "attack": "ranged"},
+        {"name": "Skeleton", "side": "enemy", "tier": "grunt", "species": "skeleton", "archetype": "bulwark", "attack": "melee"},
+        {"name": "Skeleton", "side": "enemy", "tier": "grunt", "species": "skeleton", "archetype": "bulwark", "attack": "melee"},
+        {"name": "Skeleton", "side": "enemy", "tier": "grunt", "species": "skeleton", "archetype": "bulwark", "attack": "melee"},
+        {"name": "Skeleton", "side": "enemy", "tier": "grunt", "species": "skeleton", "archetype": "bulwark", "attack": "melee"}
+      ],
+      "map": {
+        "size": "medium",
+        "theme": "night graveyard",
+        "features": [
+          {"kind": "tombstones", "where": "scattered across the grounds"},
+          {"kind": "open crypt", "where": "at the far end of the graveyard"}
+        ]
+      },
+      "reason": "A necromancer raises four skeletons from the graves to attack you in the dead of night."
+    }
+  },
+  {
+    "scene": 6,
+    "title": "Wyvern on mountain pass",
+    "args": {
+      "combatants": [
+        {"name": "Wyvern", "side": "enemy", "tier": "elite", "species": "wyvern", "archetype": "brute", "attack": "melee"}
+      ],
+      "map": {
+        "size": "small",
+        "theme": "narrow mountain pass",
+        "features": [
+          {"kind": "sheer drop", "where": "along one side of the path"},
+          {"kind": "rock outcrop", "where": "above the path"}
+        ]
+      },
+      "reason": "A wyvern swoops down on you in the narrow mountain pass."
+    }
+  },
+  {
+    "scene": 7,
+    "title": "Server room security response",
+    "args": {
+      "combatants": [
+        {"name": "Corporate Guard", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "bulwark", "attack": "ranged"},
+        {"name": "Corporate Guard", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "bulwark", "attack": "ranged"},
+        {"name": "Corporate Guard", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "bulwark", "attack": "ranged"},
+        {"name": "Combat Drone", "side": "enemy", "tier": "elite", "species": "drone", "archetype": "skirmisher", "attack": "ranged"}
+      ],
+      "map": {
+        "size": "large",
+        "theme": "corporate server room",
+        "features": [
+          {"kind": "server racks", "where": "in long rows across the room"},
+          {"kind": "aisles", "where": "between the rows of racks"}
+        ]
+      },
+      "reason": "Corporate security closes in on you in the server room, with a combat drone overhead."
+    }
+  },
+  {
+    "scene": 8,
+    "title": "Neon alley gang shootout",
+    "args": {
+      "combatants": [
+        {"name": "Gang Shooter", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "skirmisher", "attack": "ranged"},
+        {"name": "Gang Shooter", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "skirmisher", "attack": "ranged"},
+        {"name": "Gang Shooter", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "skirmisher", "attack": "ranged"}
+      ],
+      "map": {
+        "size": "medium",
+        "theme": "neon-lit alley",
+        "features": [
+          {"kind": "dumpsters", "where": "along the alley walls"},
+          {"kind": "parked van", "where": "mid-alley"},
+          {"kind": "chain-link fence", "where": "at the far end"}
+        ]
+      },
+      "reason": "A gang opens fire on you in the neon-lit alley."
+    }
+  },
+  {
+    "scene": 9,
+    "title": "Rooftop duel with assassin",
+    "args": {
+      "combatants": [
+        {"name": "Cyber-Assassin", "side": "enemy", "tier": "elite", "species": "cyborg", "archetype": "assassin", "attack": "melee"}
+      ],
+      "reason": "A cyber-assassin drops onto the rain-slick rooftop to challenge you to a duel."
+    }
+  },
+  {
+    "scene": 10,
+    "title": "Nightclub brawl with bodyguard",
+    "args": {
+      "combatants": [
+        {"name": "Bouncer", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "brute", "attack": "melee"},
+        {"name": "Bouncer", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "brute", "attack": "melee"},
+        {"name": "Fixer's Bodyguard", "side": "enemy", "tier": "elite", "species": "human", "archetype": "bulwark", "attack": "melee"}
+      ],
+      "map": {
+        "size": "large",
+        "theme": "crowded nightclub",
+        "features": [
+          {"kind": "dance floor", "where": "center of the club"},
+          {"kind": "bar", "where": "along the far wall"},
+          {"kind": "exit doors", "where": "near the entrance"}
+        ]
+      },
+      "reason": "The bouncers and a fixer's bodyguard move in as the crowd scrambles for the exits."
+    }
+  },
+  {
+    "scene": 11,
+    "title": "Warehouse smuggler stand-off",
+    "args": {
+      "combatants": [
+        {"name": "Smuggler", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "skirmisher", "attack": "ranged"},
+        {"name": "Smuggler", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "skirmisher", "attack": "ranged"},
+        {"name": "Smuggler", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "brute", "attack": "melee"},
+        {"name": "Smuggler", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "brute", "attack": "melee"}
+      ],
+      "map": {
+        "size": "large",
+        "theme": "warehouse floor",
+        "features": [
+          {"kind": "shipping crates", "where": "stacked in rows"},
+          {"kind": "forklift", "where": "near the loading bay"},
+          {"kind": "leaking fuel puddle", "where": "in the open floor between the crates"}
+        ]
+      },
+      "reason": "Four armed smugglers draw on you in a tense stand-off among the shipping crates."
+    }
+  },
+  {
+    "scene": 12,
+    "title": "Starship corridor boarding action",
+    "args": {
+      "combatants": [
+        {"name": "Marine", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "skirmisher", "attack": "ranged"},
+        {"name": "Marine", "side": "enemy", "tier": "grunt", "species": "human", "archetype": "skirmisher", "attack": "ranged"},
+        {"name": "Heavy Trooper", "side": "enemy", "tier": "elite", "species": "human", "archetype": "bulwark", "attack": "melee"}
+      ],
+      "map": {
+        "size": "medium",
+        "theme": "starship corridor junction",
+        "features": [
+          {"kind": "bulkhead doors", "where": "at each branch of the junction"},
+          {"kind": "exposed plasma conduits", "where": "along the corridor walls"}
+        ]
+      },
+      "reason": "Boarding marines and a heavy trooper break into the corridor junction, rifles raised."
+    }
+  }
+]

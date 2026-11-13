@@ -179,7 +179,7 @@ describe('beat streaming', () => {
 describe('Phase 2 turn lines and beats (B4)', () => {
     function gridFight(): CombatSession {
         const pc = buildPcCombatant({ name: 'Kira', sheet });
-        const created = createCombat({ id: 'g1', combatants: [{ name: 'Bandit', side: 'enemy', tier: 'elite' }], map: { size: 'small', features: [{ kind: 'crates', where: 'centre' }] }, mapSeed: 2 }, pc, 21);
+        const created = createCombat({ id: 'g1', combatants: [{ name: 'Bandit', side: 'enemy', tier: 'elite' }], map: { size: 'small', area: 'scattered' }, mapSeed: 2 }, pc, 21);
         let state = created.state;
         const log: CombatEvent[] = [...created.events];
         const engine = runEngineTurns(state);
@@ -221,7 +221,7 @@ describe('Phase 2 turn lines and beats (B4)', () => {
     it('lists coarse positions in the roster and never coordinates or numbers', () => {
         const s = gridFight();
         const block = buildCombatBlock(s.state, s.log, { fromSeq: 1, toSeq: s.log[s.log.length - 1].seq });
-        expect(block).toMatch(/Bandit \(enemy\): (unhurt|hurt|badly hurt|down), (adjacent|close|at range|behind cover|out of sight)/);
+        expect(block).toMatch(/Bandit \(enemy\): (unhurt|hurt|badly hurt|down), (adjacent|close|at range|behind cover|behind the [a-z' -]+|out of sight)/);
         expect(block).not.toMatch(/\d+ squares?/);
         expect(block).not.toMatch(/Round \d/);
         expect(block).not.toMatch(/"x"|\(\d+, ?\d+\)/);

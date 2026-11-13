@@ -5,7 +5,8 @@ import {
     coverBetween, distance, hasLineOfSight, inBounds, isOccupied, pathCost, pathFromSearch, rangeOf, REACH_DISTANCE,
     RANGED_DISTANCE, searchMoves, destinations, samePos, speedOf, tileAt,
 } from './grid';
-import { buildMapFromSeed, DEFAULT_HAZARD_TYPE, placeCombatants } from './mapBuilder';
+import { buildMapFromSeed, DEFAULT_HAZARD_TYPE, openArena, placeCombatants } from './mapBuilder';
+import { resolveMapSpec } from './mapSpec';
 import type {
     AttackRange, CombatAction, CombatEvent, CombatOutcome, CombatSpec, CombatState, Combatant, Pos, Rng, Side, TurnState,
 } from './types';
@@ -126,7 +127,7 @@ function environmentStep(draft: Draft): void {
                 type: 'hazard',
                 targetId: c.id,
                 data: { damage, damageType, hpAfter: c.hp },
-                text: `${c.name} takes ${damage} ${damageType} damage from the hazard.`,
+                text: grid.labels?.hazard ? `${c.name} takes ${damage} damage from the ${grid.labels.hazard}.` : `${c.name} takes ${damage} ${damageType} damage from the hazard.`,
             });
             if (c.hp <= 0) {
                 c.status = 'down';
@@ -598,7 +599,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
         .map(c => c.id);
 
     const mapSeed = Number.isFinite(spec.mapSeed) ? (spec.mapSeed as number) >>> 0 : deriveMapSeed(seed);
-    const grid = buildMapFromSeed(spec.map, mapSeed);
+    const grid = spec.map ? buildMapFromSeed(resolveMapSpec(spec.map, { combatants: spec.combatants.length }), mapSeed) : openArena('medium');
     const positions = placeCombatants(grid, Object.values(combatants).map(c => ({ id: c.id, side: c.side })));
     for (const [id, pos] of Object.entries(positions)) combatants[id].position = pos;
 

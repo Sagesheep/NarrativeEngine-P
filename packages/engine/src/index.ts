@@ -42,9 +42,13 @@ export {
     TILE_KINDS, DEFAULT_SPEED, REACH_DISTANCE, RANGED_DISTANCE, HAZARD_AVOID_PENALTY, HALF_COVER_BONUS, THREE_QUARTER_COVER_BONUS,
     inBounds, tileAt, isWalkable, isWalkableTile, distance, samePos, canStep, traceLine, hasLineOfSight, coverBetween,
     speedOf, rangeOf, sameTeam,
-    MAP_SIZES, SPAWN_COLUMNS, MAX_MAP_FEATURES, MAX_BLOCKED_SHARE, DEFAULT_HAZARD_TYPE,
-    tileForKind, normalizeMapSize, isFullyConnected, openArena, buildTerrain, placeCombatants, buildGrid,
-    buildMapFromSeed, isValidGrid, ensureGrid,
+    MAP_SIZES, SPAWN_COLUMNS, DEFAULT_HAZARD_TYPE,
+    normalizeMapSize, isFullyConnected, openArena, buildTerrain, generateMap, placeCombatants, buildGrid,
+    buildMapFromSeed, isValidGrid, ensureGrid, withMapLabels, hasHazardFreeRoute, isPlayableMap,
+    HAZARD_KINDS, MAP_SIZE_KEYS, LABEL_MAX, AREA_KEYWORDS, HAZARD_KEYWORDS, KEYWORD_COUNT,
+    normalizeMapSpec, normalizeLabels, cleanLabel, inferMapSpec, inferHazard, resolveMapSpec, mapSizeFor, defaultLabels,
+    AREA_TYPES, MAP_DENSITIES, STRUCTURAL_AREAS, AREA_GENERATORS, DEFAULT_AREA_LABELS, DEFAULT_HAZARD_LABELS,
+    shareBand, measuredRows, bandCounts, terrainShare,
 } from './combat/index';
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget,
@@ -52,7 +56,9 @@ export type {
     Side, Controller, CombatantStatus, DamageSpec, Combatant, CombatOutcome, CombatState,
     CombatAction, CombatEvent, TierBlock, CombatantSpec, CombatSpec, WeaponQuality, PcWeapon,
     PcCombatantInput, TierRow, HpBand, SimulationResult, SimulationOptions, AttackCheck, SpawnEntry,
-    AttackRange, Tile, Grid, Pos, MapSize, MapFeatureSpec, MapSpec, TurnState, TemplateOverlay,
+    AttackRange, Tile, Grid, Pos, MapSize, MapSpec, TurnState, TemplateOverlay,
+    AreaType, MapDensity, HazardKind, TerrainLabels, ResolvedMapSpec, MapInference, ResolveOptions,
+    AreaGenerator, AreaLayout, BandCounts,
 } from './combat/index';
 
 export { resolveLootDrop } from './loot/lootEngine';

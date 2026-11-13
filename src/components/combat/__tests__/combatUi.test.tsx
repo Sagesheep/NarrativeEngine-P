@@ -240,7 +240,7 @@ describe('CombatProposalDialog', () => {
         expect(onStart).toHaveBeenCalledWith({ ...proposal, combatants: [
             { name: 'Bandit 1', side: 'enemy', tier: 'elite' },
             { name: 'Hound', side: 'ally', tier: 'grunt' },
-        ], map: { size: 'medium' }, mapSeed: expect.any(Number) });
+        ], map: expect.objectContaining({ area: 'street', density: 'normal', hazard: 'none', size: 'medium', labels: { wall: 'hedgerows', cover: 'carts', difficult: 'mud', hazard: 'hazard' } }), mapSeed: expect.any(Number) });
     });
 
     it('cannot start without an enemy and declines only on Not now', () => {

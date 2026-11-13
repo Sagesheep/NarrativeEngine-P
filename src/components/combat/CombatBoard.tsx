@@ -1,26 +1,154 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react';
 import { X } from 'lucide-react';
-import { canTarget, checkAttack, currentActorId, currentTurn, distance, inBounds, pathTo, reachable, tileAt } from '@narrative/engine';
+import { canTarget, checkAttack, coverBetween, currentActorId, currentTurn, distance, inBounds, pathTo, reachable, tileAt } from '@narrative/engine';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { CombatAction, CombatGrid, CombatPos, CombatSession, CombatTile, Combatant } from '../../types';
 import { hpBandLabel } from '../../services/combat/combatEvents';
 import { playerActorId } from '../../services/combat/combatController';
 import { isTypingTarget } from './combatKeys';
+import { useTerrainNames } from './useTerrainNames';
 import {
     BAND_KEY, LEGEND_TILES, TILE_FILL, TILE_SIZE, attackableTargets, hpColor, initialLegendOpen, inspectCorner, isParty,
-    playerCharacter, posKey as key, rememberLegendDismissed, sideColor, tileCenter as center, tokenAt,
+    playerCharacter, posKey as key, rememberLegendDismissed, sideColor, terrainLabel, tileCenter as center, tokenAt,
 } from './combatVisuals';
 import type { Corner } from './combatVisuals';
+import { initialTileArt, rememberTileArt, tileUrl } from './tileAvailability';
+import { cellArt } from './tileset';
+import type { TileArt } from './tileset';
+import { useTileArt } from './useTileArt';
+import type { TileArtState } from './useTileArt';
 
 type TileLayerProps = {
     grid: CombatGrid;
     patternId: string;
     onTile?: (p: CombatPos) => void;
     onHover?: (p: CombatPos | null) => void;
+    names?: Partial<Record<CombatTile, string>>;
+    art?: TileArtState | null;
 };
 
-export const TileLayer = memo(function TileLayer({ grid, patternId, onTile, onHover }: TileLayerProps) {
+function FlatCues({ tile, left, top, patternId }: { tile: CombatTile; left: number; top: number; patternId: string }) {
+    return (
+        <>
+            {tile === 'difficult' && (
+                <rect x={left} y={top} width={TILE_SIZE} height={TILE_SIZE} style={{ fill: `url(#${patternId})`, pointerEvents: 'none' }} />
+            )}
+            {tile === 'hazard' && (
+                <>
+                    <rect x={left} y={top} width={TILE_SIZE} height={TILE_SIZE} style={{ fill: 'var(--combat-hazard)', pointerEvents: 'none' }} />
+                    <path
+                        data-testid="combat-hazard-mark"
+                        d={`M ${left + 5} ${top + 2.6} L ${left + 7.6} ${top + 7.2} L ${left + 2.4} ${top + 7.2} Z`}
+                        style={{ fill: 'none', stroke: 'var(--combat-hazard-mark)', strokeWidth: 0.6, strokeLinejoin: 'round', pointerEvents: 'none' }}
+                    />
+                </>
+            )}
+            {tile === 'cover' && (
+                <rect x={left + 1.5} y={top + 1.5} width={TILE_SIZE - 3} height={TILE_SIZE - 3} rx={1.5} style={{ fill: 'none', stroke: 'var(--combat-cover-stroke)', strokeWidth: 0.8, pointerEvents: 'none' }} />
+            )}
+        </>
+    );
+}
+
+function TileImage({ art, x, y, tile, onFail }: { art: TileArt; x: number; y: number; tile: CombatTile; onFail: (path: string) => void }) {
+    const left = x * TILE_SIZE;
+    const top = y * TILE_SIZE;
+    const size = art.opaque ? TILE_SIZE + 0.04 : TILE_SIZE;
+    return (
+        <image
+            data-testid="combat-tile-art"
+            data-x={x}
+            data-y={y}
+            data-tile={tile}
+            data-path={art.path}
+            data-mirror={art.mirror ? 'true' : undefined}
+            href={tileUrl(art.path)}
+            x={left}
+            y={top}
+            width={size}
+            height={size}
+            preserveAspectRatio="none"
+            transform={art.mirror ? `matrix(-1 0 0 1 ${2 * (left + TILE_SIZE / 2)} 0)` : undefined}
+            style={{ pointerEvents: 'none' }}
+            onError={() => onFail(art.path)}
+        />
+    );
+}
+
+function ArtTileLayer({ grid, patternId, onTile, onHover, names, art }: TileLayerProps & { art: TileArtState }) {
+    const base = [];
+    const lines = [];
+    const ground = [];
+    const objects = [];
+    for (let y = 0; y < grid.height; y++) {
+        for (let x = 0; x < grid.width; x++) {
+            const tile = grid.tiles[y * grid.width + x];
+            const left = x * TILE_SIZE;
+            const top = y * TILE_SIZE;
+            const k = `${x},${y}`;
+            const cell = cellArt(art.tileset, art.tiles, grid, x, y, art.seed);
+            if (cell.flat) {
+                base.push(
+                    <g key={k} data-testid="combat-tile-flat" data-x={x} data-y={y} data-tile={tile}>
+                        <rect x={left} y={top} width={TILE_SIZE} height={TILE_SIZE} style={{ fill: TILE_FILL[tile], pointerEvents: 'none' }} />
+                        <FlatCues tile={tile} left={left} top={top} patternId={patternId} />
+                    </g>,
+                );
+            } else {
+                base.push(cell.base
+                    ? <TileImage key={k} art={cell.base} x={x} y={y} tile={tile} onFail={art.onFail} />
+                    : <rect key={k} x={left} y={top} width={TILE_SIZE} height={TILE_SIZE} style={{ fill: TILE_FILL.floor, pointerEvents: 'none' }} />);
+                if (cell.top) {
+                    const image = <TileImage key={k} art={cell.top} x={x} y={y} tile={tile} onFail={art.onFail} />;
+                    if (tile === 'cover' || tile === 'wall') objects.push(image);
+                    else ground.push(image);
+                }
+                if (tile === 'hazard') {
+                    ground.push(
+                        <rect
+                            key={`h${k}`}
+                            data-testid="combat-hazard-outline"
+                            x={left + 0.35}
+                            y={top + 0.35}
+                            width={TILE_SIZE - 0.7}
+                            height={TILE_SIZE - 0.7}
+                            style={{ fill: 'none', stroke: 'var(--combat-hazard-mark)', strokeWidth: 0.4, pointerEvents: 'none' }}
+                        />,
+                    );
+                }
+            }
+            lines.push(
+                <rect
+                    key={k}
+                    data-x={x}
+                    data-y={y}
+                    data-tile={tile}
+                    x={left}
+                    y={top}
+                    width={TILE_SIZE}
+                    height={TILE_SIZE}
+                    style={{ fill: 'transparent', stroke: 'var(--combat-grid-line)', strokeWidth: 0.3 }}
+                    onClick={onTile ? () => onTile({ x, y }) : undefined}
+                    onMouseEnter={onHover ? () => onHover({ x, y }) : undefined}
+                >
+                    {names?.[tile] && <title>{names[tile]}</title>}
+                </rect>,
+            );
+        }
+    }
+    return (
+        <g data-testid="combat-tiles" data-art="on">
+            <g data-testid="combat-art-base">{base}</g>
+            <g data-testid="combat-grid-lines">{lines}</g>
+            <g data-testid="combat-art-ground">{ground}</g>
+            <g data-testid="combat-art-cover">{objects}</g>
+        </g>
+    );
+}
+
+export const TileLayer = memo(function TileLayer({ grid, patternId, onTile, onHover, names, art }: TileLayerProps) {
+    if (art) return <ArtTileLayer grid={grid} patternId={patternId} onTile={onTile} onHover={onHover} names={names} art={art} />;
     const cells = [];
     for (let y = 0; y < grid.height; y++) {
         for (let x = 0; x < grid.width; x++) {
@@ -40,23 +168,10 @@ export const TileLayer = memo(function TileLayer({ grid, patternId, onTile, onHo
                         style={{ fill: TILE_FILL[tile], stroke: 'var(--combat-grid-line)', strokeWidth: 0.3 }}
                         onClick={onTile ? () => onTile({ x, y }) : undefined}
                         onMouseEnter={onHover ? () => onHover({ x, y }) : undefined}
-                    />
-                    {tile === 'difficult' && (
-                        <rect x={left} y={top} width={TILE_SIZE} height={TILE_SIZE} style={{ fill: `url(#${patternId})`, pointerEvents: 'none' }} />
-                    )}
-                    {tile === 'hazard' && (
-                        <>
-                            <rect x={left} y={top} width={TILE_SIZE} height={TILE_SIZE} style={{ fill: 'var(--combat-hazard)', pointerEvents: 'none' }} />
-                            <path
-                                data-testid="combat-hazard-mark"
-                                d={`M ${left + 5} ${top + 2.6} L ${left + 7.6} ${top + 7.2} L ${left + 2.4} ${top + 7.2} Z`}
-                                style={{ fill: 'none', stroke: 'var(--combat-hazard-mark)', strokeWidth: 0.6, strokeLinejoin: 'round', pointerEvents: 'none' }}
-                            />
-                        </>
-                    )}
-                    {tile === 'cover' && (
-                        <rect x={left + 1.5} y={top + 1.5} width={TILE_SIZE - 3} height={TILE_SIZE - 3} rx={1.5} style={{ fill: 'none', stroke: 'var(--combat-cover-stroke)', strokeWidth: 0.8, pointerEvents: 'none' }} />
-                    )}
+                    >
+                        {names?.[tile] && <title>{names[tile]}</title>}
+                    </rect>
+                    <FlatCues tile={tile} left={left} top={top} patternId={patternId} />
                 </g>,
             );
         }
@@ -85,7 +200,24 @@ function TileSwatch({ tile }: { tile: CombatTile }) {
     );
 }
 
-function BoardLegend() {
+export function TerrainKeyItems({ grid }: { grid: CombatGrid | undefined }) {
+    const { t } = useTranslation();
+    return (
+        <>
+            {LEGEND_TILES.map(tile => {
+                const label = terrainLabel(grid, tile);
+                return (
+                    <li key={tile} className="flex items-center gap-1 text-text-dim">
+                        <TileSwatch tile={tile} />
+                        <span>{label ? t('combat.legend.item', { kind: t(`combat.terrain.${tile}`), label }) : t(`combat.board.tile.${tile}`)}</span>
+                    </li>
+                );
+            })}
+        </>
+    );
+}
+
+function BoardLegend({ grid, tileArt }: { grid: CombatGrid; tileArt?: { on: boolean; toggle: () => void } }) {
     const { t } = useTranslation();
     const [open, setOpen] = useState<boolean>(() => initialLegendOpen());
     const toggle = () => {
@@ -96,15 +228,21 @@ function BoardLegend() {
         <div data-testid="combat-legend" className="flex items-center gap-3 flex-wrap justify-end">
             {open && (
                 <ul id="combat-legend-list" className="flex items-center gap-3 flex-wrap">
-                    {LEGEND_TILES.map(tile => (
-                        <li key={tile} className="flex items-center gap-1 text-text-dim">
-                            <TileSwatch tile={tile} />
-                            <span>{t(`combat.board.tile.${tile}`)}</span>
-                        </li>
-                    ))}
+                    <TerrainKeyItems grid={grid} />
                 </ul>
             )}
             <span id="combat-board-help" className={open ? 'text-text-dim' : 'sr-only'}>{t('combat.board.help')}</span>
+            {tileArt && (
+                <button
+                    type="button"
+                    data-testid="combat-tile-art-toggle"
+                    onClick={tileArt.toggle}
+                    aria-pressed={tileArt.on}
+                    className={`border border-border px-1.5 py-0.5 rounded-sm hover:text-text-primary ${tileArt.on ? 'text-text-primary' : 'text-text-dim'}`}
+                >
+                    {t('combat.legend.tileArt')}
+                </button>
+            )}
             <button
                 type="button"
                 onClick={toggle}
@@ -150,6 +288,10 @@ function InspectCard({
         if (!check.ok && check.reason === 'out_of_range') blocked = t('combat.inspect.outOfRange');
         if (!check.ok && check.reason === 'no_line_of_sight') blocked = t('combat.inspect.noSight');
     }
+    const grid = state.grid;
+    const standing = grid && combatant.position ? terrainLabel(grid, tileAt(grid, combatant.position)) : null;
+    const coverLabel = grid ? terrainLabel(grid, 'cover') : null;
+    const behind = !self && grid && coverLabel && viewer?.position && combatant.position && coverBetween(grid, viewer.position, combatant.position) > 0 ? coverLabel : null;
     return (
         <div
             data-testid="combat-inspect"
@@ -168,6 +310,8 @@ function InspectCard({
             <div className="text-text-dim">{t(`combat.side.${combatant.side}`)} · {t(`combat.tier.${combatant.tier}`)}</div>
             <div className="text-text-primary">{hp}{party ? ` · ${t('combat.inspect.ac', { ac: combatant.ac })}` : ''}</div>
             {dist !== null && <div className="text-text-dim">{t('combat.inspect.distance', { count: dist })}</div>}
+            {standing && <div data-testid="combat-inspect-terrain" className="text-text-dim">{t('combat.inspect.standingIn', { label: standing })}</div>}
+            {behind && <div data-testid="combat-inspect-behind" className="text-text-dim">{t('combat.inspect.behind', { label: behind })}</div>}
             {blocked && <div data-testid="combat-inspect-blocked" style={{ color: 'var(--combat-hp-warn)' }}>{blocked}</div>}
         </div>
     );
@@ -313,7 +457,18 @@ export function CombatBoard({
     useEffect(() => { actRef.current = act; }, [act]);
     const onTile = useCallback((p: CombatPos) => actRef.current(p), []);
 
-    const tileLayer = useMemo(() => grid ? <TileLayer grid={grid} patternId={patternId} onTile={onTile} onHover={setHover} /> : null, [grid, patternId, onTile, setHover]);
+    const names = useTerrainNames(grid);
+    const [tileArtOn, setTileArtOn] = useState<boolean>(() => initialTileArt());
+    const artReady = useTileArt(grid, session.map?.place, state.mapSeed ?? 0);
+    const art = tileArtOn ? artReady : null;
+    const tileArtToggle = useMemo(() => (artReady ? {
+        on: tileArtOn,
+        toggle: () => {
+            rememberTileArt(!tileArtOn);
+            setTileArtOn(!tileArtOn);
+        },
+    } : undefined), [artReady, tileArtOn]);
+    const tileLayer = useMemo(() => grid ? <TileLayer grid={grid} patternId={patternId} onTile={onTile} onHover={setHover} names={names} art={art} /> : null, [grid, patternId, onTile, setHover, names, art]);
 
     if (!grid) return null;
 
@@ -336,14 +491,18 @@ export function CombatBoard({
         }
     } else if (focusToken) status = describeToken(focusToken);
     else if (picking) status = t('combat.panel.pickTarget');
-    else if (focus && path && turn) status = t('combat.board.moveTo', { cost: path.cost, left: turn.moveLeft });
+    else if (focus && path && turn) {
+        const here = tileAt(grid, focus.pos);
+        status = t('combat.board.moveTo', { cost: path.cost, left: turn.moveLeft });
+        if (here !== 'floor') status = `${names[here]} · ${status}`;
+    }
     else if (focus) {
-        const tileName = t(`combat.board.tile.${tileAt(grid, focus.pos)}`);
+        const tileName = names[tileAt(grid, focus.pos)];
         status = `${tileName}. ${t('combat.board.cannotReach')}`;
     } else if (turn) status = t('combat.board.yourMove', { count: turn.moveLeft });
 
     const cursorLabel = cursor
-        ? `${t('combat.board.cursor', { x: cursor.x + 1, y: cursor.y + 1, tile: t(`combat.board.tile.${tileAt(grid, cursor)}`) })}${tokenAt(state, cursor) ? `. ${describeToken(tokenAt(state, cursor) as Combatant)}` : ''}`
+        ? `${t('combat.board.cursor', { x: cursor.x + 1, y: cursor.y + 1, tile: names[tileAt(grid, cursor)] })}${tokenAt(state, cursor) ? `. ${describeToken(tokenAt(state, cursor) as Combatant)}` : ''}`
         : undefined;
 
     const cycleTargets = (dir: 1 | -1): boolean => {
@@ -427,7 +586,9 @@ export function CombatBoard({
                         <g data-testid="combat-overlay" style={{ pointerEvents: 'none' }}>
                             {[...reach.keys()].map(k => {
                                 const [x, y] = k.split(',').map(Number);
-                                return <rect key={`r${k}`} data-testid="combat-reachable" data-x={x} data-y={y} x={x * TILE_SIZE} y={y * TILE_SIZE} width={TILE_SIZE} height={TILE_SIZE} style={{ fill: 'var(--combat-reach)' }} />;
+                                return art
+                                    ? <rect key={`r${k}`} data-testid="combat-reachable" data-x={x} data-y={y} x={x * TILE_SIZE + 0.3} y={y * TILE_SIZE + 0.3} width={TILE_SIZE - 0.6} height={TILE_SIZE - 0.6} style={{ fill: 'var(--combat-reach)', stroke: 'var(--combat-path)', strokeWidth: 0.35, strokeOpacity: 0.7 }} />
+                                    : <rect key={`r${k}`} data-testid="combat-reachable" data-x={x} data-y={y} x={x * TILE_SIZE} y={y * TILE_SIZE} width={TILE_SIZE} height={TILE_SIZE} style={{ fill: 'var(--combat-reach)' }} />;
                             })}
                             {attackable.map(c => c.position && (
                                 <rect
@@ -437,9 +598,15 @@ export function CombatBoard({
                                     y={c.position.y * TILE_SIZE}
                                     width={TILE_SIZE}
                                     height={TILE_SIZE}
-                                    style={{ fill: 'var(--combat-target)', stroke: picking ? 'var(--combat-enemy)' : 'none', strokeWidth: 0.8 }}
+                                    style={{ fill: 'var(--combat-target)', stroke: picking || art ? 'var(--combat-enemy)' : 'none', strokeWidth: picking ? 0.8 : 0.5 }}
                                 />
                             ))}
+                            {art && path && player?.position && (
+                                <polyline
+                                    points={[player.position, ...path.path].map(p => { const c = center(p); return `${c.x},${c.y}`; }).join(' ')}
+                                    style={{ fill: 'none', stroke: 'var(--combat-board-bg)', strokeWidth: 1.8, strokeOpacity: 0.75, strokeLinecap: 'round', strokeLinejoin: 'round' }}
+                                />
+                            )}
                             {path && player?.position && (
                                 <polyline
                                     data-testid="combat-path"
@@ -487,6 +654,7 @@ export function CombatBoard({
                                         <title>{describeToken(c)}</title>
                                         {actingId === id && <circle cx={x} cy={y} r={r + 2.2} style={{ fill: 'none', stroke: 'var(--combat-path)', strokeWidth: 0.9, opacity: 0.85 }} />}
                                         {isSelected && <circle data-testid="combat-selected" cx={x} cy={y} r={r + 2.2} style={{ fill: 'none', stroke: 'var(--combat-cursor)', strokeWidth: 0.5, strokeDasharray: '1 1' }} />}
+                                        {art && <circle data-testid="combat-token-ring" cx={x} cy={y} r={r + 0.9} style={{ fill: 'none', stroke: 'var(--combat-board-bg)', strokeWidth: 2.1, opacity: 0.9 }} />}
                                         <circle cx={x} cy={y} r={r + 0.9} style={{ fill: 'none', stroke: 'var(--combat-hp-track)', strokeWidth: 0.9 }} />
                                         <circle
                                             cx={x}
@@ -542,7 +710,7 @@ export function CombatBoard({
             </div>
             <div className="flex items-center justify-between gap-3 px-3 py-1 text-[11px] font-mono flex-wrap">
                 <span data-testid="combat-board-status" aria-live="polite" className="text-text-primary truncate min-w-0 flex-1">{status}</span>
-                <BoardLegend />
+                <BoardLegend grid={grid} tileArt={tileArtToggle} />
             </div>
         </div>
     );

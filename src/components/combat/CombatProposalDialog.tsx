@@ -1,18 +1,22 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Swords, X, Plus, Shuffle, Minus } from 'lucide-react';
-import { buildMapFromSeed, normalizeMapSize, placeCombatants } from '@narrative/engine';
+import { AREA_TYPES, MAP_DENSITIES, buildMapFromSeed, normalizeMapSize, placeCombatants, resolveMapSpec } from '@narrative/engine';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useAppStore } from '../../store/useAppStore';
 import { COMBAT_TIERS, PROPOSED_COMBATANT_SIDES, MAX_PROPOSED_COMBATANTS } from '../../types';
-import type { CombatMapSpec, CombatProposal, ProposedCombatant } from '../../types';
+import type { CombatAreaType, CombatMapDensity, CombatProposal, CombatResolvedMap, ProposedCombatant } from '../../types';
+import { combatMapTexts, resolveCombatMap } from '../../services/combat/combatMap';
 import { dedupeCombatantNames, hasEnemy } from '../../services/combat/combatProposal';
 import { newMapSeed } from '../../services/combat/combatController';
 import { compendiumFor } from '../../services/combat/compendiumLookup';
 import type { CompendiumSource } from '../../services/combat/compendiumLookup';
 import { Backdrop } from '../primitives/Backdrop';
-import { HatchPattern, TileLayer } from './CombatBoard';
+import { HatchPattern, TerrainKeyItems, TileLayer } from './CombatBoard';
+import { useTerrainNames } from './useTerrainNames';
 import { TILE_SIZE, sideColor, tileCenter } from './combatVisuals';
+import { initialTileArt } from './tileAvailability';
+import { useTileArt } from './useTileArt';
 
 const selectClass = 'bg-void border border-border px-1.5 py-0.5 text-[11px] font-mono text-text-primary focus:border-terminal outline-none';
 
@@ -22,16 +26,21 @@ const FOCUSABLE = 'button:not([disabled]), select:not([disabled]), input:not([di
 
 const GHOST_CLICK_MS = 350;
 
-function MapPreview({ map, mapSeed, roster }: { map: CombatMapSpec; mapSeed: number; roster: ProposedCombatant[] }) {
+function MapPreview({ map, mapSeed, roster }: { map: CombatResolvedMap; mapSeed: number; roster: ProposedCombatant[] }) {
     const { t } = useTranslation();
     const patternId = `combat-preview-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
     const grid = useMemo(() => buildMapFromSeed(map, mapSeed), [map, mapSeed]);
+    const names = useTerrainNames(grid);
+    const [tileArtOn] = useState<boolean>(() => initialTileArt());
+    const artReady = useTileArt(grid, map.place, mapSeed);
+    const art = tileArtOn ? artReady : null;
     const spawns = useMemo(
         () => placeCombatants(grid, [{ id: 'pc', side: 'player' as const }, ...roster.map((c, i) => ({ id: `c${i}`, side: c.side }))]),
         [grid, roster],
     );
     const sides = new Map<string, ProposedCombatant['side'] | 'player'>([['pc', 'player'], ...roster.map((c, i) => [`c${i}`, c.side] as const)]);
     return (
+        <>
         <svg
             data-testid="combat-map-preview"
             data-tiles={grid.tiles.join(',')}
@@ -42,12 +51,18 @@ function MapPreview({ map, mapSeed, roster }: { map: CombatMapSpec; mapSeed: num
             style={{ background: 'var(--combat-board-bg)' }}
         >
             <HatchPattern id={patternId} />
-            <TileLayer grid={grid} patternId={patternId} />
+            <TileLayer grid={grid} patternId={patternId} names={names} art={art} />
             {Object.entries(spawns).map(([id, p]) => {
                 const c = tileCenter(p);
-                return <circle key={id} cx={c.x} cy={c.y} r={TILE_SIZE * 0.3} style={{ fill: sideColor(sides.get(id) ?? 'enemy') }} />;
+                return art
+                    ? <circle key={id} cx={c.x} cy={c.y} r={TILE_SIZE * 0.3} style={{ fill: sideColor(sides.get(id) ?? 'enemy'), stroke: 'var(--combat-board-bg)', strokeWidth: 0.8 }} />
+                    : <circle key={id} cx={c.x} cy={c.y} r={TILE_SIZE * 0.3} style={{ fill: sideColor(sides.get(id) ?? 'enemy') }} />;
             })}
         </svg>
+        <ul data-testid="combat-preview-key" data-area={grid.area} className="flex items-center gap-3 flex-wrap text-[10px] font-mono">
+            <TerrainKeyItems grid={grid} />
+        </ul>
+        </>
     );
 }
 
@@ -75,8 +90,17 @@ export function CombatProposalDialog({
     const [roster, setRoster] = useState<ProposedCombatant[]>(proposal.combatants);
     const [draftName, setDraftName] = useState('');
     const [mapSeed, setMapSeed] = useState<number>(() => proposal.mapSeed ?? newMapSeed());
-    const [size, setSize] = useState(() => normalizeMapSize(proposal.map?.size));
-    const map = useMemo<CombatMapSpec>(() => ({ ...(proposal.map ?? {}), size }), [proposal.map, size]);
+    const [initial] = useState(() => {
+        const live = useAppStore.getState();
+        return { resolved: resolveCombatMap(proposal, live), texts: combatMapTexts(proposal, live), count: proposal.combatants.length };
+    });
+    const [size, setSize] = useState(initial.resolved.size);
+    const [area, setArea] = useState<CombatAreaType>(initial.resolved.area);
+    const [density, setDensity] = useState<CombatMapDensity>(initial.resolved.density);
+    const map = useMemo<CombatResolvedMap>(
+        () => resolveMapSpec({ ...(proposal.map ?? {}), area, density, size }, { combatants: initial.count, texts: initial.texts }),
+        [proposal.map, area, density, size, initial],
+    );
     const canStart = !loading && hasEnemy(roster);
     const panelRef = useRef<HTMLDivElement | null>(null);
     const startRef = useRef<HTMLButtonElement | null>(null);
@@ -187,6 +211,22 @@ export function CombatProposalDialog({
                                 onChange={(e) => setSize(normalizeMapSize(e.target.value))}
                             >
                                 {MAP_SIZE_OPTIONS.map(s => <option key={s} value={s}>{t(`combat.proposal.size.${s}`)}</option>)}
+                            </select>
+                            <select
+                                aria-label={t('combat.proposal.area')}
+                                className={selectClass}
+                                value={area}
+                                onChange={(e) => setArea(e.target.value as CombatAreaType)}
+                            >
+                                {AREA_TYPES.map(a => <option key={a} value={a}>{t(`combat.area.${a}`)}</option>)}
+                            </select>
+                            <select
+                                aria-label={t('combat.proposal.density')}
+                                className={selectClass}
+                                value={density}
+                                onChange={(e) => setDensity(e.target.value as CombatMapDensity)}
+                            >
+                                {MAP_DENSITIES.map(d => <option key={d} value={d}>{t(`combat.density.${d}`)}</option>)}
                             </select>
                             <button
                                 type="button"

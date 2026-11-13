@@ -90,14 +90,17 @@ export function hpBandLabel(c: Pick<Combatant, 'hp' | 'maxHp' | 'status'>): HpBa
     return band === 'badly_hurt' ? 'badly hurt' : band;
 }
 
-export type PositionPhrase = 'adjacent' | 'close' | 'at range' | 'behind cover' | 'out of sight';
+export type PositionPhrase = 'adjacent' | 'close' | 'at range' | 'behind cover' | `behind the ${string}` | 'out of sight';
 
 export function positionPhrase(state: CombatState, c: Combatant): PositionPhrase | null {
     const grid = state.grid;
     const pc = Object.values(state.combatants).find(x => x.side === 'player');
     if (!grid || !pc || pc.id === c.id || !pc.position || !c.position) return null;
     if (!hasLineOfSight(grid, pc.position, c.position)) return 'out of sight';
-    if (coverBetween(grid, pc.position, c.position) > 0) return 'behind cover';
+    if (coverBetween(grid, pc.position, c.position) > 0) {
+        const label = grid.labels?.cover?.trim();
+        return label ? `behind the ${label}` : 'behind cover';
+    }
     const d = distance(pc.position, c.position);
     if (d <= 1) return 'adjacent';
     if (d <= 3) return 'close';
@@ -141,7 +144,8 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
         case 'moved':
             return moveClause(state, event.actorId, Number(event.data.squares) || 0, event.data, false);
         case 'hazard': {
-            const type = typeof event.data.damageType === 'string' ? event.data.damageType : 'hazard';
+            const label = state.grid?.labels?.hazard?.trim();
+            const type = label || (typeof event.data.damageType === 'string' ? event.data.damageType : 'hazard');
             return `${name(event.targetId)} is hurt by the ${type} underfoot.`;
         }
         default:

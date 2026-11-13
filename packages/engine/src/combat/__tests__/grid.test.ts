@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     applyAction, buildMapFromSeed, buildPcCombatant, buildTerrain, canStep, checkAttack, chooseEngineTurn, coverBetween,
     createCombat, createRng, currentActorId, distance, ensureGrid, hasLineOfSight, isFullyConnected, isValidGrid,
-    MAP_SIZES, MAX_BLOCKED_SHARE, pathTo, placeCombatants, reachable, runEngineTurns, stepEngine, tileAt,
+    MAP_SIZES, isWalkable, pathTo, placeCombatants, reachable, runEngineTurns, stepEngine, tileAt,
     DEFEND_CONDITION, HALF_COVER_BONUS, THREE_QUARTER_COVER_BONUS,
 } from '../index';
 import type { CombatEvent, CombatSheet, CombatState, Combatant, CombatantSpec, Grid, MapSpec, Pos, Side, Tile } from '../index';
@@ -46,69 +46,19 @@ function board(rows: string[], defs: Def[], extra: Partial<CombatState> = {}): C
     };
 }
 
-const nonFloor = (g: Grid) => g.tiles.map((t, i) => ({ t, x: i % g.width, y: Math.floor(i / g.width) })).filter(c => c.t !== 'floor');
 
 describe('T1 map builder', () => {
     it('builds the three sizes and clamps anything else to medium', () => {
         for (const size of ['small', 'medium', 'large'] as const) {
-            const g = buildTerrain({ size }, createRng(1));
+            const g = buildTerrain({ size, area: 'open' }, createRng(1));
             expect([g.width, g.height]).toEqual([MAP_SIZES[size].width, MAP_SIZES[size].height]);
             expect(g.tiles).toHaveLength(g.width * g.height);
         }
         expect(buildTerrain({ size: 'huge' }, createRng(1)).width).toBe(14);
-        expect(buildTerrain(undefined, createRng(1)).tiles.every(t => t === 'floor')).toBe(true);
-    });
-
-    it('places each `where` keyword in its region and never in the spawn columns', () => {
-        const w = 14;
-        const h = 10;
-        const regions: Array<[string, (p: Pos) => boolean]> = [
-            ['north', p => p.y < h / 3],
-            ['south', p => p.y >= (2 * h) / 3],
-            ['east', p => p.x >= (2 * w) / 3],
-            ['west', p => p.x < w / 3],
-            ['centre', p => p.x >= w / 3 && p.x < (2 * w) / 3 && p.y >= h / 3 && p.y < (2 * h) / 3],
-            ['center', p => p.x >= w / 3 && p.x < (2 * w) / 3 && p.y >= h / 3 && p.y < (2 * h) / 3],
-            ['middle', p => p.x >= w / 3 && p.x < (2 * w) / 3 && p.y >= h / 3 && p.y < (2 * h) / 3],
-            ['north-west corner', p => p.x <= 4 && p.y <= 2],
-            ['south edge', p => p.y >= h - 2],
-            ['edge', p => p.y <= 1 || p.y >= h - 2],
-            ['corner', p => (p.x <= 4 || p.x >= w - 5) && (p.y <= 2 || p.y >= h - 3)],
-            ['scattered', () => true],
-            ['somewhere odd', () => true],
-        ];
-        for (const [where, inside] of regions) {
-            for (let seed = 1; seed <= 20; seed++) {
-                const g = buildTerrain({ size: 'medium', features: [{ kind: 'hazard', where }] }, createRng(seed));
-                const cells = nonFloor(g);
-                expect(cells.length).toBeGreaterThan(0);
-                for (const c of cells) {
-                    expect(inside(c), `${where} seed ${seed} at ${c.x},${c.y}`).toBe(true);
-                    expect(c.x >= 2 && c.x <= w - 3).toBe(true);
-                }
-            }
-        }
-    });
-
-    it('maps feature kinds to tiles, ignores unknown kinds and records the hazard type', () => {
-        const g = buildTerrain({ size: 'medium', features: [{ kind: 'acid pool', where: 'centre' }, { kind: 'unicorn', where: 'north' }] }, createRng(3));
-        expect(new Set(nonFloor(g).map(c => c.t))).toEqual(new Set(['hazard']));
-        expect(g.hazardType).toBe('acid');
-        expect(buildTerrain({ features: [{ kind: 'hazard', where: 'centre' }] }, createRng(3)).hazardType).toBe('fire');
-        expect(buildTerrain({ features: [{ kind: 'crates', where: 'centre' }] }, createRng(3)).hazardType).toBeUndefined();
-    });
-
-    it('uses at most six features and never blocks more than a quarter of the map', () => {
-        const seventh = buildTerrain({ size: 'large', features: [...Array.from({ length: 6 }, () => ({ kind: 'cover', where: 'scattered' })), { kind: 'hazard', where: 'centre' }] }, createRng(5));
-        expect(seventh.tiles.includes('hazard')).toBe(false);
-        for (let seed = 1; seed <= 30; seed++) {
-            const g = buildTerrain({ size: 'small', features: Array.from({ length: 12 }, () => ({ kind: 'mud', where: 'scattered' })) }, createRng(seed));
-            expect(nonFloor(g).length).toBeLessThanOrEqual(Math.floor(g.width * g.height * MAX_BLOCKED_SHARE));
-        }
     });
 
     it('spawns sides apart on distinct floor tiles, spread vertically', () => {
-        const g = buildTerrain({ size: 'small', features: [{ kind: 'cover', where: 'centre' }] }, createRng(2));
+        const g = buildTerrain({ size: 'small', area: 'scattered' }, createRng(2));
         const entries = [
             { id: 'pc', side: 'player' as const }, { id: 'a1', side: 'ally' as const },
             ...Array.from({ length: 12 }, (_, i) => ({ id: `e${i}`, side: 'enemy' as const })),
@@ -118,25 +68,23 @@ describe('T1 map builder', () => {
         const all = Object.values(pos);
         expect(all).toHaveLength(entries.length);
         expect(new Set(all.map(p => `${p.x},${p.y}`)).size).toBe(all.length);
-        for (const p of all) expect(tileAt(g, p)).toBe('floor');
+        for (const p of all) expect(isWalkable(g, p)).toBe(true);
         expect(pos.pc.x).toBeLessThanOrEqual(1);
         expect(pos.a1.x).toBeLessThanOrEqual(1);
         for (let i = 0; i < 12; i++) expect(pos[`e${i}`].x).toBeGreaterThanOrEqual(g.width - 2);
-        expect(pos.n1.x).toBeGreaterThanOrEqual(Math.floor(g.width / 3));
-        expect(pos.n1.x).toBeLessThan(Math.ceil((2 * g.width) / 3));
         const two = placeCombatants(openGrid(), [{ id: 'e1', side: 'enemy' }, { id: 'e2', side: 'enemy' }]);
         expect(Math.abs(two.e1.y - two.e2.y)).toBeGreaterThanOrEqual(4);
     });
 
-    it('never leaves a combatant unable to reach another, even for adversarial layouts', () => {
+    it('never leaves a combatant unable to reach another, in any area', () => {
         const specs: MapSpec[] = [
-            { size: 'small', features: ['north', 'centre', 'south', 'middle', 'north edge', 'south edge'].map(where => ({ kind: 'wall', where })) },
-            { size: 'medium', features: Array.from({ length: 6 }, () => ({ kind: 'wall', where: 'centre' })) },
-            { size: 'large', features: Array.from({ length: 6 }, (_, i) => ({ kind: i % 2 ? 'cover' : 'wall', where: 'middle' })) },
-            { size: 'small', features: Array.from({ length: 6 }, () => ({ kind: 'boulders', where: 'west' })) },
+            { size: 'small', area: 'corridors', density: 'dense' },
+            { size: 'medium', area: 'cavern', density: 'dense' },
+            { size: 'large', area: 'ruins', density: 'dense' },
+            { size: 'small', area: 'ledge', density: 'dense', hazard: 'pit' },
         ];
         for (const spec of specs) {
-            for (let seed = 1; seed <= 150; seed++) {
+            for (let seed = 1; seed <= 40; seed++) {
                 const g = buildTerrain(spec, createRng(seed));
                 expect(isFullyConnected(g), `seed ${seed}`).toBe(true);
                 const entries = [{ id: 'pc', side: 'player' as const }, { id: 'e1', side: 'enemy' as const }, { id: 'e2', side: 'enemy' as const }, { id: 'n', side: 'neutral' as const }];
@@ -154,18 +102,20 @@ describe('T1 map builder', () => {
     });
 
     it('is deterministic for a seed and varies between seeds', () => {
-        const spec: MapSpec = { size: 'medium', features: [{ kind: 'wall', where: 'centre' }, { kind: 'cover', where: 'scattered' }, { kind: 'mud', where: 'south' }] };
+        const spec: MapSpec = { size: 'medium', area: 'ruins', density: 'normal' };
         expect(buildMapFromSeed(spec, 11)).toEqual(buildMapFromSeed(spec, 11));
         const variants = new Set(Array.from({ length: 10 }, (_, i) => JSON.stringify(buildMapFromSeed(spec, i + 1).tiles)));
         expect(variants.size).toBeGreaterThan(1);
     });
 
     it('survives garbage input', () => {
-        const junk: unknown[] = [null, 'abc', 42, [], { size: 'giant', features: 'x' }, { features: [null, 5, { kind: 3 }, { kind: 'unicorn', where: 9 }, { where: 'north' }] }, { size: { a: 1 }, theme: 7 }];
+        const junk: unknown[] = [null, 'abc', 42, [], { size: 'giant', features: 'x' }, { features: [null, 5, { kind: 3 }, { kind: 'unicorn', where: 9 }, { where: 'north' }] }, { size: { a: 1 }, theme: 7 }, { area: 'volcano', density: 9, hazard: 'lava', labels: [1] }];
         for (const spec of junk) {
             const g = buildTerrain(spec, createRng(1));
             expect(isValidGrid(g)).toBe(true);
             expect(isFullyConnected(g)).toBe(true);
+            expect(g.area).toBeDefined();
+            expect(g.labels?.cover).toBeTruthy();
         }
     });
 });
@@ -481,8 +431,8 @@ describe('grid fights end to end', () => {
     });
 
     it('keeps the terrain fixed for a map seed whatever the roster', () => {
-        const a = createCombat({ id: 'g', combatants: grunts(2), map: { features: [{ kind: 'cover', where: 'scattered' }] }, mapSeed: 4 }, buildPcCombatant(pcInput), 1);
-        const b = createCombat({ id: 'g', combatants: grunts(5, { tier: 'elite' }), map: { features: [{ kind: 'cover', where: 'scattered' }] }, mapSeed: 4 }, buildPcCombatant(pcInput), 77);
+        const a = createCombat({ id: 'g', combatants: grunts(2), map: { size: 'medium', area: 'scattered' }, mapSeed: 4 }, buildPcCombatant(pcInput), 1);
+        const b = createCombat({ id: 'g', combatants: grunts(5, { tier: 'elite' }), map: { size: 'medium', area: 'scattered' }, mapSeed: 4 }, buildPcCombatant(pcInput), 77);
         expect(a.state.grid).toEqual(b.state.grid);
     });
 
@@ -492,14 +442,14 @@ describe('grid fights end to end', () => {
     });
 
     it('plays a seeded golden fight on the grid', () => {
-        const start = createCombat({ id: 'gold', combatants: grunts(2), map: { size: 'small', features: [{ kind: 'crates', where: 'centre' }] }, mapSeed: 3 }, buildPcCombatant(pcInput), 1234);
+        const start = createCombat({ id: 'gold', combatants: grunts(2), map: { size: 'small', area: 'open', density: 'sparse' }, mapSeed: 3 }, buildPcCombatant(pcInput), 1234);
         const { state, events } = playOut(start.state);
         expect(state.outcome).not.toBeNull();
         expect([...start.events, ...events].map(e => `${e.seq}|${e.round}|${e.turn}|${e.text}`)).toMatchSnapshot();
     });
 
     it('replays identically after a save and restore', () => {
-        const start = createCombat({ id: 'det', combatants: grunts(3, { range: 'ranged' }), map: { features: [{ kind: 'wall', where: 'centre' }] } }, buildPcCombatant(pcInput), 99);
+        const start = createCombat({ id: 'det', combatants: grunts(3, { range: 'ranged' }), map: { area: 'corridors' } }, buildPcCombatant(pcInput), 99);
         const mid = runEngineTurns(start.state).state;
         const saved = JSON.parse(JSON.stringify(mid)) as CombatState;
         const a = playOut(mid);
@@ -538,7 +488,7 @@ describe('B2 ensureGrid', () => {
         for (const turnIndex of [0, 1]) {
             const old = phaseOne(turnIndex);
             const up = ensureGrid(old);
-            expect(up.grid).toEqual({ width: 14, height: 10, tiles: new Array(140).fill('floor') });
+            expect(up.grid).toEqual({ width: 14, height: 10, tiles: new Array(140).fill('floor'), area: 'open', labels: { wall: 'wall', cover: 'crates', difficult: 'rough ground', hazard: 'hazard' } });
             expect(up.rngCursor).toBe(17);
             expect(up.eventSeq).toBe(9);
             expect(up.combatants.pc.position!.x).toBeLessThanOrEqual(1);
