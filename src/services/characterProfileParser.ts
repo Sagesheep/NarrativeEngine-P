@@ -10,7 +10,7 @@ import type { ChatMessage, ProviderConfig, EndpointConfig, CharacterProfile } fr
 import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
 import type { ModelRequest, ModelResponse } from './turn/hostFacade';
-import { guardHpPatch, guardStatPatch } from './combat/combatSheet';
+import { guardHpPatch, guardMpPatch, guardStatPatch } from './combat/combatSheet';
 
 export type ProfileScanOptions = { combatStatLock?: boolean };
 
@@ -65,7 +65,9 @@ export function applyProfilePatch(profile: CharacterProfile, patch: Record<strin
     }
     if ('mp' in patch && patch.mp && typeof patch.mp === 'object') {
         const p = patch.mp as Partial<{ current: number; max: number }>;
-        next.mp = { current: p.current ?? (next.mp?.current || 0), max: p.max ?? (next.mp?.max || 0) };
+        next.mp = combatStatLock
+            ? guardMpPatch(next.mp, p, true)
+            : { current: p.current ?? (next.mp?.current || 0), max: p.max ?? (next.mp?.max || 0) };
     }
     if ('stats' in patch && patch.stats && typeof patch.stats === 'object') {
         next.stats = { ...next.stats, ...guardStatPatch(patch.stats as Record<string, number>, combatStatLock) };

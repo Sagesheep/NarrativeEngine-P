@@ -1,4 +1,4 @@
-import type { Archetype, CombatEvent, CombatState, CombatTier, MapSpec } from '@narrative/engine';
+import type { Archetype, AugmentId, CombatEvent, CombatState, CombatTier, EffectId, FormId, GlyphAbility, MapSpec } from '@narrative/engine';
 
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget, CombatSheet, DerivedSheet,
@@ -6,11 +6,13 @@ export type {
     Grid as CombatGrid, Pos as CombatPos, Tile as CombatTile, AttackRange, TemplateOverlay,
     AreaType as CombatAreaType, MapDensity as CombatMapDensity, HazardKind as CombatHazardKind,
     TerrainLabels as CombatTerrainLabels, ResolvedMapSpec as CombatResolvedMap,
+    GlyphAbility, FormId, EffectId, AugmentId, CombatCondition,
 } from '@narrative/engine';
 
 export type CombatPartyControl = 'solo' | 'engine' | 'player';
 export type CombatDefeatMode = 'knockout' | 'hardcore' | 'ironman';
 export type CombatNarrationCadence = 'action' | 'side' | 'round' | 'end';
+export type CombatMpRecovery = 'fight';
 
 export type CombatSettings = {
     partyControl: CombatPartyControl;
@@ -22,6 +24,7 @@ export type CombatSettings = {
     maxChainLength: number;
     maxEquippedAbilities: number;
     maxSummons: number;
+    mpRecovery: CombatMpRecovery;
     mookJitterRange?: number;
     defaultWeaponDie?: number;
 };
@@ -107,7 +110,87 @@ export const DEFAULT_COMBAT_CONFIG: Readonly<CombatSettings> = Object.freeze({
     maxChainLength: 6,
     maxEquippedAbilities: 6,
     maxSummons: 2,
+    mpRecovery: 'fight',
 });
+
+export const COMBAT_MP_RECOVERIES: readonly CombatMpRecovery[] = ['fight'];
+
+export type Spellbook = {
+    abilities: GlyphAbility[];
+    equippedIds: string[];
+};
+
+export type AbilityProposal = {
+    id: string;
+    messageId: string;
+    campaignId?: string;
+    ability: GlyphAbility;
+};
+
+export const SPELLBOOK_MAX_ABILITIES = 200;
+
+const FORM_KEYS: readonly FormId[] = ['touch', 'projectile', 'self', 'line', 'cone', 'burst', 'dash'];
+const EFFECT_KEYS: readonly EffectId[] = ['damage', 'heal', 'shield', 'push', 'pull', 'stun', 'slow', 'haste', 'blink', 'swap', 'barrier', 'drain', 'summon'];
+const AUGMENT_KEYS: readonly AugmentId[] = ['amplify', 'widen', 'extend', 'pierce', 'split', 'quicken'];
+const ABILITY_SOURCES: readonly GlyphAbility['source'][] = ['player', 'ai', 'preset'];
+
+function cleanAugments(raw: unknown): AugmentId[] {
+    return Array.isArray(raw) ? raw.filter((a): a is AugmentId => typeof a === 'string' && (AUGMENT_KEYS as readonly string[]).includes(a)) : [];
+}
+
+function cleanString(raw: unknown, max: number): string | undefined {
+    if (typeof raw !== 'string') return undefined;
+    const trimmed = raw.replace(/\s+/g, ' ').trim().slice(0, max);
+    return trimmed || undefined;
+}
+
+export function normalizeGlyphAbility(raw: unknown): GlyphAbility | null {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const r = raw as Record<string, unknown>;
+    const id = cleanString(r.id, 80);
+    const name = cleanString(r.name, 40);
+    const form = r.form && typeof r.form === 'object' ? r.form as Record<string, unknown> : null;
+    if (!id || !name || !form || typeof form.id !== 'string' || !(FORM_KEYS as readonly string[]).includes(form.id)) return null;
+    if (!Array.isArray(r.effects)) return null;
+    const effects = r.effects
+        .filter((e): e is Record<string, unknown> => !!e && typeof e === 'object' && typeof (e as Record<string, unknown>).id === 'string'
+            && (EFFECT_KEYS as readonly string[]).includes((e as Record<string, unknown>).id as string))
+        .map(e => ({ id: e.id as EffectId, augments: cleanAugments(e.augments) }));
+    const description = cleanString(r.description, 400);
+    const damageType = cleanString(r.damageType, 24);
+    const source = typeof r.source === 'string' && (ABILITY_SOURCES as readonly string[]).includes(r.source) ? r.source as GlyphAbility['source'] : 'player';
+    return {
+        id,
+        name,
+        ...(description ? { description } : {}),
+        ...(damageType ? { damageType } : {}),
+        form: { id: form.id as FormId, augments: cleanAugments(form.augments) },
+        effects,
+        source,
+    };
+}
+
+export function emptySpellbook(): Spellbook {
+    return { abilities: [], equippedIds: [] };
+}
+
+export function normalizeSpellbook(raw: unknown): Spellbook {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptySpellbook();
+    const r = raw as Record<string, unknown>;
+    const seen = new Set<string>();
+    const abilities: GlyphAbility[] = [];
+    for (const item of Array.isArray(r.abilities) ? r.abilities : []) {
+        const ability = normalizeGlyphAbility(item);
+        if (!ability || seen.has(ability.id)) continue;
+        seen.add(ability.id);
+        abilities.push(ability);
+        if (abilities.length >= SPELLBOOK_MAX_ABILITIES) break;
+    }
+    const equippedIds = Array.isArray(r.equippedIds)
+        ? [...new Set(r.equippedIds.filter((id): id is string => typeof id === 'string' && seen.has(id)))]
+        : [];
+    return { abilities, equippedIds };
+}
 
 function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
     return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? value as T : fallback;
@@ -142,6 +225,7 @@ export function normalizeCombatConfig(partial?: unknown): CombatSettings {
         maxChainLength: pickCount(raw.maxChainLength, d.maxChainLength, 1),
         maxEquippedAbilities: pickCount(raw.maxEquippedAbilities, d.maxEquippedAbilities, 1),
         maxSummons: pickCount(raw.maxSummons, d.maxSummons, 0),
+        mpRecovery: pickEnum(raw.mpRecovery, COMBAT_MP_RECOVERIES, d.mpRecovery),
     };
     if (typeof raw.mookJitterRange === 'number' && Number.isFinite(raw.mookJitterRange)) out.mookJitterRange = raw.mookJitterRange;
     if (typeof raw.defaultWeaponDie === 'number' && Number.isFinite(raw.defaultWeaponDie)) out.defaultWeaponDie = raw.defaultWeaponDie;

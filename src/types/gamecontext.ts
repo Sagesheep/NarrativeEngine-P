@@ -9,8 +9,8 @@ import type { ArcRecord } from './arc';
 export type { ArcRecord };
 import type { LootTree } from './loot';
 import type { GalleryEntry } from './gallery';
-import type { CombatSettings, CombatSheet, CombatTelemetry, CombatTurnNote } from './combat';
-import { normalizeCombatConfig } from './combat';
+import type { CombatSettings, CombatSheet, CombatTelemetry, CombatTurnNote, Spellbook } from './combat';
+import { normalizeCombatConfig, normalizeSpellbook } from './combat';
 import type { TravelMode } from '../services/location/travelModes';
 import type { TravelUnit } from '../services/location/travelUnit';
 
@@ -269,6 +269,7 @@ export type GameContext = {
     combatModeActive?: boolean;
     combatConfig?: CombatSettings;
     combatSheet?: CombatSheet;
+    spellbook?: Spellbook;
     combatAftermath?: CombatTurnNote;
     combatDeclined?: CombatTurnNote;
     combatTelemetry?: CombatTelemetry;
@@ -702,5 +703,6 @@ export function migrateLegacyContext(ctx: Partial<GameContext>): GameContext {
         merged.diceSystem = migrateDiceConfig(merged);
     }
     merged.combatConfig = normalizeCombatConfig(merged.combatConfig);
+    merged.spellbook = normalizeSpellbook(merged.spellbook);
     return merged;
 }

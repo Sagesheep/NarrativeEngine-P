@@ -1,103 +1,32 @@
-import { abilityMod } from './abilities';
+import { abilityMod, proficiencyForLevel, TIER_LEVEL } from './abilities';
 import { createRng } from './rng';
-import { buildTierBlock, DEFAULT_JITTER_RANGE } from './tiers';
+import { buildTierBlock, DEFAULT_JITTER_RANGE, TIER_TABLE } from './tiers';
 import {
     coverBetween, distance, hasLineOfSight, inBounds, isOccupied, pathCost, pathFromSearch, rangeOf, REACH_DISTANCE,
-    RANGED_DISTANCE, searchMoves, destinations, samePos, speedOf, tileAt,
+    RANGED_DISTANCE, searchMoves, destinations, samePos, sameTeam, terrainOf, tileAt,
 } from './grid';
 import { buildMapFromSeed, DEFAULT_HAZARD_TYPE, openArena, placeCombatants } from './mapBuilder';
 import { resolveMapSpec } from './mapSpec';
+import {
+    applyDamage, canAttackWith, canTarget, closeDraft, currentActorId, currentTurn, DEFEND_CONDITION, dismissSummon, emit,
+    freshTurn, hasCondition, isPlayerSide, markDown, openDraft, rollDamage, settleOutcome, SHIELDED, SLOWED,
+    spendAttackAction, STUNNED,
+} from './core';
+import type { Draft } from './core';
+import { abilityReadiness, abilitySlot, checkAbility, resolveAbility } from './glyphs/apply';
+import { abilityTargets } from './glyphs/targeting';
+import { enemyKit } from './glyphs/kits';
+import { defaultCastingAbility } from './glyphs/numbers';
 import type {
-    AttackRange, CombatAction, CombatEvent, CombatOutcome, CombatSpec, CombatState, Combatant, Pos, Rng, Side, TurnState,
+    AttackRange, CombatAction, CombatCondition, CombatEvent, CombatSpec, CombatState, Combatant, GlyphAbility, Pos, TurnState,
 } from './types';
 
-export const DEFEND_CONDITION = 'defending';
+export { DEFEND_CONDITION, isHostile, canTarget, currentActorId, freshTurn, currentTurn, checkOutcome } from './core';
+
 export const HAZARD_DAMAGE_DIE = 6;
 
 const MAX_ENGINE_ACTIONS = 2000;
 const MAP_SEED_SALT = 0x5bd1e995;
-
-type Draft = {
-    state: CombatState;
-    rng: Rng;
-    events: CombatEvent[];
-};
-
-function cloneState(state: CombatState): CombatState {
-    const combatants: Record<string, Combatant> = {};
-    for (const [id, c] of Object.entries(state.combatants)) {
-        combatants[id] = {
-            ...c,
-            abilities: { ...c.abilities },
-            damage: { ...c.damage },
-            conditions: c.conditions.map(x => ({ ...x })),
-            ...(c.position ? { position: { ...c.position } } : {}),
-        };
-    }
-    return { ...state, order: [...state.order], combatants, ...(state.turn ? { turn: { ...state.turn } } : {}) };
-}
-
-function openDraft(state: CombatState): Draft {
-    const next = cloneState(state);
-    return { state: next, rng: createRng(next.rngSeed, next.rngCursor), events: [] };
-}
-
-function closeDraft(draft: Draft): { state: CombatState; events: CombatEvent[] } {
-    draft.state.rngCursor = draft.rng.cursor;
-    return { state: draft.state, events: draft.events };
-}
-
-function emit(draft: Draft, event: Omit<CombatEvent, 'seq' | 'round' | 'turn'>): void {
-    draft.state.eventSeq += 1;
-    draft.events.push({ seq: draft.state.eventSeq, round: draft.state.round, turn: draft.state.turnCount ?? 0, ...event });
-}
-
-function isPlayerSide(side: Side): boolean {
-    return side === 'player' || side === 'ally';
-}
-
-export function isHostile(a: Side, b: Side): boolean {
-    if (a === 'neutral' || b === 'neutral') return false;
-    return isPlayerSide(a) !== isPlayerSide(b);
-}
-
-export function canTarget(actor: Combatant, target: Combatant): boolean {
-    if (actor.id === target.id || target.status !== 'up') return false;
-    if (actor.controller === 'player') return target.side === 'enemy' || target.side === 'neutral';
-    return isHostile(actor.side, target.side);
-}
-
-export function currentActorId(state: CombatState): string | null {
-    return state.order[state.turnIndex] ?? null;
-}
-
-export function freshTurn(state: CombatState, actorId: string): TurnState {
-    const actor = state.combatants[actorId];
-    return { actorId, moveLeft: state.grid && actor ? speedOf(actor) : 0, actionUsed: false };
-}
-
-export function currentTurn(state: CombatState): TurnState | null {
-    const id = currentActorId(state);
-    if (!id) return null;
-    if (state.turn && state.turn.actorId === id) return state.turn;
-    return freshTurn(state, id);
-}
-
-export function checkOutcome(state: CombatState): CombatOutcome | null {
-    if (state.outcome) return state.outcome;
-    const all = Object.values(state.combatants);
-    const enemiesUp = all.some(c => c.side === 'enemy' && c.status === 'up');
-    const playersUp = all.some(c => isPlayerSide(c.side) && c.status === 'up');
-    if (!playersUp) return 'defeat';
-    if (!enemiesUp) return 'victory';
-    return null;
-}
-
-function rollDamage(rng: Rng, count: number, sides: number, bonus: number): number {
-    let total = bonus;
-    for (let i = 0; i < count; i++) total += rng.roll(sides);
-    return Math.max(1, total);
-}
 
 function startTurn(draft: Draft): void {
     const id = currentActorId(draft.state);
@@ -109,8 +38,37 @@ function startTurn(draft: Draft): void {
     actor.conditions = actor.conditions.filter(c => c.id !== DEFEND_CONDITION);
 }
 
-function downText(target: Combatant): string {
-    return isPlayerSide(target.side) ? `${target.name} falls unconscious.` : `${target.name} is down.`;
+function endedText(c: Combatant, condition: string): string {
+    return `${c.name} is no longer ${condition}.`;
+}
+
+function tickTurnConditions(draft: Draft, c: Combatant): void {
+    const s = draft.state;
+    const kept: CombatCondition[] = [];
+    for (const cond of c.conditions) {
+        if (typeof cond.turns !== 'number' || cond.appliedTurn === s.turnCount) {
+            kept.push(cond);
+            continue;
+        }
+        const turns = cond.turns - 1;
+        if (turns > 0) {
+            kept.push({ ...cond, turns });
+            continue;
+        }
+        if (cond.id === SHIELDED) delete c.tempHp;
+        emit(draft, { type: 'condition_ended', targetId: c.id, data: { condition: cond.id }, text: endedText(c, cond.id) });
+    }
+    c.conditions = kept;
+}
+
+function loseTurn(draft: Draft, c: Combatant): void {
+    const s = draft.state;
+    s.turnCount = (s.turnCount ?? 0) + 1;
+    s.turn = { actorId: c.id, moveLeft: 0, actionUsed: true };
+    c.conditions = c.conditions.filter(x => x.id !== DEFEND_CONDITION);
+    emit(draft, { type: 'turn_lost', actorId: c.id, data: { condition: STUNNED }, text: `${c.name} is stunned and loses the turn.` });
+    tickTurnConditions(draft, c);
+    c.stunGuard = true;
 }
 
 function environmentStep(draft: Draft): void {
@@ -122,46 +80,67 @@ function environmentStep(draft: Draft): void {
         if (grid && c.position && tileAt(grid, c.position) === 'hazard') {
             const damage = draft.rng.roll(HAZARD_DAMAGE_DIE);
             const damageType = grid.hazardType || DEFAULT_HAZARD_TYPE;
-            c.hp = Math.max(0, c.hp - damage);
+            const hit = applyDamage(c, damage);
             emit(draft, {
                 type: 'hazard',
                 targetId: c.id,
-                data: { damage, damageType, hpAfter: c.hp },
+                data: {
+                    damage, damageType, hpAfter: c.hp,
+                    ...(hit.absorbed > 0 ? { absorbed: hit.absorbed, hpBefore: hit.hpBefore, tempBefore: hit.tempBefore } : {}),
+                },
                 text: grid.labels?.hazard ? `${c.name} takes ${damage} damage from the ${grid.labels.hazard}.` : `${c.name} takes ${damage} ${damageType} damage from the hazard.`,
             });
-            if (c.hp <= 0) {
-                c.status = 'down';
-                emit(draft, { type: 'down', targetId: c.id, data: { side: c.side, cause: 'hazard' }, text: downText(c) });
-            }
+            if (c.hp <= 0) markDown(draft, c, { hazard: true });
+            if (c.status !== 'up') continue;
         }
-        const kept: { id: string; rounds: number }[] = [];
+        const kept: CombatCondition[] = [];
         for (const cond of c.conditions) {
-            if (cond.id === DEFEND_CONDITION) {
+            if (cond.id === DEFEND_CONDITION || typeof cond.turns === 'number') {
                 kept.push(cond);
                 continue;
             }
-            const rounds = cond.rounds - 1;
+            const rounds = (cond.rounds ?? 1) - 1;
             if (rounds > 0) kept.push({ ...cond, rounds });
-            else emit(draft, { type: 'condition_ended', targetId: c.id, data: { condition: cond.id }, text: `${c.name} is no longer ${cond.id}.` });
+            else emit(draft, { type: 'condition_ended', targetId: c.id, data: { condition: cond.id }, text: endedText(c, cond.id) });
         }
         c.conditions = kept;
     }
+    const nextRound = s.round + 1;
+    for (const id of s.order) {
+        const c = s.combatants[id];
+        if (c && c.summonerId && c.status === 'up' && typeof c.expiresRound === 'number' && c.expiresRound <= nextRound) {
+            dismissSummon(draft, c, 'expired');
+        }
+    }
+    if (s.barriers && s.barriers.length > 0) {
+        const ending = s.barriers.filter(b => b.expiresRound <= nextRound);
+        if (ending.length > 0) {
+            s.barriers = s.barriers.filter(b => b.expiresRound > nextRound);
+            emit(draft, {
+                type: 'barrier_ended',
+                data: { tiles: ending.map(b => ({ ...b.pos })), expiresRound: ending[0].expiresRound },
+                text: ending.length === 1 ? 'A barrier square fades.' : `${ending.length} barrier squares fade.`,
+            });
+        }
+    }
 }
 
-function settleOutcome(draft: Draft): void {
-    const outcome = checkOutcome(draft.state);
-    if (!outcome || draft.state.outcome) return;
-    draft.state.outcome = outcome;
-    emit(draft, { type: 'combat_ended', data: { outcome }, text: outcome === 'victory' ? 'The fight is won.' : 'The fight is lost.' });
+function endOfTurn(draft: Draft, actorId: string): void {
+    const c = draft.state.combatants[actorId];
+    if (!c || c.status !== 'up') return;
+    tickTurnConditions(draft, c);
+    delete c.stunGuard;
 }
 
 function advanceTurn(draft: Draft): void {
     const s = draft.state;
-    const n = s.order.length;
-    if (n === 0) return;
-    for (let step = 0; step < n; step++) {
+    if (s.order.length === 0) return;
+    const outgoing = currentActorId(s);
+    if (outgoing && s.turn?.actorId === outgoing) endOfTurn(draft, outgoing);
+    const bound = s.order.length * 8;
+    for (let step = 0; step < bound; step++) {
         s.turnIndex += 1;
-        if (s.turnIndex >= n) {
+        if (s.turnIndex >= s.order.length) {
             s.turnIndex = 0;
             environmentStep(draft);
             settleOutcome(draft);
@@ -170,10 +149,15 @@ function advanceTurn(draft: Draft): void {
             emit(draft, { type: 'round', data: { round: s.round }, text: `Round ${s.round} begins.` });
         }
         const next = s.combatants[s.order[s.turnIndex]];
-        if (next && next.status === 'up') {
-            startTurn(draft);
-            return;
+        if (!next || next.status !== 'up') continue;
+        if (hasCondition(next, STUNNED)) {
+            loseTurn(draft, next);
+            settleOutcome(draft);
+            if (s.outcome) return;
+            continue;
         }
+        startTurn(draft);
+        return;
     }
 }
 
@@ -195,7 +179,7 @@ export function checkAttack(state: CombatState, actorId: string, targetId: strin
     const target = state.combatants[targetId];
     const range = actor ? rangeOf(actor) : 'close';
     if (!actor || !target || !canTarget(actor, target)) return { ok: false, reason: 'invalid_target', range, distance: 0, cover: 0, disadvantage: false };
-    const grid = state.grid;
+    const grid = terrainOf(state);
     const at = from ?? actor.position;
     if (!grid || !at || !target.position) return { ok: true, range, distance: 1, cover: 0, disadvantage: false };
     const dist = distance(at, target.position);
@@ -219,7 +203,7 @@ export function checkAttack(state: CombatState, actorId: string, targetId: strin
 
 function resolveAttack(draft: Draft, actor: Combatant, target: Combatant, check: AttackCheck): void {
     const defending = target.conditions.some(c => c.id === DEFEND_CONDITION);
-    const disadvantage = defending || check.disadvantage;
+    const disadvantage = defending || check.disadvantage || hasCondition(actor, SLOWED);
     const first = draft.rng.roll(20);
     const natural = disadvantage ? Math.min(first, draft.rng.roll(20)) : first;
     const total = natural + actor.attackBonus;
@@ -240,20 +224,18 @@ function resolveAttack(draft: Draft, actor: Combatant, target: Combatant, check:
     }
     const count = crit ? actor.damage.count * 2 : actor.damage.count;
     const damage = rollDamage(draft.rng, count, actor.damage.sides, actor.damage.bonus);
-    target.hp = Math.max(0, target.hp - damage);
+    const result = applyDamage(target, damage);
+    const shielded = result.absorbed > 0 ? { absorbed: result.absorbed, hpBefore: result.hpBefore, tempBefore: result.tempBefore } : {};
     emit(draft, {
         type: 'attack',
         actorId: actor.id,
         targetId: target.id,
-        data: { ...base, hit: true, crit, damage, damageType: dmgType, hpAfter: target.hp },
+        data: { ...base, hit: true, crit, damage, damageType: dmgType, hpAfter: target.hp, ...shielded },
         text: crit
             ? `${actor.name} lands a critical hit on ${target.name} for ${damage} ${dmgType}.`
             : `${actor.name} hits ${target.name} for ${damage} ${dmgType}.`,
     });
-    if (target.hp <= 0 && target.status === 'up') {
-        target.status = 'down';
-        emit(draft, { type: 'down', actorId: actor.id, targetId: target.id, data: { side: target.side }, text: downText(target) });
-    }
+    if (target.hp <= 0 && target.status === 'up') markDown(draft, target, { actorId: actor.id });
 }
 
 function rejection(state: CombatState, action: CombatAction, reason: string): { state: CombatState; events: CombatEvent[] } {
@@ -334,12 +316,20 @@ function hasAnyMove(state: CombatState, actorId: string): boolean {
     return !!search && destinations(search).length > 0;
 }
 
+export function hasUsableBonusAbility(state: CombatState, actorId: string): boolean {
+    const actor = state.combatants[actorId];
+    if (!actor?.kit || actor.kit.length === 0) return false;
+    return actor.kit.some(a => abilitySlot(a) === 'bonus' && checkAbility(state, actorId, a.id).ok);
+}
+
 function maybeAutoEnd(draft: Draft, actorId: string): void {
     const s = draft.state;
     if (s.outcome || currentActorId(s) !== actorId) return;
     const turn = currentTurn(s);
-    if (!turn || !turn.actionUsed) return;
-    if (turn.moveLeft <= 0 || !hasAnyMove(s, actorId)) advanceTurn(draft);
+    if (!turn || canAttackWith(turn)) return;
+    if (turn.moveLeft > 0 && hasAnyMove(s, actorId)) return;
+    if (!turn.bonusUsed && hasUsableBonusAbility(s, actorId)) return;
+    advanceTurn(draft);
 }
 
 export function applyAction(state: CombatState, action: CombatAction): { state: CombatState; events: CombatEvent[] } {
@@ -351,22 +341,22 @@ export function applyAction(state: CombatState, action: CombatAction): { state: 
     const turn = currentTurn(state) as TurnState;
 
     if (action.type === 'attack') {
-        if (turn.actionUsed) return rejection(state, action, 'the action is already used');
+        if (!canAttackWith(turn)) return rejection(state, action, 'the action is already used');
         const target = state.combatants[action.targetId];
         if (!target || !canTarget(actor, target)) return rejection(state, action, 'invalid target');
         const check = checkAttack(state, actor.id, target.id);
         if (!check.ok) return rejection(state, action, check.reason === 'no_line_of_sight' ? 'no line of sight' : 'out of range');
         const draft = openDraft(state);
-        draft.state.turn = { ...turn, actionUsed: true };
+        draft.state.turn = spendAttackAction(turn);
         resolveAttack(draft, draft.state.combatants[actor.id], draft.state.combatants[target.id], check);
         settleOutcome(draft);
         maybeAutoEnd(draft, actor.id);
         return closeDraft(draft);
     }
     if (action.type === 'defend') {
-        if (turn.actionUsed) return rejection(state, action, 'the action is already used');
+        if (!canAttackWith(turn)) return rejection(state, action, 'the action is already used');
         const draft = openDraft(state);
-        draft.state.turn = { ...turn, actionUsed: true };
+        draft.state.turn = spendAttackAction(turn);
         const self = draft.state.combatants[actor.id];
         self.conditions = [...self.conditions.filter(c => c.id !== DEFEND_CONDITION), { id: DEFEND_CONDITION, rounds: 1 }];
         emit(draft, { type: 'defend', actorId: actor.id, data: {}, text: `${actor.name} takes a defensive stance.` });
@@ -394,9 +384,20 @@ export function applyAction(state: CombatState, action: CombatAction): { state: 
         maybeAutoEnd(draft, actor.id);
         return closeDraft(draft);
     }
+    if (action.type === 'use_ability') {
+        const aim = action.aim && typeof action.aim.x === 'number' && typeof action.aim.y === 'number' ? { x: action.aim.x, y: action.aim.y } : null;
+        const check = checkAbility(state, actor.id, action.abilityId, aim);
+        if (!check.ok || !check.ability || !check.aim) return rejection(state, action, check.reason ?? 'the ability cannot be used');
+        const draft = openDraft(state);
+        resolveAbility(draft, actor.id, check.ability, check.aim);
+        settleOutcome(draft);
+        maybeAutoEnd(draft, actor.id);
+        return closeDraft(draft);
+    }
     if (action.type === 'end_turn') {
         const draft = openDraft(state);
-        const acted = turn.actionUsed || turn.moveLeft < freshTurn(state, actor.id).moveLeft;
+        const fresh = freshTurn(state, actor.id);
+        const acted = turn.actionUsed || !!turn.bonusUsed || turn.moveLeft < fresh.moveLeft || (turn.extraActions ?? 0) < (fresh.extraActions ?? 0);
         emit(draft, { type: 'end_turn', actorId: actor.id, data: { acted }, text: acted ? `${actor.name} ends the turn.` : `${actor.name} holds.` });
         advanceTurn(draft);
         return closeDraft(draft);
@@ -439,15 +440,53 @@ function approach(state: CombatState, actor: Combatant, turn: TurnState, wants: 
     return stop;
 }
 
-export function chooseEngineTurn(state: CombatState, actorId: string): { actions: CombatAction[]; state: CombatState } {
-    const actor = state.combatants[actorId];
-    const end: CombatAction = { type: 'end_turn', actorId };
-    if (!actor || actor.status !== 'up') return { actions: [end], state };
-    const turn = currentActorId(state) === actorId ? currentTurn(state) as TurnState : freshTurn(state, actorId);
-    if (turn.actionUsed) return { actions: [end], state };
-    const targets = state.order.map(id => state.combatants[id]).filter(c => !!c && canTarget(actor, c));
-    if (targets.length === 0) return { actions: [end], state };
+const BURST_NEIGHBOURS: readonly Pos[] = [
+    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
+    { x: 1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: -1, y: -1 },
+];
 
+function isDamaging(ability: GlyphAbility): boolean {
+    return ability.effects.some(e => e.id === 'damage' || e.id === 'drain');
+}
+
+function chooseKitAction(state: CombatState, actor: Combatant, turn: TurnState): { action: CombatAction; state: CombatState } | null {
+    const kit = (actor.kit ?? []).filter(a => isDamaging(a) && abilityReadiness(state, actor, a, turn) === null);
+    if (kit.length === 0) return null;
+    const hostiles = state.order.map(id => state.combatants[id]).filter(c => !!c && !!c.position && canTarget(actor, c));
+    if (hostiles.length === 0) return null;
+    for (const ability of kit.filter(a => a.form.id === 'burst')) {
+        let best: { aim: Pos; hits: number } | null = null;
+        const seen = new Set<string>();
+        for (const h of hostiles) {
+            for (const d of BURST_NEIGHBOURS) {
+                const aim = { x: (h.position as Pos).x + d.x, y: (h.position as Pos).y + d.y };
+                const key = `${aim.x},${aim.y}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                const res = abilityTargets(state, actor.id, ability, aim);
+                if (!res.ok) continue;
+                const caught = res.targetIds.map(id => state.combatants[id]);
+                const hits = caught.filter(c => canTarget(actor, c)).length;
+                const friendly = caught.some(c => c.id === actor.id || sameTeam(actor.side, c.side));
+                if (friendly || hits < 2) continue;
+                if (!best || hits > best.hits) best = { aim, hits };
+            }
+        }
+        if (best) return { action: { type: 'use_ability', actorId: actor.id, abilityId: ability.id, aim: best.aim }, state };
+    }
+    for (const ability of kit.filter(a => a.form.id === 'projectile' || a.form.id === 'touch' || a.form.id === 'dash')) {
+        const legal = hostiles.filter(h => abilityTargets(state, actor.id, ability, h.position as Pos).ok);
+        if (legal.length === 0) continue;
+        const choice = pickTarget(state, legal, new Set());
+        const aim = state.combatants[choice.id].position as Pos;
+        return { action: { type: 'use_ability', actorId: actor.id, abilityId: ability.id, aim: { ...aim } }, state: choice.state };
+    }
+    return null;
+}
+
+function weaponTurn(state: CombatState, actor: Combatant, turn: TurnState, targets: Combatant[]): { actions: CombatAction[]; state: CombatState } {
+    const actorId = actor.id;
+    const end: CombatAction = { type: 'end_turn', actorId };
     if (!state.grid || !actor.position) {
         const pick = pickTarget(state, targets, new Set());
         return { actions: [{ type: 'attack', actorId, targetId: pick.id }, end], state: pick.state };
@@ -505,6 +544,26 @@ export function chooseEngineTurn(state: CombatState, actorId: string): { actions
     return { actions: stop ? [{ type: 'move', actorId, to: stop }, end] : [end], state };
 }
 
+export function chooseEngineTurn(state: CombatState, actorId: string): { actions: CombatAction[]; state: CombatState } {
+    const actor = state.combatants[actorId];
+    const end: CombatAction = { type: 'end_turn', actorId };
+    if (!actor || actor.status !== 'up') return { actions: [end], state };
+    const turn = currentActorId(state) === actorId ? currentTurn(state) as TurnState : freshTurn(state, actorId);
+    if (!canAttackWith(turn)) return { actions: [end], state };
+    const targets = state.order.map(id => state.combatants[id]).filter(c => !!c && canTarget(actor, c));
+    if (targets.length === 0) return { actions: [end], state };
+    const weapon = weaponTurn(state, actor, turn, targets);
+    if (actor.kit && actor.kit.length > 0 && !turn.actionUsed && state.grid && actor.position) {
+        const first = weapon.actions[0];
+        const movingToAttack = first?.type === 'move' && weapon.actions.some(a => a.type === 'attack');
+        if (!movingToAttack) {
+            const kit = chooseKitAction(state, actor, turn);
+            if (kit) return { actions: [kit.action, end], state: kit.state };
+        }
+    }
+    return weapon;
+}
+
 export function stepEngine(state: CombatState): { state: CombatState; events: CombatEvent[] } | null {
     if (state.outcome) return null;
     const id = currentActorId(state);
@@ -537,6 +596,19 @@ export function runEngineTurns(state: CombatState): { state: CombatState; events
 
 export function deriveMapSeed(seed: number): number {
     return (Math.imul((seed >>> 0) ^ MAP_SEED_SALT, 2654435761) >>> 0);
+}
+
+function casterKitFields(c: { side: Combatant['side']; tier: Combatant['tier']; archetype?: Combatant['archetype'] }, abilities: Combatant['abilities'], damageType: string): Partial<Combatant> {
+    if (c.side !== 'enemy') return {};
+    const kit = enemyKit(c.tier, c.archetype, damageType);
+    if (kit.length === 0) return {};
+    const row = TIER_TABLE[c.tier] ?? TIER_TABLE.grunt;
+    return {
+        kit,
+        proficiency: proficiencyForLevel(TIER_LEVEL[c.tier] ?? 3),
+        castingAbility: defaultCastingAbility(abilities),
+        abilityDamage: { ...row.damage },
+    };
 }
 
 export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { state: CombatState; events: CombatEvent[] } {
@@ -586,6 +658,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
             range,
             ...(t?.weaknesses && t.weaknesses.length > 0 ? { weaknesses: [...t.weaknesses] } : {}),
             ...(t?.resistances && t.resistances.length > 0 ? { resistances: [...t.resistances] } : {}),
+            ...casterKitFields(c, block.abilities, damage.type),
         };
     });
 
@@ -616,6 +689,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
         grid,
         mapSeed,
         turnCount: 0,
+        ...(Number.isFinite(spec.maxSummons) ? { maxSummons: Math.max(0, Math.floor(spec.maxSummons as number)) } : {}),
     };
     const draft: Draft = { state, rng, events: [] };
     const roster = order.map(id => combatants[id]);

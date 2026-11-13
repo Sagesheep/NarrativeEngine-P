@@ -12,6 +12,7 @@ export type CombatSheet = {
     abilities: AbilityScores;
     budget: PointBudget;
     archetype?: Archetype;
+    castingAbility?: AbilityKey;
     level: number;
     needsAllocation: boolean;
 };
@@ -35,7 +36,7 @@ export type Side = 'player' | 'ally' | 'enemy' | 'neutral';
 
 export type Controller = 'player' | 'engine';
 
-export type CombatantStatus = 'up' | 'down' | 'fled' | 'surrendered';
+export type CombatantStatus = 'up' | 'down' | 'fled' | 'surrendered' | 'gone';
 
 export type DamageSpec = { count: number; sides: number; bonus: number; type: string };
 
@@ -84,7 +85,34 @@ export type ResolvedMapSpec = {
     place?: string;
 };
 
-export type TurnState = { actorId: string; moveLeft: number; actionUsed: boolean };
+export type TurnState = { actorId: string; moveLeft: number; actionUsed: boolean; bonusUsed?: boolean; extraActions?: number };
+
+export type FormId = 'touch' | 'projectile' | 'self' | 'line' | 'cone' | 'burst' | 'dash';
+
+export type EffectId = 'damage' | 'heal' | 'shield' | 'push' | 'pull' | 'stun' | 'slow'
+    | 'haste' | 'blink' | 'swap' | 'barrier' | 'drain' | 'summon';
+
+export type AugmentId = 'amplify' | 'widen' | 'extend' | 'pierce' | 'split' | 'quicken';
+
+export type GlyphAbility = {
+    id: string;
+    name: string;
+    description?: string;
+    damageType?: string;
+    form: { id: FormId; augments: AugmentId[] };
+    effects: { id: EffectId; augments: AugmentId[] }[];
+    source: 'player' | 'ai' | 'preset';
+};
+
+export type CombatCondition = {
+    id: string;
+    rounds?: number;
+    turns?: number;
+    appliedTurn?: number;
+    sourceId?: string;
+};
+
+export type Barrier = { pos: Pos; expiresRound: number; sourceId: string };
 
 export type Combatant = {
     id: string;
@@ -104,12 +132,24 @@ export type Combatant = {
     damage: DamageSpec;
     initiative: number;
     status: CombatantStatus;
-    conditions: { id: string; rounds: number }[];
+    conditions: CombatCondition[];
     position?: Pos;
     range?: AttackRange;
     speed?: number;
     weaknesses?: string[];
     resistances?: string[];
+    kit?: GlyphAbility[];
+    mp?: number;
+    maxMp?: number;
+    tempHp?: number;
+    cooldowns?: Record<string, number>;
+    proficiency?: number;
+    castingAbility?: AbilityKey;
+    abilityDamage?: Omit<DamageSpec, 'type'>;
+    summonerId?: string;
+    summonSeq?: number;
+    expiresRound?: number;
+    stunGuard?: boolean;
 };
 
 export type CombatOutcome = 'victory' | 'defeat' | 'fled' | 'truce' | 'aborted';
@@ -128,13 +168,17 @@ export type CombatState = {
     mapSeed?: number;
     turn?: TurnState;
     turnCount?: number;
+    barriers?: Barrier[];
+    nextSummon?: number;
+    maxSummons?: number;
 };
 
 export type CombatAction =
     | { type: 'attack'; actorId: string; targetId: string }
     | { type: 'defend'; actorId: string }
     | { type: 'move'; actorId: string; to: Pos }
-    | { type: 'end_turn'; actorId: string };
+    | { type: 'end_turn'; actorId: string }
+    | { type: 'use_ability'; actorId: string; abilityId: string; aim?: Pos | null };
 
 export type CombatEvent = {
     seq: number;
@@ -184,6 +228,7 @@ export type CombatSpec = {
     jitterRange?: number;
     map?: MapSpec;
     mapSeed?: number;
+    maxSummons?: number;
 };
 
 export type WeaponQuality = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
@@ -204,4 +249,6 @@ export type PcCombatantInput = {
     weapon?: PcWeapon | null;
     defaultWeaponDie?: number;
     look?: string;
+    kit?: GlyphAbility[];
+    mpCurrent?: number;
 };

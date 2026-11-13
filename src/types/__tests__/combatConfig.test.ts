@@ -9,7 +9,7 @@ describe('normalizeCombatConfig', () => {
         expect(DEFAULT_COMBAT_CONFIG).toEqual({
             partyControl: 'engine', defeatMode: 'knockout', narrationCadence: 'side',
             confirmStart: true, offerOnDangerous: true, resourceLabel: 'MP',
-            maxChainLength: 6, maxEquippedAbilities: 6, maxSummons: 2,
+            maxChainLength: 6, maxEquippedAbilities: 6, maxSummons: 2, mpRecovery: 'fight',
         });
     });
 
@@ -23,7 +23,7 @@ describe('normalizeCombatConfig', () => {
         expect(cfg).toEqual({
             partyControl: 'solo', defeatMode: 'ironman', narrationCadence: 'end',
             confirmStart: false, offerOnDangerous: false, resourceLabel: 'RAM',
-            maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0,
+            maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0, mpRecovery: 'fight',
             mookJitterRange: 2, defaultWeaponDie: 8,
         });
     });

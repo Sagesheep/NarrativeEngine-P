@@ -13,6 +13,23 @@ const DIRECTIONS: readonly Pos[] = [
     { x: 1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: -1, y: -1 },
 ];
 
+const terrainCache = new WeakMap<readonly unknown[], { grid: Grid; terrain: Grid }>();
+
+export function terrainOf(state: Pick<CombatState, 'grid' | 'barriers'>): Grid | undefined {
+    const grid = state.grid;
+    const barriers = state.barriers;
+    if (!grid || !barriers || barriers.length === 0) return grid;
+    const hit = terrainCache.get(barriers);
+    if (hit && hit.grid === grid) return hit.terrain;
+    const tiles = [...grid.tiles];
+    for (const b of barriers) {
+        if (inBounds(grid, b.pos)) tiles[b.pos.y * grid.width + b.pos.x] = 'wall';
+    }
+    const terrain: Grid = { ...grid, tiles };
+    terrainCache.set(barriers, { grid, terrain });
+    return terrain;
+}
+
 export function inBounds(grid: Grid, p: Pos): boolean {
     return Number.isInteger(p.x) && Number.isInteger(p.y) && p.x >= 0 && p.y >= 0 && p.x < grid.width && p.y < grid.height;
 }
@@ -229,7 +246,7 @@ export type MoveSearch = {
 export type SearchOptions = { budget: number; avoidHazards: boolean };
 
 export function searchMoves(state: CombatState, actorId: string, opts: SearchOptions): MoveSearch | null {
-    const grid = state.grid;
+    const grid = terrainOf(state);
     const actor = state.combatants[actorId];
     if (!grid || !actor || !actor.position || !inBounds(grid, actor.position)) return null;
     const total = grid.width * grid.height;

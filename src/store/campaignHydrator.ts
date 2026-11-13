@@ -391,6 +391,8 @@ export async function hydrateCampaign(campaignId: string) {
         modTables: hydratedModTables,
         combatSession: combat?.session ?? null,
         combatProposal: null,
+        abilityProposal: null,
+        abilityEditDraft: null,
     });
 
     // Phase 3.2 / `EVENTS.md` §6.2 — after the single `setState` that makes a

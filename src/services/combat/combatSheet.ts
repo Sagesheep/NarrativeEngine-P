@@ -1,4 +1,4 @@
-import { createDefaultSheet, deriveSheet } from '@narrative/engine';
+import { createDefaultSheet, deriveMaxMp, deriveSheet } from '@narrative/engine';
 import type { CharacterProfile, CharacterProfileState, CombatSheet, GameContext } from '../../types';
 
 export const COMBAT_LOCKED_STAT_KEYS = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA', 'AC', 'Proficiency'] as const;
@@ -40,10 +40,13 @@ export function applyCombatSheet(context: GameContext, sheet: CombatSheet): Part
     const mirrored = buildMirroredStats(sheet);
     const profile = context.characterProfileData;
     const current = Number.isFinite(profile.hp?.current) ? profile.hp.current : derived.maxHp;
+    const maxMp = deriveMaxMp(sheet);
+    const mpCurrent = Number.isFinite(profile.mp?.current) ? (profile.mp as { current: number }).current : maxMp;
     const characterProfileData: CharacterProfile = {
         ...profile,
         stats: mergeMirroredStats(profile.stats, mirrored),
         hp: { current: Math.max(0, Math.min(current, derived.maxHp)), max: derived.maxHp },
+        mp: { current: Math.max(0, Math.min(mpCurrent, maxMp)), max: maxMp },
     };
     const patch: Partial<GameContext> = {
         combatSheet: { ...sheet, abilities: { ...sheet.abilities } },
@@ -84,6 +87,32 @@ export function guardHpPatch(
     }
     const nextCurrent = incoming.current ?? current.current;
     return { current: Math.min(nextCurrent, current.max), max: current.max };
+}
+
+export function guardMpPatch(
+    current: { current: number; max: number } | undefined,
+    incoming: Partial<{ current: number; max: number }>,
+    locked: boolean,
+): { current: number; max: number } {
+    const base = current ?? { current: 0, max: 0 };
+    if (!locked) {
+        return { current: incoming.current ?? base.current, max: incoming.max ?? base.max };
+    }
+    const nextCurrent = incoming.current ?? base.current;
+    return { current: Math.max(0, Math.min(nextCurrent, base.max)), max: base.max };
+}
+
+export function isSheetMirrorStale(context: GameContext): boolean {
+    const sheet = context.combatSheet;
+    if (!sheet || context.combatModeActive !== true) return false;
+    const profile = context.characterProfileData;
+    const derived = deriveSheet(sheet);
+    return profile?.hp?.max !== derived.maxHp || profile?.mp?.max !== deriveMaxMp(sheet);
+}
+
+export function remirrorCombatSheet(context: GameContext): Partial<GameContext> {
+    if (!context.combatSheet || context.combatModeActive !== true || !isSheetMirrorStale(context)) return {};
+    return applyCombatSheet(context, context.combatSheet);
 }
 
 export type CombatPatchActions = {

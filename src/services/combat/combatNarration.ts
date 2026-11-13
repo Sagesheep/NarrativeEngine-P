@@ -6,7 +6,7 @@ import { sanitizePayloadForApi } from '../lib/payloadSanitizer';
 import { extractAndStripSceneStakes } from '../turn/sceneStakesTag';
 import { isEngineLogMessage } from '../payload/history';
 import { uid } from '../../utils/uid';
-import { groupEventsByTurn, hpBandLabel, isGroupComplete, positionPhrase, sideGroup, stateAtSeq, turnLines } from './combatEvents';
+import { groupEventsByTurn, hpBandLabel, isGroupComplete, isPresent, positionPhrase, sideGroup, stateAtSeq, turnLines } from './combatEvents';
 import type { ChatMessage, CombatEvent, CombatNarrationCadence, CombatSession, CombatState } from '../../types';
 
 export const BEAT_DIRECTIVE =
@@ -67,7 +67,7 @@ export function computeBeatRanges(
 
 export function buildCombatBlock(state: CombatState, log: readonly CombatEvent[], range: BeatRange): string {
     const atEnd = stateAtSeq(state, log, range.toSeq);
-    const roster = atEnd.order.map(id => atEnd.combatants[id]).filter(Boolean).map(c => {
+    const roster = atEnd.order.map(id => atEnd.combatants[id]).filter(c => isPresent(c)).map(c => {
         const role = c.side === 'player' ? 'player character' : c.side;
         const look = c.look ? ` — ${c.look.slice(0, 80)}` : '';
         const where = positionPhrase(atEnd, c);

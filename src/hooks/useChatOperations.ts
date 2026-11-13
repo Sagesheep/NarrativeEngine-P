@@ -9,6 +9,8 @@ import { commitPendingTurn, findRetryableMessage, persistPendingTurn } from '../
 import { debouncedSaveCampaignState } from '../store/slices/campaignSlice';
 import type { InventoryProposal } from '../types';
 import { isCombatToolAllowed } from '../services/combat/combatProposal';
+import { isAbilityToolAllowed } from '../services/combat/abilityProposalArgs';
+import { stageAbilityProposal } from '../services/combat/abilityProposal';
 import { stageProposal } from '../services/combat/combatController';
 import { abortCombatNarration } from '../services/combat/combatNarration';
 import type { useSceneContinue } from '../components/hooks/useSceneContinue';
@@ -291,6 +293,7 @@ ${textToUse}` : attachmentBlock)
             nextTurnOocBrief: useAskGmBrief,
             directorSkipController: directorAbortRef.current,
             combatToolAllowed: isCombatToolAllowed(context, storeSnapshot.combatSession, storeSnapshot.combatProposal),
+            abilityToolAllowed: isAbilityToolAllowed(context, storeSnapshot.combatSession, storeSnapshot.abilityProposal),
         }, {
             onCheckingNotes: setIsCheckingNotes,
             addMessage: storeSnapshot.addMessage,
@@ -330,6 +333,7 @@ ${textToUse}` : attachmentBlock)
             restoreNPC: storeSnapshot.restoreNPC,
             stageInventoryProposal: (proposal) => setPendingProposal(proposal),
             stageCombatProposal: (proposal) => stageProposal(proposal),
+            stageAbilityProposal: (proposal) => stageAbilityProposal(proposal),
             // Durable-commit v1: flush the finished turn (text + pendingCommit + swipe
             // set) the moment it is staged, so an improper close or an idle timeout
             // before the deferred commit leaves a recoverable turn on disk instead of

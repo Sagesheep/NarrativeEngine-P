@@ -1,8 +1,13 @@
 import { useAppStore } from '../../store/useAppStore';
-import type { ChatMessage, CombatProposal, CombatSession } from '../../types';
+import type { AbilityProposal, ChatMessage, CombatProposal, CombatSession } from '../../types';
 
-export function isSwipeLockedByCombat(messageId: string | null | undefined, proposal: CombatProposal | null = useAppStore.getState().combatProposal): boolean {
-    return !!messageId && !!proposal && proposal.messageId === messageId;
+export function isSwipeLockedByCombat(
+    messageId: string | null | undefined,
+    proposal: CombatProposal | null = useAppStore.getState().combatProposal,
+    abilityProposal: AbilityProposal | null = useAppStore.getState().abilityProposal ?? null,
+): boolean {
+    if (!messageId) return false;
+    return (!!proposal && proposal.messageId === messageId) || (!!abilityProposal && abilityProposal.messageId === messageId);
 }
 
 export function isCombatMessage(msg: Pick<ChatMessage, 'role' | 'name' | 'combatBeat'>): boolean {

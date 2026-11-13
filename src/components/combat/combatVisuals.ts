@@ -47,7 +47,7 @@ export function tileCenter(p: CombatPos): CombatPos {
 }
 
 export function tokenAt(state: CombatState, p: CombatPos): Combatant | undefined {
-    const all = Object.values(state.combatants);
+    const all = Object.values(state.combatants).filter(c => c.status !== 'gone');
     return all.find(c => c.status === 'up' && c.position?.x === p.x && c.position?.y === p.y)
         ?? all.find(c => c.position?.x === p.x && c.position?.y === p.y);
 }
@@ -73,7 +73,7 @@ export function inspectCorner(pos: CombatPos | undefined, width: number, height:
 }
 
 export function turnOrderForStrip(state: CombatState): Combatant[] {
-    const all = state.order.map(id => state.combatants[id]).filter((c): c is Combatant => !!c);
+    const all = state.order.map(id => state.combatants[id]).filter((c): c is Combatant => !!c && c.status !== 'gone');
     return [...all.filter(c => c.status === 'up'), ...all.filter(c => c.status !== 'up')];
 }
 

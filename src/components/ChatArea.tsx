@@ -37,6 +37,7 @@ import { BetaArmedRow } from './beta/BetaArmedRow';
 import { BetaCommandPalette } from './beta/BetaCommandPalette';
 import { ArmedAskGmNote } from './ooc/ArmedAskGmNote';
 import { CombatProposalDialog } from './combat/CombatProposalDialog';
+import { AbilityProposalBar } from './combat/AbilityProposalBar';
 import { CombatScreen } from './combat/CombatScreen';
 import { CombatAllocationHint, CombatOfferChip, CombatProposalChip } from './combat/StartCombatButton';
 import { useCombatLifecycle } from './combat/useCombatLifecycle';
@@ -399,6 +400,7 @@ export function ChatArea() {
                         onDone={() => setPendingProposal(null)}
                     />
                 )}
+                <AbilityProposalBar />
                 {betaUi && <BetaArmedRow />}
                 {proposalMinimised && <CombatProposalChip onOpen={() => setMinimisedProposalId(null)} />}
                 <CombatAllocationHint variant="notice" />

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { Map as MapIcon, BookOpen } from 'lucide-react';
-import { currentTurn } from '@narrative/engine';
+import { canAttackWith, currentTurn, findKitAbility } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { ChatMessage, CombatAction, CombatSession } from '../../types';
@@ -11,6 +11,7 @@ import { CombatInitiativeStrip } from './CombatInitiativeStrip';
 import { CombatActionBar } from './CombatActionBar';
 import { attackableTargets } from './combatVisuals';
 import { useContainerWidth } from './useContainerWidth';
+import { needsAim, useAbilityAim } from './useAbilityAim';
 
 export const NARROW_COMBAT_WIDTH = 900;
 const BOTTOM_SLACK = 48;
@@ -48,6 +49,7 @@ export function CombatScreen({
     const [view, setView] = useState<View>('map');
     const [targetId, setTargetId] = useState<string | null>(null);
     const [picking, setPicking] = useState(false);
+    const [aimingId, setAimingId] = useState<string | null>(null);
     const messages = useAppStore(s => s.messages);
     const beats = useMemo(() => countBeats(messages, session.state.id), [messages, session.state.id]);
     const [seenBeats, setSeenBeats] = useState(beats);
@@ -74,7 +76,29 @@ export function CombatScreen({
 
     const act = (action: CombatAction) => {
         setPicking(false);
+        setAimingId(null);
         onAction(action);
+    };
+
+    const actorId = playerActorId(session.state);
+    const aim = useAbilityAim(session.state, actorId, aimingId, act, () => setAimingId(null));
+    const liveAim = aim && !busy ? aim : null;
+
+    const startAim = (abilityId: string | null) => {
+        setPicking(false);
+        if (!abilityId || !actorId) {
+            setAimingId(null);
+            return;
+        }
+        const ability = findKitAbility(session.state.combatants[actorId], abilityId);
+        if (!ability) return;
+        if (!needsAim(ability)) {
+            act({ type: 'use_ability', actorId, abilityId, aim: null });
+            return;
+        }
+        setAimingId(abilityId);
+        if (narrow && view !== 'map') show('map');
+        surfaceRef.current?.focus({ preventScroll: true });
     };
 
     const select = (id: string | null) => {
@@ -87,7 +111,8 @@ export function CombatScreen({
         const id = playerActorId(state);
         const player = id ? state.combatants[id] : undefined;
         const turn = player ? currentTurn(state) : null;
-        const first = attackableTargets(state, player, !!turn && !turn.actionUsed)[0];
+        const first = attackableTargets(state, player, !!turn && canAttackWith(turn))[0];
+        setAimingId(null);
         if (!first) return;
         setTargetId(first.id);
         setPicking(true);
@@ -150,6 +175,7 @@ export function CombatScreen({
                             picking={picking}
                             onPickEnd={() => setPicking(false)}
                             surfaceRef={surfaceRef}
+                            aim={liveAim}
                         />
                     )}
                 </div>
@@ -157,7 +183,7 @@ export function CombatScreen({
                     {feed}
                 </div>
             </div>
-            <CombatActionBar session={session} busy={busy} targetId={targetId} onAction={act} onPick={pick} onSkip={onSkip} />
+            <CombatActionBar session={session} busy={busy} targetId={targetId} onAction={act} onPick={pick} onSkip={onSkip} aimingId={liveAim ? aimingId : null} onAim={startAim} />
         </div>
     );
 }

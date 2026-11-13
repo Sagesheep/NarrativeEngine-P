@@ -38,7 +38,16 @@ export {
     PC_COMBATANT_ID, WEAPON_QUALITY_DICE, UNARMED_DIE, FALLBACK_WEAPON_DIE, buildPcCombatant,
     DEFEND_CONDITION, isHostile, canTarget, currentActorId, checkOutcome, applyAction,
     chooseEngineTurn, stepEngine, runEngineTurns, createCombat, hpBand, simulateFights, HAZARD_DAMAGE_DIE,
-    freshTurn, currentTurn, checkAttack, reachable, pathTo, deriveMapSeed,
+    freshTurn, currentTurn, checkAttack, reachable, pathTo, deriveMapSeed, hasUsableBonusAbility, terrainOf,
+    STUNNED, SLOWED, HASTED, SHIELDED, COMBAT_EVENT_TYPES, canAttackWith, hasCondition, countsForOutcome,
+    FORM_IDS, EFFECT_IDS, AUGMENT_IDS, FORMS, EFFECTS, AUGMENT_COSTS, GLYPH_NUMBERS, SUMMON_TIERS, UNSTUNNABLE_TIERS,
+    MP_BASE, MP_PER_LEVEL, MP_PER_CASTING_MOD, MP_MIN, SINGLE_TARGET_FORMS,
+    CASTING_KEYS, defaultCastingAbility, castingAbilityOf, deriveMaxMp, proficiencyOf, castingModOf, casterStats, saveDc,
+    saveModifier, projectileRange, lineLength, lineWidth, coneLength, burstRange, burstRadius, dashLength, blinkRange,
+    DEFAULT_ABILITY_LIMITS, cleanAbilityName, glyphCount, abilityCost, validateAbility, describeAbility, isGlyphAbilityShape,
+    abilityTargets, legalAims, directionOf, tileEffectOf, isEmptyTile,
+    findKitAbility, abilitySlot, usesMp, abilityReadiness, checkAbility,
+    enemyKit, ENEMY_BOLT_ID, ENEMY_BURST_ID, STARTER_ABILITIES,
     TILE_KINDS, DEFAULT_SPEED, REACH_DISTANCE, RANGED_DISTANCE, HAZARD_AVOID_PENALTY, HALF_COVER_BONUS, THREE_QUARTER_COVER_BONUS,
     inBounds, tileAt, isWalkable, isWalkableTile, distance, samePos, canStep, traceLine, hasLineOfSight, coverBetween,
     speedOf, rangeOf, sameTeam,
@@ -59,6 +68,8 @@ export type {
     AttackRange, Tile, Grid, Pos, MapSize, MapSpec, TurnState, TemplateOverlay,
     AreaType, MapDensity, HazardKind, TerrainLabels, ResolvedMapSpec, MapInference, ResolveOptions,
     AreaGenerator, AreaLayout, BandCounts,
+    FormId, EffectId, AugmentId, GlyphAbility, CombatCondition, Barrier,
+    FormSpec, EffectSpec, FormRoll, CasterStats, AbilityLimits, AimResult, AbilityCheck, AbilitySlot, StarterPresetId,
 } from './combat/index';
 
 export { resolveLootDrop } from './loot/lootEngine';

@@ -6,14 +6,15 @@ export type TierRow = {
     ac: number;
     attack: number;
     damage: Omit<DamageSpec, 'type'>;
+    save: number;
 };
 
 export const TIER_TABLE: Readonly<Record<CombatTier, TierRow>> = {
-    minion: { hp: 4, ac: 10, attack: 2, damage: { count: 1, sides: 4, bonus: 0 } },
-    grunt: { hp: 8, ac: 11, attack: 3, damage: { count: 1, sides: 6, bonus: 0 } },
-    elite: { hp: 30, ac: 13, attack: 5, damage: { count: 1, sides: 8, bonus: 2 } },
-    boss: { hp: 65, ac: 15, attack: 7, damage: { count: 2, sides: 8, bonus: 3 } },
-    legendary: { hp: 120, ac: 17, attack: 9, damage: { count: 3, sides: 8, bonus: 4 } },
+    minion: { hp: 4, ac: 10, attack: 2, damage: { count: 1, sides: 4, bonus: 0 }, save: 0 },
+    grunt: { hp: 8, ac: 11, attack: 3, damage: { count: 1, sides: 6, bonus: 0 }, save: 1 },
+    elite: { hp: 30, ac: 13, attack: 5, damage: { count: 1, sides: 8, bonus: 2 }, save: 3 },
+    boss: { hp: 65, ac: 15, attack: 7, damage: { count: 2, sides: 8, bonus: 3 }, save: 5 },
+    legendary: { hp: 120, ac: 17, attack: 9, damage: { count: 3, sides: 8, bonus: 4 }, save: 7 },
 };
 
 export const DEFAULT_JITTER_RANGE = 10;

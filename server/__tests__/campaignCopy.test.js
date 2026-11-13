@@ -48,6 +48,8 @@ function seedCampaign() {
                 lastUpdateScene: 9, signatureKit: { equipment: [SECRET], abilities: [] },
                 wants: { short: ['eat'], medium: [SECRET], long: SECRET },
             },
+            combatSheet: { abilities: { STR: 15, DEX: 14, CON: 13, INT: 12, WIS: 10, CHA: 8 }, budget: 'NORMAL', level: 3, needsAllocation: false },
+            spellbook: { abilities: [{ id: 'a1', name: 'Fire bolt', form: { id: 'projectile', augments: [] }, effects: [{ id: 'damage', augments: [] }], source: 'player' }], equippedIds: ['a1'] },
         },
         messages: [
             { id: 'm1', content: SECRET, attachments: [{ url: `/assets/campaigns/${SRC}/scene-images/a.png` }] },
@@ -257,6 +259,10 @@ describe('clean copy', () => {
             wants: { short: ['eat'], medium: [], long: '' },
         });
         expect(read(kept.body.id, '.state.json').context.playerCharacter.signatureKit).toBeUndefined();
+        expect(read(kept.body.id, '.state.json').context.combatSheet).toMatchObject({ level: 3, budget: 'NORMAL' });
+        expect(read(kept.body.id, '.state.json').context.spellbook.equippedIds).toEqual(['a1']);
+        expect(read(gone.body.id, '.state.json').context.combatSheet).toBeUndefined();
+        expect(read(gone.body.id, '.state.json').context.spellbook).toBeUndefined();
     });
 
     it('keeps authored places, unvisited, with connections only between kept places', async () => {

@@ -1,14 +1,19 @@
-import { coverBetween, distance, hasLineOfSight, hpBand } from '@narrative/engine';
-import type { CombatEvent, CombatSide, CombatState, Combatant } from '../../types';
+import { coverBetween, distance, hasLineOfSight, hpBand, terrainOf } from '@narrative/engine';
+import type { CombatEvent, CombatPos, CombatSide, CombatState, Combatant } from '../../types';
 
-export const ACTION_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'defend', 'end_turn']);
-export const TURN_ACTION_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'end_turn']);
+export const ACTION_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'defend', 'end_turn', 'ability', 'turn_lost']);
+export const TURN_ACTION_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'end_turn', 'ability', 'turn_lost']);
+const ACTED_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'ability', 'turn_lost']);
 
 export type TurnGroup = {
     actorId?: string;
     turn?: number;
     events: CombatEvent[];
 };
+
+export function isPresent(c: Pick<Combatant, 'status'> | undefined): boolean {
+    return !!c && c.status !== 'gone';
+}
 
 function actorOf(events: readonly CombatEvent[]): string | undefined {
     return events.find(e => TURN_ACTION_TYPES.has(e.type) && e.actorId)?.actorId;
@@ -57,11 +62,31 @@ export function sideGroup(side: CombatSide | undefined): 'party' | 'enemy' | 'ne
     return 'none';
 }
 
+type Move = { id: string; from: CombatPos; to: CombatPos };
+
+function movesOf(event: CombatEvent): Move[] {
+    const raw = event.data.moves;
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((m): m is Move => !!m && typeof m === 'object' && typeof (m as Move).id === 'string'
+        && typeof (m as Move).from?.x === 'number' && typeof (m as Move).from?.y === 'number');
+}
+
+function tilesOf(raw: unknown): CombatPos[] {
+    return Array.isArray(raw) ? raw.filter((p): p is CombatPos => !!p && typeof p.x === 'number' && typeof p.y === 'number') : [];
+}
+
+function restoreTemp(target: Combatant, value: unknown): void {
+    if (typeof value !== 'number') return;
+    if (value > 0) target.tempHp = value;
+    else delete target.tempHp;
+}
+
 export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq: number): CombatState {
     const combatants: Record<string, Combatant> = {};
     for (const [id, c] of Object.entries(state.combatants)) {
         combatants[id] = { ...c, ...(c.position ? { position: { ...c.position } } : {}) };
     }
+    let barriers = (state.barriers ?? []).map(b => ({ ...b, pos: { ...b.pos } }));
     const later = log.filter(e => e.seq > seq).sort((a, b) => b.seq - a.seq);
     for (const event of later) {
         if (event.type === 'moved') {
@@ -70,17 +95,35 @@ export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq:
             if (actor && from && typeof from.x === 'number' && typeof from.y === 'number') actor.position = { x: from.x, y: from.y };
             continue;
         }
+        for (const move of movesOf(event)) {
+            const c = combatants[move.id];
+            if (c) c.position = { x: move.from.x, y: move.from.y };
+        }
+        if (event.type === 'barrier') {
+            const made = tilesOf(event.data.tiles);
+            barriers = barriers.filter(b => !made.some(p => p.x === b.pos.x && p.y === b.pos.y));
+            continue;
+        }
+        if (event.type === 'barrier_ended') {
+            const expiresRound = typeof event.data.expiresRound === 'number' ? event.data.expiresRound : state.round;
+            barriers = [...barriers, ...tilesOf(event.data.tiles).map(pos => ({ pos: { ...pos }, expiresRound, sourceId: '' }))];
+            continue;
+        }
         const target = event.targetId ? combatants[event.targetId] : undefined;
         if (!target) continue;
-        if (event.type === 'attack' && event.data.hit === true && typeof event.data.damage === 'number') {
+        if (typeof event.data.hpBefore === 'number') {
+            target.hp = event.data.hpBefore;
+            restoreTemp(target, event.data.tempBefore);
+        } else if (event.type === 'attack' && event.data.hit === true && typeof event.data.damage === 'number') {
+            target.hp = Math.min(target.maxHp, target.hp + event.data.damage);
+        } else if (event.type === 'hazard' && typeof event.data.damage === 'number') {
             target.hp = Math.min(target.maxHp, target.hp + event.data.damage);
         }
-        if (event.type === 'hazard' && typeof event.data.damage === 'number') {
-            target.hp = Math.min(target.maxHp, target.hp + event.data.damage);
-        }
-        if (event.type === 'down') target.status = 'up';
+        if (event.type === 'shield') restoreTemp(target, event.data.tempBefore);
+        if (event.type === 'down' || event.type === 'dismissed') target.status = 'up';
+        if (event.type === 'summoned') target.status = 'gone';
     }
-    return { ...state, combatants };
+    return { ...state, combatants, ...(state.barriers || barriers.length > 0 ? { barriers } : {}) };
 }
 
 export type HpBandLabel = 'unhurt' | 'hurt' | 'badly hurt' | 'down';
@@ -93,7 +136,7 @@ export function hpBandLabel(c: Pick<Combatant, 'hp' | 'maxHp' | 'status'>): HpBa
 export type PositionPhrase = 'adjacent' | 'close' | 'at range' | 'behind cover' | `behind the ${string}` | 'out of sight';
 
 export function positionPhrase(state: CombatState, c: Combatant): PositionPhrase | null {
-    const grid = state.grid;
+    const grid = terrainOf(state);
     const pc = Object.values(state.combatants).find(x => x.side === 'player');
     if (!grid || !pc || pc.id === c.id || !pc.position || !c.position) return null;
     if (!hasLineOfSight(grid, pc.position, c.position)) return 'out of sight';
@@ -126,6 +169,42 @@ function moveClause(state: CombatState, actorId: string | undefined, squares: nu
     return `${name} shifts position.`;
 }
 
+function abilityLabel(event: CombatEvent): string {
+    const n = typeof event.data.name === 'string' && event.data.name.trim() ? event.data.name.trim() : 'an ability';
+    const type = typeof event.data.damageType === 'string' ? event.data.damageType.trim() : '';
+    const effects = Array.isArray(event.data.effects) ? event.data.effects : [];
+    const harmful = effects.some(e => e === 'damage' || e === 'drain');
+    return harmful && type ? `${n} (${type})` : n;
+}
+
+function abilityName(event: CombatEvent): string {
+    return typeof event.data.ability === 'string' && event.data.ability.trim() ? event.data.ability.trim() : 'The ability';
+}
+
+const CONDITION_WORDS: Readonly<Record<string, string>> = {
+    stunned: 'stunned',
+    slowed: 'slowed',
+    hasted: 'hasted',
+    shielded: 'shielded',
+    defending: 'defending',
+};
+
+function conditionWord(raw: unknown): string {
+    return typeof raw === 'string' && CONDITION_WORDS[raw] ? CONDITION_WORDS[raw] : 'affected';
+}
+
+function dodgeVerb(save: unknown): string {
+    if (save === 'CON') return 'endures';
+    if (save === 'WIS') return 'resists';
+    return 'dives clear of';
+}
+
+export const NARRATED_EVENT_TYPES: readonly string[] = [
+    'attack', 'initiative', 'round', 'moved', 'hazard', 'combat_started', 'defend', 'end_turn', 'down', 'combat_ended',
+    'condition_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed',
+    'teleported', 'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
+];
+
 export function narrationLine(event: CombatEvent, state: CombatState): string {
     const name = (id?: string) => nameIn(state, id);
     switch (event.type) {
@@ -136,7 +215,7 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
             return `${name(event.actorId)} ${how} ${name(event.targetId)}${type ? ` (${type})` : ''}.`;
         }
         case 'initiative': {
-            const order = state.order.map(id => name(id));
+            const order = state.order.filter(id => isPresent(state.combatants[id])).map(id => name(id));
             return `Order of action: ${order.join(', ')}.`;
         }
         case 'round':
@@ -148,14 +227,75 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
             const type = label || (typeof event.data.damageType === 'string' ? event.data.damageType : 'hazard');
             return `${name(event.targetId)} is hurt by the ${type} underfoot.`;
         }
-        default:
+        case 'combat_started':
+        case 'defend':
+        case 'end_turn':
+        case 'down':
+        case 'combat_ended':
             return event.text;
+        case 'condition_ended':
+            return `${name(event.targetId)} is no longer ${conditionWord(event.data.condition)}.`;
+        case 'rejected':
+            return '';
+        case 'ability':
+            return `${name(event.actorId)} uses ${abilityLabel(event)}.`;
+        case 'ability_attack':
+            if (event.data.hit !== true) return `${abilityName(event)} misses ${name(event.targetId)}.`;
+            return event.data.crit === true
+                ? `${abilityName(event)} strikes ${name(event.targetId)} squarely.`
+                : `${abilityName(event)} hits ${name(event.targetId)}.`;
+        case 'save':
+            return event.data.success === true
+                ? `${name(event.targetId)} ${dodgeVerb(event.data.save)} the worst of it.`
+                : `${name(event.targetId)} is caught full on.`;
+        case 'ability_damage': {
+            const type = typeof event.data.damageType === 'string' && event.data.damageType.trim() ? event.data.damageType.trim() : '';
+            const how = event.data.saved === true ? 'is grazed by the' : 'takes the full';
+            const what = type ? `${type}` : 'blast';
+            const extra = event.data.weakness === true ? ', which it is weak to' : event.data.resisted === true ? ', which it resists' : '';
+            const soak = typeof event.data.absorbed === 'number' && event.data.absorbed > 0 ? ' A shield takes some of it.' : '';
+            return `${name(event.targetId)} ${how} ${what}${extra}.${soak}`;
+        }
+        case 'heal':
+            return event.data.source === 'drain'
+                ? `${name(event.targetId)} draws strength from the stolen life.`
+                : `${name(event.targetId)}'s wounds close.`;
+        case 'shield':
+            return event.data.applied === false
+                ? `${name(event.targetId)} keeps the stronger shield it already has.`
+                : `A shield settles over ${name(event.targetId)}.`;
+        case 'pushed':
+            return event.data.kind === 'pull'
+                ? `${name(event.targetId)} is dragged toward ${name(event.actorId)}.`
+                : `${name(event.targetId)} is thrown back.`;
+        case 'teleported':
+            return event.data.kind === 'dash'
+                ? `${name(event.actorId)} dashes to ${name(event.targetId)}.`
+                : `${name(event.actorId)} vanishes and reappears nearby.`;
+        case 'swapped':
+            return `${name(event.actorId)} and ${name(event.targetId)} trade places.`;
+        case 'summoned':
+            return `${name(event.actorId)} calls up ${name(event.targetId)}.`;
+        case 'dismissed':
+            return event.data.cause === 'destroyed' ? `${name(event.targetId)} is destroyed.` : `${name(event.targetId)} fades away.`;
+        case 'barrier':
+            return `${name(event.actorId)} raises a barrier.`;
+        case 'barrier_ended':
+            return 'A barrier fades.';
+        case 'condition_added':
+            return `${name(event.targetId)} is ${conditionWord(event.data.condition)}.`;
+        case 'turn_lost':
+            return `${name(event.actorId)} is stunned and cannot act.`;
+        case 'unaffected':
+            return `${name(event.targetId)} shakes off the stun.`;
+        default:
+            return '';
     }
 }
 
 export function turnLines(group: TurnGroup, state: CombatState, opts: { numbers: boolean }): string[] {
     const events = group.events.filter(e => e.type !== 'rejected');
-    const acted = events.some(e => e.type === 'moved' || e.type === 'attack' || e.type === 'defend');
+    const acted = events.some(e => ACTED_TYPES.has(e.type));
     const lines: string[] = [];
     for (let i = 0; i < events.length; i++) {
         const event = events[i];

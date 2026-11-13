@@ -1,10 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
-import { FileText, ScrollText, Package, BarChart3, Upload, Download } from '../icons/narrativeIcons';
+import { FileText, ScrollText, Package, BarChart3, Upload, Download, Sparkles } from '../icons/narrativeIcons';
 import { useAppStore } from '../../store/useAppStore';
 import { SheetTab, type SheetTabHandle } from './tabs/SheetTab';
 import { RecordTab } from './tabs/RecordTab';
 import { InventoryTab } from './tabs/InventoryTab';
 import { StatsTab } from './tabs/StatsTab';
+import { AbilitiesTab } from './tabs/AbilitiesTab';
+import { useTranslation } from '../../i18n/useTranslation';
 import { AIGuidedCreationWizard } from './AIGuidedCreationWizard';
 import { ImportChoiceDialog } from '../npc-ledger/ImportChoiceDialog';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
@@ -15,7 +17,7 @@ import { ScreenLightbox } from '../ScreenLightbox';
 import { uid } from '../../utils/uid';
 import type { NPCEntry, PlayerCharacter } from '../../types';
 
-export type LedgerTab = 'sheet' | 'record' | 'inventory' | 'stats';
+export type LedgerTab = 'sheet' | 'record' | 'inventory' | 'stats' | 'abilities';
 
 const TABS: { key: LedgerTab; Icon: typeof FileText; label: string }[] = [
     { key: 'sheet' as const,     Icon: FileText,  label: 'Sheet' },
@@ -49,7 +51,17 @@ export function CharacterLedgerModal() {
     const sheetRef = useRef<SheetTabHandle>(null);
     const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
 
+    const { t } = useTranslation();
+    const combatOn = useAppStore((s) => s.context.combatModeActive === true);
+    const abilityEditDraft = useAppStore((s) => s.abilityEditDraft);
+    const tabs = combatOn ? [...TABS, { key: 'abilities' as const, Icon: Sparkles, label: t('combat.spellbook.tab') }] : TABS;
     const [activeTab, setActiveTab] = useState<LedgerTab>('sheet');
+    const [prevDraft, setPrevDraft] = useState(abilityEditDraft);
+    if (prevDraft !== abilityEditDraft) {
+        setPrevDraft(abilityEditDraft);
+        if (abilityEditDraft && combatOn) setActiveTab('abilities');
+    }
+    const shownTab: LedgerTab = activeTab === 'abilities' && !combatOn ? 'sheet' : activeTab;
     const [guidedMode, setGuidedMode] = useState(false);
     const importRef = useRef<HTMLInputElement>(null);
     // Parsed-but-not-yet-committed import, awaiting the user's mode choice.
@@ -61,7 +73,7 @@ export function CharacterLedgerModal() {
     if (prevOpen !== pcPanelOpen) {
         setPrevOpen(pcPanelOpen);
         if (pcPanelOpen) {
-            setActiveTab('sheet');
+            setActiveTab(abilityEditDraft && combatOn ? 'abilities' : 'sheet');
             setGuidedMode(false);
             setShowUnsavedPrompt(false);
         }
@@ -212,12 +224,12 @@ export function CharacterLedgerModal() {
                     <>
                         {/* Tab Bar */}
                         <div className="flex border-b border-border shrink-0 overflow-x-auto no-scrollbar">
-                            {TABS.map(({ key, Icon: TabIcon, label }) => (
+                            {tabs.map(({ key, Icon: TabIcon, label }) => (
                                 <button
                                     key={key}
                                     onClick={() => setActiveTab(key)}
                                     className={`flex-1 flex flex-col items-center gap-0.5 py-2 px-1 text-[9px] uppercase tracking-wider transition-colors ${
-                                        activeTab === key
+                                        shownTab === key
                                             ? 'text-terminal border-b-2 border-terminal -mb-px'
                                             : 'text-text-dim hover:text-text-primary'
                                     }`}
@@ -234,10 +246,11 @@ export function CharacterLedgerModal() {
                             `min-height: auto` on a flex item resolves to
                             min-content and the panel grows instead of scrolling. */}
                         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-                            {activeTab === 'sheet' && <SheetTab ref={sheetRef} onStartGuidedCreation={() => setGuidedMode(true)} onNavigateTab={setActiveTab} />}
-                            {activeTab === 'record' && <RecordTab />}
-                            {activeTab === 'inventory' && <InventoryTab onNavigateTab={setActiveTab} />}
-                            {activeTab === 'stats' && <StatsTab onNavigateTab={setActiveTab} />}
+                            {shownTab === 'sheet' && <SheetTab ref={sheetRef} onStartGuidedCreation={() => setGuidedMode(true)} onNavigateTab={setActiveTab} />}
+                            {shownTab === 'record' && <RecordTab />}
+                            {shownTab === 'inventory' && <InventoryTab onNavigateTab={setActiveTab} />}
+                            {shownTab === 'stats' && <StatsTab onNavigateTab={setActiveTab} />}
+                            {shownTab === 'abilities' && <AbilitiesTab />}
                         </div>
                     </>
                 )}

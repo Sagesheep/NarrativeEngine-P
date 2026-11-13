@@ -1,6 +1,7 @@
 import { abilityMod } from './abilities';
 import { PC_POINT_BUY } from './pointBuy';
 import { deriveSheet } from './sheet';
+import { castingAbilityOf, deriveMaxMp } from './glyphs/numbers';
 import { DEFAULT_DAMAGE_TYPE } from './tiers';
 import type { Combatant, DamageSpec, PcCombatantInput, WeaponQuality } from './types';
 
@@ -41,6 +42,17 @@ export function buildPcCombatant(input: PcCombatantInput): Combatant {
     };
     const hpRaw = Number.isFinite(input.hpCurrent) ? Math.floor(input.hpCurrent as number) : derived.maxHp;
     const hp = Math.max(1, Math.min(derived.maxHp, hpRaw));
+    const maxMp = deriveMaxMp(input.sheet);
+    const mpRaw = Number.isFinite(input.mpCurrent) ? Math.floor(input.mpCurrent as number) : maxMp;
+    const casting = input.kit
+        ? {
+            kit: input.kit.map(a => ({ ...a, form: { ...a.form, augments: [...a.form.augments] }, effects: a.effects.map(e => ({ ...e, augments: [...e.augments] })) })),
+            mp: Math.max(0, Math.min(maxMp, mpRaw)),
+            maxMp,
+            proficiency: derived.proficiency,
+            castingAbility: castingAbilityOf(input.sheet),
+        }
+        : {};
     return {
         id: input.id ?? PC_COMBATANT_ID,
         name: input.name.trim() || 'You',
@@ -59,5 +71,6 @@ export function buildPcCombatant(input: PcCombatantInput): Combatant {
         status: 'up',
         conditions: [],
         range: input.weapon?.range ?? 'close',
+        ...casting,
     };
 }

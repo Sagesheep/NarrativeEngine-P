@@ -151,6 +151,8 @@ export function cleanContext(context = {}, { keepCharacter = false } = {}) {
     if (keepCharacter && context.playerCharacter) {
         cleaned.playerCharacter = cleanPlayerCharacter(context.playerCharacter);
         cleaned.pcPromptDismissed = context.pcPromptDismissed;
+        if (context.combatSheet !== undefined) cleaned.combatSheet = context.combatSheet;
+        if (context.spellbook !== undefined) cleaned.spellbook = context.spellbook;
     }
     return cleaned;
 }

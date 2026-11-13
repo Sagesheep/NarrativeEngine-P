@@ -335,6 +335,7 @@ export function ensureGrid(state: CombatState): CombatState {
     for (const id of ids) {
         const c = state.combatants[id];
         if (!c) continue;
+        if (validGrid && c.status !== 'up') continue;
         const p = c.position;
         const valid = !!p && inBounds(grid, p) && isWalkable(grid, p) && !kept.some(k => k.x === p.x && k.y === p.y);
         if (valid && validGrid) kept.push(p as Pos);
@@ -358,6 +359,16 @@ export function ensureGrid(state: CombatState): CombatState {
     }
     const turnCount = typeof state.turnCount === 'number' && Number.isFinite(state.turnCount) ? state.turnCount : 1;
     if (turnCount !== state.turnCount) changed = true;
+    let barriers = state.barriers;
+    if (barriers !== undefined) {
+        const keptBarriers = Array.isArray(barriers)
+            ? barriers.filter(b => !!b && !!b.pos && inBounds(grid, b.pos) && typeof b.expiresRound === 'number' && Number.isFinite(b.expiresRound))
+            : [];
+        if (!validGrid || keptBarriers.length !== (Array.isArray(barriers) ? barriers.length : -1)) {
+            changed = true;
+            barriers = validGrid ? keptBarriers : [];
+        }
+    }
     if (!changed) return state;
-    return { ...state, grid, combatants, ...(turn ? { turn } : {}), turnCount };
+    return { ...state, grid, combatants, ...(turn ? { turn } : {}), turnCount, ...(barriers !== undefined ? { barriers } : {}) };
 }

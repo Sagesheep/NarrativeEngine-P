@@ -5,6 +5,7 @@ export type {
     CombatAction, CombatEvent, TierBlock, CombatantSpec, CombatSpec, WeaponQuality, PcWeapon,
     PcCombatantInput, AttackRange, Tile, Grid, Pos, MapSize, MapSpec, TurnState, TemplateOverlay,
     AreaType, MapDensity, HazardKind, TerrainLabels, ResolvedMapSpec,
+    FormId, EffectId, AugmentId, GlyphAbility, CombatCondition, Barrier,
 } from './types';
 export { createRng } from './rng';
 export { ABILITY_KEYS, TIER_LEVEL, abilityMod, proficiencyForLevel } from './abilities';
@@ -21,13 +22,17 @@ export { PC_COMBATANT_ID, WEAPON_QUALITY_DICE, UNARMED_DIE, FALLBACK_WEAPON_DIE,
 export {
     DEFEND_CONDITION, isHostile, canTarget, currentActorId, checkOutcome, applyAction,
     chooseEngineTurn, stepEngine, runEngineTurns, createCombat, hpBand, HAZARD_DAMAGE_DIE,
-    freshTurn, currentTurn, checkAttack, reachable, pathTo, deriveMapSeed,
+    freshTurn, currentTurn, checkAttack, reachable, pathTo, deriveMapSeed, hasUsableBonusAbility,
 } from './resolve';
+export {
+    STUNNED, SLOWED, HASTED, SHIELDED, COMBAT_EVENT_TYPES, canAttackWith, hasCondition, countsForOutcome,
+} from './core';
+export * from './glyphs/index';
 export type { HpBand, AttackCheck } from './resolve';
 export {
     TILE_KINDS, DEFAULT_SPEED, REACH_DISTANCE, RANGED_DISTANCE, HAZARD_AVOID_PENALTY, HALF_COVER_BONUS, THREE_QUARTER_COVER_BONUS,
     inBounds, tileAt, isWalkable, isWalkableTile, distance, samePos, canStep, traceLine, hasLineOfSight, coverBetween,
-    speedOf, rangeOf, sameTeam, isFullyConnected,
+    speedOf, rangeOf, sameTeam, isFullyConnected, terrainOf,
 } from './grid';
 export {
     MAP_SIZES, SPAWN_COLUMNS, DEFAULT_HAZARD_TYPE,

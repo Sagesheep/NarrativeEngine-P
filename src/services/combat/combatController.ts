@@ -1,7 +1,7 @@
 import {
-    applyAction, buildPcCombatant, createCombat, currentActorId, stepEngine,
+    applyAction, buildPcCombatant, createCombat, currentActorId, deriveMaxMp, stepEngine, validateAbility,
 } from '@narrative/engine';
-import type { AbilityKey, AttackRange, CombatantSpec, PcCombatantInput, WeaponQuality } from '@narrative/engine';
+import type { AbilityKey, AttackRange, CombatantSpec, GlyphAbility, PcCombatantInput, WeaponQuality } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
 import { debouncedSaveCampaignState } from '../../store/slices/campaignSlice';
 import { commitPendingTurn, findPendingCommitMessage } from '../turn/pendingCommit';
@@ -10,7 +10,7 @@ import { ratingToIndexImportance } from '../archive-memory/importanceRater';
 import { toast } from '../../components/Toast';
 import { uid } from '../../utils/uid';
 import { t } from '../../i18n';
-import { normalizeCombatConfig } from '../../types';
+import { normalizeCombatConfig, normalizeSpellbook } from '../../types';
 import type {
     CharacterProfile, ChatMessage, CombatAction, CombatNarrationCadence, CombatEvent, CombatProposal, CombatSession,
     CombatState, Combatant, GameContext, InventoryItem, NPCEntry, ProposedCombatant,
@@ -22,6 +22,7 @@ import { queueCombatNarration, waitForCombatNarration } from './combatNarration'
 import { hasEnemy } from './combatProposal';
 import { makeCombatNote, COMBAT_DECLINED_TEXT } from './combatTurnNotes';
 import { markProposedMessage } from './combatCommitHooks';
+import { commitCombatPatch, remirrorCombatSheet } from './combatSheet';
 
 export const COMBAT_LOG_NAME = 'combat-log';
 export const COMBAT_RESULT_NAME = 'combat-result';
@@ -48,6 +49,16 @@ export function weaponRange(range: InventoryItem['range']): AttackRange | undefi
     return undefined;
 }
 
+export function equippedKit(context: Pick<GameContext, 'spellbook' | 'combatConfig'>): GlyphAbility[] {
+    const config = normalizeCombatConfig(context.combatConfig);
+    const book = normalizeSpellbook(context.spellbook);
+    const limits = { maxChainLength: config.maxChainLength, maxSummons: config.maxSummons };
+    return book.equippedIds
+        .map(id => book.abilities.find(a => a.id === id))
+        .filter((a): a is GlyphAbility => !!a && validateAbility(a, limits).length === 0)
+        .slice(0, config.maxEquippedAbilities);
+}
+
 export function buildPcInput(store: Pick<Store, 'context' | 'inventoryItems'>): PcCombatantInput | null {
     const context = store.context;
     const sheet = context.combatSheet;
@@ -59,6 +70,8 @@ export function buildPcInput(store: Pick<Store, 'context' | 'inventoryItems'>): 
         name: profile?.name?.trim() || 'You',
         sheet,
         hpCurrent: profile?.hp?.current,
+        mpCurrent: profile?.mp?.current,
+        kit: equippedKit(context),
         weapon: weapon
             ? {
                 name: weapon.name,
@@ -230,8 +243,10 @@ export async function startFromProposal(proposal: CombatProposal, seed?: number)
     starting = true;
     try {
         await commitPendingTurn().catch(e => console.warn('[combat] commit before start failed:', e));
+        const before = useAppStore.getState();
+        if (before.combatSession) return false;
+        commitCombatPatch(before, remirrorCombatSheet(before.context));
         const store = useAppStore.getState();
-        if (store.combatSession) return false;
         if (!canPostCombatMessages(store)) {
             toast.warning(t('combat.toast.busy'));
             return false;
@@ -248,6 +263,7 @@ export async function startFromProposal(proposal: CombatProposal, seed?: number)
             ...(config.mookJitterRange !== undefined ? { jitterRange: config.mookJitterRange } : {}),
             map,
             mapSeed: proposal.mapSeed ?? newMapSeed(),
+            maxSummons: config.maxSummons,
         }, pc, fightSeed);
         const session: CombatSession = {
             state: created.state,
@@ -327,8 +343,12 @@ function describe(c: Combatant): string {
     return `${c.name} (${hpBandLabel(c)})`;
 }
 
+function resultRoster(state: CombatState): Combatant[] {
+    return state.order.map(id => state.combatants[id]).filter(c => !!c && !c.summonerId && c.status !== 'gone');
+}
+
 export function buildResultText(state: CombatState): string {
-    const all = state.order.map(id => state.combatants[id]).filter(Boolean);
+    const all = resultRoster(state);
     const down = all.filter(c => c.status !== 'up');
     const hurt = all.filter(c => c.status === 'up' && c.hp < c.maxHp);
     const outcome = state.outcome ?? 'aborted';
@@ -341,7 +361,7 @@ export function buildResultText(state: CombatState): string {
 
 export function buildAftermathText(session: CombatSession): string {
     const state = session.state;
-    const all = state.order.map(id => state.combatants[id]).filter(Boolean);
+    const all = resultRoster(state);
     const casualties = all.filter(c => c.status !== 'up');
     const survivors = all.filter(c => c.status === 'up');
     const lines = [
@@ -362,7 +382,13 @@ function writeBackPc(store: Store, state: CombatState): void {
     const profile: CharacterProfile | undefined = store.context.characterProfileData;
     if (!pc || !profile) return;
     const current = pc.status === 'up' ? Math.max(1, pc.hp) : 1;
-    const next: CharacterProfile = { ...profile, hp: { current, max: profile.hp?.max ?? pc.maxHp } };
+    const sheet = store.context.combatSheet;
+    const maxMp = sheet ? deriveMaxMp(sheet) : (pc.maxMp ?? profile.mp?.max);
+    const next: CharacterProfile = {
+        ...profile,
+        hp: { current, max: profile.hp?.max ?? pc.maxHp },
+        ...(typeof maxMp === 'number' ? { mp: { current: maxMp, max: maxMp } } : {}),
+    };
     store.setCharacterProfileData(next);
 }
 

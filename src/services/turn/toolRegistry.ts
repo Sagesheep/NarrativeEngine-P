@@ -5,8 +5,10 @@ import {
     handleDiceTool,
     handleProposeInventoryTool,
     handleStartCombatTool,
+    handleProposeAbilityTool,
 } from './toolHandlers';
 import type { ParsedCombatArgs } from '../combat/combatProposal';
+import type { AbilityLimits, GlyphAbility } from '@narrative/engine';
 
 /**
  * Phase 4 — Tool Registry
@@ -41,6 +43,8 @@ export type ToolDispatchContext = {
     /** Dice system config (for dice rolls). */
     diceSystem: DiceSystemConfig | null | undefined;
     npcLedger?: import('../../types').NPCEntry[];
+    abilityLimits?: AbilityLimits;
+    abilityAlreadyProposed?: boolean;
 };
 
 export type ToolDispatchResult = {
@@ -55,6 +59,7 @@ export type ToolDispatchResult = {
     /** Optional inventory proposal to stage for user confirmation. */
     proposal?: InventoryProposal;
     combatProposal?: ParsedCombatArgs;
+    abilityProposal?: GlyphAbility;
 };
 
 export type ToolHandlerFn = (
@@ -112,12 +117,23 @@ const handleStartCombat: ToolHandlerFn = (ctx) => {
     };
 };
 
+const handleProposeAbility: ToolHandlerFn = (ctx) => {
+    const { toolResult, ability } = handleProposeAbilityTool(ctx.arguments, ctx.abilityLimits ?? { maxChainLength: 6, maxSummons: 2 }, ctx.abilityAlreadyProposed === true);
+    return {
+        toolResult,
+        accumulation: 'append',
+        traceResult: true,
+        ...(ability ? { abilityProposal: ability } : {}),
+    };
+};
+
 export const TOOL_REGISTRY: Record<string, ToolHandlerFn> = {
     query_campaign_lore: handleLore,
     update_scene_notebook: handleNotebook,
     roll_dice: handleDice,
     propose_inventory_change: handleProposeInventory,
     start_combat: handleStartCombat,
+    propose_ability: handleProposeAbility,
 };
 
 /**
@@ -141,6 +157,7 @@ export function validateToolRegistry(): void {
         'roll_dice',
         'propose_inventory_change',
         'start_combat',
+        'propose_ability',
     ];
     for (const name of expected) {
         const handler = TOOL_REGISTRY[name];

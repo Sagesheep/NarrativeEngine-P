@@ -1,5 +1,8 @@
 import type { GameContext, LoreChunk, DiceSystemConfig, DieType, InventoryProposal, NPCEntry } from '../../types';
 import { parseCombatArgs, type ParsedCombatArgs } from '../combat/combatProposal';
+import { ABILITY_ONE_AT_A_TIME, PROPOSE_ABILITY_TOOL_RESULT, parseAbilityArgs, rejectionText } from '../combat/abilityProposalArgs';
+import { AUGMENT_IDS, EFFECT_IDS, FORM_IDS } from '@narrative/engine';
+import type { AbilityLimits, GlyphAbility } from '@narrative/engine';
 import { searchLoreByQuery } from '../lore/loreRetriever';
 import { uid } from '../../utils/uid';
 import { mapTier } from '../engine/diceTier';
@@ -210,12 +213,61 @@ const START_COMBAT_TOOL = {
 export const START_COMBAT_TOOL_RESULT =
     'Combat has been proposed to the player and will be resolved by the game engine. Write at most three sentences that bring the scene to the instant violence begins. Do not describe any attack, hit, miss, wound or outcome. Then stop.';
 
-export function getToolDefinitions(opts: { allowDiceTool: boolean; allowCombatTool?: boolean }): unknown[] {
+const PROPOSE_ABILITY_TOOL = {
+    type: 'function' as const,
+    function: {
+        name: 'propose_ability',
+        description:
+            "Offer the player character a new combat ability when the story grants them a power, spell, technique or device. " +
+            "The ability is built from glyphs: exactly one form (how it is delivered), one to four effects (what it does, applied in order), and optional augments. " +
+            "Never supply numbers (damage, range, cost, duration): the game engine sets all of them. " +
+            "The player decides whether the ability enters their spellbook. If the call is refused, the result lists the reasons; fix them and call again, or continue in narration.",
+        parameters: {
+            type: 'object' as const,
+            properties: {
+                name: { type: 'string' as const, description: 'Short name, at most 40 characters.' },
+                description: { type: 'string' as const, description: 'One or two sentences of flavour. No numbers.' },
+                damageType: { type: 'string' as const, description: 'One word such as fire, frost, lightning, psychic, physical. Optional.' },
+                form: { type: 'string' as const, enum: [...FORM_IDS], description: 'self only carries heal, shield, haste or blink. barrier and summon must be the only effect.' },
+                formAugments: { type: 'array' as const, items: { type: 'string' as const, enum: [...AUGMENT_IDS] } },
+                effects: {
+                    type: 'array' as const,
+                    minItems: 1,
+                    maxItems: 4,
+                    items: {
+                        type: 'object' as const,
+                        properties: {
+                            effect: { type: 'string' as const, enum: [...EFFECT_IDS] },
+                            augments: { type: 'array' as const, items: { type: 'string' as const, enum: [...AUGMENT_IDS] } },
+                        },
+                        required: ['effect'],
+                    },
+                },
+            },
+            required: ['name', 'form', 'effects'],
+        },
+    },
+} as const;
+
+export type ProposeAbilityHandlerResult = {
+    toolResult: string;
+    ability?: GlyphAbility;
+};
+
+export function handleProposeAbilityTool(toolArguments: string, limits: AbilityLimits, alreadyProposed = false): ProposeAbilityHandlerResult {
+    if (alreadyProposed) return { toolResult: ABILITY_ONE_AT_A_TIME };
+    const parsed = parseAbilityArgs(toolArguments, limits);
+    if (!parsed.ok) return { toolResult: rejectionText(parsed.reasons) };
+    return { toolResult: PROPOSE_ABILITY_TOOL_RESULT, ability: parsed.ability };
+}
+
+export function getToolDefinitions(opts: { allowDiceTool: boolean; allowCombatTool?: boolean; allowAbilityTool?: boolean }): unknown[] {
     const tools: unknown[] = [...BASE_TOOLS];
     if (opts.allowDiceTool) tools.push(ROLL_DICE_TOOL);
     // propose_inventory_change is combat-independent — always offered.
     tools.push(PROPOSE_INVENTORY_TOOL);
     if (opts.allowCombatTool) tools.push(START_COMBAT_TOOL);
+    if (opts.allowAbilityTool) tools.push(PROPOSE_ABILITY_TOOL);
     return tools;
 }
 

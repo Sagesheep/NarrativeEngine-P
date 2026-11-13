@@ -45,6 +45,7 @@ import { runFactPublishers } from '../mods/facts';
 import { blockTokenCap, isBlockEnabled } from './blockEnablement';
 import { BUILTIN_IDS, getBuiltinTokenCap } from '../payload/contributions/builtins';
 import { combatNoteRegistryOption } from '../combat/combatTurnNotes';
+import { abilityLimitsOf } from '../combat/abilityProposalArgs';
 
 const MAX_TOOL_CALLS_PER_TURN = 5;
 
@@ -638,6 +639,7 @@ export async function runGenerationStage(
 
     let accumulatedContent = '';
     const armed = state.armedRoll;
+    let abilityProposed = false;
 
     const executeTurn = async (currentPayload: any[], toolCallCount = 0, apiRetryCount = 0, existingMsgId?: string) => {
         if (abortController.signal.aborted) return;
@@ -663,7 +665,8 @@ export async function runGenerationStage(
         // offering the tool too would let the model double-roll (WO-H).
         const allowDiceTool = context.diceFairnessActive === false && !armed;
         const allowCombatTool = state.combatToolAllowed === true;
-        const tools = allowTools ? getToolDefinitions({ allowDiceTool, allowCombatTool }) : undefined;
+        const allowAbilityTool = state.abilityToolAllowed === true;
+        const tools = allowTools ? getToolDefinitions({ allowDiceTool, allowCombatTool, allowAbilityTool }) : undefined;
 
         callbacks.setPipelinePhase?.('generating');
         callbacks.setLoadingStatus?.(null);
@@ -694,7 +697,7 @@ export async function runGenerationStage(
                     }
 
                     const engineText = stripLLMSceneHeader(finalText);
-                    const dispatchResult = toolHandler({ arguments: toolCall.arguments, loreChunks, notebook: state.context.notebook, diceSystem: context.diceSystem, npcLedger: state.npcLedger });
+                    const dispatchResult = toolHandler({ arguments: toolCall.arguments, loreChunks, notebook: state.context.notebook, diceSystem: context.diceSystem, npcLedger: state.npcLedger, abilityLimits: abilityLimitsOf(context), abilityAlreadyProposed: abilityProposed });
                     if (dispatchResult.accumulation === 'overwrite') {
                         accumulatedContent = engineText;
                     } else {
@@ -731,6 +734,10 @@ export async function runGenerationStage(
                     }
                     if (dispatchResult.combatProposal) {
                         callbacks.stageCombatProposal?.({ id: uid(), messageId: assistantMsgId, source: 'tool', ...dispatchResult.combatProposal });
+                    }
+                    if (dispatchResult.abilityProposal) {
+                        abilityProposed = true;
+                        callbacks.stageAbilityProposal?.({ id: uid(), messageId: assistantMsgId, ability: dispatchResult.abilityProposal });
                     }
 
                     const toolMsgId = uid();
