@@ -238,7 +238,7 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
         {
             id: BUILTIN_IDS.writerCot,
             name: 'Chain-of-Thought Invocation',
-            description: 'Asks the writer to work through the reasoning framework before writing.',
+            description: 'When Thinking is on in the Story slot, asks the writer to check player intent, NPC knowledge and motives, dice outcomes, and scene continuity before writing. It uses the story model’s internal reasoning in the same call. An Absolute Command takes priority over conflicting steps.',
             details: {
                 "trigger": "Automatic when the active preset's Story slot has Thinking set to Low, Medium, High, or Max.",
                 "prompt": "[WRITER REASONING FRAMEWORK]\nWork through these steps in your internal reasoning before writing the narrative. Never show the steps in the narrative output. Always produce the full narrative response after your reasoning ends.\nStep 1 — Deconstruct: break the player's input into discrete intents. Judge each against the rules and MC boundaries. Impossible or implausible demands are narrated as attempts with consequences, not successes.\nStep 2 - Director Brief: if a [DIRECTOR BRIEF] block is present, honor its MANDATORY world-law or fair-adjudication corrections and any compatible SUGGESTION. It does not schedule drama or dictate every character's reaction.\nStep 3 — On-stage minds: first state the player's visible action and result without moral interpretation. For each character in [ACTIVE NPC CONTEXT], consider their current goal and emotional state, what they know and do not know (check [FACTS KNOWN TO ON-STAGE CHARACTERS]), their disposition and competence, and their relationship to the player. Then choose a proportionate response: speech, action, observation, help, challenge, humour, silence, withdrawal, or a shared crowd response. Characters may converge when the same event gives them the same reason to react; they may differ when their perspectives differ. Do not force either. A boundary produces push-back only when the concrete action actually crosses it; never infer a larger injury, hostile intent, or moral failing merely to make drama.\nStep 4 — Engine truth: honor [DICE OUTCOMES] exactly as resolved — never soften failures or upgrade successes. Check each on-stage character against their signature kit. Check [LOCATION] logistics: travel time, weather, era-appropriate technology.\nStep 5 - Beat map: draft 5-8 beats. Include every MANDATORY directive from Step 2 and the reactions that actually follow from Step 3. Give the player a playable opening - a response, consequence, piece of information, offer, challenge, or changed situation - rather than forcing a twist, argument, or lesson.\nStep 6 — Final audit: the player's action drives the scene; reactions are grounded in what each character observed and values; no unearned NPC chorus or retroactive moralisation; no cliches or purple prose. Then write the scene.\n\nFinal-turn invocation:\nWork through the [WRITER REASONING FRAMEWORK] in your reasoning before writing.",
@@ -264,7 +264,7 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
         {
             id: BUILTIN_IDS.directorBrief,
             name: 'Director Brief',
-            description: 'LLM-authored scene directives that steer the next GM reply.',
+            description: 'Adds a short brief to the writer’s prompt with corrections for continuity, character knowledge, or fair rulings, plus optional guidance on NPC agency. The separate Director Brief model block drafts it before the story reply and runs by default on Pro and Max. If no brief is added, the Watchdog can still supply a note. An Absolute Command skips the Director for that turn.',
             details: {
                 "trigger": "Automatic on Pro and Max tiers, before the main writer answers; the result is cached for repeated swipes of the same turn.",
                 "prompt": "WRITER BRIEF\n- [MANDATORY] <directive> (0–2 lines)\n- [SUGGESTION] <directive> (0–3 lines)",
@@ -302,7 +302,7 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
         {
             id: BUILTIN_IDS.gmReminder,
             name: 'GM Reminder',
-            description: 'Standing reminder that NPCs push back rather than facilitate.',
+            description: 'Adds one line to the writer’s prompt each turn, asking NPCs to push back when a player action crosses their goals or boundaries. For example, a guard might ask for credentials before opening a gate. It needs no extra model call and is skipped on turns with an Absolute Command.',
             details: {
                 "trigger": "Automatic on every turn while enabled.",
                 "prompt": "[GM REMINDER: NPCs push back when their wants/boundaries are crossed. Do not default to facilitation.]",
@@ -324,7 +324,7 @@ export const BUILTIN_FINAL_USER_MODULES: readonly Builtin[] = [
         {
             id: BUILTIN_IDS.watchdogNudge,
             name: 'Director Watchdog',
-            description: 'Deterministic stage note when NPC agency has been drifting.',
+            description: 'Checks recent messages for on-stage NPCs who have gone unmentioned, rarely initiate contact, or have stalled goals. When it finds a signal, it adds one short note asking the writer to give that NPC a beat. It needs no extra model call. A Director Brief in the prompt or an Absolute Command takes priority.',
             details: {
                 "trigger": "Automatic deterministic check on every turn while enabled; it makes no AI call.",
                 "prompt": "[STAGE NOTE: Alden has not initiated toward the PC recently — give Alden a beat to reach out this scene.]",
