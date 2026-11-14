@@ -1,6 +1,6 @@
 import type { EndpointConfig, ProviderConfig, ThinkingEffort } from '../types';
 import { getQueueForEndpoint, type LLMCallPriority } from '../services/llm/llmRequestQueue';
-import { getApiFormat, getChatUrl, buildChatHeaders, buildChatBody, extractContent } from './llmApiHelper';
+import { getApiFormat, getChatUrl, buildChatHeaders, buildChatBody, extractContent, serviceTierHostOf } from './llmApiHelper';
 import { startUtilityCall, type UtilityCallHandle } from '../services/llm/utilityCallTracker';
 import { recordCacheUsage, type LLMUsage } from '../services/llm/cacheTelemetry';
 import { llmFetch } from '../services/llm/llmFetch';
@@ -42,7 +42,10 @@ export async function llmCall(
 
     const label = opts.trackingLabel;
     const trackingName = (provider as EndpointConfig).modelName || provider.endpoint;
-    const handle = startUtilityCall(label, trackingName, opts.timeoutMs);
+    const format = getApiFormat(provider);
+    const handle = startUtilityCall(label, trackingName, opts.timeoutMs, {
+        costProvider: format === 'openai' || format === 'openrouter' ? serviceTierHostOf(provider.endpoint) : undefined,
+    });
     const startedAt = Date.now();
 
     // Wire abort: when the deadline elapses, cancel the in-flight fetch too.
@@ -136,6 +139,7 @@ async function runInner(
                 throw new Error(`LLM API error ${res.status}: ${errBody} (max_tokens=${opts?.maxTokens ?? 'default'}, thinkingEffort=${resolvedEffort ?? 'default'})`);
             }
             const data = await res.json();
+            call?.recordResponseCost(data);
             if (opts?.trackingLabel) {
                 recordCacheUsage(opts.trackingLabel, (data as { usage?: LLMUsage }).usage);
             }

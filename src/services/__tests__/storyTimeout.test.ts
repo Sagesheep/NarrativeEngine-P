@@ -16,6 +16,7 @@ vi.mock('../llm/cacheTelemetry', () => ({ recordCacheUsage: vi.fn() }));
 import { sendMessage } from '../llm/llmService';
 import { llmFetch } from '../llm/llmFetch';
 import { clearHistory, extendCall, getActiveCalls, getCallHistory } from '../llm/utilityCallTracker';
+import { llmCall } from '../../utils/llmCall';
 
 const provider = { endpoint: 'http://localhost/v1', modelName: 'test', apiKey: '', apiFormat: 'openai' } as EndpointConfig;
 let stream: ReadableStreamDefaultController<Uint8Array>;
@@ -103,7 +104,7 @@ describe('global story timeout', () => {
 });
 
 describe('cache telemetry attribution', () => {
-    async function completeStreamWithLabel(trackingLabel?: string) {
+    async function completeStreamWithLabel(trackingLabel?: string, endpoint = provider, finalChunk?: object) {
         onError = vi.fn<(...args: unknown[]) => void>();
         onDone = vi.fn<(...args: unknown[]) => void>();
         controller = new AbortController();
@@ -112,17 +113,41 @@ describe('cache telemetry attribution', () => {
             const body = new ReadableStream<Uint8Array>({
                 start(c) {
                     c.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'));
+                    if (finalChunk) c.enqueue(encoder.encode(`data: ${JSON.stringify(finalChunk)}\n\n`));
                     c.enqueue(encoder.encode('data: [DONE]\n\n'));
                     c.close();
                 },
             });
             return { ok: true, body } as Response;
         });
-        pending = sendMessage(provider, [], vi.fn(() => undefined), onDone, onError, undefined, controller,
+        pending = sendMessage(endpoint, [], vi.fn(() => undefined), onDone, onError, undefined, controller,
             undefined, undefined, trackingLabel);
         await vi.advanceTimersByTimeAsync(0);
         await pending;
     }
+
+    it('records OpenRouter cost from the usage-only final chunk', async () => {
+        await completeStreamWithLabel(undefined, { ...provider, endpoint: 'https://openrouter.ai/api/v1', apiFormat: 'openrouter' },
+            { choices: [], usage: { cost: 0.0038 } });
+        expect(getCallHistory()[0].cost).toEqual({ amount: 0.0038, currency: 'USD' });
+    });
+
+    it('records a zero NanoGPT cost on a swipe without a usage block', async () => {
+        await completeStreamWithLabel('swipe-generation', { ...provider, endpoint: 'https://api.nano-gpt.com/api/v1' },
+            { x_nanogpt_pricing: { amount: 0, currency: 'USD' } });
+        expect(getCallHistory()[0].cost).toEqual({ amount: 0, currency: 'USD' });
+    });
+
+    it('records NanoGPT pricing from a tracked utility response', async () => {
+        vi.mocked(llmFetch).mockResolvedValue(Response.json({
+            choices: [{ message: { content: 'notes' } }],
+            x_nanogpt_pricing: { cost: 0.00017, paymentSource: 'USD' },
+        }));
+        const result = await llmCall({ ...provider, endpoint: 'https://api.nano-gpt.com/api/v1' }, 'extract notes',
+            { trackingLabel: 'notes', timeoutMs: 1000 });
+        expect(result).toBe('notes');
+        expect(getCallHistory()[0].cost).toEqual({ amount: 0.00017, currency: 'USD' });
+    });
 
     it('records cache usage against the caller\'s tracking label', async () => {
         // Swipes, scene-continue and ask-GM all pass a label. They were booked

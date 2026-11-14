@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { uid } from '../../utils/uid';
+import { readGenerationCost, type CostProvider, type GenerationCost } from './generationCost';
 
 export type UtilityCallStatus = 'running' | 'success' | 'timeout' | 'error' | 'aborted';
 
@@ -17,6 +18,9 @@ export type UtilityCallRecord = {
     errorMessage?: string;
     verbose?: Record<string, unknown>;
     sentRequests?: string[];
+    costProvider?: CostProvider;
+    cost?: GenerationCost;
+    campaignId?: string | null;
 };
 
 const MAX_HISTORY = 50;
@@ -40,6 +44,7 @@ function notifyDeadline(id: string) {
 export type UtilityCallHandle = {
     id: string;
     recordRequestBody: (body: string) => void;
+    recordResponseCost: (payload: unknown) => void;
     /** Resolves when the deadline elapses without an extension. Re-armed by extend(). Never rejects. */
     deadlinePromise: Promise<void>;
     /** Push the deadline forward by ms (default 60000). No-op if already settled. */
@@ -56,6 +61,7 @@ export function startUtilityCall(
     label: string,
     endpointName: string,
     timeoutMs: number,
+    metadata?: Pick<UtilityCallRecord, 'costProvider' | 'campaignId'>,
 ): UtilityCallHandle {
     const id = uid();
     const now = Date.now();
@@ -68,6 +74,7 @@ export function startUtilityCall(
         initialTimeoutMs: timeoutMs,
         extensions: 0,
         status: 'running',
+        ...metadata,
     };
     active = [...active, record];
     emit();
@@ -108,6 +115,13 @@ export function startUtilityCall(
     const handle: UtilityCallHandle = {
         id,
         deadlinePromise,
+        recordResponseCost(payload) {
+            if (!record.costProvider) return;
+            const cost = readGenerationCost(record.costProvider, payload);
+            if (!cost || !active.some(c => c.id === id)) return;
+            active = active.map(c => c.id === id ? { ...c, cost } : c);
+            emit();
+        },
         recordRequestBody(body) {
             const call = active.find(c => c.id === id);
             if (!call) return;

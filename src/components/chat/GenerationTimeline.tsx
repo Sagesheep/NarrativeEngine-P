@@ -13,12 +13,28 @@ function duration(start: number, end: number): string {
 function callName(label: string): string {
     return label.replace(/[-_]/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
 }
+function formatCost(amount: number, currency: string): string {
+    const value = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 }).format(amount);
+    if (amount > 0 && amount < 0.00000001) return currency === 'USD' ? '<$0.00000001' : `<0.00000001 ${currency}`;
+    return currency === 'USD' ? `$${value}` : `${value} ${currency}`;
+}
+function summarizeCost(calls: UtilityCallRecord[]): string | undefined {
+    if (!calls.some(call => call.costProvider || call.cost)) return undefined;
+    const totals = new Map<string, number>();
+    for (const { cost } of calls) {
+        if (cost) totals.set(cost.currency, (totals.get(cost.currency) ?? 0) + cost.amount);
+    }
+    if (totals.size === 0) return calls.some(call => call.status === 'running') ? 'Pending' : 'Unknown';
+    const total = [...totals].map(([currency, amount]) => formatCost(amount, currency)).join(' + ');
+    return calls.some(call => !call.cost) ? `${total} (partial)` : total;
+}
 function CallRow({ call, now, debugMode }: { call: UtilityCallRecord; now: number; debugMode: boolean }) {
     const status = call.status === 'success' ? 'Complete' : call.status === 'running' ? 'Running'
         : call.status === 'aborted' ? 'Stopped' : call.status === 'timeout' ? 'Timed out' : 'Failed';
+    const cost = summarizeCost([call]);
     return <li className="generation-call" data-status={call.status}>
         <details>
-            <summary><span>{callName(call.label)}</span><span className="generation-duration">{duration(call.startedAt, call.settledAt ?? now)}</span></summary>
+            <summary><span>{callName(call.label)}</span><span className="generation-duration">{duration(call.startedAt, call.settledAt ?? now)}{cost && ` · ${cost}`}</span></summary>
             <div className="generation-call-detail">
                 <span>{status} · {call.endpointName}</span>
                 {call.errorMessage && <p>{call.errorMessage}</p>}
@@ -39,6 +55,7 @@ export function GenerationTimeline() {
     const gather = useGatherStageRecords();
     const calls = useUtilityCalls();
     const debugMode = useAppStore(state => !!state.settings.debugMode);
+    const campaignId = useAppStore(state => state.activeCampaignId);
     const firstGeneration = run.steps.find(step => step.phase === 'generating');
     const debugPayload = useAppStore(state => {
         if (!state.settings.debugMode || !firstGeneration) return undefined;
@@ -59,12 +76,20 @@ export function GenerationTimeline() {
         dispatch({ phase: state.pipelinePhase, now: Date.now(), tier: state.settings.aiTier ?? 'pro', halted: !!assistant?.retryable });
     }), []);
 
-    const records = [...calls.history, ...calls.active].filter(call => run.startedAt !== undefined
+    const campaignCalls = [...calls.history, ...calls.active].filter(call =>
+        call.campaignId === undefined || call.campaignId === campaignId);
+    const records = campaignCalls.filter(call => run.startedAt !== undefined
         && call.startedAt >= run.startedAt && (run.endedAt === undefined || call.startedAt <= run.endedAt))
         .sort((a, b) => a.startedAt - b.startedAt);
+    const latestSwipe = campaignCalls.filter(call => call.label === 'swipe-generation' && call.costProvider
+        && call.campaignId === campaignId && (run.startedAt === undefined
+            || (run.endedAt !== undefined && call.startedAt > run.endedAt)))
+        .reduce<UtilityCallRecord | undefined>((latest, call) => !latest || call.startedAt >= latest.startedAt ? call : latest, undefined);
+    const standaloneSwipe = latestSwipe && !records.includes(latestSwipe) ? latestSwipe : undefined;
+    const turnCost = summarizeCost(records);
     const tasks = gather.filter(task => run.startedAt !== undefined && task.startedAt >= run.startedAt
         && (run.endedAt === undefined || task.startedAt <= run.endedAt));
-    const running = run.status === 'running' || records.some(call => call.status === 'running');
+    const running = run.status === 'running' || records.some(call => call.status === 'running') || standaloneSwipe?.status === 'running';
     useEffect(() => {
         if (!running) return;
         const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -80,20 +105,27 @@ export function GenerationTimeline() {
         <div id="generation-stage-details" className="generation-body" hidden={!expanded}>
             {run.startedAt === undefined ? <p className="generation-empty">Steps appear here as they run. Parallel context tasks and model calls are recorded automatically.</p> : <>
                 <div className="generation-total">Turn elapsed <span>{duration(run.startedAt, run.endedAt ?? now)}</span></div>
+                {turnCost && <div className="generation-total">Turn cost <span>{turnCost}</span></div>}
                 <ol className="generation-steps">
-                    {run.steps.map((step, index) => <li key={`${step.phase}-${index}`} data-status={step.status}>
+                    {run.steps.map((step, index) => {
+                        const cost = step.phase === 'generating' ? summarizeCost(records.filter(call =>
+                            call.label === 'story-generation' && call.startedAt >= step.startedAt
+                            && (step.endedAt === undefined || call.startedAt < step.endedAt))) : undefined;
+                        return <li key={`${step.phase}-${index}`} data-status={step.status}>
                         <div className="generation-step-line"><span className="generation-step-mark" aria-hidden="true">{step.status === 'running' ? '●' : step.status === 'finished' ? '✓' : '!'}</span>
-                            <span>{PHASE_LABELS[step.phase]}</span><span className="generation-duration">{duration(step.startedAt, step.endedAt ?? now)}</span></div>
+                            <span>{PHASE_LABELS[step.phase]}</span><span className="generation-duration">{duration(step.startedAt, step.endedAt ?? now)}{cost && ` · ${cost}`}</span></div>
                         <span className="generation-state">{step.status === 'running' ? 'Running' : step.status === 'finished' ? 'Finished' : 'Stopped'}</span>
                         {step === firstGeneration && debugPayload && <DebugPayloadView debugPayload={debugPayload} />}
                         {step.phase === 'gathering-context' && tasks.length > 0 && <details className="generation-context" open={step.status === 'running'}>
                             <summary>Context tasks · may run in parallel</summary><ul>{tasks.map(task => <li key={`${task.label}-${task.startedAt}`}><span>{task.label}</span><span>{task.endedAt === undefined && run.status === 'running' ? 'Running' : task.endedAt !== undefined ? 'Finished' : 'Stopped'}</span></li>)}</ul>
                         </details>}
-                    </li>)}
+                    </li>;
+                    })}
                 </ol>
                 {records.length > 0 && <section className="generation-calls"><h3>Model calls</h3><ul>{records.map(call => <CallRow key={call.id} call={call} now={now} debugMode={debugMode} />)}</ul></section>}
                 <p className="generation-footnote">Only observed steps are shown. Disabled or unused steps are omitted.</p>
             </>}
+            {standaloneSwipe && <section className="generation-calls"><h3>Latest swipe</h3><ul><CallRow call={standaloneSwipe} now={now} debugMode={debugMode} /></ul></section>}
         </div>
     </aside>;
 }

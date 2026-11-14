@@ -3,7 +3,7 @@ import { countTokens } from '../infrastructure/tokenizer';
 import type { EndpointConfig, ProviderConfig, SamplingConfig, ThinkingEffort } from '../../types';
 import { uid } from '../../utils/uid';
 import { getQueueForEndpoint } from './llmRequestQueue';
-import { getChatUrl, getModelsUrl, buildChatHeaders, buildChatBody, getApiFormat, extractStreamDelta, extractStreamToolCall } from '../../utils/llmApiHelper';
+import { getChatUrl, getModelsUrl, buildChatHeaders, buildChatBody, getApiFormat, extractStreamDelta, extractStreamToolCall, serviceTierHostOf } from '../../utils/llmApiHelper';
 import { recordCacheUsage, type LLMUsage } from './cacheTelemetry';
 import { llmFetch } from './llmFetch';
 import { startUtilityCall } from './utilityCallTracker';
@@ -49,7 +49,10 @@ export async function sendMessage(
     const { useAppStore } = await import('../../store/useAppStore');
     // Snapshot the global preference for this request, including every idle reset.
     const idleTimeoutMs = normalizeStoryTimeoutSeconds(useAppStore.getState().settings.storyTimeoutSeconds) * 1000;
-    const trackerHandle = startUtilityCall(label, trackingName, idleTimeoutMs);
+    const trackerHandle = startUtilityCall(label, trackingName, idleTimeoutMs, {
+        costProvider: format === 'openai' || format === 'openrouter' ? serviceTierHostOf(provider.endpoint) : undefined,
+        campaignId: useAppStore.getState().activeCampaignId,
+    });
     let streamTimedOut = false;
     let streamSettled = false;
     trackerHandle.deadlinePromise.then(() => {
@@ -184,6 +187,7 @@ export async function sendMessage(
                             // DeepSeek/OpenAI emit a trailing chunk (choices:[]) carrying usage
                             // when stream_options.include_usage is set.
                             if (parsed.usage) streamUsage = parsed.usage as LLMUsage;
+                            trackerHandle.recordResponseCost(parsed);
                             const delta = parsed.choices?.[0]?.delta;
 
                             if (delta?.content) {
