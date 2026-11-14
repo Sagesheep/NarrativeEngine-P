@@ -5,6 +5,7 @@ import type { ChatMessage, CombatProposal, GameContext } from '../../types';
 import { isEngineTurn, resumeStoredSession, startFromProposal } from '../../services/combat/combatController';
 import { wasMessageProposed } from '../../services/combat/combatCommitHooks';
 import { resumeParley } from '../../services/combat/combatParley';
+import { resumeStunt } from '../../services/combat/combatStunt';
 
 export function proposalIsOrphaned(proposal: CombatProposal | null, messages: readonly ChatMessage[]): boolean {
     if (!proposal || !proposal.messageId) return false;
@@ -52,7 +53,11 @@ export function useCombatLifecycle(isStreaming: boolean) {
 
     const sessionId = session?.state.id ?? null;
     const parleyId = session?.parley?.attemptId ?? null;
+    const stuntId = session?.stunt?.attemptId ?? null;
     const needsResume = !!session && (!!parleyId || session.state.outcome !== null || isEngineTurn(session.state));
+    useEffect(() => {
+        if (stuntId) resumeStunt();
+    }, [activeCampaignId, sessionId, stuntId]);
     useEffect(() => {
         if (!needsResume) return;
         if (parleyId) void resumeParley();

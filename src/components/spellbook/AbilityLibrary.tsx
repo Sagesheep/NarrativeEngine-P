@@ -11,9 +11,12 @@ import { Hotbar } from './Hotbar';
 
 const smallButton = 'inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded border outline-none focus-visible:ring-2 focus-visible:ring-terminal disabled:opacity-40 disabled:cursor-not-allowed';
 
+export type BasicAction = { ability: GlyphAbility; name: string; rules: string };
+
 export function AbilityLibrary({
-    book, config, stats, label, selectedId, onSelect, onNew, onAddPreset, onToggleEquip, onEquipAt, onReorder, onUnequip, onDelete,
+    book, config, stats, label, selectedId, onSelect, onNew, onAddPreset, onToggleEquip, onEquipAt, onReorder, onUnequip, onDelete, basics = [],
 }: {
+    basics?: readonly BasicAction[];
     book: Spellbook;
     config: CombatSettings;
     stats: CasterStats;
@@ -33,6 +36,28 @@ export function AbilityLibrary({
     const lookup = useMemo(() => new Map(book.abilities.map(a => [a.id, a])), [book.abilities]);
     return (
         <div className="flex flex-col gap-5 min-w-0">
+            {basics.length > 0 && (
+                <section data-testid="spellbook-basic-actions" className="flex flex-col gap-2" aria-labelledby="spellbook-basic-heading">
+                    <h3 id="spellbook-basic-heading" className="text-xs font-mono uppercase tracking-wider text-text-dim">{t('spellbook.basicActions')}</h3>
+                    <ul className="flex flex-col gap-2">
+                        {basics.map(({ ability, name, rules }) => (
+                            <li key={ability.id}>
+                                <AbilityCard
+                                    ability={ability}
+                                    stats={stats}
+                                    label={label}
+                                    title={name}
+                                    rulesText={rules}
+                                    costText={t('spellbook.basicActions.free')}
+                                    showRules
+                                    testId={`basic-${ability.id}`}
+                                />
+                            </li>
+                        ))}
+                    </ul>
+                    <p className="text-xs text-text-dim leading-relaxed">{t('spellbook.basicActions.help')}</p>
+                </section>
+            )}
             <section className="flex flex-col gap-2" aria-labelledby="spellbook-hotbar-heading">
                 <div className="flex items-baseline justify-between gap-2">
                     <h3 id="spellbook-hotbar-heading" className="text-xs font-mono uppercase tracking-wider text-text-dim">{t('spellbook.hotbar')}</h3>

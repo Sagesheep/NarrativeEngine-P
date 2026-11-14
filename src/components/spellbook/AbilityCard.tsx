@@ -9,8 +9,12 @@ import { GlyphStrip } from './GlyphStrip';
 
 export function AbilityCard({
     ability, stats, label, selected = false, equipped = false, notice = null, showRules = false, onSelect, actions, testId, dragProps, slotKey,
+    title, rulesText, costText,
 }: {
     ability: GlyphAbility;
+    title?: string;
+    rulesText?: string;
+    costText?: string;
     stats: CasterStats;
     label: string;
     selected?: boolean;
@@ -28,8 +32,8 @@ export function AbilityCard({
     const body = (
         <>
             <span className="flex items-start justify-between gap-3 w-full">
-                <span className="text-sm font-bold text-text-primary break-words min-w-0">{ability.name}</span>
-                <span className="shrink-0 text-xs font-mono text-terminal whitespace-nowrap">{t('combat.spellbook.cost', { cost: costOf(ability), label })}</span>
+                <span className="text-sm font-bold text-text-primary break-words min-w-0">{title ?? ability.name}</span>
+                <span className="shrink-0 text-xs font-mono text-terminal whitespace-nowrap">{costText ?? t('combat.spellbook.cost', { cost: costOf(ability), label })}</span>
             </span>
             <GlyphStrip ability={ability} />
             <span className="flex items-center gap-2 flex-wrap text-xs text-text-dim">
@@ -37,7 +41,7 @@ export function AbilityCard({
                 <span>{t(bonus ? 'combat.spellbook.bonus' : 'spellbook.action')}</span>
                 {equipped && <span className="inline-flex items-center gap-1 text-terminal"><Check size={12} aria-hidden="true" />{t('combat.spellbook.equip')}</span>}
             </span>
-            {showRules && <span className="block text-xs text-text-dim leading-relaxed">{describeAbility(ability, stats)}</span>}
+            {showRules && <span className="block text-xs text-text-dim leading-relaxed">{rulesText ?? describeAbility(ability, stats)}</span>}
             {showRules && ability.description && <span className="block text-xs text-text-dim italic leading-relaxed">{ability.description}</span>}
         </>
     );

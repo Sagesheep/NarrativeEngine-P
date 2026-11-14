@@ -25,6 +25,11 @@ export const EFFECT_LABEL_KEYS: Readonly<Record<EffectId, TranslationKey>> = {
     barrier: 'combat.glyph.effect.barrier',
     drain: 'combat.glyph.effect.drain',
     summon: 'combat.glyph.effect.summon',
+    weapon: 'combat.glyph.effect.weapon',
+    guard: 'combat.glyph.effect.guard',
+    sprint: 'combat.glyph.effect.sprint',
+    leap: 'combat.glyph.effect.leap',
+    rally: 'combat.glyph.effect.rally',
 };
 
 export const AUGMENT_LABEL_KEYS: Readonly<Record<AugmentId, TranslationKey>> = {

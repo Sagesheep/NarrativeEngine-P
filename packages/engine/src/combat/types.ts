@@ -85,14 +85,41 @@ export type ResolvedMapSpec = {
     place?: string;
 };
 
-export type TurnState = { actorId: string; moveLeft: number; actionUsed: boolean; bonusUsed?: boolean; extraActions?: number };
+export type TurnState = { actorId: string; moveLeft: number; actionUsed: boolean; bonusUsed?: boolean; extraActions?: number; dashed?: boolean };
 
 export type FormId = 'touch' | 'projectile' | 'self' | 'line' | 'cone' | 'burst' | 'dash';
 
 export type EffectId = 'damage' | 'heal' | 'shield' | 'push' | 'pull' | 'stun' | 'slow'
-    | 'haste' | 'blink' | 'swap' | 'barrier' | 'drain' | 'summon';
+    | 'haste' | 'blink' | 'swap' | 'barrier' | 'drain' | 'summon' | 'weapon' | 'guard' | 'sprint' | 'leap' | 'rally';
 
 export type AugmentId = 'amplify' | 'widen' | 'extend' | 'pierce' | 'split' | 'quicken';
+
+export type BuiltinKind = 'attack' | 'defend' | 'dash' | 'shove' | 'jump' | 'throw' | 'help' | 'stunt';
+
+export type StuntCheckProfile = { ability: AbilityKey; dc: number };
+
+export type BuiltinProfile = {
+    kind: BuiltinKind;
+    events?: 'compact';
+    range?: AttackRange;
+    slot?: 'action' | 'bonus';
+    check?: StuntCheckProfile;
+};
+
+export type StuntOutcome = 'hurt' | 'push' | 'pull' | 'slow' | 'stun' | 'move' | 'cover' | 'hurt_area';
+
+export type StuntDifficulty = 'easy' | 'moderate' | 'hard' | 'very_hard' | 'impossible';
+
+export type StuntPart = {
+    outcome: StuntOutcome;
+    difficulty: StuntDifficulty;
+    targetId?: string;
+    at?: Pos;
+    tiles?: Pos[];
+    damageType?: string;
+};
+
+export type StuntSpec = { ability: AbilityKey; parts: StuntPart[] };
 
 export type GlyphAbility = {
     id: string;
@@ -102,6 +129,7 @@ export type GlyphAbility = {
     form: { id: FormId; augments: AugmentId[] };
     effects: { id: EffectId; augments: AugmentId[] }[];
     source: 'player' | 'ai' | 'preset';
+    builtin?: BuiltinProfile;
 };
 
 export type CombatCondition = {
@@ -239,7 +267,8 @@ export type CombatAction =
     | { type: 'use_ability'; actorId: string; abilityId: string; aim?: Pos | null }
     | { type: 'flee'; actorId: string }
     | { type: 'abandon'; actorId: string }
-    | { type: 'parley'; actorId: string; intent: ParleyIntent; rating: ParleyRating; speakerId?: string; attemptId?: string };
+    | { type: 'parley'; actorId: string; intent: ParleyIntent; rating: ParleyRating; speakerId?: string; attemptId?: string }
+    | { type: 'stunt'; actorId: string; spec: StuntSpec };
 
 export type CombatEvent = {
     seq: number;

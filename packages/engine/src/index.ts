@@ -46,7 +46,11 @@ export {
     saveModifier, projectileRange, lineLength, lineWidth, coneLength, burstRange, burstRadius, dashLength, blinkRange,
     DEFAULT_ABILITY_LIMITS, cleanAbilityName, glyphCount, abilityCost, validateAbility, describeAbility, isGlyphAbilityShape,
     abilityTargets, legalAims, directionOf, tileEffectOf, isEmptyTile,
-    findKitAbility, abilitySlot, usesMp, abilityReadiness, checkAbility,
+    findKitAbility, findUsableAbility, abilitySlot, usesMp, abilityReadiness, checkAbility,
+    BUILTIN_PREFIX, BUILTIN_ATTACK_ID, BUILTIN_DEFEND_ID, BUILTIN_DASH_ID, BUILTIN_SHOVE_ID, BUILTIN_JUMP_ID, BUILTIN_THROW_ID,
+    BUILTIN_HELP_ID, BUILTIN_STUNT_ID, BUILTIN_EFFECT_IDS, THROWN_WEAPON_NAME, isBuiltinId, isBuiltinEffect, weaponReach, builtinAttack,
+    builtinDefend, builtinDash, builtinShove, builtinJump, builtinThrow, builtinHelp, builtinAbilities, findBuiltin, availableAbilities,
+    leapRange, throwProfile, tooLargeToShove, recoverable, AI_DASH,
     enemyKit, ENEMY_BOLT_ID, ENEMY_BURST_ID, STARTER_ABILITIES,
     emptyChain, chainOf, allGlyphs, acceptedAugments, glyphsAccepting, augmentCapacity, glyphCost, chainCost, chainCount,
     socketGlyph, placeGlyph, removeGlyph, placementReason, chainColumns, socketKey, sameSocket, firstFreeSocket,
@@ -66,6 +70,8 @@ export {
     MECHANICAL_INTENTS, teamOfSide, isEdgeTile, edgeTiles, buildMoraleBook, teamLoss, lostHalf, isLeaderDown, isOutnumbered,
     startedOnEdge, checkFlee, isRetreating, canAbandon, checkParley, resolveSpeaker, onlySummonedEnemies,
     earlierParleyFailures, parleyDc,
+    STUNT_OUTCOMES, STUNT_DIFFICULTIES, STUNT_DC, STUNT_FLOORS, STUNT_MAX_PARTS, STUNT_DEFAULT_DAMAGE_TYPE, STUNT_DAMAGE_TYPE_MAX, STUNT_NAME,
+    difficultyRank, stuntDifficulty, stuntAvailable, stuntArea, checkStunt,
 } from './combat/index';
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget,
@@ -76,11 +82,12 @@ export type {
     AttackRange, Tile, Grid, Pos, MapSize, MapSpec, TurnState, TemplateOverlay,
     AreaType, MapDensity, HazardKind, TerrainLabels, ResolvedMapSpec, MapInference, ResolveOptions,
     AreaGenerator, AreaLayout, BandCounts,
-    FormId, EffectId, AugmentId, GlyphAbility, CombatCondition, Barrier,
-    FormSpec, EffectSpec, FormRoll, CasterStats, AbilityLimits, AimResult, AbilityCheck, AbilitySlot, StarterPresetId,
+    FormId, EffectId, AugmentId, GlyphAbility, BuiltinKind, BuiltinProfile, CombatCondition, Barrier,
+    FormSpec, EffectSpec, FormRoll, CasterStats, AbilityLimits, Wielder, AimResult, AbilityCheck, AbilitySlot, StarterPresetId,
     GlyphRef, GlyphKind, ChainDraft, SocketOwner, Socket, PlacementReason, ChainColumn, AbilityPreview, PreviewUnit,
     PartyControl, DefeatMode, Team, ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord, MoraleBook, CombatEnding,
     FleeReason, FleeCheck, ParleyReason,
+    StuntCheckProfile, StuntOutcome, StuntDifficulty, StuntPart, StuntSpec, StuntStep, StuntPlan, StuntCheck,
 } from './combat/index';
 
 export { resolveLootDrop } from './loot/lootEngine';

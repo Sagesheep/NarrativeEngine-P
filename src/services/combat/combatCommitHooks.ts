@@ -1,5 +1,7 @@
 import { useAppStore } from '../../store/useAppStore';
-import type { CombatTelemetry, GameContext, ParleyRatingSource, ParleyRecord, SceneStakes } from '../../types';
+import type {
+    CombatTelemetry, GameContext, ParleyRatingSource, ParleyRecord, SceneStakes, StuntDifficulty, StuntResultKind,
+} from '../../types';
 
 function bump<K extends string>(map: Partial<Record<K, number>> | undefined, key: K): Partial<Record<K, number>> {
     const base: Partial<Record<K, number>> = { ...(map ?? {}) };
@@ -17,6 +19,20 @@ export function countParleyTelemetry(record: Pick<ParleyRecord, 'rating' | 'inte
             parleyIntents: bump(prev.parleyIntents, record.intent),
             parleyOutcomes: bump(prev.parleyOutcomes, record.success ? 'success' : record.effect),
             parleySources: bump(prev.parleySources, source),
+        },
+    });
+}
+
+export function countStuntTelemetry(result: StuntResultKind, difficulties: readonly StuntDifficulty[] = []): void {
+    const store = useAppStore.getState();
+    const prev: CombatTelemetry = store.context.combatTelemetry ?? { dangerousCommits: 0, dangerousWithoutProposal: 0 };
+    let words = prev.stuntDifficulties;
+    for (const d of difficulties) words = bump(words, d);
+    store.updateContext({
+        combatTelemetry: {
+            ...prev,
+            ...(words ? { stuntDifficulties: words } : {}),
+            stuntResults: bump(prev.stuntResults, result),
         },
     });
 }

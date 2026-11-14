@@ -11,10 +11,21 @@ export type { CasterStats } from './numbers';
 export {
     DEFAULT_ABILITY_LIMITS, cleanAbilityName, glyphCount, abilityCost, validateAbility, describeAbility, isGlyphAbilityShape,
 } from './validate';
-export type { AbilityLimits } from './validate';
+export type { AbilityLimits, Wielder } from './validate';
+export {
+    BUILTIN_PREFIX, BUILTIN_ATTACK_ID, BUILTIN_DEFEND_ID, BUILTIN_DASH_ID, BUILTIN_SHOVE_ID, BUILTIN_JUMP_ID, BUILTIN_THROW_ID,
+    BUILTIN_HELP_ID, BUILTIN_STUNT_ID, BUILTIN_EFFECT_IDS, THROWN_WEAPON_NAME, isBuiltinId, isBuiltinEffect, weaponReach, builtinAttack,
+    builtinDefend, builtinDash, builtinShove, builtinJump, builtinThrow, builtinHelp, builtinAbilities, findBuiltin, availableAbilities,
+    leapRange, throwProfile, tooLargeToShove, recoverable,
+} from './builtins';
 export { abilityTargets, legalAims, directionOf, tileEffectOf, isEmptyTile } from './targeting';
 export type { AimResult } from './targeting';
-export { findKitAbility, abilitySlot, usesMp, abilityReadiness, checkAbility } from './apply';
+export { findKitAbility, findUsableAbility, abilitySlot, usesMp, abilityReadiness, checkAbility } from './apply';
+export {
+    STUNT_OUTCOMES, STUNT_DIFFICULTIES, STUNT_DC, STUNT_FLOORS, STUNT_MAX_PARTS, STUNT_DEFAULT_DAMAGE_TYPE, STUNT_DAMAGE_TYPE_MAX, STUNT_NAME,
+    difficultyRank, stuntDifficulty, stuntAvailable, stuntArea, checkStunt,
+} from './stunt';
+export type { StuntStep, StuntPlan, StuntCheck } from './stunt';
 export type { AbilityCheck, AbilitySlot } from './apply';
 export { enemyKit, ENEMY_BOLT_ID, ENEMY_BURST_ID, STARTER_ABILITIES } from './kits';
 export type { StarterPresetId } from './kits';

@@ -1,7 +1,8 @@
 import type {
     Archetype, AugmentId, CombatEvent, CombatState, CombatTier, EffectId, FormId, GlyphAbility, MapSpec, ParleyEffect, ParleyIntent,
-    ParleyRating,
+    ParleyRating, StuntDifficulty, StuntSpec,
 } from '@narrative/engine';
+import { isBuiltinId } from '@narrative/engine';
 
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget, CombatSheet, DerivedSheet,
@@ -11,6 +12,7 @@ export type {
     TerrainLabels as CombatTerrainLabels, ResolvedMapSpec as CombatResolvedMap,
     GlyphAbility, FormId, EffectId, AugmentId, CombatCondition,
     ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord,
+    StuntOutcome, StuntDifficulty, StuntPart, StuntSpec,
 } from '@narrative/engine';
 
 export type CombatPartyControl = 'solo' | 'engine' | 'player';
@@ -84,7 +86,19 @@ export type CombatSession = {
     parley?: PendingParley;
     parleyLines?: ParleyLine[];
     flourishes?: CombatFlourish[];
+    stunt?: PendingStunt;
 };
+
+export type PendingStunt = {
+    attemptId: string;
+    actorId: string;
+    words: string;
+    stage: 'rating' | 'verdict';
+    spec?: StuntSpec;
+    difficulty?: Exclude<StuntDifficulty, 'impossible'>;
+};
+
+export type StuntResultKind = 'judged' | 'impossible' | 'invalid' | 'unjudged';
 
 export type CombatFlourish = {
     seq: number;
@@ -129,6 +143,8 @@ export type CombatTelemetry = {
     parleyIntents?: Partial<Record<ParleyIntent, number>>;
     parleyOutcomes?: Partial<Record<ParleyEffect | 'success', number>>;
     parleySources?: Partial<Record<ParleyRatingSource, number>>;
+    stuntDifficulties?: Partial<Record<StuntDifficulty, number>>;
+    stuntResults?: Partial<Record<StuntResultKind, number>>;
 };
 
 export type CombatFallen = {
@@ -206,7 +222,7 @@ export function normalizeGlyphAbility(raw: unknown): GlyphAbility | null {
     const id = cleanString(r.id, 80);
     const name = cleanString(r.name, 40);
     const form = r.form && typeof r.form === 'object' ? r.form as Record<string, unknown> : null;
-    if (!id || !name || !form || typeof form.id !== 'string' || !(FORM_KEYS as readonly string[]).includes(form.id)) return null;
+    if (!id || isBuiltinId(id) || !name || !form || typeof form.id !== 'string' || !(FORM_KEYS as readonly string[]).includes(form.id)) return null;
     if (!Array.isArray(r.effects)) return null;
     const effects = r.effects
         .filter((e): e is Record<string, unknown> => !!e && typeof e === 'object' && typeof (e as Record<string, unknown>).id === 'string'

@@ -2,18 +2,19 @@ import { abilityMod, proficiencyForLevel, TIER_LEVEL } from './abilities';
 import { createRng } from './rng';
 import { buildTierBlock, DEFAULT_JITTER_RANGE, TIER_TABLE } from './tiers';
 import {
-    coverBetween, distance, hasLineOfSight, inBounds, isOccupied, pathCost, pathFromSearch, rangeOf, REACH_DISTANCE,
-    RANGED_DISTANCE, searchMoves, destinations, samePos, sameTeam, terrainOf, tileAt,
+    distance, inBounds, isOccupied, pathCost, pathFromSearch, rangeOf, searchMoves, destinations, samePos, sameTeam, terrainOf, tileAt,
 } from './grid';
-import { buildMapFromSeed, DEFAULT_HAZARD_TYPE, openArena, placeCombatants } from './mapBuilder';
+import { buildMapFromSeed, openArena, placeCombatants } from './mapBuilder';
 import { resolveMapSpec } from './mapSpec';
 import {
-    applyDamage, canAttackWith, canTarget, closeDraft, currentActorId, currentTurn, DEFEND_CONDITION, dismissSummon, emit,
-    freshTurn, hasCondition, isPlayerSide, markDown, openDraft, rollDamage, settleOutcome, SHIELDED, SLOWED,
-    spendAttackAction, STUNNED,
+    canAttackWith, canTarget, closeDraft, currentActorId, currentTurn, DEFEND_CONDITION, dismissSummon, emit,
+    freshTurn, hasCondition, hazardStrike, isPlayerSide, openDraft, settleOutcome, SHIELDED, STUNNED,
 } from './core';
 import type { Draft } from './core';
-import { abilityReadiness, abilitySlot, checkAbility, resolveAbility } from './glyphs/apply';
+import { abilityReadiness, abilitySlot, checkAbility, resolveAbility, resolveStunt } from './glyphs/apply';
+import { checkStunt } from './glyphs/stunt';
+import { BUILTIN_DASH_ID, BUILTIN_JUMP_ID, BUILTIN_SHOVE_ID, builtinAttack, builtinDefend, checkAttack, hostileAdjacent } from './glyphs/builtins';
+import type { AimResult } from './glyphs/targeting';
 import {
     abandonFight, attemptFlee, buildMoraleBook, canAbandon, checkFlee, checkParley, concedeFight, isEdgeTile, isRetreating,
     PARLEY_INTENTS, PARLEY_RATINGS, resolveParley, rollMoraleIfDue,
@@ -29,8 +30,10 @@ import type {
 } from './types';
 
 export { DEFEND_CONDITION, isHostile, canTarget, currentActorId, freshTurn, currentTurn, checkOutcome } from './core';
+export { checkAttack } from './glyphs/builtins';
+export type { AttackCheck } from './glyphs/builtins';
 
-export const HAZARD_DAMAGE_DIE = 6;
+export { HAZARD_DAMAGE_DIE } from './core';
 
 const MAX_ENGINE_ACTIONS = 2000;
 const MAP_SEED_SALT = 0x5bd1e995;
@@ -88,19 +91,7 @@ function environmentStep(draft: Draft): void {
         const c = s.combatants[id];
         if (!c || c.status !== 'up') continue;
         if (grid && c.position && tileAt(grid, c.position) === 'hazard') {
-            const damage = draft.rng.roll(HAZARD_DAMAGE_DIE);
-            const damageType = grid.hazardType || DEFAULT_HAZARD_TYPE;
-            const hit = applyDamage(c, damage);
-            emit(draft, {
-                type: 'hazard',
-                targetId: c.id,
-                data: {
-                    damage, damageType, hpAfter: c.hp,
-                    ...(hit.absorbed > 0 ? { absorbed: hit.absorbed, hpBefore: hit.hpBefore, tempBefore: hit.tempBefore } : {}),
-                },
-                text: grid.labels?.hazard ? `${c.name} takes ${damage} damage from the ${grid.labels.hazard}.` : `${c.name} takes ${damage} ${damageType} damage from the hazard.`,
-            });
-            if (c.hp <= 0) markDown(draft, c, { hazard: true });
+            hazardStrike(draft, c);
             if (c.status !== 'up') continue;
         }
         const kept: CombatCondition[] = [];
@@ -169,87 +160,6 @@ function advanceTurn(draft: Draft): void {
         startTurn(draft);
         return;
     }
-}
-
-export type AttackCheck = {
-    ok: boolean;
-    reason?: 'invalid_target' | 'out_of_range' | 'no_line_of_sight';
-    range: AttackRange;
-    distance: number;
-    cover: number;
-    disadvantage: boolean;
-};
-
-function hostileAdjacent(state: CombatState, actor: Combatant, at: Pos): boolean {
-    return Object.values(state.combatants).some(o => o.id !== actor.id && canTarget(actor, o) && !!o.position && distance(o.position, at) <= 1);
-}
-
-export function checkAttack(state: CombatState, actorId: string, targetId: string, from?: Pos): AttackCheck {
-    const actor = state.combatants[actorId];
-    const target = state.combatants[targetId];
-    const range = actor ? rangeOf(actor) : 'close';
-    if (!actor || !target || !canTarget(actor, target)) return { ok: false, reason: 'invalid_target', range, distance: 0, cover: 0, disadvantage: false };
-    const grid = terrainOf(state);
-    const at = from ?? actor.position;
-    if (!grid || !at || !target.position) return { ok: true, range, distance: 1, cover: 0, disadvantage: false };
-    const dist = distance(at, target.position);
-    if (range === 'close') {
-        return dist <= 1
-            ? { ok: true, range, distance: dist, cover: 0, disadvantage: false }
-            : { ok: false, reason: 'out_of_range', range, distance: dist, cover: 0, disadvantage: false };
-    }
-    const limit = range === 'reach' ? REACH_DISTANCE : RANGED_DISTANCE;
-    if (dist > limit) return { ok: false, reason: 'out_of_range', range, distance: dist, cover: 0, disadvantage: false };
-    if (!hasLineOfSight(grid, at, target.position)) return { ok: false, reason: 'no_line_of_sight', range, distance: dist, cover: 0, disadvantage: false };
-    if (range === 'reach') return { ok: true, range, distance: dist, cover: 0, disadvantage: false };
-    return {
-        ok: true,
-        range,
-        distance: dist,
-        cover: coverBetween(grid, at, target.position),
-        disadvantage: hostileAdjacent(state, actor, at),
-    };
-}
-
-function resolveAttack(draft: Draft, actor: Combatant, target: Combatant, check: AttackCheck): void {
-    const defending = target.conditions.some(c => c.id === DEFEND_CONDITION);
-    const disadvantage = defending || check.disadvantage || hasCondition(actor, SLOWED);
-    const first = draft.rng.roll(20);
-    const natural = disadvantage ? Math.min(first, draft.rng.roll(20)) : first;
-    const total = natural + actor.attackBonus;
-    const ac = target.ac + check.cover;
-    const crit = natural === 20;
-    const hit = crit || (natural !== 1 && total >= ac);
-    const dmgType = actor.damage.type;
-    const base = {
-        natural, total, ac, cover: check.cover, range: check.range, disadvantage, defending, adjacentShot: check.disadvantage,
-        ...(actor.weaponName ? { weapon: actor.weaponName } : {}),
-    };
-    if (!hit) {
-        const shielded = (target.tempHp ?? 0) > 0;
-        emit(draft, {
-            type: 'attack',
-            actorId: actor.id,
-            targetId: target.id,
-            data: { ...base, hit: false, crit: false, fumble: natural === 1, ...(shielded ? { shielded: true } : {}) },
-            text: `${actor.name} attacks ${target.name} and misses.`,
-        });
-        return;
-    }
-    const count = crit ? actor.damage.count * 2 : actor.damage.count;
-    const damage = rollDamage(draft.rng, count, actor.damage.sides, actor.damage.bonus);
-    const result = applyDamage(target, damage);
-    const shielded = result.absorbed > 0 ? { absorbed: result.absorbed, hpBefore: result.hpBefore, tempBefore: result.tempBefore } : {};
-    emit(draft, {
-        type: 'attack',
-        actorId: actor.id,
-        targetId: target.id,
-        data: { ...base, hit: true, crit, damage, damageType: dmgType, hpAfter: target.hp, ...shielded },
-        text: crit
-            ? `${actor.name} lands a critical hit on ${target.name} for ${damage} ${dmgType}.`
-            : `${actor.name} hits ${target.name} for ${damage} ${dmgType}.`,
-    });
-    if (target.hp <= 0 && target.status === 'up') markDown(draft, target, { actorId: actor.id });
 }
 
 function rejection(state: CombatState, action: CombatAction, reason: string): { state: CombatState; events: CombatEvent[] } {
@@ -336,17 +246,33 @@ export function hasUsableBonusAbility(state: CombatState, actorId: string): bool
     return actor.kit.some(a => abilitySlot(a) === 'bonus' && checkAbility(state, actorId, a.id).ok);
 }
 
-function maybeAutoEnd(draft: Draft, actorId: string): void {
+export type ActionOptions = { driven?: boolean };
+
+function hasUsableBuiltinBonus(state: CombatState, actorId: string): boolean {
+    return [BUILTIN_SHOVE_ID, BUILTIN_JUMP_ID].some(id => checkAbility(state, actorId, id).ok);
+}
+
+function maybeAutoEnd(draft: Draft, actorId: string, driven = false): void {
     const s = draft.state;
     if (s.outcome || currentActorId(s) !== actorId) return;
     const turn = currentTurn(s);
     if (!turn || canAttackWith(turn)) return;
     if (turn.moveLeft > 0 && hasAnyMove(s, actorId)) return;
     if (!turn.bonusUsed && hasUsableBonusAbility(s, actorId)) return;
+    if (driven && !turn.bonusUsed && hasUsableBuiltinBonus(s, actorId)) return;
     advanceTurn(draft);
 }
 
-export function applyAction(state: CombatState, action: CombatAction): { state: CombatState; events: CombatEvent[] } {
+function runAbility(state: CombatState, actorId: string, ability: GlyphAbility, aim: AimResult, driven: boolean): { state: CombatState; events: CombatEvent[] } {
+    const draft = openDraft(state);
+    resolveAbility(draft, actorId, ability, aim);
+    settleOutcome(draft);
+    maybeAutoEnd(draft, actorId, driven);
+    return closeDraft(draft);
+}
+
+export function applyAction(state: CombatState, action: CombatAction, options: ActionOptions = {}): { state: CombatState; events: CombatEvent[] } {
+    const driven = options.driven === true;
     if (state.outcome) return rejection(state, action, 'the fight is over');
     const actorId = currentActorId(state);
     const actor = actorId ? state.combatants[actorId] : undefined;
@@ -360,22 +286,23 @@ export function applyAction(state: CombatState, action: CombatAction): { state: 
         if (!target || !canTarget(actor, target)) return rejection(state, action, 'invalid target');
         const check = checkAttack(state, actor.id, target.id);
         if (!check.ok) return rejection(state, action, check.reason === 'no_line_of_sight' ? 'no line of sight' : 'out of range');
-        const draft = openDraft(state);
-        draft.state.turn = spendAttackAction(turn);
-        resolveAttack(draft, draft.state.combatants[actor.id], draft.state.combatants[target.id], check);
-        settleOutcome(draft);
-        maybeAutoEnd(draft, actor.id);
-        return closeDraft(draft);
+        const aim: AimResult = {
+            ok: true,
+            tiles: target.position ? [{ ...target.position }] : [],
+            targetIds: [target.id],
+            ...(actor.position ? { origin: { ...actor.position } } : {}),
+        };
+        return runAbility(state, actor.id, builtinAttack(actor), aim, driven);
     }
     if (action.type === 'defend') {
         if (!canAttackWith(turn)) return rejection(state, action, 'the action is already used');
-        const draft = openDraft(state);
-        draft.state.turn = spendAttackAction(turn);
-        const self = draft.state.combatants[actor.id];
-        self.conditions = [...self.conditions.filter(c => c.id !== DEFEND_CONDITION), { id: DEFEND_CONDITION, rounds: 1 }];
-        emit(draft, { type: 'defend', actorId: actor.id, data: {}, text: `${actor.name} takes a defensive stance.` });
-        maybeAutoEnd(draft, actor.id);
-        return closeDraft(draft);
+        const aim: AimResult = {
+            ok: true,
+            tiles: actor.position ? [{ ...actor.position }] : [],
+            targetIds: [actor.id],
+            ...(actor.position ? { origin: { ...actor.position } } : {}),
+        };
+        return runAbility(state, actor.id, builtinDefend(), aim, driven);
     }
     if (action.type === 'move') {
         const to = action.to;
@@ -395,18 +322,14 @@ export function applyAction(state: CombatState, action: CombatAction): { state: 
             data: { from, to: dest, path: route.path, cost: route.cost, squares: route.path.length, ...rel },
             text: moveText(state, actor, route.path.length, rel),
         });
-        maybeAutoEnd(draft, actor.id);
+        maybeAutoEnd(draft, actor.id, driven);
         return closeDraft(draft);
     }
     if (action.type === 'use_ability') {
         const aim = action.aim && typeof action.aim.x === 'number' && typeof action.aim.y === 'number' ? { x: action.aim.x, y: action.aim.y } : null;
         const check = checkAbility(state, actor.id, action.abilityId, aim);
         if (!check.ok || !check.ability || !check.aim) return rejection(state, action, check.reason ?? 'the ability cannot be used');
-        const draft = openDraft(state);
-        resolveAbility(draft, actor.id, check.ability, check.aim);
-        settleOutcome(draft);
-        maybeAutoEnd(draft, actor.id);
-        return closeDraft(draft);
+        return runAbility(state, actor.id, check.ability, check.aim, driven);
     }
     if (action.type === 'flee') {
         const check = checkFlee(state, actor.id, turn);
@@ -439,6 +362,15 @@ export function applyAction(state: CombatState, action: CombatAction): { state: 
             settleOutcome(draft);
             maybeAutoEnd(draft, actor.id);
         }
+        return closeDraft(draft);
+    }
+    if (action.type === 'stunt') {
+        const check = checkStunt(state, actor.id, action.spec);
+        if (!check.ok) return rejection(state, action, `cannot attempt the stunt: ${check.reason}`);
+        const draft = openDraft(state);
+        resolveStunt(draft, actor.id, check.plan);
+        settleOutcome(draft);
+        maybeAutoEnd(draft, actor.id, driven);
         return closeDraft(draft);
     }
     if (action.type === 'end_turn') {
@@ -617,13 +549,34 @@ function retreatTurn(state: CombatState, actor: Combatant, turn: TurnState): { a
     return weaponTurn(state, actor, turn, targets);
 }
 
-export function chooseEngineTurn(state: CombatState, actorId: string): { actions: CombatAction[]; state: CombatState } {
+export const AI_DASH = false;
+
+function dashedTurn(state: CombatState, actor: Combatant, turn: TurnState): { actions: CombatAction[]; state: CombatState } {
+    const end: CombatAction = { type: 'end_turn', actorId: actor.id };
+    const targets = state.order.map(id => state.combatants[id]).filter(c => !!c && canTarget(actor, c));
+    if (targets.length === 0 || !state.grid || !actor.position || turn.moveLeft <= 0) return { actions: [end], state };
+    const plan = weaponTurn(state, actor, turn, targets);
+    const first = plan.actions[0];
+    return { actions: first?.type === 'move' ? [first, end] : [end], state: plan.state };
+}
+
+function withDash(
+    state: CombatState, actor: Combatant, turn: TurnState, targets: Combatant[], plan: { actions: CombatAction[]; state: CombatState },
+): { actions: CombatAction[]; state: CombatState } {
+    if (plan.actions.some(a => a.type === 'attack' || a.type === 'move')) return plan;
+    if (!checkAbility(state, actor.id, BUILTIN_DASH_ID).ok) return plan;
+    const stretched = weaponTurn(state, actor, { ...turn, moveLeft: turn.moveLeft + freshTurn(state, actor.id).moveLeft }, targets);
+    if (stretched.actions[0]?.type !== 'move') return plan;
+    return { actions: [{ type: 'use_ability', actorId: actor.id, abilityId: BUILTIN_DASH_ID, aim: null }, { type: 'end_turn', actorId: actor.id }], state: plan.state };
+}
+
+export function chooseEngineTurn(state: CombatState, actorId: string, options: { dash?: boolean } = {}): { actions: CombatAction[]; state: CombatState } {
     const actor = state.combatants[actorId];
     const end: CombatAction = { type: 'end_turn', actorId };
     if (!actor || actor.status !== 'up') return { actions: [end], state };
     const turn = currentActorId(state) === actorId ? currentTurn(state) as TurnState : freshTurn(state, actorId);
     if (isRetreating(state, actor)) return retreatTurn(state, actor, turn);
-    if (!canAttackWith(turn)) return { actions: [end], state };
+    if (!canAttackWith(turn)) return turn.dashed ? dashedTurn(state, actor, turn) : { actions: [end], state };
     const targets = state.order.map(id => state.combatants[id]).filter(c => !!c && canTarget(actor, c));
     if (targets.length === 0) return { actions: [end], state };
     const weapon = weaponTurn(state, actor, turn, targets);
@@ -635,7 +588,7 @@ export function chooseEngineTurn(state: CombatState, actorId: string): { actions
             if (kit) return { actions: [kit.action, end], state: kit.state };
         }
     }
-    return weapon;
+    return (options.dash ?? AI_DASH) ? withDash(state, actor, turn, targets, weapon) : weapon;
 }
 
 export function stepEngine(state: CombatState): { state: CombatState; events: CombatEvent[] } | null {

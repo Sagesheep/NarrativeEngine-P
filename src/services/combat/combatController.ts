@@ -316,6 +316,7 @@ const FLOURISH_EVENT: Readonly<Partial<Record<CombatAction['type'], string>>> = 
     use_ability: 'ability',
     defend: 'defend',
     flee: 'flee',
+    stunt: 'stunt_check',
 };
 
 export function takesFlourish(action: CombatAction): boolean {
@@ -338,13 +339,13 @@ export function attachFlourish(session: CombatSession, action: CombatAction, eve
 export async function playerAction(action: CombatAction, flourish?: string): Promise<CombatEvent[]> {
     const store = useAppStore.getState();
     const session = store.combatSession;
-    if (!session || session.state.outcome || finishing || store.combatBusy || stepping || session.parley) return [];
+    if (!session || session.state.outcome || finishing || store.combatBusy || stepping || session.parley || session.stunt) return [];
     if (isEngineTurn(session.state)) {
         void runEngineTurnsStepped();
         return [];
     }
     if (playerActorId(session.state) !== action.actorId) return [];
-    const applied = applyAction(session.state, action);
+    const applied = applyAction(session.state, action, { driven: true });
     if (applied.events.some(e => e.type === 'rejected')) return [];
     const withFlourish = attachFlourish(session, action, applied.events, flourish);
     const next = commitSession({ ...withFlourish, state: applied.state, log: [...session.log, ...applied.events] });
@@ -362,8 +363,10 @@ export function isHardMode(state: CombatState): boolean {
 }
 
 export async function abortCombat(): Promise<void> {
-    const session = useAppStore.getState().combatSession;
-    if (!session || finishing || session.parley) return;
+    const stored = useAppStore.getState().combatSession;
+    if (!stored || finishing || stored.parley) return;
+    const session: CombatSession = stored.stunt ? { ...stored, stunt: undefined } : stored;
+    if (session !== stored) storeSession(session);
     if (!session.state.outcome && isHardMode(session.state)) {
         const conceded = concedeCombat(session.state);
         commitSession({ ...session, state: conceded.state, log: [...session.log, ...conceded.events] });

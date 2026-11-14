@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { Map as MapIcon, BookOpen } from 'lucide-react';
-import { canAttackWith, currentTurn, edgeTiles, findKitAbility } from '@narrative/engine';
+import { canAttackWith, currentTurn, edgeTiles, findUsableAbility } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { ChatMessage, CombatAction, CombatSession } from '../../types';
@@ -43,7 +43,7 @@ export function CombatScreen({
     feedScrollRef: RefObject<HTMLDivElement | null>;
 }) {
     const { t } = useTranslation();
-    const busy = engineBusy || !!session.parley;
+    const busy = engineBusy || !!session.parley || !!session.stunt;
     const rootRef = useRef<HTMLDivElement | null>(null);
     const surfaceRef = useRef<HTMLDivElement | null>(null);
     const width = useContainerWidth(rootRef);
@@ -118,7 +118,7 @@ export function CombatScreen({
             setAimingId(null);
             return;
         }
-        const ability = findKitAbility(session.state.combatants[actorId], abilityId);
+        const ability = findUsableAbility(session.state.combatants[actorId], abilityId);
         if (!ability) return;
         if (!needsAim(ability)) {
             act({ type: 'use_ability', actorId, abilityId, aim: null });
@@ -213,7 +213,7 @@ export function CombatScreen({
                     <CombatParleyBox session={session} busy={busy} />
                 </div>
             </div>
-            <CombatActionBar session={session} busy={busy} targetId={targetId} onAction={act} onPick={pick} onSkip={onSkip} aimingId={liveAim ? aimingId : null} onAim={startAim} onShowEdges={() => setShowEdges(v => !v)} flourish={flourish} onFlourish={setFlourish} />
+            <CombatActionBar session={session} busy={busy} targetId={targetId} onAction={act} onPick={pick} onSkip={onSkip} aimingId={liveAim ? aimingId : null} onAim={startAim} onShowEdges={() => setShowEdges(v => !v)} flourish={flourish} onFlourish={setFlourish} compact={narrow} />
         </div>
     );
 }

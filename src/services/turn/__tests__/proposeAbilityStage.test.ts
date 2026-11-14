@@ -93,6 +93,25 @@ describe('propose_ability tool (T6)', () => {
         expect(result.toolResult).toMatch(/^propose_ability was not accepted: the self form cannot carry damage\./);
     });
 
+    it('refuses built-in-only glyphs and never takes a built-in id (5B-1)', () => {
+        const def = getToolDefinitions({ allowDiceTool: false, allowAbilityTool: true }).find(t => (t as { function: { name: string } }).function.name === 'propose_ability') as { function: { parameters: { properties: { effects: { items: { properties: { effect: { enum: string[] } } } } } } } };
+        const offered = def.function.parameters.properties.effects.items.properties.effect.enum;
+        expect(offered).not.toContain('weapon');
+        expect(offered).not.toContain('guard');
+        for (const effect of ['sprint', 'leap', 'rally']) expect(offered).not.toContain(effect);
+        for (const effect of ['weapon', 'guard', 'sprint', 'leap', 'rally']) {
+            const parsed = parseAbilityArgs({ name: 'Cheat', form: effect === 'guard' || effect === 'sprint' || effect === 'leap' ? 'self' : 'touch', effects: [{ effect }] }, limits);
+            expect(parsed.ok).toBe(false);
+            expect((parsed as { reasons: string[] }).reasons.join(' ')).toContain(`"${effect}" is not an effect`);
+            const result = handleProposeAbilityTool(JSON.stringify({ name: 'Cheat', form: 'touch', effects: [{ effect }] }), limits);
+            expect(result.ability).toBeUndefined();
+            expect(result.toolResult).toMatch(/^propose_ability was not accepted/);
+        }
+        const posing = parseAbilityArgs({ id: 'builtin:attack', name: 'Attack', form: 'touch', effects: [{ effect: 'damage' }] }, limits);
+        expect(posing.ok).toBe(true);
+        expect((posing as { ability: { id: string } }).ability.id.startsWith('builtin:')).toBe(false);
+    });
+
     it('does not offer the tool when not allowed', async () => {
         const { callbacks, state, ctx } = setup(false);
         await runGenerationStage(ctx, state, callbacks, new AbortController(), { liveTrace: [], pushToolTrace: vi.fn() });

@@ -5,7 +5,8 @@ export type {
     CombatAction, CombatEvent, TierBlock, CombatantSpec, CombatSpec, WeaponQuality, PcWeapon,
     PcCombatantInput, AttackRange, Tile, Grid, Pos, MapSize, MapSpec, TurnState, TemplateOverlay,
     AreaType, MapDensity, HazardKind, TerrainLabels, ResolvedMapSpec,
-    FormId, EffectId, AugmentId, GlyphAbility, CombatCondition, Barrier,
+    FormId, EffectId, AugmentId, GlyphAbility, BuiltinKind, BuiltinProfile, CombatCondition, Barrier,
+    StuntCheckProfile, StuntOutcome, StuntDifficulty, StuntPart, StuntSpec,
     PartyControl, DefeatMode, Team, ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord, MoraleBook, CombatEnding,
 } from './types';
 export {
@@ -30,14 +31,14 @@ export { PC_COMBATANT_ID, WEAPON_QUALITY_DICE, UNARMED_DIE, FALLBACK_WEAPON_DIE,
 export {
     DEFEND_CONDITION, isHostile, canTarget, currentActorId, checkOutcome, applyAction,
     chooseEngineTurn, stepEngine, runEngineTurns, createCombat, hpBand, HAZARD_DAMAGE_DIE,
-    freshTurn, currentTurn, checkAttack, reachable, pathTo, deriveMapSeed, hasUsableBonusAbility, concedeCombat,
+    freshTurn, currentTurn, checkAttack, reachable, pathTo, deriveMapSeed, hasUsableBonusAbility, concedeCombat, AI_DASH,
 } from './resolve';
 export {
     STUNNED, SLOWED, HASTED, SHIELDED, COMBAT_EVENT_TYPES, canAttackWith, hasCondition, countsForOutcome,
     playerCharacterOf, OUTCOME_TEXT, HARDCORE_DEATH_MAX, isPlayerSide,
 } from './core';
 export * from './glyphs/index';
-export type { HpBand, AttackCheck } from './resolve';
+export type { HpBand, AttackCheck, ActionOptions } from './resolve';
 export {
     TILE_KINDS, DEFAULT_SPEED, REACH_DISTANCE, RANGED_DISTANCE, HAZARD_AVOID_PENALTY, HALF_COVER_BONUS, THREE_QUARTER_COVER_BONUS,
     inBounds, tileAt, isWalkable, isWalkableTile, distance, samePos, canStep, traceLine, hasLineOfSight, coverBetween,

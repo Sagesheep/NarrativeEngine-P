@@ -3,13 +3,14 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { BookOpen, X } from 'lucide-react';
 import {
-    autoPlacementReason, chainColumns, chainCount, firstFreeSocket, placeGlyph, placementReason, removeGlyph, sameSocket, socketGlyph,
-    socketKey, validateAbility,
+    autoPlacementReason, buildPcCombatant, builtinAbilities, casterStats, chainColumns, chainCount, describeAbility,
+    firstFreeSocket, placeGlyph, placementReason, removeGlyph, sameSocket, socketGlyph, socketKey, validateAbility,
 } from '@narrative/engine';
 import type { GlyphRef, Socket } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { commitCombatPatch, remirrorCombatSheet } from '../../services/combat/combatSheet';
+import { buildPcInput } from '../../services/combat/combatController';
 import {
     addAsNew, configOf, equipAt, limitsOf, removeAbility, reorderEquipped, sheetCasterStats, sheetMaxMp, spellbookOf, toggleEquipped, unequip,
     upsertAbility,
@@ -17,8 +18,10 @@ import {
 import type { GlyphAbility, Spellbook } from '../../types';
 import { Backdrop } from '../primitives/Backdrop';
 import { glyphLabelKey } from '../character/tabs/glyphLabels';
+import { basicNameKey } from '../combat/basicActions';
 import { useContainerWidth } from '../combat/useContainerWidth';
 import { AbilityLibrary } from './AbilityLibrary';
+import type { BasicAction } from './AbilityLibrary';
 import { ChainWorkbench } from './ChainWorkbench';
 import { GlyphPalette } from './GlyphPalette';
 import { blankDraft, draftFrom, sameDraft, toAbility } from './draft';
@@ -49,6 +52,7 @@ function Workbench() {
     const headingId = useId();
     const promptId = useId();
     const context = useAppStore((s) => s.context);
+    const inventoryItems = useAppStore((s) => s.inventoryItems);
     const updateContext = useAppStore((s) => s.updateContext);
     const setEditDraft = useAppStore((s) => s.setAbilityEditDraft);
     const setOpen = useAppStore((s) => s.setSpellbookOpen);
@@ -63,6 +67,16 @@ function Workbench() {
     const stats = useMemo(() => sheetCasterStats(context.combatSheet), [context.combatSheet]);
     const maxMp = sheetMaxMp(context.combatSheet);
     const label = config.resourceLabel;
+    const basics = useMemo((): BasicAction[] => {
+        const input = buildPcInput({ context, inventoryItems });
+        if (!input) return [];
+        const pc = buildPcCombatant(input);
+        return builtinAbilities(pc).map(ability => ({
+            ability,
+            name: t(basicNameKey(ability.id)),
+            rules: describeAbility(ability, casterStats(pc), pc),
+        }));
+    }, [context, inventoryItems, t]);
 
     const [start] = useState(initialState);
     const [draft, setDraft] = useState<AbilityDraft>(start.draft);
@@ -198,6 +212,7 @@ function Workbench() {
 
     const library = (
         <AbilityLibrary
+            basics={basics}
             book={book}
             config={config}
             stats={stats}

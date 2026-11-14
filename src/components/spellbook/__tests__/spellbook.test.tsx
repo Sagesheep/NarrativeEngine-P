@@ -389,3 +389,75 @@ describe('GlyphIcon', () => {
         expect(parseGlyphManifest({}).size).toBe(0);
     });
 });
+
+describe('Spellbook basic actions (5B-1)', () => {
+    beforeEach(() => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) })));
+    });
+
+    afterEach(() => {
+        cancelPendingSaves();
+        vi.unstubAllGlobals();
+    });
+
+    it('lists Attack and Defend read-only above the player abilities, outside the spellbook and the palette', () => {
+        seed({ abilities: [ability('a1', 'Bolt', { id: 'projectile', augments: [] }, [{ id: 'damage', augments: [] }])], equippedIds: [] });
+        render(<SpellbookDialog />);
+        const basics = screen.getByTestId('spellbook-basic-actions');
+        const attack = within(basics).getByTestId('basic-builtin:attack');
+        const defend = within(basics).getByTestId('basic-builtin:defend');
+        expect(attack).toHaveTextContent('Attack');
+        expect(attack).toHaveTextContent('Free');
+        expect(attack).toHaveTextContent('Touch, one target at 1 square. Attack roll +');
+        expect(defend).toHaveTextContent('Defend');
+        expect(defend).toHaveTextContent('The user takes a defensive stance');
+        expect(within(attack).getByRole('img', { name: 'Weapon strike' })).toBeInTheDocument();
+        expect(within(defend).getByRole('img', { name: 'Guard' })).toBeInTheDocument();
+        expect(within(basics).queryAllByRole('button')).toHaveLength(0);
+        expect(attack).not.toHaveAttribute('draggable');
+        expect(basics.compareDocumentPosition(screen.getByTestId('ability-a1')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(screen.queryByTestId('palette-effect-weapon')).toBeNull();
+        expect(screen.queryByTestId('palette-effect-guard')).toBeNull();
+        expect(screen.getByTestId('palette-effect-damage')).toBeInTheDocument();
+        expect(book().abilities.map(a => a.id)).toEqual(['a1']);
+        expect(book().equippedIds).toEqual([]);
+    });
+
+    it('lists all seven basic actions in order, read-only, with their glyphs and rules, and keeps the new glyphs out of the palette (5B-2)', () => {
+        seed({ abilities: [], equippedIds: [] });
+        render(<SpellbookDialog />);
+        const basics = screen.getByTestId('spellbook-basic-actions');
+        const names = ['Attack', 'Defend', 'Dash', 'Shove', 'Jump', 'Throw', 'Help'];
+        const cards = ['attack', 'defend', 'dash', 'shove', 'jump', 'throw', 'help'].map(id => within(basics).getByTestId(`basic-builtin:${id}`));
+        cards.forEach((card, i) => {
+            expect(card).toHaveTextContent(names[i]);
+            expect(card).toHaveTextContent('Free');
+            expect(card).not.toHaveAttribute('draggable');
+            if (i > 0) expect(cards[i - 1].compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        });
+        expect(within(basics).queryAllByRole('button')).toHaveLength(0);
+        expect(within(cards[2]).getByRole('img', { name: 'Sprint' })).toBeInTheDocument();
+        expect(within(cards[3]).getByRole('img', { name: 'Push' })).toBeInTheDocument();
+        expect(within(cards[4]).getByRole('img', { name: 'Leap' })).toBeInTheDocument();
+        expect(within(cards[5]).getByRole('img', { name: 'Weapon strike' })).toBeInTheDocument();
+        expect(within(cards[6]).getByRole('img', { name: 'Rally' })).toBeInTheDocument();
+        expect(cards[2]).toHaveTextContent('one more full allowance of movement');
+        expect(cards[3]).toHaveTextContent('bonus action');
+        expect(cards[4]).toHaveTextContent('bonus action');
+        for (const id of ['sprint', 'leap', 'rally']) expect(screen.queryByTestId(`palette-effect-${id}`)).toBeNull();
+        expect(book().abilities).toEqual([]);
+    });
+
+    it('drops built-in ids and built-in glyphs from a stored spellbook', () => {
+        seed({
+            abilities: [
+                ability('builtin:attack', 'Attack', { id: 'touch', augments: [] }, [{ id: 'weapon', augments: [] }]),
+                ability('a2', 'Odd', { id: 'self', augments: [] }, [{ id: 'guard', augments: [] }, { id: 'heal', augments: [] }]),
+            ],
+            equippedIds: ['builtin:attack', 'a2'],
+        });
+        expect(book().abilities.map(a => a.id)).toEqual(['a2']);
+        expect(book().abilities[0].effects.map(e => e.id)).toEqual(['heal']);
+        expect(book().equippedIds).toEqual(['a2']);
+    });
+});

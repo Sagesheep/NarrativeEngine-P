@@ -1,7 +1,7 @@
 import {
     ArrowLeftRight, ArrowRightToLine, ArrowUpFromLine, BrickWall, ChevronsRight, ChevronsUp, Cone, Crosshair, Droplet, Expand,
-    FastForward, Flame, Ghost, Hand, Heart, Magnet, MoveRight, Rabbit, Ruler, Shield, Snail, Sparkle, Split, UnfoldHorizontal,
-    User, Zap,
+    FastForward, Flame, Ghost, Hand, HandHelping, Heart, Magnet, MoveRight, Rabbit, Ruler, Shield, ShieldHalf, Snail, Sparkle, Split,
+    Swords, UnfoldHorizontal, User, Wind, Zap, ArrowBigUpDash,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AugmentId, EffectId, FormId } from '../../types';
@@ -32,6 +32,11 @@ export const EFFECT_ICONS: Readonly<Record<EffectId, LucideIcon>> = {
     barrier: BrickWall,
     drain: Droplet,
     summon: Ghost,
+    weapon: Swords,
+    guard: ShieldHalf,
+    sprint: Wind,
+    leap: ArrowBigUpDash,
+    rally: HandHelping,
 };
 
 export const AUGMENT_ICONS: Readonly<Record<AugmentId, LucideIcon>> = {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
 import { buildPcCombatant, createCombat } from '@narrative/engine';
 import { MessageBubble } from '../../MessageBubble';
 import { ChatMessageList } from '../../chat/ChatMessageList';
@@ -336,6 +336,120 @@ describe('CombatActionBar', () => {
         expect(picked.onAction).toHaveBeenLastCalledWith({ type: 'defend', actorId: 'pc' });
     });
 
+    it('draws Attack and Defend as ability tiles with their glyph strip and rules, before everything else (5B-1)', () => {
+        bar(session());
+        const group = screen.getByTestId('combat-basic-actions');
+        const attack = within(group).getByTestId('combat-ability-builtin:attack');
+        const defend = within(group).getByTestId('combat-ability-builtin:defend');
+        expect(attack).toHaveAttribute('aria-keyshortcuts', 'A');
+        expect(defend).toHaveAttribute('aria-keyshortcuts', 'D');
+        expect(attack).toHaveTextContent('Attack');
+        expect(defend).toHaveTextContent('Defend');
+        const tip = screen.getByTestId('combat-ability-tip-builtin:attack');
+        expect(attack).toHaveAttribute('aria-describedby', 'combat-ability-tip-builtin:attack');
+        expect(within(tip).getByTestId('glyph-strip')).toBeInTheDocument();
+        expect(within(tip).getByRole('img', { name: 'Weapon strike' })).toBeInTheDocument();
+        expect(tip).toHaveTextContent('Attack roll +');
+        expect(screen.getByTestId('combat-ability-tip-builtin:defend')).toHaveTextContent('The user takes a defensive stance');
+        const buttons = within(screen.getByTestId('combat-actions')).getAllByRole('button');
+        expect(buttons[0]).toBe(attack);
+        expect(buttons[1]).toBe(defend);
+    });
+
+    const full = (s: CombatSession, over: { compact?: boolean; aimingId?: string | null } = {}) => {
+        const props = { onAction: vi.fn(), onPick: vi.fn(), onSkip: vi.fn(), onAim: vi.fn() };
+        render(<CombatActionBar session={s} busy={false} targetId={null} {...props} {...over} />);
+        return props;
+    };
+
+    it('draws the five tabletop actions after Attack and Defend, with keys, glyph strips and rules (5B-2)', () => {
+        full(session());
+        const group = screen.getByTestId('combat-basic-actions');
+        const buttons = within(group).getAllByRole('button');
+        expect(buttons[2].getAttribute('data-testid')).toBe('combat-stunt');
+        const tiles = buttons.filter(b => b.getAttribute('data-testid') !== 'combat-stunt');
+        expect(tiles.map(b => b.getAttribute('data-testid'))).toEqual([
+            'builtin:attack', 'builtin:defend', 'builtin:dash', 'builtin:shove', 'builtin:jump', 'builtin:throw', 'builtin:help',
+        ].map(id => `combat-ability-${id}`));
+        expect(tiles.map(b => b.getAttribute('aria-keyshortcuts'))).toEqual(['A', 'D', 'R', 'S', 'J', 'T', 'H']);
+        expect(tiles.map(b => b.textContent?.replace(/^[A-Z]/, '').replace(/No legal target$/, ''))).toEqual(['Attack', 'Defend', 'Dash', 'Shove', 'Jump', 'Throw', 'Help']);
+        const dash = screen.getByTestId('combat-ability-tip-builtin:dash');
+        expect(within(dash).getByRole('img', { name: 'Sprint' })).toBeInTheDocument();
+        expect(dash).toHaveTextContent('one more full allowance of movement');
+        expect(within(screen.getByTestId('combat-ability-tip-builtin:jump')).getByRole('img', { name: 'Leap' })).toBeInTheDocument();
+        expect(within(screen.getByTestId('combat-ability-tip-builtin:help')).getByRole('img', { name: 'Rally' })).toBeInTheDocument();
+        expect(screen.getByTestId('combat-ability-tip-builtin:shove')).toHaveTextContent('STR or DEX save');
+        expect(screen.getByTestId('combat-ability-tip-builtin:throw')).toHaveTextContent('1d4');
+    });
+
+    it('starts aiming a tabletop action by key and by button, and disables the ones with no legal use, stating why', () => {
+        const props = full(session());
+        fireEvent.keyDown(window, { key: 'r' });
+        expect(props.onAim).toHaveBeenLastCalledWith('builtin:dash');
+        fireEvent.keyDown(window, { key: 's' });
+        expect(props.onAim).toHaveBeenLastCalledWith('builtin:shove');
+        fireEvent.click(screen.getByTestId('combat-ability-builtin:throw'));
+        expect(props.onAim).toHaveBeenLastCalledWith('builtin:throw');
+        props.onAim.mockClear();
+        fireEvent.keyDown(window, { key: 'h' });
+        expect(props.onAim).not.toHaveBeenCalled();
+        const help = screen.getByTestId('combat-ability-builtin:help');
+        expect(help).toHaveAttribute('aria-disabled', 'true');
+        expect(help).toHaveTextContent('No legal target');
+        fireEvent.keyDown(window, { key: 'x' });
+        expect(props.onAim).not.toHaveBeenCalled();
+    });
+
+    it('explains a spent action, a spent bonus action and short movement on the tiles', () => {
+        const s = session();
+        const spent = { ...s, state: { ...s.state, turn: { actorId: 'pc', moveLeft: 0, actionUsed: true, bonusUsed: true } } };
+        full(spent);
+        expect(screen.getByTestId('combat-ability-builtin:dash')).toHaveTextContent('Your action for this turn is used');
+        expect(screen.getByTestId('combat-ability-builtin:shove')).toHaveTextContent('Bonus action already used');
+        expect(screen.getByTestId('combat-ability-builtin:jump')).toHaveTextContent('Bonus action already used');
+        expect(screen.getByTestId('combat-ability-builtin:throw')).toHaveAttribute('aria-disabled', 'true');
+        cleanup();
+        const slow = { ...s, state: { ...s.state, turn: { actorId: 'pc', moveLeft: 0, actionUsed: false } } };
+        full(slow);
+        expect(screen.getByTestId('combat-ability-builtin:jump')).toHaveTextContent('Not enough movement left');
+    });
+
+    it('opens Try something with a 240-character field and the rule line, and shows the verdict with Roll and Back (5B-3)', () => {
+        full(session());
+        fireEvent.click(screen.getByTestId('combat-stunt'));
+        expect(screen.getByTestId('combat-stunt-input')).toHaveAttribute('maxLength', '240');
+        expect(screen.getByTestId('combat-stunt-form')).toHaveTextContent('the referee sets the odds, the dice decide');
+        cleanup();
+        const s = session();
+        const at = s.state.combatants.pc.position!;
+        full({ ...s, stunt: { attemptId: 'a', actorId: 'pc', words: 'I vault.', stage: 'verdict', difficulty: 'moderate', spec: { ability: 'DEX', parts: [{ outcome: 'move', at: { x: at.x - 2, y: at.y }, difficulty: 'moderate' }] } } });
+        const verdict = screen.getByTestId('combat-stunt-verdict');
+        expect(verdict).toHaveTextContent('Get to a square 2 away');
+        expect(screen.getByTestId('combat-stunt-odds')).toHaveTextContent('DEX check, moderate');
+        expect(screen.getByTestId('combat-stunt-roll')).toBeInTheDocument();
+        expect(screen.getByTestId('combat-stunt-back')).toBeInTheDocument();
+    });
+
+    it('folds the five tabletop actions into a More actions popover at narrow widths, keeping Attack and Defend', () => {
+        const props = full(session(), { compact: true });
+        const group = screen.getByTestId('combat-basic-actions');
+        expect(within(group).getAllByRole('button').map(b => b.getAttribute('data-testid'))).toEqual([
+            'combat-ability-builtin:attack', 'combat-ability-builtin:defend', 'combat-stunt', 'combat-more-actions',
+        ]);
+        expect(screen.queryByTestId('combat-ability-builtin:dash')).toBeNull();
+        fireEvent.click(screen.getByTestId('combat-more-actions'));
+        const popover = screen.getByTestId('combat-more-popover');
+        expect(within(popover).getAllByRole('button')).toHaveLength(5);
+        fireEvent.click(within(popover).getByTestId('combat-ability-builtin:shove'));
+        expect(props.onAim).toHaveBeenLastCalledWith('builtin:shove');
+        expect(screen.queryByTestId('combat-more-popover')).toBeNull();
+        fireEvent.click(screen.getByTestId('combat-more-actions'));
+        fireEvent.keyDown(screen.getByTestId('combat-more-popover'), { key: 'Escape' });
+        expect(screen.queryByTestId('combat-more-popover')).toBeNull();
+        fireEvent.keyDown(window, { key: 'r' });
+        expect(props.onAim).toHaveBeenLastCalledWith('builtin:dash');
+    });
+
     it('attacks a selected target in reach directly, by key and by button', () => {
         const s = session();
         const target = s.state.order.find(id => id !== 'pc') as string;
@@ -343,7 +457,7 @@ describe('CombatActionBar', () => {
         fireEvent.keyDown(window, { key: 'a' });
         expect(onAction).toHaveBeenLastCalledWith({ type: 'attack', actorId: 'pc', targetId: target });
         onAction.mockClear();
-        fireEvent.click(screen.getByText('Attack'));
+        fireEvent.click(screen.getByRole('button', { name: /Attack/ }));
         expect(onAction).toHaveBeenLastCalledWith({ type: 'attack', actorId: 'pc', targetId: target });
         fireEvent.click(screen.getByText('End turn'));
         expect(onAction).toHaveBeenLastCalledWith({ type: 'end_turn', actorId: 'pc' });

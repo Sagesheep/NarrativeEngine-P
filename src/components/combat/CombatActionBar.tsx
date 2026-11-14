@@ -1,16 +1,22 @@
-import { useEffect, useMemo } from 'react';
-import { Swords, Shield, Loader2, SkipForward, FastForward, Footprints, LogOut } from 'lucide-react';
-import { abilityCost, canAbandon, canAttackWith, casterStats, checkAbility, checkFlee, currentActorId, currentTurn, describeAbility, usesMp } from '@narrative/engine';
+import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Ellipsis, Loader2, SkipForward, FastForward, Footprints, LogOut, Sparkles } from 'lucide-react';
+import {
+    abilityCost, BUILTIN_ATTACK_ID, builtinAbilities, canAbandon, canAttackWith, casterStats, checkAbility, checkFlee, currentActorId, currentTurn,
+    describeAbility, stuntAvailable, usesMp,
+} from '@narrative/engine';
 import type { TranslationKey } from '../../i18n/locales/en';
 import { useAppStore } from '../../store/useAppStore';
 import { COMBAT_FLOURISH_MAX, normalizeCombatConfig } from '../../types';
 import { useTranslation } from '../../i18n/useTranslation';
-import type { CombatAction, CombatSession, Combatant } from '../../types';
+import type { CombatAction, CombatSession, Combatant, GlyphAbility } from '../../types';
 import { isEngineTurn, playerActorId } from '../../services/combat/combatController';
+import { BASIC_HOTKEYS, basicNameKey, MORE_ACTION_IDS } from './basicActions';
 import { isTypingTarget } from './combatKeys';
 import { attackableTargets, hpColor, playerCharacter } from './combatVisuals';
 import { GlyphShape } from '../spellbook/GlyphShape';
 import { GlyphStrip } from '../spellbook/GlyphStrip';
+import { CombatStuntPanel } from './CombatStuntPanel';
 
 const REASON_KEYS: Readonly<Record<string, TranslationKey>> = {
     'not enough MP': 'combat.bar.noMp',
@@ -18,7 +24,11 @@ const REASON_KEYS: Readonly<Record<string, TranslationKey>> = {
     'the bonus action is already used': 'combat.bar.bonusUsed',
     'no target': 'combat.bar.noTarget',
     'the ability is recharging': 'combat.bar.recharging',
+    'not enough movement': 'combat.bar.noMovement',
+    'no movement to add': 'combat.bar.noMovement',
 };
+
+const MORE_IDS: ReadonlySet<string> = new Set(MORE_ACTION_IDS);
 
 const FLEE_REASON_KEYS: Readonly<Record<string, TranslationKey>> = {
     first_round: 'combat.bar.flee.firstRound',
@@ -51,6 +61,54 @@ function Vitals({ c, moveLeft, label }: { c: Combatant; moveLeft: number | null;
 
 const buttonClass = 'flex items-center gap-1 border text-[10px] uppercase tracking-wider px-3 py-1.5 rounded-sm disabled:opacity-40 disabled:cursor-not-allowed';
 
+function AbilityTile({ ability, name, keyLabel, caption, rules, reason, pressed, disabled, title, onClick }: {
+    ability: GlyphAbility;
+    name: string;
+    keyLabel: string;
+    caption?: ReactNode;
+    rules: string;
+    reason: string | null;
+    pressed?: boolean;
+    disabled?: boolean;
+    title?: string;
+    onClick: () => void;
+}) {
+    const off = !!reason || !!disabled;
+    return (
+        <div className="relative group">
+            <button
+                type="button"
+                data-testid={`combat-ability-${ability.id}`}
+                onClick={onClick}
+                disabled={disabled}
+                aria-disabled={!!reason}
+                aria-pressed={pressed}
+                aria-keyshortcuts={keyLabel}
+                aria-describedby={`combat-ability-tip-${ability.id}`}
+                title={title}
+                className={`relative flex flex-col items-center justify-center gap-1 w-16 h-16 rounded-lg border-2 outline-none focus-visible:ring-2 focus-visible:ring-terminal ${off ? 'opacity-40 cursor-not-allowed border-border text-text-dim' : 'border-terminal/50 text-terminal hover:bg-terminal/10'} ${pressed ? 'bg-terminal/20' : ''}`}
+            >
+                <span className="absolute top-0.5 left-1.5 text-xs font-mono text-text-dim">{keyLabel}</span>
+                <GlyphShape kind="effect" id={ability.effects[0]?.id ?? null} size="sm" />
+                {caption ?? <span className="text-xs font-mono text-text-primary">{name}</span>}
+                {caption && <span className="sr-only">{name}</span>}
+                <span className="sr-only">{reason ?? ''}</span>
+            </button>
+            <div
+                id={`combat-ability-tip-${ability.id}`}
+                data-testid={`combat-ability-tip-${ability.id}`}
+                role="tooltip"
+                className="hidden group-hover:flex group-focus-within:flex flex-col gap-2 absolute bottom-full left-0 mb-2 z-20 w-64 rounded-lg border border-border bg-surface shadow-xl p-3 normal-case"
+            >
+                <span className="text-sm font-bold text-text-primary">{name}</span>
+                <GlyphStrip ability={ability} />
+                <span className="text-xs text-text-dim leading-relaxed">{rules}</span>
+                {reason && <span className="text-xs text-danger leading-relaxed">{reason}</span>}
+            </div>
+        </div>
+    );
+}
+
 export function CombatActionBar({
     session,
     busy,
@@ -63,6 +121,7 @@ export function CombatActionBar({
     onShowEdges,
     flourish,
     onFlourish,
+    compact = false,
 }: {
     session: CombatSession;
     busy: boolean;
@@ -75,8 +134,11 @@ export function CombatActionBar({
     onShowEdges?: () => void;
     flourish?: string;
     onFlourish?: (text: string) => void;
+    compact?: boolean;
 }) {
     const { t } = useTranslation();
+    const [moreOpen, setMoreOpen] = useState(false);
+    const [stuntOpen, setStuntOpen] = useState(false);
     const state = session.state;
     const playerId = playerActorId(state);
     const player = playerId ? state.combatants[playerId] : undefined;
@@ -99,7 +161,14 @@ export function CombatActionBar({
         const recharge = player && !usesMp(player) ? Math.max(0, (player.cooldowns?.[ability.id] ?? 0) - state.round) : null;
         return { ability, index, cost: abilityCost(ability), reason, recharge, rules: describeAbility(ability, casterStats(player!)) };
     }), [state, player, t, label]);
+    const basics = useMemo(() => (player ? builtinAbilities(player).map(ability => {
+        const check = MORE_IDS.has(ability.id) ? checkAbility(state, player.id, ability.id) : null;
+        const reason = check && !check.ok ? t(REASON_KEYS[check.reason ?? ''] ?? 'combat.bar.unavailable', { label }) : null;
+        return { ability, reason, rules: describeAbility(ability, casterStats(player), player) };
+    }) : []), [state, player, t, label]);
     const fleeReason = flee && !flee.ok ? t(FLEE_REASON_KEYS[flee.reason ?? ''] ?? 'combat.bar.unavailable') : null;
+    const stuntCheck = player ? stuntAvailable(state, player.id) : null;
+    const stuntReason = stuntCheck && !stuntCheck.ok ? t(stuntCheck.reason === 'the action is already used' ? 'combat.board.actionUsed' : 'combat.bar.unavailable') : null;
     const abandonable = !!player && canAbandon(state, player.id);
     const chooseAbility = (index: number) => {
         const entry = kit[index];
@@ -110,6 +179,18 @@ export function CombatActionBar({
         }
         if (aimingId) onAim(null);
         if (!entry.reason) onAim(entry.ability.id);
+    };
+
+    const chooseBasic = (id: string) => {
+        const entry = basics.find(b => b.ability.id === id);
+        if (!canAct || !entry || !onAim) return;
+        setMoreOpen(false);
+        if (aimingId === id) {
+            onAim(null);
+            return;
+        }
+        if (aimingId) onAim(null);
+        if (!entry.reason) onAim(id);
     };
 
     const attack = () => {
@@ -149,6 +230,10 @@ export function CombatActionBar({
             if (k === 'a') { attack(); e.preventDefault(); }
             else if (k === 'd') { defend(); e.preventDefault(); }
             else if (/^[1-9]$/.test(e.key) && kit[Number(e.key) - 1]) { chooseAbility(Number(e.key) - 1); e.preventDefault(); }
+            else {
+                const id = MORE_ACTION_IDS.find(m => BASIC_HOTKEYS[m].toLowerCase() === k);
+                if (id) { chooseBasic(id); e.preventDefault(); }
+            }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
@@ -156,31 +241,72 @@ export function CombatActionBar({
 
     const attackTitle = !actionLeft ? t('combat.board.actionUsed') : attackable.length === 0 ? t('combat.panel.outOfReach') : t('combat.bar.attackHelp');
 
+    const renderBasic = ({ ability, rules, reason }: { ability: GlyphAbility; rules: string; reason: string | null }) => {
+        const isAttack = ability.id === BUILTIN_ATTACK_ID;
+        const fixed = !MORE_IDS.has(ability.id);
+        return (
+            <AbilityTile
+                key={ability.id}
+                ability={ability}
+                name={t(basicNameKey(ability.id))}
+                keyLabel={BASIC_HOTKEYS[ability.id]}
+                rules={rules}
+                reason={reason}
+                pressed={fixed ? undefined : aimingId === ability.id}
+                disabled={fixed ? (isAttack ? !actionLeft || attackable.length === 0 : !actionLeft) : undefined}
+                title={isAttack ? attackTitle : undefined}
+                onClick={fixed ? (isAttack ? attack : defend) : () => chooseBasic(ability.id)}
+            />
+        );
+    };
+
     return (
         <div data-testid="combat-action-bar" data-mode={mode} className="flex items-center gap-x-4 gap-y-2 flex-wrap px-3 py-2 border-t border-border bg-void">
             {shown && <Vitals c={shown} label={label} moveLeft={mode === 'player' && turn ? turn.moveLeft : null} />}
             {mode === 'player' && (
                 <div data-testid="combat-actions" className="flex items-center gap-1.5 flex-wrap">
-                    <button
-                        type="button"
-                        onClick={attack}
-                        disabled={!actionLeft || attackable.length === 0}
-                        title={attackTitle}
-                        aria-keyshortcuts="A"
-                        className={buttonClass}
-                        style={{ borderColor: 'var(--combat-enemy)', color: 'var(--combat-enemy)' }}
-                    >
-                        <Swords size={12} /> {t('combat.panel.attack')}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={defend}
-                        disabled={!actionLeft}
-                        aria-keyshortcuts="D"
-                        className={`${buttonClass} border-ice/40 text-ice hover:bg-ice/10`}
-                    >
-                        <Shield size={12} /> {t('combat.panel.defend')}
-                    </button>
+                    <div data-testid="combat-basic-actions" className="flex items-center gap-1.5">
+                        {basics.filter(b => !MORE_IDS.has(b.ability.id)).map(renderBasic)}
+                        <button
+                            type="button"
+                            data-testid="combat-stunt"
+                            onClick={() => { if (!stuntReason) setStuntOpen(v => !v); }}
+                            aria-disabled={!!stuntReason}
+                            aria-pressed={stuntOpen}
+                            title={stuntReason ?? t('combat.stunt.help')}
+                            className={`${buttonClass} h-16 border-border text-text-primary hover:bg-void-lighter ${stuntReason ? 'opacity-40' : ''} ${stuntOpen ? 'bg-terminal/20' : ''}`}
+                        >
+                            <Sparkles size={12} /> {t('combat.stunt.button')}
+                            <span className="sr-only">{stuntReason ?? ''}</span>
+                        </button>
+                        {!compact && basics.filter(b => MORE_IDS.has(b.ability.id)).map(renderBasic)}
+                        {compact && (
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    data-testid="combat-more-actions"
+                                    aria-expanded={moreOpen}
+                                    aria-haspopup="true"
+                                    onClick={() => setMoreOpen(v => !v)}
+                                    onKeyDown={(e) => { if (e.key === 'Escape') setMoreOpen(false); }}
+                                    className={`${buttonClass} h-16 border-border text-text-primary hover:bg-void-lighter ${moreOpen ? 'bg-terminal/20' : ''}`}
+                                >
+                                    <Ellipsis size={12} /> {t('combat.bar.moreActions')}
+                                </button>
+                                {moreOpen && (
+                                    <div
+                                        data-testid="combat-more-popover"
+                                        role="group"
+                                        aria-label={t('combat.bar.moreActions')}
+                                        onKeyDown={(e) => { if (e.key === 'Escape') setMoreOpen(false); }}
+                                        className="absolute bottom-full left-0 mb-2 z-30 flex items-center gap-1.5 flex-wrap max-w-[85vw] rounded-lg border border-border bg-surface p-2 shadow-xl"
+                                    >
+                                        {basics.filter(b => MORE_IDS.has(b.ability.id)).map(renderBasic)}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
                     <button
                         type="button"
                         data-testid="combat-flee"
@@ -204,35 +330,17 @@ export function CombatActionBar({
                         </button>
                     )}
                     {kit.map(({ ability, index, cost, reason, recharge, rules }) => (
-                        <div key={ability.id} className="relative group">
-                            <button
-                                type="button"
-                                data-testid={`combat-ability-${ability.id}`}
-                                onClick={() => chooseAbility(index)}
-                                aria-disabled={!!reason}
-                                aria-pressed={aimingId === ability.id}
-                                aria-keyshortcuts={String(index + 1)}
-                                aria-describedby={`combat-ability-tip-${ability.id}`}
-                                className={`relative flex flex-col items-center justify-center gap-1 w-16 h-16 rounded-lg border-2 outline-none focus-visible:ring-2 focus-visible:ring-terminal ${reason ? 'opacity-40 cursor-not-allowed border-border text-text-dim' : 'border-terminal/50 text-terminal hover:bg-terminal/10'} ${aimingId === ability.id ? 'bg-terminal/20' : ''}`}
-                            >
-                                <span className="absolute top-0.5 left-1.5 text-xs font-mono text-text-dim">{index + 1}</span>
-                                <GlyphShape kind="effect" id={ability.effects[0]?.id ?? null} size="sm" />
-                                <span className="text-xs font-mono text-text-primary">{recharge === null ? t('combat.spellbook.cost', { cost, label }) : recharge > 0 ? t('combat.bar.cooldownShort', { rounds: recharge }) : t('combat.bar.ready')}</span>
-                                <span className="sr-only">{ability.name}</span>
-                                <span className="sr-only">{reason ?? ''}</span>
-                            </button>
-                            <div
-                                id={`combat-ability-tip-${ability.id}`}
-                                data-testid={`combat-ability-tip-${ability.id}`}
-                                role="tooltip"
-                                className="hidden group-hover:flex group-focus-within:flex flex-col gap-2 absolute bottom-full left-0 mb-2 z-20 w-64 rounded-lg border border-border bg-surface shadow-xl p-3 normal-case"
-                            >
-                                <span className="text-sm font-bold text-text-primary">{ability.name}</span>
-                                <GlyphStrip ability={ability} />
-                                <span className="text-xs text-text-dim leading-relaxed">{rules}</span>
-                                {reason && <span className="text-xs text-danger leading-relaxed">{reason}</span>}
-                            </div>
-                        </div>
+                        <AbilityTile
+                            key={ability.id}
+                            ability={ability}
+                            name={ability.name}
+                            keyLabel={String(index + 1)}
+                            caption={<span className="text-xs font-mono text-text-primary">{recharge === null ? t('combat.spellbook.cost', { cost, label }) : recharge > 0 ? t('combat.bar.cooldownShort', { rounds: recharge }) : t('combat.bar.ready')}</span>}
+                            rules={rules}
+                            reason={reason}
+                            pressed={aimingId === ability.id}
+                            onClick={() => chooseAbility(index)}
+                        />
                     ))}
                 </div>
             )}
@@ -259,10 +367,13 @@ export function CombatActionBar({
                     </button>
                 </div>
             )}
-            {mode === 'resolving' && (
+            {mode === 'resolving' && !session.stunt && (
                 <div data-testid="combat-resolving" className="flex items-center gap-2 text-[11px] font-mono text-text-dim">
                     <Loader2 size={12} className="animate-spin" /> {t('combat.panel.waiting')}
                 </div>
+            )}
+            {(session.stunt || (mode === 'player' && stuntOpen)) && (
+                <CombatStuntPanel session={session} busy={busy} open={stuntOpen} onClose={() => setStuntOpen(false)} />
             )}
             {mode === 'player' && (
                 <button

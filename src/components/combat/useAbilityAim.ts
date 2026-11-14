@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef } from 'react';
-import { abilityTargets, findKitAbility, legalAims, sameTeam } from '@narrative/engine';
+import { abilityTargets, findUsableAbility, legalAims, sameTeam } from '@narrative/engine';
 import type { CombatAction, CombatPos, CombatState, GlyphAbility } from '../../types';
 import { posKey } from './combatVisuals';
 
@@ -23,7 +23,7 @@ export type AbilityAim = {
 };
 
 export function needsAim(ability: GlyphAbility): boolean {
-    return ability.form.id !== 'self' || ability.effects.some(e => e.id === 'blink');
+    return ability.form.id !== 'self' || ability.effects.some(e => e.id === 'blink' || e.id === 'leap');
 }
 
 export function computeAimPreview(state: CombatState, actorId: string, ability: GlyphAbility, p: CombatPos | null): AimPreview {
@@ -43,7 +43,7 @@ export function useAbilityAim(
     onAction: (action: CombatAction) => void,
     onCancel: () => void,
 ): AbilityAim | null {
-    const ability = actorId && abilityId ? findKitAbility(state.combatants[actorId], abilityId) : undefined;
+    const ability = actorId && abilityId ? findUsableAbility(state.combatants[actorId], abilityId) : undefined;
     const legalList = useMemo(() => (actorId && ability ? legalAims(state, actorId, ability) : []), [state, actorId, ability]);
     const legal = useMemo(() => new Set(legalList.map(posKey)), [legalList]);
     const cacheRef = useRef<{ state: CombatState | null; ability: GlyphAbility | undefined; map: Map<string, AimPreview> }>({ state: null, ability: undefined, map: new Map() });

@@ -1,5 +1,6 @@
 import { createRng } from './rng';
 import { speedOf } from './grid';
+import { DEFAULT_HAZARD_TYPE } from './mapBuilder';
 import type { CombatCondition, CombatEvent, CombatOutcome, CombatState, Combatant, Rng, Side, TurnState } from './types';
 
 export const DEFEND_CONDITION = 'defending';
@@ -218,6 +219,26 @@ export function applyDamage(target: Combatant, amount: number): { absorbed: numb
     return { absorbed, dealt, hpBefore, tempBefore };
 }
 
+export const HAZARD_DAMAGE_DIE = 6;
+
+export function hazardStrike(draft: Draft, c: Combatant): void {
+    const grid = draft.state.grid;
+    if (!grid) return;
+    const damage = draft.rng.roll(HAZARD_DAMAGE_DIE);
+    const damageType = grid.hazardType || DEFAULT_HAZARD_TYPE;
+    const hit = applyDamage(c, damage);
+    emit(draft, {
+        type: 'hazard',
+        targetId: c.id,
+        data: {
+            damage, damageType, hpAfter: c.hp,
+            ...(hit.absorbed > 0 ? { absorbed: hit.absorbed, hpBefore: hit.hpBefore, tempBefore: hit.tempBefore } : {}),
+        },
+        text: grid.labels?.hazard ? `${c.name} takes ${damage} damage from the ${grid.labels.hazard}.` : `${c.name} takes ${damage} ${damageType} damage from the hazard.`,
+    });
+    if (c.hp <= 0) markDown(draft, c, { hazard: true });
+}
+
 export function settleOutcome(draft: Draft): void {
     const outcome = checkOutcome(draft.state);
     if (!outcome || draft.state.outcome) return;
@@ -239,5 +260,5 @@ export const COMBAT_EVENT_TYPES: readonly string[] = [
     'combat_started', 'initiative', 'round', 'moved', 'attack', 'defend', 'end_turn', 'down', 'hazard', 'condition_ended',
     'combat_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed', 'teleported',
     'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
-    'flee', 'morale', 'parley', 'surrendered', 'fate',
+    'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check',
 ];

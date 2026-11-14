@@ -24,6 +24,7 @@ export type EffectSpec = {
     save?: AbilityKey;
     helpful?: boolean;
     tile?: boolean;
+    builtin?: boolean;
 };
 
 export const FORMS: Readonly<Record<FormId, FormSpec>> = {
@@ -71,6 +72,11 @@ export const EFFECTS: Readonly<Record<EffectId, EffectSpec>> = {
     barrier: { cost: 2, augments: ['extend'], tile: true },
     drain: { cost: 2, augments: ['amplify'], save: 'DEX' },
     summon: { cost: 4, augments: ['amplify', 'extend'], tile: true },
+    weapon: { cost: 0, augments: [], builtin: true },
+    guard: { cost: 0, augments: [], helpful: true, builtin: true },
+    sprint: { cost: 0, augments: [], helpful: true, builtin: true },
+    leap: { cost: 0, augments: [], helpful: true, builtin: true },
+    rally: { cost: 0, augments: [], helpful: true, builtin: true },
 };
 
 export const AUGMENT_COSTS: Readonly<Record<AugmentId, number>> = {
@@ -105,6 +111,17 @@ export const GLYPH_NUMBERS = {
     enemyCooldownRounds: 2,
     maxEffects: 4,
     maxSameAugment: 2,
+    throwRange: 6,
+    throwDie: 4,
+    jumpBase: 2,
+    stuntDie: 6,
+    stuntAreaDie: 4,
+    stuntReach: 6,
+    stuntMove: 4,
+    stuntCoverRange: 2,
+    stuntCoverTiles: 2,
+    stuntAreaRange: 4,
+    stuntSlowTurns: 1,
     nameMax: 40,
     defaultDamageType: 'force',
 } as const;

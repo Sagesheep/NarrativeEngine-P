@@ -74,6 +74,14 @@ export function CombatSettingsSection({ context, updateContext }: CombatSettings
                         })}
                     </p>
                 )}
+                {active && debugMode && telemetry?.stuntResults && (
+                    <p data-testid="combat-stunt-telemetry" className="text-[11px] text-text-dim font-mono">
+                        {t('combat.settings.stuntTelemetry', {
+                            difficulties: countsText(telemetry.stuntDifficulties),
+                            results: countsText(telemetry.stuntResults),
+                        })}
+                    </p>
+                )}
                 {active && (
                     <div className="space-y-3">
                         <div>

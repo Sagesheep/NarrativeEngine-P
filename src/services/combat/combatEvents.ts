@@ -1,9 +1,9 @@
 import { coverBetween, distance, hasLineOfSight, hpBand, terrainOf } from '@narrative/engine';
 import type { CombatEvent, CombatPos, CombatSide, CombatState, Combatant } from '../../types';
 
-export const ACTION_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'defend', 'end_turn', 'ability', 'turn_lost', 'flee', 'parley']);
-export const TURN_ACTION_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'end_turn', 'ability', 'turn_lost', 'flee', 'parley']);
-const ACTED_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'ability', 'turn_lost', 'flee', 'parley']);
+export const ACTION_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'defend', 'end_turn', 'ability', 'turn_lost', 'flee', 'parley', 'stunt_check']);
+export const TURN_ACTION_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'end_turn', 'ability', 'turn_lost', 'flee', 'parley', 'stunt_check']);
+const ACTED_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'ability', 'turn_lost', 'flee', 'parley', 'stunt_check']);
 
 export type TurnGroup = {
     actorId?: string;
@@ -89,6 +89,7 @@ export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq:
     let barriers = (state.barriers ?? []).map(b => ({ ...b, pos: { ...b.pos } }));
     const later = log.filter(e => e.seq > seq).sort((a, b) => b.seq - a.seq);
     for (const event of later) {
+        if (event.type === 'stunt_check') continue;
         if (event.type === 'moved') {
             const actor = event.actorId ? combatants[event.actorId] : undefined;
             const from = event.data.from as { x: number; y: number } | undefined;
@@ -121,6 +122,7 @@ export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq:
         }
         if (event.type === 'shield') restoreTemp(target, event.data.tempBefore);
         if (event.type === 'down' || event.type === 'dismissed' || event.type === 'surrendered') target.status = 'up';
+        if (event.type === 'rallied' && event.data.kind === 'revive') target.status = 'down';
         if (event.type === 'flee' && event.data.success === true) target.status = 'up';
         if (event.type === 'summoned') target.status = 'gone';
     }
@@ -194,6 +196,24 @@ function conditionWord(raw: unknown): string {
     return typeof raw === 'string' && CONDITION_WORDS[raw] ? CONDITION_WORDS[raw] : 'affected';
 }
 
+const LEAP_ORDER = ['hazard', 'difficult', 'cover'] as const;
+
+function leapLine(event: CombatEvent, state: CombatState, actor: string): string {
+    const over = Array.isArray(event.data.over) ? event.data.over : [];
+    for (const tile of LEAP_ORDER) {
+        if (!over.includes(tile)) continue;
+        const label = state.grid?.labels?.[tile]?.trim();
+        if (label) return `${actor} leaps across the ${label}.`;
+    }
+    return `${actor} leaps across to a new spot.`;
+}
+
+function builtinKind(event: CombatEvent): string {
+    if (typeof event.data.builtin === 'string') return event.data.builtin;
+    const id = event.data.abilityId;
+    return typeof id === 'string' && id.startsWith('builtin:') ? id.slice('builtin:'.length) : '';
+}
+
 function dodgeVerb(save: unknown): string {
     if (save === 'CON') return 'endures';
     if (save === 'WIS') return 'resists';
@@ -204,7 +224,7 @@ export const NARRATED_EVENT_TYPES: readonly string[] = [
     'attack', 'initiative', 'round', 'moved', 'hazard', 'combat_started', 'defend', 'end_turn', 'down', 'combat_ended',
     'condition_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed',
     'teleported', 'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
-    'flee', 'morale', 'parley', 'surrendered', 'fate',
+    'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check',
 ];
 
 function num(raw: unknown): number | null {
@@ -247,7 +267,7 @@ function guardWord(event: CombatEvent): 'guard' | 'shield' | null {
 function weaponPhrase(event: CombatEvent): string {
     const raw = typeof event.data.weapon === 'string' ? event.data.weapon.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
     if (!raw) return '';
-    return /^(a|an|the|his|her|their|my|your)\s/i.test(raw) || /'s\s/.test(raw) ? ` with ${raw}` : ` with the ${raw}`;
+    return /^(a|an|the|his|her|their|my|your|something)\s/i.test(raw) || /'s\s/.test(raw) ? ` with ${raw}` : ` with the ${raw}`;
 }
 
 function attackLine(event: CombatEvent, state: CombatState): string {
@@ -307,8 +327,12 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
             return `${name(event.targetId)} is no longer ${conditionWord(event.data.condition)}.`;
         case 'rejected':
             return '';
-        case 'ability':
+        case 'ability': {
+            const kind = builtinKind(event);
+            if (kind === 'dash') return `${name(event.actorId)} sprints.`;
+            if (kind) return '';
             return `${name(event.actorId)} uses ${abilityLabel(event)}.`;
+        }
         case 'ability_attack':
             if (event.data.hit !== true) {
                 if (!isNearMiss(event)) return `${abilityName(event)} misses ${name(event.targetId)}.`;
@@ -319,6 +343,9 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
                 ? `${abilityName(event)} strikes ${name(event.targetId)} squarely.`
                 : `${abilityName(event)} hits ${name(event.targetId)}.`;
         case 'save': {
+            if (builtinKind(event) === 'shove') {
+                return event.data.success === true ? `${name(event.actorId)} shoves ${name(event.targetId)}, who holds their ground.` : '';
+            }
             const close = isCloseSave(event);
             if (event.data.success === true) return `${name(event.targetId)} ${close ? 'only just ' : ''}${dodgeVerb(event.data.save)} the worst of it.`;
             return close ? `${name(event.targetId)} only just fails to get clear and is caught.` : `${name(event.targetId)} is caught full on.`;
@@ -340,10 +367,18 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
                 ? `${name(event.targetId)} keeps the stronger shield it already has.`
                 : `A shield settles over ${name(event.targetId)}.`;
         case 'pushed':
+            if (builtinKind(event) === 'stunt' && Number(event.data.squares) <= 0) return `${name(event.targetId)} does not budge.`;
+            if (builtinKind(event) === 'shove') {
+                return Number(event.data.squares) > 0
+                    ? `${name(event.actorId)} shoves ${name(event.targetId)} back.`
+                    : `${name(event.actorId)} shoves ${name(event.targetId)}, who has nowhere to go.`;
+            }
             return event.data.kind === 'pull'
                 ? `${name(event.targetId)} is dragged toward ${name(event.actorId)}.`
                 : `${name(event.targetId)} is thrown back.`;
         case 'teleported':
+            if (event.data.kind === 'leap') return leapLine(event, state, name(event.actorId));
+            if (builtinKind(event) === 'stunt') return `${name(event.actorId)} gets across to a new spot.`;
             return event.data.kind === 'dash'
                 ? `${name(event.actorId)} dashes to ${name(event.targetId)}.`
                 : `${name(event.actorId)} vanishes and reappears nearby.`;
@@ -354,7 +389,7 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
         case 'dismissed':
             return event.data.cause === 'destroyed' ? `${name(event.targetId)} is destroyed.` : `${name(event.targetId)} fades away.`;
         case 'barrier':
-            return `${name(event.actorId)} raises a barrier.`;
+            return builtinKind(event) === 'stunt' ? `${name(event.actorId)} throws up cover.` : `${name(event.actorId)} raises a barrier.`;
         case 'barrier_ended':
             return 'A barrier fades.';
         case 'condition_added':
@@ -372,8 +407,15 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
             return '';
         case 'surrendered':
             return `${name(event.targetId)} lowers its weapons and yields.`;
+        case 'rallied':
+            return event.data.kind === 'revive'
+                ? `${name(event.actorId)} hauls ${name(event.targetId)} back to their feet.`
+                : `${name(event.actorId)} shakes ${name(event.targetId)} out of it.`;
         case 'fate':
             return event.data.dies === true ? `${name(event.targetId)} does not survive.` : `${name(event.targetId)} clings to life.`;
+        case 'stunt_check':
+            if (event.data.success === true) return `${name(event.actorId)} pulls it off.`;
+            return event.data.fumble === true ? `${name(event.actorId)}'s attempt goes badly wrong.` : `${name(event.actorId)}'s attempt does not come off.`;
         default:
             return '';
     }

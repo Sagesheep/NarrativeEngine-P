@@ -1,4 +1,5 @@
-import type { AugmentId, EffectId, FormId, GlyphAbility } from '../types';
+import type { AttackRange, AugmentId, Combatant, EffectId, FormId, GlyphAbility } from '../types';
+import { abilityRoll, builtinStats, isBuiltinId, leapRange, throwProfile, weaponReach } from './builtins';
 import {
     AUGMENT_COSTS, AUGMENT_IDS, EFFECT_IDS, EFFECTS, FORM_IDS, FORMS, GLYPH_NUMBERS as N, SINGLE_TARGET_FORMS,
 } from './registry';
@@ -22,6 +23,7 @@ export function glyphCount(ability: GlyphAbility): number {
 }
 
 export function abilityCost(ability: GlyphAbility): number {
+    if (ability.builtin) return 0;
     const form = FORMS[ability.form.id]?.cost ?? 0;
     const formAug = ability.form.augments.reduce((sum, a) => sum + (AUGMENT_COSTS[a] ?? 0), 0);
     const effects = ability.effects.reduce(
@@ -44,6 +46,7 @@ function checkAugments(label: string, augments: readonly AugmentId[], allowed: r
 export function validateAbility(ability: GlyphAbility, limits: AbilityLimits = DEFAULT_ABILITY_LIMITS): string[] {
     const reasons: string[] = [];
     if (!ability || typeof ability !== 'object') return ['the ability is not an object'];
+    if (ability.builtin !== undefined || isBuiltinId(ability.id)) reasons.push('built-in actions cannot be built, changed or stored');
     if (!cleanAbilityName(ability.name)) reasons.push('the ability needs a name');
     const formId = ability.form?.id as FormId;
     const form = FORMS[formId];
@@ -61,6 +64,10 @@ export function validateAbility(ability: GlyphAbility, limits: AbilityLimits = D
         const spec = EFFECTS[e?.id as EffectId];
         if (!spec) {
             reasons.push(`unknown effect "${String(e?.id)}"`);
+            continue;
+        }
+        if (spec.builtin) {
+            reasons.push(`the ${e.id} glyph is reserved for built-in actions`);
             continue;
         }
         if (!form.effects.includes(e.id)) reasons.push(`the ${formId} form cannot carry ${e.id}`);
@@ -85,7 +92,35 @@ function plural(n: number, one: string, many: string): string {
     return `${n} ${n === 1 ? one : many}`;
 }
 
+function signed(n: number): string {
+    return n >= 0 ? `+${n}` : `${n}`;
+}
+
+function shotClause(reach: number): string {
+    return `Projectile, one target within ${reach} squares in line of sight; cover applies, and a hostile beside the user gives disadvantage`;
+}
+
+function weaponClause(range: AttackRange): string {
+    const reach = weaponReach(range);
+    if (range === 'ranged') return shotClause(reach);
+    if (range === 'reach') return `Touch, one target within ${reach} squares in line of sight`;
+    return 'Touch, one target at 1 square';
+}
+
+export type Wielder = Pick<Combatant, 'attackBonus' | 'damage'> & Partial<Pick<Combatant, 'abilities' | 'proficiency' | 'tier'>>;
+
+type Sturdy = Pick<Combatant, 'abilities' | 'proficiency' | 'tier'>;
+
+function sturdy(w: Wielder | undefined): Sturdy | null {
+    return w && w.abilities && w.tier ? { abilities: w.abilities, tier: w.tier, ...(w.proficiency !== undefined ? { proficiency: w.proficiency } : {}) } : null;
+}
+
 export function formClause(ability: GlyphAbility): string {
+    const kind = ability.builtin?.kind;
+    if (kind === 'throw') return shotClause(N.throwRange);
+    if (kind === 'shove') return 'Touch, one hostile target at 1 square';
+    if (kind === 'help') return 'Touch, one adjacent ally';
+    if (ability.builtin?.kind === 'attack') return weaponClause(ability.builtin.range ?? 'close');
     const split = splitCount(ability);
     const extra = split > 0 ? `, plus ${plural(split, 'more target', 'more targets')} within ${N.splitRange} squares` : '';
     switch (ability.form.id) {
@@ -114,7 +149,7 @@ export function formClause(ability: GlyphAbility): string {
     }
 }
 
-export function effectClause(ability: GlyphAbility, effect: GlyphAbility['effects'][number], stats: CasterStats, roll: string): string {
+export function effectClause(ability: GlyphAbility, effect: GlyphAbility['effects'][number], stats: CasterStats, roll: string, wielder?: Wielder): string {
     const a = effect.augments;
     const type = ability.damageType?.trim() || N.defaultDamageType;
     const dc = saveDc(stats);
@@ -128,8 +163,14 @@ export function effectClause(ability: GlyphAbility, effect: GlyphAbility['effect
             return `restores ${healDice(stats, a)}d4${stats.castingMod >= 0 ? '+' : ''}${stats.castingMod} HP`;
         case 'shield':
             return `gains ${shieldAmount(stats, a)} temporary HP for ${shieldTurns(a)} of its turns`;
-        case 'push':
+        case 'push': {
+            if (ability.builtin?.kind === 'shove') {
+                const s = sturdy(wielder);
+                const against = s ? `DC ${saveDc(builtinStats(s))}` : 'DC 8 + proficiency + STR modifier';
+                return `makes a STR or DEX save (its better one) against ${against} or is pushed ${plural(pushDistance(a), 'square', 'squares')} straight away, hurt by any hazard it passes over; bosses cannot be shoved`;
+            }
             return save('DEX', `is pushed ${plural(pushDistance(a), 'square', 'squares')} away`, '');
+        }
         case 'pull':
             return save('DEX', `is pulled ${plural(pushDistance(a), 'square', 'squares')} closer`, '');
         case 'stun':
@@ -146,24 +187,51 @@ export function effectClause(ability: GlyphAbility, effect: GlyphAbility['effect
             return `empty squares become barriers for ${barrierRounds(a)} rounds`;
         case 'summon':
             return `summons a ${summonTier(a)} ally for ${summonRounds(a)} rounds`;
+        case 'sprint':
+            return 'gains one more full allowance of movement this turn';
+        case 'leap': {
+            const s = sturdy(wielder);
+            const within = s ? `${leapRange(s)} squares` : '2 + its STR modifier squares (at least 2)';
+            return `leaps to an empty square it can see within ${within}, spending that much movement and ignoring difficult ground, hazards and low cover on the way`;
+        }
+        case 'rally':
+            return 'ends Stunned and Slowed on an adjacent ally, or stands a downed ally up with 1 HP';
+        case 'weapon': {
+            if (ability.builtin?.kind === 'throw') {
+                const s = sturdy(wielder);
+                if (!s) return 'takes 1d4 plus the thrower\'s STR modifier bludgeoning damage, doubled dice on a critical hit';
+                const t = throwProfile(s).damage;
+                return `takes ${t.count}d${t.sides}${t.bonus !== 0 ? signed(t.bonus) : ''} ${t.type} damage, doubled dice on a critical hit`;
+            }
+            if (!wielder) return 'takes weapon damage';
+            const d = wielder.damage;
+            return `takes ${d.count}d${d.sides}${d.bonus !== 0 ? signed(d.bonus) : ''} ${d.type} damage, doubled dice on a critical hit`;
+        }
+        case 'guard':
+            return 'takes a defensive stance; attacks against it have disadvantage until its next turn';
         default:
             return '';
     }
 }
 
-export function describeAbility(ability: GlyphAbility, caster: CasterStats = { proficiency: 2, castingMod: 0 }): string {
+export function describeAbility(ability: GlyphAbility, caster: CasterStats = { proficiency: 2, castingMod: 0 }, wielder?: Wielder): string {
     const form = FORMS[ability.form?.id];
     if (!form) return '';
-    const parts: string[] = [formClause(ability) + (isQuickened(ability) ? ', bonus action' : '') + '.'];
-    const clauses = ability.effects.filter(e => EFFECTS[e.id]).map(e => effectClause(ability, e, caster, form.roll));
+    const parts: string[] = [formClause(ability) + (isQuickened(ability) || ability.builtin?.slot === 'bonus' ? ', bonus action' : '') + '.'];
+    const roll = abilityRoll(ability);
+    const clauses = ability.effects.filter(e => EFFECTS[e.id]).map(e => effectClause(ability, e, caster, roll, wielder));
     if (clauses.length > 0) {
-        const lead = form.roll === 'attack'
-            ? `Attack roll +${caster.proficiency + caster.castingMod}; on a hit the target `
-            : ability.form.id === 'self' ? 'The user ' : 'Targets ';
+        const thrower = ability.builtin?.kind === 'throw' ? sturdy(wielder) : null;
+        const bonus = ability.builtin
+            ? (thrower ? signed(throwProfile(thrower).attackBonus) : ability.builtin.kind === 'throw' ? 'using STR' : wielder ? signed(wielder.attackBonus) : 'with the weapon')
+            : `+${caster.proficiency + caster.castingMod}`;
+        const lead = roll === 'attack'
+            ? `Attack roll ${bonus}; on a hit the target `
+            : ability.form.id === 'self' ? 'The user ' : ability.builtin ? 'The target ' : 'Targets ';
         const body = clauses.join('; then ');
         parts.push(`${lead}${body}.`);
     }
-    parts.push(`${abilityCost(ability)} MP.`);
+    parts.push(ability.builtin ? 'No MP.' : `${abilityCost(ability)} MP.`);
     return parts.join(' ');
 }
 

@@ -1,5 +1,8 @@
 import { distance, hasLineOfSight, inBounds, isWalkable, samePos, sameTeam, terrainOf, tileAt, traceLine } from '../grid';
+import { canTarget, currentTurn, hasCondition, SLOWED, STUNNED } from '../core';
 import type { CombatState, Combatant, GlyphAbility, Grid, Pos } from '../types';
+import { checkAttack, leapRange, recoverable, shotOf, tooLargeToShove } from './builtins';
+import type { ShotOverride } from './builtins';
 import { GLYPH_NUMBERS as N } from './registry';
 import {
     blinkRange, burstRadius, burstRange, coneLength, dashLength, lineLength, lineWidth, projectileRange, splitCount,
@@ -34,6 +37,10 @@ export function tileEffectOf(ability: GlyphAbility): 'barrier' | 'summon' | null
 
 export function hasBlink(ability: GlyphAbility): boolean {
     return ability.effects.some(e => e.id === 'blink');
+}
+
+export function hasLeap(ability: GlyphAbility): boolean {
+    return ability.effects.some(e => e.id === 'leap');
 }
 
 export function livingAt(state: CombatState, p: Pos): Combatant | undefined {
@@ -131,8 +138,57 @@ function projectile(state: CombatState, terrain: Grid, user: Combatant, ability:
     return singleTarget(state, terrain, user, ability, aim);
 }
 
+function leapPathClear(state: CombatState, user: Combatant, to: Pos): boolean {
+    for (const step of traceLine(user.position as Pos, to).slice(1, -1)) {
+        for (const p of step) {
+            const there = livingAt(state, p);
+            if (there && there.id !== user.id && !sameTeam(user.side, there.side)) return false;
+        }
+    }
+    return true;
+}
+
+function leap(state: CombatState, terrain: Grid, user: Combatant, aim: Pos | null | undefined): AimResult {
+    const from = user.position as Pos;
+    if (!aim) return fail('choose a square to jump to');
+    if (samePos(from, aim)) return fail('aim at another square');
+    const squares = distance(from, aim);
+    if (squares > leapRange(user)) return fail('out of range');
+    if (!isEmptyTile(state, terrain, aim)) return fail('the square is not empty');
+    if (!hasLineOfSight(terrain, from, aim)) return fail('no line of sight');
+    if (!leapPathClear(state, user, aim)) return fail('a creature is in the way');
+    const turn = currentTurn(state);
+    const left = turn && turn.actorId === user.id ? turn.moveLeft : 0;
+    if (squares > left) return fail('not enough movement');
+    return { ok: true, tiles: [{ ...aim }], targetIds: [user.id], origin: { ...from }, destination: { ...aim } };
+}
+
+function shove(state: CombatState, user: Combatant, aim: Pos): AimResult {
+    if (distance(user.position as Pos, aim) !== N.touchRange) return fail('out of reach');
+    const target = livingAt(state, aim);
+    if (!target || !canTarget(user, target)) return fail('no target there');
+    if (tooLargeToShove(target)) return fail('too large to shove');
+    return { ok: true, tiles: [{ ...(target.position as Pos) }], targetIds: [target.id], origin: { ...(user.position as Pos) } };
+}
+
+function help(state: CombatState, user: Combatant, aim: Pos): AimResult {
+    if (distance(user.position as Pos, aim) !== N.touchRange) return fail('out of reach');
+    const standing = livingAt(state, aim);
+    const fallen = Object.values(state.combatants).find(c => c.status === 'down' && samePos(c.position, aim));
+    const target = standing ?? fallen;
+    if (!target || target.id === user.id) return fail('no target there');
+    if (!sameTeam(user.side, target.side)) return fail('only an ally can be helped');
+    if (target.status === 'down') {
+        if (!recoverable(state, target)) return fail('cannot be brought back');
+    } else if (!hasCondition(target, STUNNED) && !hasCondition(target, SLOWED)) {
+        return fail('nothing to shake off');
+    }
+    return { ok: true, tiles: [{ ...(target.position as Pos) }], targetIds: [target.id], origin: { ...(user.position as Pos) } };
+}
+
 function self(state: CombatState, terrain: Grid, user: Combatant, ability: GlyphAbility, aim: Pos | null | undefined): AimResult {
     const from = user.position as Pos;
+    if (hasLeap(ability)) return leap(state, terrain, user, aim);
     if (!hasBlink(ability)) return { ok: true, tiles: [{ ...from }], targetIds: [user.id], origin: { ...from } };
     if (!aim) return fail('choose a square to blink to');
     const blink = ability.effects.find(e => e.id === 'blink');
@@ -253,12 +309,24 @@ function dash(state: CombatState, terrain: Grid, user: Combatant, ability: Glyph
     return { ok: true, tiles: [{ ...aim }], targetIds: [target.id], origin: { ...from }, destination: best };
 }
 
+function weaponAim(state: CombatState, user: Combatant, aim: Pos, shot?: ShotOverride): AimResult {
+    const target = livingAt(state, aim);
+    if (!target || !canTarget(user, target)) return fail('no target there');
+    const check = checkAttack(state, user.id, target.id, undefined, shot);
+    if (!check.ok) return fail(check.reason === 'no_line_of_sight' ? 'no line of sight' : 'out of range');
+    return { ok: true, tiles: [{ ...(target.position as Pos) }], targetIds: [target.id], origin: { ...(user.position as Pos) } };
+}
+
 export function abilityTargets(state: CombatState, userId: string, ability: GlyphAbility, aim: Pos | null | undefined): AimResult {
     const user = state.combatants[userId];
     const terrain = terrainOf(state);
     if (!user || user.status !== 'up' || !user.position || !terrain) return fail('the user cannot act');
     if (ability.form.id !== 'self' && (!aim || !inBounds(terrain, aim))) return fail('choose a square');
     const at = aim as Pos;
+    const kind = ability.builtin?.kind;
+    if (kind === 'attack' || kind === 'throw') return weaponAim(state, user, at, shotOf(ability));
+    if (kind === 'shove') return shove(state, user, at);
+    if (kind === 'help') return help(state, user, at);
     switch (ability.form.id) {
         case 'self': return self(state, terrain, user, ability, aim);
         case 'touch': return touch(state, terrain, user, ability, at);
@@ -291,8 +359,10 @@ export function legalAims(state: CombatState, userId: string, ability: GlyphAbil
         .map(id => state.combatants[id])
         .filter((c): c is Combatant => !!c && c.status === 'up' && c.id !== userId && !!c.position)
         .map(c => ({ ...(c.position as Pos) }));
+    if (ability.builtin?.kind === 'attack' || ability.builtin?.kind === 'throw') return living().filter(ok);
     switch (ability.form.id) {
         case 'self':
+            if (hasLeap(ability)) return tilesWithin(terrain, from, leapRange(user)).filter(ok);
             if (!hasBlink(ability)) return [{ ...from }];
             return tilesWithin(terrain, from, blinkRange(ability.effects.find(e => e.id === 'blink')?.augments ?? [])).filter(ok);
         case 'touch':
