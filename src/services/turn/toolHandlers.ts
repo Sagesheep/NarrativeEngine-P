@@ -170,6 +170,7 @@ const START_COMBAT_TOOL = {
                             species: { type: 'string' as const, description: 'Optional species or kind, e.g. "wolf".' },
                             npcName: { type: 'string' as const, description: 'Exact name of a known NPC this combatant is, if any.' },
                             look: { type: 'string' as const, description: 'Optional short description.' },
+                            manner: { type: 'string' as const, description: 'Optional, two or three words: how this one talks and carries itself in a fight, e.g. "sneering, overconfident".' },
                             attack: { type: 'string' as const, enum: ['melee', 'ranged'], description: 'Optional. How it fights: melee or ranged.' },
                         },
                         required: ['name'],

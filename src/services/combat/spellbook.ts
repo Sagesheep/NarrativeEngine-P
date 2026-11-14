@@ -4,6 +4,8 @@ import { normalizeCombatConfig, normalizeSpellbook } from '../../types';
 import type { CombatSettings, CombatSheet, GameContext, GlyphAbility, Spellbook } from '../../types';
 import { uid } from '../../utils/uid';
 
+export const FIELD_LIMITS = { damageType: 24, description: 400 } as const;
+
 export function limitsOf(config: CombatSettings): AbilityLimits {
     return { maxChainLength: config.maxChainLength, maxSummons: config.maxSummons };
 }
@@ -23,8 +25,8 @@ export function sheetMaxMp(sheet: CombatSheet | undefined): number {
 }
 
 export function cleanAbility(ability: GlyphAbility, source?: GlyphAbility['source']): GlyphAbility {
-    const description = ability.description?.trim().slice(0, 400);
-    const damageType = ability.damageType?.replace(/\s+/g, ' ').trim().slice(0, 24);
+    const description = ability.description?.trim().slice(0, FIELD_LIMITS.description);
+    const damageType = ability.damageType?.replace(/\s+/g, ' ').trim().slice(0, FIELD_LIMITS.damageType);
     return {
         id: ability.id,
         name: cleanAbilityName(ability.name),
@@ -66,6 +68,30 @@ export function toggleEquipped(book: Spellbook, id: string, config: CombatSettin
     const ability = book.abilities.find(a => a.id === id);
     if (!ability || equipBlocker(book, ability, config)) return book;
     return { ...book, equippedIds: [...book.equippedIds, id] };
+}
+
+export function unequip(book: Spellbook, id: string): Spellbook {
+    return { ...book, equippedIds: book.equippedIds.filter(e => e !== id) };
+}
+
+export function reorderEquipped(book: Spellbook, from: number, to: number): Spellbook {
+    const ids = [...book.equippedIds];
+    if (from < 0 || from >= ids.length || to < 0 || from === to) return book;
+    const [moved] = ids.splice(from, 1);
+    ids.splice(Math.min(to, ids.length), 0, moved);
+    return { ...book, equippedIds: ids };
+}
+
+export function equipAt(book: Spellbook, id: string, slot: number, config: CombatSettings): Spellbook {
+    const at = book.equippedIds.indexOf(id);
+    if (at >= 0) return reorderEquipped(book, at, slot);
+    const ability = book.abilities.find(a => a.id === id);
+    if (!ability || slot < 0 || slot >= config.maxEquippedAbilities) return book;
+    if (validateAbility(ability, limitsOf(config)).length > 0) return book;
+    const ids = [...book.equippedIds];
+    if (slot < ids.length && ids.length >= config.maxEquippedAbilities) ids[slot] = id;
+    else ids.splice(Math.min(slot, ids.length), 0, id);
+    return { ...book, equippedIds: ids };
 }
 
 export function costOf(ability: GlyphAbility): number {

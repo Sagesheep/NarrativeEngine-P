@@ -124,6 +124,8 @@ export type Combatant = {
     npcId?: string;
     species?: string;
     look?: string;
+    manner?: string;
+    weaponName?: string;
     abilities: AbilityScores;
     maxHp: number;
     hp: number;
@@ -267,6 +269,7 @@ export type CombatantSpec = {
     npcId?: string;
     species?: string;
     look?: string;
+    manner?: string;
     range?: AttackRange;
     template?: TemplateOverlay;
 };

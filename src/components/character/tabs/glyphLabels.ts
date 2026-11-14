@@ -43,3 +43,9 @@ export const CONDITION_LABEL_KEYS: Readonly<Record<string, TranslationKey>> = {
     shielded: 'combat.cond.shielded',
     defending: 'combat.cond.defending',
 };
+
+export function glyphLabelKey(glyph: { kind: 'form' | 'effect' | 'augment'; id: string }): TranslationKey {
+    if (glyph.kind === 'form') return FORM_LABEL_KEYS[glyph.id as FormId];
+    if (glyph.kind === 'effect') return EFFECT_LABEL_KEYS[glyph.id as EffectId];
+    return AUGMENT_LABEL_KEYS[glyph.id as AugmentId];
+}

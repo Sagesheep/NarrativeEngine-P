@@ -395,7 +395,11 @@ function attackRoll(ctx: Ctx, target: Combatant): { hit: boolean; crit: boolean 
         type: 'ability_attack',
         actorId: ctx.user.id,
         targetId: target.id,
-        data: { ability: ctx.ability.name, natural, total, ac, cover, disadvantage, hit, crit, fumble: natural === 1 },
+        data: {
+            ability: ctx.ability.name, natural, total, ac, cover, disadvantage, hit, crit, fumble: natural === 1,
+            ...(defending ? { defending: true } : {}),
+            ...(!hit && (target.tempHp ?? 0) > 0 ? { shielded: true } : {}),
+        },
         text: hit
             ? `${ctx.ability.name} ${crit ? 'critically hits' : 'hits'} ${target.name} (${total} against AC ${ac}).`
             : `${ctx.ability.name} misses ${target.name} (${total} against AC ${ac}).`,

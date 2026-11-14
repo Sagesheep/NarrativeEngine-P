@@ -1,14 +1,16 @@
 import { useEffect, useMemo } from 'react';
-import { Swords, Shield, Loader2, SkipForward, FastForward, Sparkles, Footprints, LogOut } from 'lucide-react';
-import { abilityCost, canAbandon, canAttackWith, checkAbility, checkFlee, currentActorId, currentTurn, usesMp } from '@narrative/engine';
+import { Swords, Shield, Loader2, SkipForward, FastForward, Footprints, LogOut } from 'lucide-react';
+import { abilityCost, canAbandon, canAttackWith, casterStats, checkAbility, checkFlee, currentActorId, currentTurn, describeAbility, usesMp } from '@narrative/engine';
 import type { TranslationKey } from '../../i18n/locales/en';
 import { useAppStore } from '../../store/useAppStore';
-import { normalizeCombatConfig } from '../../types';
+import { COMBAT_FLOURISH_MAX, normalizeCombatConfig } from '../../types';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { CombatAction, CombatSession, Combatant } from '../../types';
 import { isEngineTurn, playerActorId } from '../../services/combat/combatController';
 import { isTypingTarget } from './combatKeys';
 import { attackableTargets, hpColor, playerCharacter } from './combatVisuals';
+import { GlyphShape } from '../spellbook/GlyphShape';
+import { GlyphStrip } from '../spellbook/GlyphStrip';
 
 const REASON_KEYS: Readonly<Record<string, TranslationKey>> = {
     'not enough MP': 'combat.bar.noMp',
@@ -59,6 +61,8 @@ export function CombatActionBar({
     aimingId = null,
     onAim,
     onShowEdges,
+    flourish,
+    onFlourish,
 }: {
     session: CombatSession;
     busy: boolean;
@@ -69,6 +73,8 @@ export function CombatActionBar({
     aimingId?: string | null;
     onAim?: (abilityId: string | null) => void;
     onShowEdges?: () => void;
+    flourish?: string;
+    onFlourish?: (text: string) => void;
 }) {
     const { t } = useTranslation();
     const state = session.state;
@@ -91,7 +97,7 @@ export function CombatActionBar({
         const check = checkAbility(state, player!.id, ability.id);
         const reason = check.ok ? null : t(REASON_KEYS[check.reason ?? ''] ?? 'combat.bar.unavailable', { label });
         const recharge = player && !usesMp(player) ? Math.max(0, (player.cooldowns?.[ability.id] ?? 0) - state.round) : null;
-        return { ability, index, cost: abilityCost(ability), reason, recharge };
+        return { ability, index, cost: abilityCost(ability), reason, recharge, rules: describeAbility(ability, casterStats(player!)) };
     }), [state, player, t, label]);
     const fleeReason = flee && !flee.ok ? t(FLEE_REASON_KEYS[flee.reason ?? ''] ?? 'combat.bar.unavailable') : null;
     const abandonable = !!player && canAbandon(state, player.id);
@@ -197,24 +203,52 @@ export function CombatActionBar({
                             <LogOut size={12} /> {t('combat.bar.abandon')}
                         </button>
                     )}
-                    {kit.map(({ ability, index, cost, reason, recharge }) => (
-                        <button
-                            key={ability.id}
-                            type="button"
-                            data-testid={`combat-ability-${ability.id}`}
-                            onClick={() => chooseAbility(index)}
-                            disabled={!!reason}
-                            aria-pressed={aimingId === ability.id}
-                            aria-keyshortcuts={String(index + 1)}
-                            title={reason ?? (recharge === null ? t('combat.bar.abilityHelp', { name: ability.name, cost, label, key: index + 1 }) : t('combat.bar.abilityHelpCooldown', { name: ability.name, key: index + 1 }))}
-                            className={`${buttonClass} border-terminal/50 text-terminal hover:bg-terminal/10 ${aimingId === ability.id ? 'bg-terminal/20' : ''}`}
-                        >
-                            <Sparkles size={12} /> <span className="max-w-[8rem] truncate normal-case">{ability.name}</span>
-                            <span className="text-text-dim">{recharge === null ? cost : recharge > 0 ? t('combat.bar.cooldownShort', { rounds: recharge }) : ''}</span>
-                            <span className="sr-only">{reason ?? ''}</span>
-                        </button>
+                    {kit.map(({ ability, index, cost, reason, recharge, rules }) => (
+                        <div key={ability.id} className="relative group">
+                            <button
+                                type="button"
+                                data-testid={`combat-ability-${ability.id}`}
+                                onClick={() => chooseAbility(index)}
+                                aria-disabled={!!reason}
+                                aria-pressed={aimingId === ability.id}
+                                aria-keyshortcuts={String(index + 1)}
+                                aria-describedby={`combat-ability-tip-${ability.id}`}
+                                className={`relative flex flex-col items-center justify-center gap-1 w-16 h-16 rounded-lg border-2 outline-none focus-visible:ring-2 focus-visible:ring-terminal ${reason ? 'opacity-40 cursor-not-allowed border-border text-text-dim' : 'border-terminal/50 text-terminal hover:bg-terminal/10'} ${aimingId === ability.id ? 'bg-terminal/20' : ''}`}
+                            >
+                                <span className="absolute top-0.5 left-1.5 text-xs font-mono text-text-dim">{index + 1}</span>
+                                <GlyphShape kind="effect" id={ability.effects[0]?.id ?? null} size="sm" />
+                                <span className="text-xs font-mono text-text-primary">{recharge === null ? t('combat.spellbook.cost', { cost, label }) : recharge > 0 ? t('combat.bar.cooldownShort', { rounds: recharge }) : t('combat.bar.ready')}</span>
+                                <span className="sr-only">{ability.name}</span>
+                                <span className="sr-only">{reason ?? ''}</span>
+                            </button>
+                            <div
+                                id={`combat-ability-tip-${ability.id}`}
+                                data-testid={`combat-ability-tip-${ability.id}`}
+                                role="tooltip"
+                                className="hidden group-hover:flex group-focus-within:flex flex-col gap-2 absolute bottom-full left-0 mb-2 z-20 w-64 rounded-lg border border-border bg-surface shadow-xl p-3 normal-case"
+                            >
+                                <span className="text-sm font-bold text-text-primary">{ability.name}</span>
+                                <GlyphStrip ability={ability} />
+                                <span className="text-xs text-text-dim leading-relaxed">{rules}</span>
+                                {reason && <span className="text-xs text-danger leading-relaxed">{reason}</span>}
+                            </div>
+                        </div>
                     ))}
                 </div>
+            )}
+            {mode === 'player' && onFlourish && (
+                <input
+                    type="text"
+                    data-testid="combat-flourish"
+                    value={flourish ?? ''}
+                    maxLength={COMBAT_FLOURISH_MAX}
+                    onChange={(e) => onFlourish(e.target.value.replace(/[\r\n]+/g, ' '))}
+                    onKeyDown={(e) => { if (e.key === 'Escape') e.currentTarget.blur(); }}
+                    placeholder={t('combat.bar.flourishPlaceholder')}
+                    aria-label={t('combat.bar.flourishLabel')}
+                    title={t('combat.bar.flourishHelp')}
+                    className="flex-1 min-w-[12rem] bg-surface border border-border px-2 py-1 text-[12px] text-text-primary rounded-sm focus:border-terminal outline-none"
+                />
             )}
             {mode === 'engine' && (
                 <div data-testid="combat-engine-acting" className="flex items-center gap-2 text-[11px] font-mono text-text-dim">

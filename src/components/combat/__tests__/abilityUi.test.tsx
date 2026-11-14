@@ -82,8 +82,12 @@ describe('combat UI for abilities (T7)', () => {
         expect(fb).toBeLessThan(end);
         expect(screen.getByTestId('combat-ability-fireball')).toHaveTextContent('4');
         expect(screen.getByTestId('combat-mp')).toHaveTextContent('MP 16/16');
-        expect(screen.getByTestId('combat-ability-mend')).toBeDisabled();
-        expect(screen.getByTestId('combat-ability-mend')).toHaveAttribute('title', 'No legal target');
+        expect(screen.getByTestId('combat-ability-mend')).toHaveAttribute('aria-disabled', 'true');
+        expect(screen.getByTestId('combat-ability-mend')).toHaveTextContent('No legal target');
+        expect(screen.getByTestId('combat-ability-tip-mend')).toHaveTextContent('Touch, one target or square at 1 square');
+        expect(screen.getByTestId('combat-ability-tip-mend')).toHaveTextContent('No legal target');
+        expect(screen.getByTestId('combat-ability-fireball')).toHaveAttribute('aria-describedby', 'combat-ability-tip-fireball');
+        expect(within(screen.getByTestId('combat-ability-tip-fireball')).getByTestId('glyph-strip')).toBeInTheDocument();
     });
 
     it('a digit key enters aiming; hovering previews the area and marks allies apart from foes; Escape cancels', () => {

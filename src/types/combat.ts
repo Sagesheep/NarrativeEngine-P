@@ -17,11 +17,13 @@ export type CombatPartyControl = 'solo' | 'engine' | 'player';
 export type CombatDefeatMode = 'knockout' | 'hardcore' | 'ironman';
 export type CombatNarrationCadence = 'action' | 'side' | 'round' | 'end';
 export type CombatMpRecovery = 'fight';
+export type CombatNarrationLength = 'brief' | 'standard' | 'rich';
 
 export type CombatSettings = {
     partyControl: CombatPartyControl;
     defeatMode: CombatDefeatMode;
     narrationCadence: CombatNarrationCadence;
+    narrationLength: CombatNarrationLength;
     confirmStart: boolean;
     offerOnDangerous: boolean;
     resourceLabel: string;
@@ -44,6 +46,7 @@ export type ProposedCombatant = {
     npcName?: string;
     npcId?: string;
     look?: string;
+    manner?: string;
     attack?: ProposedAttackStyle;
     included?: boolean;
 };
@@ -80,7 +83,16 @@ export type CombatSession = {
     excluded?: string[];
     parley?: PendingParley;
     parleyLines?: ParleyLine[];
+    flourishes?: CombatFlourish[];
 };
+
+export type CombatFlourish = {
+    seq: number;
+    text: string;
+};
+
+export const COMBAT_FLOURISH_MAX = 200;
+export const COMBAT_MANNER_MAX = 40;
 
 export type ParleyRatingSource = 'tool' | 'json' | 'default' | 'engine';
 
@@ -139,6 +151,7 @@ export type CombatTableRecord = {
 export const COMBAT_PARTY_CONTROLS: readonly CombatPartyControl[] = ['solo', 'engine', 'player'];
 export const COMBAT_DEFEAT_MODES: readonly CombatDefeatMode[] = ['knockout', 'hardcore', 'ironman'];
 export const COMBAT_NARRATION_CADENCES: readonly CombatNarrationCadence[] = ['action', 'side', 'round', 'end'];
+export const COMBAT_NARRATION_LENGTHS: readonly CombatNarrationLength[] = ['brief', 'standard', 'rich'];
 
 export const COMBAT_RESOURCE_LABEL_MAX = 24;
 
@@ -146,6 +159,7 @@ export const DEFAULT_COMBAT_CONFIG: Readonly<CombatSettings> = Object.freeze({
     partyControl: 'engine',
     defeatMode: 'knockout',
     narrationCadence: 'side',
+    narrationLength: 'standard',
     confirmStart: true,
     offerOnDangerous: true,
     resourceLabel: 'MP',
@@ -261,6 +275,7 @@ export function normalizeCombatConfig(partial?: unknown): CombatSettings {
         partyControl: pickEnum(raw.partyControl, COMBAT_PARTY_CONTROLS, d.partyControl),
         defeatMode: pickEnum(raw.defeatMode, COMBAT_DEFEAT_MODES, d.defeatMode),
         narrationCadence: pickEnum(raw.narrationCadence, COMBAT_NARRATION_CADENCES, d.narrationCadence),
+        narrationLength: pickEnum(raw.narrationLength, COMBAT_NARRATION_LENGTHS, d.narrationLength),
         confirmStart: pickBool(raw.confirmStart, d.confirmStart),
         offerOnDangerous: pickBool(raw.offerOnDangerous, d.offerOnDangerous),
         resourceLabel: pickLabel(raw.resourceLabel, d.resourceLabel),

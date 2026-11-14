@@ -10,7 +10,7 @@ import { ratingToIndexImportance } from '../archive-memory/importanceRater';
 import { toast } from '../../components/Toast';
 import { uid } from '../../utils/uid';
 import { t } from '../../i18n';
-import { normalizeCombatConfig, normalizeSpellbook } from '../../types';
+import { COMBAT_FLOURISH_MAX, normalizeCombatConfig, normalizeSpellbook } from '../../types';
 import type {
     CharacterProfile, ChatMessage, CombatAction, CombatFallen, CombatNarrationCadence, CombatEvent, CombatPartyControl,
     CombatProposal, CombatSession, CombatState, Combatant, FateRecord, GameContext, InventoryItem, NPCEntry, ParleyRecord,
@@ -238,6 +238,7 @@ export function buildCombatantSpecs(
             ...(c.npcId ? { npcId: c.npcId } : {}),
             ...(c.species ? { species: c.species } : {}),
             ...(c.look ? { look: c.look } : {}),
+            ...(c.manner ? { manner: c.manner } : {}),
             ...(range ? { range } : {}),
             ...(overlay ? { template: overlay } : {}),
         };
@@ -310,7 +311,31 @@ export function playerActorId(state: CombatState): string | null {
     return actor && actor.controller === 'player' && actor.status === 'up' ? id : null;
 }
 
-export async function playerAction(action: CombatAction): Promise<CombatEvent[]> {
+const FLOURISH_EVENT: Readonly<Partial<Record<CombatAction['type'], string>>> = {
+    attack: 'attack',
+    use_ability: 'ability',
+    defend: 'defend',
+    flee: 'flee',
+};
+
+export function takesFlourish(action: CombatAction): boolean {
+    return FLOURISH_EVENT[action.type] !== undefined;
+}
+
+export function cleanFlourish(raw: string | undefined): string {
+    return typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim().slice(0, COMBAT_FLOURISH_MAX) : '';
+}
+
+export function attachFlourish(session: CombatSession, action: CombatAction, events: readonly CombatEvent[], raw: string | undefined): CombatSession {
+    const text = cleanFlourish(raw);
+    const type = FLOURISH_EVENT[action.type];
+    if (!text || !type) return session;
+    const event = events.find(e => e.type === type && e.actorId === action.actorId);
+    if (!event) return session;
+    return { ...session, flourishes: [...(session.flourishes ?? []), { seq: event.seq, text }] };
+}
+
+export async function playerAction(action: CombatAction, flourish?: string): Promise<CombatEvent[]> {
     const store = useAppStore.getState();
     const session = store.combatSession;
     if (!session || session.state.outcome || finishing || store.combatBusy || stepping || session.parley) return [];
@@ -321,7 +346,8 @@ export async function playerAction(action: CombatAction): Promise<CombatEvent[]>
     if (playerActorId(session.state) !== action.actorId) return [];
     const applied = applyAction(session.state, action);
     if (applied.events.some(e => e.type === 'rejected')) return [];
-    const next = commitSession({ ...session, state: applied.state, log: [...session.log, ...applied.events] });
+    const withFlourish = attachFlourish(session, action, applied.events, flourish);
+    const next = commitSession({ ...withFlourish, state: applied.state, log: [...session.log, ...applied.events] });
     const events = [...applied.events];
     if (next.state.outcome) {
         await finishCombat();

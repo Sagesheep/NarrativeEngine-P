@@ -64,6 +64,17 @@ describe('CombatSettingsSection', () => {
         });
     });
 
+    it('shows the narration length beside the cadence, defaulting to standard, and saves it', () => {
+        render(<Harness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Toggle combat' }));
+        const length = screen.getByLabelText('Narration length');
+        expect(length).toHaveValue('standard');
+        expect(Array.from((length as HTMLSelectElement).options).map(o => o.value)).toEqual(['brief', 'standard', 'rich']);
+        fireEvent.change(length, { target: { value: 'rich' } });
+        expect(useAppStore.getState().context.combatConfig).toEqual({ ...DEFAULT_COMBAT_CONFIG, narrationLength: 'rich' });
+        expect(screen.getByLabelText('Narration length')).toHaveValue('rich');
+    });
+
     it('explains that ability points are pending while combat is on, and opens the character sheet', () => {
         useAppStore.setState({ pcPanelOpen: false });
         render(<Harness />);

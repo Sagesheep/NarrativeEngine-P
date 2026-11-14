@@ -15,7 +15,7 @@ import { buildPcCombatant, createCombat, runEngineTurns, applyAction, currentAct
 import { useAppStore } from '../../../store/useAppStore';
 import { cancelPendingSaves } from '../../../store/slices/campaignSlice';
 import {
-    BEAT_DIRECTIVE, beatHistory, buildCombatBlock, computeBeatRanges, queueCombatNarration, resetCombatNarrationForTests,
+    beatDirective, beatHistory, buildCombatBlock, computeBeatRanges, queueCombatNarration, resetCombatNarrationForTests,
     rewriteCombatBeat, stripBeatText, waitForCombatNarration,
 } from '../combatNarration';
 import { groupEventsByTurn, isGroupComplete, stateAtSeq, turnLines } from '../combatEvents';
@@ -127,7 +127,7 @@ describe('beat streaming', () => {
         const [, payload, onChunk, onDone, , tools, , , , label] = sends[0];
         expect(tools).toBeUndefined();
         expect(label).toBe('combat-beat');
-        expect(payload[payload.length - 1].content).toContain(BEAT_DIRECTIVE);
+        expect(payload[payload.length - 1].content).toContain(beatDirective({ length: 'standard', opening: true, ending: s.state.outcome !== null, setPiece: true }));
         const beat = useAppStore.getState().messages.find(m => m.combatBeat)!;
         expect(beat.combatBeat).toMatchObject({ sessionId: 'f1', fromSeq: 1 });
         expect(beat.pendingCommit).toBeUndefined();

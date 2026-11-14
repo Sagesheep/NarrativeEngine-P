@@ -105,6 +105,9 @@
   --combat-los-blocked: #B91C1C;
   --combat-cursor: #1A1A1A;
   --combat-board-bg: #FAFAF8;
+  --glyph-form: #1D5FA8;
+  --glyph-effect: #C2410C;
+  --glyph-augment: #0F766E;
 }
 
 /*
@@ -189,6 +192,9 @@
   --combat-los-blocked: #F87171;
   --combat-cursor: #EBEBEB;
   --combat-board-bg: #141519;
+  --glyph-form: #7CB4F5;
+  --glyph-effect: #FB923C;
+  --glyph-augment: #5EEAD4;
 }
 
 @layer base {

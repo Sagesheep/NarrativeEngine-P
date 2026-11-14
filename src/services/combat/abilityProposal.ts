@@ -31,7 +31,7 @@ export function editAbilityProposal(): void {
     if (!proposal) return;
     store.setAbilityEditDraft(proposal.ability);
     store.setAbilityProposal(null);
-    if (!store.pcPanelOpen) store.togglePCPanel();
+    store.setSpellbookOpen(true);
 }
 
 export function dismissAbilityProposal(): void {

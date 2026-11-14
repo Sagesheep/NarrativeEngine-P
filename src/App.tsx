@@ -12,6 +12,7 @@ import { ChatRightRail } from './components/ChatRightRail';
 import { WindowManager } from './components/WindowManager';
 import { NPCLedgerModal } from './components/NPCLedgerModal';
 import { CharacterLedgerModal } from './components/character/CharacterLedgerModal';
+import { SpellbookDialog } from './components/spellbook/SpellbookDialog';
 import { LocationLedgerModal } from './components/LocationLedgerModal';
 import { BlockViewModal } from './components/block-view/BlockViewModal';
 import { BackupModal } from './components/BackupModal';
@@ -208,6 +209,7 @@ export default function App() {
       <SettingsModal />
       <NPCLedgerModal />
       <CharacterLedgerModal />
+      <SpellbookDialog />
       <LocationLedgerModal />
       <BlockViewModal />
       <BackupModal />

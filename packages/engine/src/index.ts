@@ -48,6 +48,9 @@ export {
     abilityTargets, legalAims, directionOf, tileEffectOf, isEmptyTile,
     findKitAbility, abilitySlot, usesMp, abilityReadiness, checkAbility,
     enemyKit, ENEMY_BOLT_ID, ENEMY_BURST_ID, STARTER_ABILITIES,
+    emptyChain, chainOf, allGlyphs, acceptedAugments, glyphsAccepting, augmentCapacity, glyphCost, chainCost, chainCount,
+    socketGlyph, placeGlyph, removeGlyph, placementReason, chainColumns, socketKey, sameSocket, firstFreeSocket,
+    autoPlacementReason, describeGlyph, previewAbility, previewState, PREVIEW_SIZE, PREVIEW_USER_ID,
     TILE_KINDS, DEFAULT_SPEED, REACH_DISTANCE, RANGED_DISTANCE, HAZARD_AVOID_PENALTY, HALF_COVER_BONUS, THREE_QUARTER_COVER_BONUS,
     inBounds, tileAt, isWalkable, isWalkableTile, distance, samePos, canStep, traceLine, hasLineOfSight, coverBetween,
     speedOf, rangeOf, sameTeam,
@@ -75,6 +78,7 @@ export type {
     AreaGenerator, AreaLayout, BandCounts,
     FormId, EffectId, AugmentId, GlyphAbility, CombatCondition, Barrier,
     FormSpec, EffectSpec, FormRoll, CasterStats, AbilityLimits, AimResult, AbilityCheck, AbilitySlot, StarterPresetId,
+    GlyphRef, GlyphKind, ChainDraft, SocketOwner, Socket, PlacementReason, ChainColumn, AbilityPreview, PreviewUnit,
     PartyControl, DefeatMode, Team, ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord, MoraleBook, CombatEnding,
     FleeReason, FleeCheck, ParleyReason,
 } from './combat/index';

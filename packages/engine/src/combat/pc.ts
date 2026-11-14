@@ -61,6 +61,7 @@ export function buildPcCombatant(input: PcCombatantInput): Combatant {
         tier: PC_POINT_BUY[input.sheet.budget]?.tier ?? 'grunt',
         ...(input.sheet.archetype ? { archetype: input.sheet.archetype } : {}),
         ...(input.look ? { look: input.look } : {}),
+        ...(input.weapon?.name?.trim() ? { weaponName: input.weapon.name.trim() } : {}),
         abilities: { ...input.sheet.abilities },
         maxHp: derived.maxHp,
         hp,

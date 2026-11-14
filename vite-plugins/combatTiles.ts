@@ -28,11 +28,20 @@ export function scanCombatTiles(tilesDir: string): CombatTileManifest {
     return out;
 }
 
-export function combatTilesPlugin(tilesDir: string): Plugin {
+export function scanCombatGlyphs(glyphsDir: string): string[] {
+    return listFolder(glyphsDir);
+}
+
+export function combatTilesPlugin(tilesDir: string, glyphsDir: string = join(tilesDir, '..', 'glyphs')): Plugin {
     return {
         name: 'narrative-combat-tiles',
         config() {
-            return { define: { __COMBAT_TILES__: JSON.stringify(JSON.stringify(scanCombatTiles(tilesDir))) } };
+            return {
+                define: {
+                    __COMBAT_TILES__: JSON.stringify(JSON.stringify(scanCombatTiles(tilesDir))),
+                    __COMBAT_GLYPHS__: JSON.stringify(JSON.stringify(scanCombatGlyphs(glyphsDir))),
+                },
+            };
         },
     };
 }

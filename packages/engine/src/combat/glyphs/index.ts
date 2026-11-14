@@ -18,3 +18,11 @@ export { findKitAbility, abilitySlot, usesMp, abilityReadiness, checkAbility } f
 export type { AbilityCheck, AbilitySlot } from './apply';
 export { enemyKit, ENEMY_BOLT_ID, ENEMY_BURST_ID, STARTER_ABILITIES } from './kits';
 export type { StarterPresetId } from './kits';
+export {
+    emptyChain, chainOf, allGlyphs, acceptedAugments, glyphsAccepting, augmentCapacity, glyphCost, chainCost, chainCount,
+    socketGlyph, placeGlyph, removeGlyph, placementReason, chainColumns, socketKey, sameSocket, firstFreeSocket,
+    autoPlacementReason, describeGlyph,
+} from './palette';
+export type { GlyphRef, GlyphKind, ChainDraft, SocketOwner, Socket, PlacementReason, ChainColumn } from './palette';
+export { previewAbility, previewState, PREVIEW_SIZE, PREVIEW_USER_ID } from './preview';
+export type { AbilityPreview, PreviewUnit } from './preview';

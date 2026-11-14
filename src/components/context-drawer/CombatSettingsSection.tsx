@@ -2,7 +2,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { Toggle } from './Toggle';
 import {
-    COMBAT_DEFEAT_MODES, COMBAT_NARRATION_CADENCES, COMBAT_PARTY_CONTROLS, normalizeCombatConfig,
+    COMBAT_DEFEAT_MODES, COMBAT_NARRATION_CADENCES, COMBAT_NARRATION_LENGTHS, COMBAT_PARTY_CONTROLS, normalizeCombatConfig,
 } from '../../types';
 import type { CombatSettings, GameContext } from '../../types';
 import { commitCombatPatch, ensureCombatSheet } from '../../services/combat/combatSheet';
@@ -118,6 +118,19 @@ export function CombatSettingsSection({ context, updateContext }: CombatSettings
                             >
                                 {COMBAT_NARRATION_CADENCES.map((v) => (
                                     <option key={v} value={v}>{t(`combat.settings.narrationCadence.${v}`)}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className={labelClass} htmlFor="combat-narration-length">{t('combat.settings.narrationLength.label')}</label>
+                            <select
+                                id="combat-narration-length"
+                                className={selectClass}
+                                value={config.narrationLength}
+                                onChange={(e) => setConfig({ narrationLength: e.target.value as CombatSettings['narrationLength'] })}
+                            >
+                                {COMBAT_NARRATION_LENGTHS.map((v) => (
+                                    <option key={v} value={v}>{t(`combat.settings.narrationLength.${v}`)}</option>
                                 ))}
                             </select>
                         </div>

@@ -7,7 +7,7 @@ describe('normalizeCombatConfig', () => {
         expect(normalizeCombatConfig(null)).toEqual(DEFAULT_COMBAT_CONFIG);
         expect(normalizeCombatConfig([])).toEqual(DEFAULT_COMBAT_CONFIG);
         expect(DEFAULT_COMBAT_CONFIG).toEqual({
-            partyControl: 'engine', defeatMode: 'knockout', narrationCadence: 'side',
+            partyControl: 'engine', defeatMode: 'knockout', narrationCadence: 'side', narrationLength: 'standard',
             confirmStart: true, offerOnDangerous: true, resourceLabel: 'MP',
             maxChainLength: 6, maxEquippedAbilities: 6, maxSummons: 2, mpRecovery: 'fight',
         });
@@ -15,13 +15,13 @@ describe('normalizeCombatConfig', () => {
 
     it('keeps valid values', () => {
         const cfg = normalizeCombatConfig({
-            partyControl: 'solo', defeatMode: 'ironman', narrationCadence: 'end',
+            partyControl: 'solo', defeatMode: 'ironman', narrationCadence: 'end', narrationLength: 'rich',
             confirmStart: false, offerOnDangerous: false, resourceLabel: ' RAM ',
             maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0,
             mookJitterRange: 2, defaultWeaponDie: 8,
         });
         expect(cfg).toEqual({
-            partyControl: 'solo', defeatMode: 'ironman', narrationCadence: 'end',
+            partyControl: 'solo', defeatMode: 'ironman', narrationCadence: 'end', narrationLength: 'rich',
             confirmStart: false, offerOnDangerous: false, resourceLabel: 'RAM',
             maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0, mpRecovery: 'fight',
             mookJitterRange: 2, defaultWeaponDie: 8,
@@ -30,7 +30,7 @@ describe('normalizeCombatConfig', () => {
 
     it('rejects unknown enum values and bad numbers', () => {
         const cfg = normalizeCombatConfig({
-            partyControl: 'chaos', defeatMode: 'permadeath', narrationCadence: 'never',
+            partyControl: 'chaos', defeatMode: 'permadeath', narrationCadence: 'never', narrationLength: 'epic',
             confirmStart: 'yes', resourceLabel: '   ', maxChainLength: 0, maxEquippedAbilities: Number.NaN, maxSummons: -1,
         });
         expect(cfg).toEqual(DEFAULT_COMBAT_CONFIG);
@@ -62,6 +62,16 @@ describe('migrateLegacyContext combat fields', () => {
         const ctx = migrateLegacyContext(legacy);
         expect(ctx.combatModeActive).toBe(false);
         expect(ctx.combatConfig).toEqual({ ...DEFAULT_COMBAT_CONFIG, mookJitterRange: 3 });
+    });
+
+    it('gives a save from before the length setting the standard length, and keeps a stored one', () => {
+        const old = migrateLegacyContext({ combatConfig: { partyControl: 'solo', narrationCadence: 'round' } } as unknown as Parameters<typeof migrateLegacyContext>[0]);
+        expect(old.combatConfig?.narrationLength).toBe('standard');
+        expect(old.combatConfig?.narrationCadence).toBe('round');
+        const kept = migrateLegacyContext({ combatConfig: { ...DEFAULT_COMBAT_CONFIG, narrationLength: 'brief' } });
+        expect(kept.combatConfig?.narrationLength).toBe('brief');
+        const bad = migrateLegacyContext({ combatConfig: { narrationLength: 3 } } as unknown as Parameters<typeof migrateLegacyContext>[0]);
+        expect(bad.combatConfig?.narrationLength).toBe('standard');
     });
 
     it('is idempotent', () => {

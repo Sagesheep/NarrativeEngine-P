@@ -221,13 +221,17 @@ function resolveAttack(draft: Draft, actor: Combatant, target: Combatant, check:
     const crit = natural === 20;
     const hit = crit || (natural !== 1 && total >= ac);
     const dmgType = actor.damage.type;
-    const base = { natural, total, ac, cover: check.cover, range: check.range, disadvantage, defending, adjacentShot: check.disadvantage };
+    const base = {
+        natural, total, ac, cover: check.cover, range: check.range, disadvantage, defending, adjacentShot: check.disadvantage,
+        ...(actor.weaponName ? { weapon: actor.weaponName } : {}),
+    };
     if (!hit) {
+        const shielded = (target.tempHp ?? 0) > 0;
         emit(draft, {
             type: 'attack',
             actorId: actor.id,
             targetId: target.id,
-            data: { ...base, hit: false, crit: false, fumble: natural === 1 },
+            data: { ...base, hit: false, crit: false, fumble: natural === 1, ...(shielded ? { shielded: true } : {}) },
             text: `${actor.name} attacks ${target.name} and misses.`,
         });
         return;
@@ -716,6 +720,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
             ...(c.npcId ? { npcId: c.npcId } : {}),
             ...(c.species ? { species: c.species } : {}),
             ...(c.look ? { look: c.look } : {}),
+            ...(c.manner ? { manner: c.manner } : {}),
             abilities: block.abilities,
             maxHp: Math.max(1, Math.round(maxHp)),
             hp: Math.max(1, Math.round(maxHp)),

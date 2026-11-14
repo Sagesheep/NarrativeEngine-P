@@ -215,6 +215,21 @@ describe('T4 controller', () => {
         expect(vi.mocked(api.archive.append).mock.calls.length).toBeLessThanOrEqual(1);
     });
 
+    it('stores the player\'s flourish against the action event and keeps it through a save and reload', async () => {
+        await startFromProposal(proposal({ combatants: [{ name: 'Bandit', side: 'enemy', tier: 'minion', manner: 'sneering, overconfident' }] }), 11);
+        const started = useAppStore.getState().combatSession!;
+        expect(Object.values(started.state.combatants).find(c => c.name === 'Bandit')?.manner).toBe('sneering, overconfident');
+        expect(playerActorId(started.state)).toBe('pc');
+        const events = await playerAction({ type: 'defend', actorId: 'pc' }, 'I set my feet and grin "Try it."');
+        const defend = events.find(e => e.type === 'defend')!;
+        const session = useAppStore.getState().combatSession ?? started;
+        expect(session.flourishes).toEqual([{ seq: defend.seq, text: 'I set my feet and grin "Try it."' }]);
+        const { normalizeCombatSession } = await import('../../tables/combatTable');
+        expect(normalizeCombatSession(JSON.parse(JSON.stringify(session)))?.flourishes).toEqual(session.flourishes);
+        const queued = vi.mocked(queueCombatNarration).mock.calls.at(-1)?.[0];
+        expect(queued?.flourishes).toEqual(session.flourishes);
+    });
+
     it('ignores actions out of turn', async () => {
         await startFromProposal(proposal(), 11);
         const events = await playerAction({ type: 'defend', actorId: 'c1' });

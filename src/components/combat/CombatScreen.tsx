@@ -5,7 +5,7 @@ import { canAttackWith, currentTurn, edgeTiles, findKitAbility } from '@narrativ
 import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { ChatMessage, CombatAction, CombatSession } from '../../types';
-import { playerActorId } from '../../services/combat/combatController';
+import { cleanFlourish, playerActorId, takesFlourish } from '../../services/combat/combatController';
 import { CombatBoard } from './CombatBoard';
 import { CombatInitiativeStrip } from './CombatInitiativeStrip';
 import { CombatActionBar } from './CombatActionBar';
@@ -36,7 +36,7 @@ export function CombatScreen({
 }: {
     session: CombatSession;
     busy: boolean;
-    onAction: (action: CombatAction) => void;
+    onAction: (action: CombatAction, flourish?: string) => void | Promise<readonly unknown[]>;
     onEnd: () => void;
     onSkip: () => void;
     feed: ReactNode;
@@ -76,9 +76,25 @@ export function CombatScreen({
         if (el && atBottom.current) el.scrollTop = el.scrollHeight;
     }, [messages, view, narrow, feedScrollRef]);
 
+    const [flourish, setFlourish] = useState('');
+
     const act = (action: CombatAction) => {
         setPicking(false);
         setAimingId(null);
+        const text = cleanFlourish(flourish);
+        if (text && takesFlourish(action)) {
+            const sent = flourish;
+            const clear = () => setFlourish(current => (current === sent ? '' : current));
+            const result = onAction(action, text);
+            if (result && typeof (result as Promise<unknown>).then === 'function') {
+                void (result as Promise<unknown>).then(events => {
+                    if (!Array.isArray(events) || events.length > 0) clear();
+                }, () => undefined);
+            } else {
+                clear();
+            }
+            return;
+        }
         onAction(action);
     };
 
@@ -90,6 +106,7 @@ export function CombatScreen({
         setAimingId(null);
         setPicking(false);
         setShowEdges(false);
+        setFlourish('');
     }
     const edges = useMemo(() => (showEdges ? edgeTiles(session.state) : null), [showEdges, session.state]);
     const aim = useAbilityAim(session.state, actorId, aimingId, act, () => setAimingId(null));
@@ -196,7 +213,7 @@ export function CombatScreen({
                     <CombatParleyBox session={session} busy={busy} />
                 </div>
             </div>
-            <CombatActionBar session={session} busy={busy} targetId={targetId} onAction={act} onPick={pick} onSkip={onSkip} aimingId={liveAim ? aimingId : null} onAim={startAim} onShowEdges={() => setShowEdges(v => !v)} />
+            <CombatActionBar session={session} busy={busy} targetId={targetId} onAction={act} onPick={pick} onSkip={onSkip} aimingId={liveAim ? aimingId : null} onAim={startAim} onShowEdges={() => setShowEdges(v => !v)} flourish={flourish} onFlourish={setFlourish} />
         </div>
     );
 }

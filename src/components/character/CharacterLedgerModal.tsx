@@ -53,14 +53,8 @@ export function CharacterLedgerModal() {
 
     const { t } = useTranslation();
     const combatOn = useAppStore((s) => s.context.combatModeActive === true);
-    const abilityEditDraft = useAppStore((s) => s.abilityEditDraft);
     const tabs = combatOn ? [...TABS, { key: 'abilities' as const, Icon: Sparkles, label: t('combat.spellbook.tab') }] : TABS;
     const [activeTab, setActiveTab] = useState<LedgerTab>('sheet');
-    const [prevDraft, setPrevDraft] = useState(abilityEditDraft);
-    if (prevDraft !== abilityEditDraft) {
-        setPrevDraft(abilityEditDraft);
-        if (abilityEditDraft && combatOn) setActiveTab('abilities');
-    }
     const shownTab: LedgerTab = activeTab === 'abilities' && !combatOn ? 'sheet' : activeTab;
     const [guidedMode, setGuidedMode] = useState(false);
     const importRef = useRef<HTMLInputElement>(null);
@@ -73,7 +67,7 @@ export function CharacterLedgerModal() {
     if (prevOpen !== pcPanelOpen) {
         setPrevOpen(pcPanelOpen);
         if (pcPanelOpen) {
-            setActiveTab(abilityEditDraft && combatOn ? 'abilities' : 'sheet');
+            setActiveTab('sheet');
             setGuidedMode(false);
             setShowUnsavedPrompt(false);
         }

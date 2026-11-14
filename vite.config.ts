@@ -12,7 +12,7 @@ const projectRoot = fileURLToPath(new URL('.', import.meta.url)).replace(/\\/g, 
 const rootGlob = (dir: string) => `${projectRoot}/${dir}/**`
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), combatTilesPlugin(`${projectRoot}/public/assets/combat/tiles`)],
+  plugins: [react(), tailwindcss(), combatTilesPlugin(`${projectRoot}/public/assets/combat/tiles`, `${projectRoot}/public/assets/combat/glyphs`)],
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
   },

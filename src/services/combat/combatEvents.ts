@@ -207,15 +207,83 @@ export const NARRATED_EVENT_TYPES: readonly string[] = [
     'flee', 'morale', 'parley', 'surrendered', 'fate',
 ];
 
+function num(raw: unknown): number | null {
+    return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+}
+
+export type HitSeverity = 'graze' | 'hit' | 'hard' | 'devastating';
+
+export function hitSeverity(event: CombatEvent, state: CombatState): HitSeverity | null {
+    const damage = num(event.data.damage);
+    const target = event.targetId ? state.combatants[event.targetId] : undefined;
+    if (damage === null || !target || !(target.maxHp > 0)) return null;
+    const dealt = Math.max(0, damage - (num(event.data.absorbed) ?? 0));
+    const pct = dealt * 100;
+    if (pct < target.maxHp * 15) return 'graze';
+    if (pct < target.maxHp * 35) return 'hit';
+    if (pct <= target.maxHp * 60) return 'hard';
+    return 'devastating';
+}
+
+export function isNearMiss(event: CombatEvent): boolean {
+    if (event.data.hit === true || event.data.fumble === true) return false;
+    const total = num(event.data.total);
+    const ac = num(event.data.ac);
+    return total !== null && ac !== null && ac - total <= 2;
+}
+
+export function isCloseSave(event: CombatEvent): boolean {
+    const total = num(event.data.total);
+    const dc = num(event.data.dc);
+    return total !== null && dc !== null && Math.abs(total - dc) <= 2;
+}
+
+function guardWord(event: CombatEvent): 'guard' | 'shield' | null {
+    if (event.data.defending === true) return 'guard';
+    if (event.data.shielded === true) return 'shield';
+    return null;
+}
+
+function weaponPhrase(event: CombatEvent): string {
+    const raw = typeof event.data.weapon === 'string' ? event.data.weapon.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+    if (!raw) return '';
+    return /^(a|an|the|his|her|their|my|your)\s/i.test(raw) || /'s\s/.test(raw) ? ` with ${raw}` : ` with the ${raw}`;
+}
+
+function attackLine(event: CombatEvent, state: CombatState): string {
+    const actor = nameIn(state, event.actorId);
+    const target = nameIn(state, event.targetId);
+    const weapon = weaponPhrase(event);
+    if (event.data.hit !== true) {
+        if (!isNearMiss(event)) return `${actor} attacks ${target}${weapon} and misses.`;
+        const guard = guardWord(event);
+        return guard ? `${actor}'s attack is turned aside by ${target}'s ${guard}.` : `${actor} narrowly misses ${target}${weapon}.`;
+    }
+    const type = typeof event.data.damageType === 'string' ? event.data.damageType : '';
+    const tail = `${weapon}${type ? ` (${type})` : ''}.`;
+    if (event.data.crit === true) return `${actor} lands a critical hit on ${target}${tail}`;
+    const severity = hitSeverity(event, state);
+    if (severity === 'graze') return `${actor} grazes ${target}${tail}`;
+    if (severity === 'hard') return `${actor} hits ${target} hard${tail}`;
+    if (severity === 'devastating') return `${actor} lands a devastating blow on ${target}${tail}`;
+    return `${actor} hits ${target}${tail}`;
+}
+
+function abilityDamageHow(event: CombatEvent, state: CombatState): string {
+    if (event.data.saved === true) return 'is grazed by the';
+    if (event.data.crit === true) return 'takes the full';
+    const severity = hitSeverity(event, state);
+    if (severity === 'graze') return 'is grazed by the';
+    if (severity === 'hard') return 'is hit hard by the';
+    if (severity === 'devastating') return 'takes a devastating blow from the';
+    return 'takes the full';
+}
+
 export function narrationLine(event: CombatEvent, state: CombatState): string {
     const name = (id?: string) => nameIn(state, id);
     switch (event.type) {
-        case 'attack': {
-            const type = typeof event.data.damageType === 'string' ? event.data.damageType : '';
-            if (event.data.hit !== true) return `${name(event.actorId)} attacks ${name(event.targetId)} and misses.`;
-            const how = event.data.crit === true ? 'lands a critical hit on' : 'hits';
-            return `${name(event.actorId)} ${how} ${name(event.targetId)}${type ? ` (${type})` : ''}.`;
-        }
+        case 'attack':
+            return attackLine(event, state);
         case 'initiative': {
             const order = state.order.filter(id => isPresent(state.combatants[id])).map(id => name(id));
             return `Order of action: ${order.join(', ')}.`;
@@ -242,17 +310,22 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
         case 'ability':
             return `${name(event.actorId)} uses ${abilityLabel(event)}.`;
         case 'ability_attack':
-            if (event.data.hit !== true) return `${abilityName(event)} misses ${name(event.targetId)}.`;
+            if (event.data.hit !== true) {
+                if (!isNearMiss(event)) return `${abilityName(event)} misses ${name(event.targetId)}.`;
+                const guard = guardWord(event);
+                return guard ? `${abilityName(event)} is turned aside by ${name(event.targetId)}'s ${guard}.` : `${abilityName(event)} narrowly misses ${name(event.targetId)}.`;
+            }
             return event.data.crit === true
                 ? `${abilityName(event)} strikes ${name(event.targetId)} squarely.`
                 : `${abilityName(event)} hits ${name(event.targetId)}.`;
-        case 'save':
-            return event.data.success === true
-                ? `${name(event.targetId)} ${dodgeVerb(event.data.save)} the worst of it.`
-                : `${name(event.targetId)} is caught full on.`;
+        case 'save': {
+            const close = isCloseSave(event);
+            if (event.data.success === true) return `${name(event.targetId)} ${close ? 'only just ' : ''}${dodgeVerb(event.data.save)} the worst of it.`;
+            return close ? `${name(event.targetId)} only just fails to get clear and is caught.` : `${name(event.targetId)} is caught full on.`;
+        }
         case 'ability_damage': {
             const type = typeof event.data.damageType === 'string' && event.data.damageType.trim() ? event.data.damageType.trim() : '';
-            const how = event.data.saved === true ? 'is grazed by the' : 'takes the full';
+            const how = abilityDamageHow(event, state);
             const what = type ? `${type}` : 'blast';
             const extra = event.data.weakness === true ? ', which it is weak to' : event.data.resisted === true ? ', which it resists' : '';
             const soak = typeof event.data.absorbed === 'number' && event.data.absorbed > 0 ? ' A shield takes some of it.' : '';
@@ -306,10 +379,12 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
     }
 }
 
-export function turnLines(group: TurnGroup, state: CombatState, opts: { numbers: boolean }): string[] {
+export type TurnLine = { seq: number; text: string };
+
+export function turnLineEntries(group: TurnGroup, state: CombatState, opts: { numbers: boolean; tags?: ReadonlyMap<number, string> }): TurnLine[] {
     const events = group.events.filter(e => e.type !== 'rejected');
     const acted = events.some(e => ACTED_TYPES.has(e.type));
-    const lines: string[] = [];
+    const lines: TurnLine[] = [];
     for (let i = 0; i < events.length; i++) {
         const event = events[i];
         if (event.type === 'moved') {
@@ -320,12 +395,76 @@ export function turnLines(group: TurnGroup, state: CombatState, opts: { numbers:
                 last = events[i];
                 squares += Number(last.data.squares) || 0;
             }
-            lines.push(moveClause(state, event.actorId, squares, last.data, opts.numbers));
+            lines.push({ seq: event.seq, text: moveClause(state, event.actorId, squares, last.data, opts.numbers) });
             continue;
         }
         if (event.type === 'end_turn' && acted) continue;
         const line = opts.numbers ? event.text : narrationLine(event, state);
-        if (line) lines.push(line);
+        if (!line) continue;
+        const tag = opts.numbers ? undefined : opts.tags?.get(event.seq);
+        lines.push({ seq: event.seq, text: tag ? `${line} [${tag}]` : line });
     }
     return lines;
+}
+
+export function turnLines(group: TurnGroup, state: CombatState, opts: { numbers: boolean; tags?: ReadonlyMap<number, string> }): string[] {
+    return turnLineEntries(group, state, opts).map(l => l.text);
+}
+
+export type MomentTag = 'first blood' | 'now badly hurt' | 'killing blow' | 'last one standing' | 'the player character falls';
+
+const DAMAGE_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'ability_damage', 'hazard']);
+
+function hpChange(event: CombatEvent, target: Combatant | undefined): { before: number; after: number } | null {
+    if (!target || !DAMAGE_EVENT_TYPES.has(event.type)) return null;
+    if (event.type === 'attack' && event.data.hit !== true) return null;
+    const after = num(event.data.hpAfter);
+    if (after === null) return null;
+    const stated = num(event.data.hpBefore);
+    const damage = num(event.data.damage);
+    const before = stated ?? (damage !== null ? Math.min(target.maxHp, after + damage) : null);
+    return before === null ? null : { before, after };
+}
+
+function enemyStillUp(c: Combatant): boolean {
+    return c.side === 'enemy' && !c.summonerId && c.status === 'up';
+}
+
+export function momentTags(state: CombatState, log: readonly CombatEvent[], throughSeq: number): Map<number, MomentTag> {
+    const tags = new Map<number, MomentTag>();
+    const events = log.filter(e => e.type !== 'rejected' && e.seq <= throughSeq).sort((a, b) => a.seq - b.seq);
+    const start = stateAtSeq(state, log, 0);
+    const status = new Map(Object.values(start.combatants).map(c => [c.id, c.status]));
+    const upCount = () => Object.values(state.combatants).filter(c => enemyStillUp({ ...c, status: status.get(c.id) ?? c.status })).length;
+    let bled = false;
+    let enemiesUp = upCount();
+    for (const event of events) {
+        const target = event.targetId ? state.combatants[event.targetId] : undefined;
+        const change = hpChange(event, target);
+        if (change && target && change.after < change.before) {
+            let tag: MomentTag | null = null;
+            if (change.after <= 0 && change.before > 0) {
+                if (target.side === 'player') tag = 'the player character falls';
+                else if (target.side !== 'ally') tag = 'killing blow';
+            }
+            if (!tag && change.after > 0) {
+                const was = hpBand({ hp: change.before, maxHp: target.maxHp, status: 'up' });
+                const now = hpBand({ hp: change.after, maxHp: target.maxHp, status: 'up' });
+                if (now === 'badly_hurt' && was !== 'badly_hurt') tag = 'now badly hurt';
+            }
+            if (!tag && !bled) tag = 'first blood';
+            bled = true;
+            if (tag) tags.set(event.seq, tag);
+        }
+        if (event.type === 'down' && event.targetId) status.set(event.targetId, 'down');
+        else if (event.type === 'surrendered' && event.targetId) status.set(event.targetId, 'surrendered');
+        else if (event.type === 'flee' && event.data.success === true && event.actorId) status.set(event.actorId, 'fled');
+        else if (event.type === 'dismissed' && event.targetId) status.set(event.targetId, 'gone');
+        else if (event.type === 'summoned' && event.targetId) status.set(event.targetId, 'up');
+        else continue;
+        const now = upCount();
+        if (now === 1 && enemiesUp > 1 && !tags.has(event.seq)) tags.set(event.seq, 'last one standing');
+        enemiesUp = now;
+    }
+    return tags;
 }

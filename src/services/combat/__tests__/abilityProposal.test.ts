@@ -19,7 +19,7 @@ function seed() {
         combatSheet: sheet,
         characterProfileData: { name: 'Kira', race: '', class: '', level: 3, hp: { current: 25, max: 25 }, stats: {}, skills: [], abilities: [], traits: [], notes: '' },
     });
-    useAppStore.setState({ context, characterProfileData: context.characterProfileData, activeCampaignId: 'camp', abilityProposal: null, abilityEditDraft: null, combatProposal: null, pcPanelOpen: false });
+    useAppStore.setState({ context, characterProfileData: context.characterProfileData, activeCampaignId: 'camp', abilityProposal: null, abilityEditDraft: null, combatProposal: null, pcPanelOpen: false, spellbookOpen: false });
 }
 
 function proposed(): GlyphAbility {
@@ -76,7 +76,7 @@ describe('AI-proposed abilities (acceptance 4)', () => {
         editAbilityProposal();
         const store = useAppStore.getState();
         expect(store.abilityEditDraft?.name).toBe('Frost lance');
-        expect(store.pcPanelOpen).toBe(true);
+        expect(store.spellbookOpen).toBe(true);
         expect(store.abilityProposal).toBeNull();
         expect(store.context.spellbook!.abilities).toHaveLength(0);
     });

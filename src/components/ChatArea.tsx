@@ -342,7 +342,7 @@ export function ChatArea() {
                     key={combat.session.state.id}
                     session={combat.session}
                     busy={combatBusy}
-                    onAction={(action) => { void playerAction(action); }}
+                    onAction={(action, flourish) => playerAction(action, flourish)}
                     onEnd={() => { void abortCombat(); }}
                     onSkip={skipEngineAnimation}
                     feedScrollRef={feedScrollRef}

@@ -85,7 +85,7 @@ function plural(n: number, one: string, many: string): string {
     return `${n} ${n === 1 ? one : many}`;
 }
 
-function formClause(ability: GlyphAbility): string {
+export function formClause(ability: GlyphAbility): string {
     const split = splitCount(ability);
     const extra = split > 0 ? `, plus ${plural(split, 'more target', 'more targets')} within ${N.splitRange} squares` : '';
     switch (ability.form.id) {
@@ -114,7 +114,7 @@ function formClause(ability: GlyphAbility): string {
     }
 }
 
-function effectClause(ability: GlyphAbility, effect: GlyphAbility['effects'][number], stats: CasterStats, roll: string): string {
+export function effectClause(ability: GlyphAbility, effect: GlyphAbility['effects'][number], stats: CasterStats, roll: string): string {
     const a = effect.augments;
     const type = ability.damageType?.trim() || N.defaultDamageType;
     const dc = saveDc(stats);

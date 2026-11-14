@@ -8,11 +8,13 @@ export type CombatSlice = {
     combatProposal: CombatProposal | null;
     abilityProposal: AbilityProposal | null;
     abilityEditDraft: GlyphAbility | null;
+    spellbookOpen: boolean;
     combatBusy: boolean;
     setCombatSession: (s: CombatSession | null) => void;
     setCombatProposal: (p: CombatProposal | null) => void;
     setAbilityProposal: (p: AbilityProposal | null) => void;
     setAbilityEditDraft: (a: GlyphAbility | null) => void;
+    setSpellbookOpen: (open: boolean) => void;
     setCombatBusy: (busy: boolean) => void;
     resetCombat: () => void;
 };
@@ -36,6 +38,7 @@ export const createCombatSlice: StateCreator<CombatDeps, [], [], CombatSlice> = 
         combatProposal: null,
         abilityProposal: null,
         abilityEditDraft: null,
+        spellbookOpen: false,
         combatBusy: false,
         setCombatSession: (session) => {
             set({ combatSession: session });
@@ -44,6 +47,7 @@ export const createCombatSlice: StateCreator<CombatDeps, [], [], CombatSlice> = 
         setCombatProposal: (proposal) => set({ combatProposal: proposal }),
         setAbilityProposal: (proposal) => set({ abilityProposal: proposal }),
         setAbilityEditDraft: (draft) => set({ abilityEditDraft: draft }),
+        setSpellbookOpen: (open) => set({ spellbookOpen: open }),
         setCombatBusy: (busy) => set({ combatBusy: busy }),
         resetCombat: () => {
             set({ combatSession: null, combatProposal: null, abilityProposal: null, abilityEditDraft: null, combatBusy: false });
