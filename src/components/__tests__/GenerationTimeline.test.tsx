@@ -98,6 +98,19 @@ describe('generation timeline', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Expand generation stages' }));
         expect(screen.getByText('Generate story')).toBeVisible();
     });
+    it('shows reported story cost, an unknown call, and a partial turn total', () => {
+        const view = render(<GenerationTimeline />);
+        act(() => update({ pipelinePhase: 'generating' }));
+        const now = Date.now();
+        fixture.calls.history = [
+            { id: 'story', label: 'story-generation', status: 'success', startedAt: now, settledAt: now, costProvider: 'openrouter', cost: { amount: 0.0038, currency: 'USD' } },
+            { id: 'notes', label: 'notes', status: 'aborted', startedAt: now, settledAt: now, costProvider: 'nanogpt' },
+        ];
+        view.rerender(<GenerationTimeline />);
+        expect(screen.getAllByText(/^0s · \$0[.,]0038$/)).toHaveLength(2);
+        expect(screen.getByText('0s · Unknown')).toBeInTheDocument();
+        expect(screen.getByText(/^\$0[.,]0038 \(partial\)$/)).toBeInTheDocument();
+    });
 });
 
 describe('phase recording', () => {
