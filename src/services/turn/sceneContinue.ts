@@ -1,4 +1,4 @@
-import type { LLMProvider, SceneStakes, EndpointConfig, ProviderConfig, SamplingConfig } from '../../types';
+import type { LLMProvider, SceneStakes, EndpointConfig, ProviderConfig, SamplingConfig, DiceSystemConfig } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import { sendMessage } from '../chatEngine';
 import { sanitizePayloadForApi } from '../lib/payloadSanitizer';
@@ -24,6 +24,7 @@ export interface SceneContinueOptions {
     temperature: number;             // active preset base temperature — NO swipe offset
     allowDiceTool: boolean;          // context.diceFairnessActive === false (same gate as normal turns)
     combatModeActive: boolean;       // passed through to getToolDefinitions
+    diceSystem?: DiceSystemConfig | null; // the campaign's dice setup, so roll_dice names its dice
     abortSignal?: AbortSignal;
 }
 
@@ -123,8 +124,8 @@ export function buildMergedContinueView(preContinueContent: string, partial: str
 
 // ── Filter to only the roll_dice tool definition ───────────────────────
 // The spec: when allowDiceTool, pass ONLY roll_dice (not lore/notebook/inventory).
-function getRollDiceToolOnly(): unknown[] {
-    return getToolDefinitions({ allowDiceTool: true })
+function getRollDiceToolOnly(diceSystem?: DiceSystemConfig | null): unknown[] {
+    return getToolDefinitions({ allowDiceTool: true, diceSystem })
         .filter((t): t is { type: 'function'; function: { name: string } } =>
             !!t && typeof t === 'object' && 'function' in (t as object) &&
             (t as { function: { name: string } }).function?.name === 'roll_dice');
@@ -150,7 +151,7 @@ export function generateSceneContinuation(
 ): Promise<SceneContinueResult> {
     const { provider, basePayload, assistantText, directive, modelName, temperature, allowDiceTool, abortSignal } = opts;
 
-    const tools = allowDiceTool ? getRollDiceToolOnly() : undefined;
+    const tools = allowDiceTool ? getRollDiceToolOnly(opts.diceSystem) : undefined;
     const sampling: SamplingConfig = { temperature };
 
     // Build the initial request payload (snapshot path appends assistant + system; fallback skips).

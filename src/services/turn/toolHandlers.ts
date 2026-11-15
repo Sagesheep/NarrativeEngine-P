@@ -114,6 +114,79 @@ const ROLL_DICE_TOOL = {
     }
 } as const;
 
+// The stock wording above names fixed dice (Combat→d20, Social→d6) and a fixed
+// category list. A campaign's dice system assigns each of its own categories a
+// die, and pool mode already rolls by that assignment; these are the three
+// passages the tool swaps so tool mode follows the same setup.
+const STOCK_DICE_LINE = "   - `dice`: use the die type appropriate to the category (e.g. Combat→d20, Social→d6, Perception→d6). Use `NdM` form (e.g. 2d6, 1d100). Optionally add `+N` or `-N` modifier.\n";
+const STOCK_CATEGORY_LINE = "   - `category`: one of Combat / Stealth / Social / Perception / Movement / Knowledge / Mundane (used for d20 tier mapping only)\n";
+const STOCK_NO_TIER_NOTE = "(non-d20 rolls without configured bands)";
+
+/** The campaign's categories that point at a real die, in configured order. */
+function configuredDiceCategories(sys: DiceSystemConfig | null | undefined): { name: string; die: DieType }[] {
+    if (!sys || !Array.isArray(sys.categories) || !Array.isArray(sys.dieTypes)) return [];
+    const out: { name: string; die: DieType }[] = [];
+    for (const cat of sys.categories) {
+        const die = sys.dieTypes.find(d => d.id === cat.dieTypeId);
+        const name = typeof cat.name === 'string' ? cat.name.trim() : '';
+        if (die && die.faces > 0 && name) out.push({ name, die });
+    }
+    return out;
+}
+
+/**
+ * The roll_dice definition for a campaign. Without a dice system (or with one
+ * that has no usable category) this is the stock definition, unchanged. With
+ * one, the die guidance and the category list come from the campaign's setup.
+ */
+export function buildRollDiceTool(diceSystem?: DiceSystemConfig | null): unknown {
+    const cats = configuredDiceCategories(diceSystem);
+    if (cats.length === 0) return ROLL_DICE_TOOL;
+
+    const faces = Array.from(new Set(cats.map(c => c.die.faces)));
+    const example = `1d${cats[0].die.faces}`;
+    const diceLine = faces.length === 1
+        ? `   - \`dice\`: this campaign rolls \`${example}\` for every category. Use \`NdM\` form. Optionally add \`+N\` or \`-N\` modifier.\n`
+        : `   - \`dice\`: use the die this campaign assigns to the action's category (${cats.map(c => `${c.name}→d${c.die.faces}`).join(', ')}). Use \`NdM\` form (e.g. ${example}). Optionally add \`+N\` or \`-N\` modifier.\n`;
+    const categoryLine = `   - \`category\`: one of ${cats.map(c => c.name).join(' / ')}\n`;
+
+    const description = ROLL_DICE_TOOL.function.description
+        .replace(STOCK_DICE_LINE, diceLine)
+        .replace(STOCK_CATEGORY_LINE, categoryLine)
+        .replace(STOCK_NO_TIER_NOTE, '(a die with no configured bands)');
+
+    return {
+        type: 'function' as const,
+        function: {
+            name: 'roll_dice',
+            description,
+            parameters: {
+                type: 'object' as const,
+                properties: {
+                    dice:     { type: 'string' as const, description: `Dice expression in NdM form, e.g. '${example}', optionally with '+N' or '-N' modifier. Use the die assigned to the action's category.` },
+                    reason:   ROLL_DICE_TOOL.function.parameters.properties.reason,
+                    category: { type: 'string' as const, enum: cats.map(c => c.name), description: "Skill category, as configured for this campaign" },
+                },
+                required: ['dice', 'reason'],
+            },
+        },
+    };
+}
+
+/**
+ * The die to roll when the model names none: the die of the category it gave,
+ * else the campaign's only die, else null (the caller keeps the legacy d20).
+ */
+function defaultDiceFor(diceSystem: DiceSystemConfig | null | undefined, category: unknown): string | null {
+    const cats = configuredDiceCategories(diceSystem);
+    if (cats.length === 0) return null;
+    const wanted = typeof category === 'string' ? category.trim().toLowerCase() : '';
+    const match = wanted ? cats.find(c => c.name.toLowerCase() === wanted) : undefined;
+    if (match) return `1d${match.die.faces}`;
+    const faces = new Set(cats.map(c => c.die.faces));
+    return faces.size === 1 ? `1d${cats[0].die.faces}` : null;
+}
+
 import { normalizeLocationTag } from '../../types';
 
 const PROPOSE_INVENTORY_TOOL = {
@@ -263,9 +336,9 @@ export function handleProposeAbilityTool(toolArguments: string, limits: AbilityL
     return { toolResult: PROPOSE_ABILITY_TOOL_RESULT, ability: parsed.ability };
 }
 
-export function getToolDefinitions(opts: { allowDiceTool: boolean; allowCombatTool?: boolean; allowAbilityTool?: boolean }): unknown[] {
+export function getToolDefinitions(opts: { allowDiceTool: boolean; allowCombatTool?: boolean; allowAbilityTool?: boolean; diceSystem?: DiceSystemConfig | null }): unknown[] {
     const tools: unknown[] = [...BASE_TOOLS];
-    if (opts.allowDiceTool) tools.push(ROLL_DICE_TOOL);
+    if (opts.allowDiceTool) tools.push(buildRollDiceTool(opts.diceSystem));
     // propose_inventory_change is combat-independent — always offered.
     tools.push(PROPOSE_INVENTORY_TOOL);
     if (opts.allowCombatTool) tools.push(START_COMBAT_TOOL);
@@ -434,7 +507,11 @@ export function handleDiceTool(
     let args: { dice?: string; reason?: string; category?: string } = {};
     try { args = JSON.parse(toolArguments); } catch { /* ignore */ }
 
-    const { total, breakdown, sides } = parseAndRoll(args.dice ?? '1d20');
+    // No die named: roll the one the campaign assigns, and report what was rolled.
+    const dice = typeof args.dice === 'string' && args.dice.trim()
+        ? args.dice
+        : defaultDiceFor(ctx.diceSystem, args.category) ?? '1d20';
+    const { total, breakdown, sides } = parseAndRoll(dice);
 
     // Look up the DieType by face count for tier mapping
     let tier: string | null = null;
@@ -444,7 +521,7 @@ export function handleDiceTool(
     }
 
     const payload: Record<string, unknown> = {
-        dice: args.dice ?? '1d20',
+        dice,
         reason: args.reason ?? '',
         result: total,
         breakdown

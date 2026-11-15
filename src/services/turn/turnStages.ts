@@ -666,7 +666,7 @@ export async function runGenerationStage(
         const allowDiceTool = context.diceFairnessActive === false && !armed;
         const allowCombatTool = state.combatToolAllowed === true;
         const allowAbilityTool = state.abilityToolAllowed === true;
-        const tools = allowTools ? getToolDefinitions({ allowDiceTool, allowCombatTool, allowAbilityTool }) : undefined;
+        const tools = allowTools ? getToolDefinitions({ allowDiceTool, allowCombatTool, allowAbilityTool, diceSystem: context.diceSystem }) : undefined;
 
         callbacks.setPipelinePhase?.('generating');
         callbacks.setLoadingStatus?.(null);
