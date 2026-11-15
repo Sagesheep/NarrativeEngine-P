@@ -138,6 +138,10 @@ export function classifyCategory(header: string, content: string, parentHeader?:
         if (TYPE_MAP[t]) return TYPE_MAP[t];
     }
 
+    // World Lore Builder drafts export their interview as `## Character Creation Questions`.
+    // That header contains CHARACTER but describes no NPC; classifying it as one seeded a
+    // bogus roster entry on every campaign made from such a draft. It is GM guidance: rules.
+    if (h.includes('CHARACTER CREATION') || p.includes('CHARACTER CREATION')) return 'rules';
     if (h.includes('[CHUNK: HERO') || p.includes('CHARACTER') || h.includes('CHARACTER —')) return 'character';
     if (h.includes('[CHUNK: FACTION') || h.includes('[CHUNK: ORGANIZATION') || p.includes('FACTION')) return 'faction';
     if (h.includes('WORLD OVERVIEW') || h.includes('CORE IDENTITY') || h.includes('WORLD STATE')) return 'world_overview';

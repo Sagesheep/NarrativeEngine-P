@@ -96,15 +96,19 @@ export function extractEngineSeeds(chunks: LoreChunk[]): EngineSeed {
         }
 
         // --- EXPLICIT ENGINE SEED FIELDS (any chunk, any category) ---
+        // Tier 3 accepts both label sets: the compendium template writes `Quest Hook`,
+        // older files write `World Event`. The mobile seeder already reads both; a file
+        // using the template labels used to lose its whole tier here and fell back to
+        // the fantasy defaults.
         const seedFieldPatterns: [RegExp, Set<string>][] = [
             [/\*\*Surprise Types:\*\*\s*(.+)/i, surpriseTypesSet],
             [/\*\*Surprise Tones:\*\*\s*(.+)/i, surpriseTonesSet],
             [/\*\*Encounter Types:\*\*\s*(.+)/i, encounterTypesSet],
             [/\*\*Encounter Tones:\*\*\s*(.+)/i, encounterTonesSet],
-            [/\*\*World Event Who:\*\*\s*(.+)/i, whoSet],
-            [/\*\*World Event What:\*\*\s*(.+)/i, whatSet],
-            [/\*\*World Event Where:\*\*\s*(.+)/i, whereSet],
-            [/\*\*World Event Why:\*\*\s*(.+)/i, whySet],
+            [/\*\*(?:World Event|Quest Hook) Who:\*\*\s*(.+)/i, whoSet],
+            [/\*\*(?:World Event|Quest Hook) What:\*\*\s*(.+)/i, whatSet],
+            [/\*\*(?:World Event|Quest Hook) Where:\*\*\s*(.+)/i, whereSet],
+            [/\*\*(?:World Event|Quest Hook) Why:\*\*\s*(.+)/i, whySet],
         ];
 
         for (const [pattern, set] of seedFieldPatterns) {
