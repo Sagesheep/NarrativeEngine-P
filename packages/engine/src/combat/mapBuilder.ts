@@ -2,6 +2,7 @@ import { createRng } from './rng';
 import { TILE_KINDS, inBounds, isFullyConnected, isWalkable, isWalkableTile, neighbours, speedOf } from './grid';
 import { AREA_DEFINITIONS, AREA_GENERATORS, AREA_TYPES, Canvas, DEFAULT_HAZARD_LABELS, SPAWN_COLUMNS, bandCounts } from './areas/index';
 import { clamp, pickOne } from './areas/canvas';
+import { roughen } from './areas/roughen';
 import { defaultLabels, normalizeLabels, resolveMapSpec } from './mapSpec';
 import type { AreaType, CombatState, Grid, HazardKind, MapSize, MapSpec, Pos, ResolvedMapSpec, Rng, Side, TerrainLabels, Tile } from './types';
 
@@ -12,6 +13,7 @@ export const MAP_SIZES: Readonly<Record<MapSize, { width: number; height: number
 };
 
 export { SPAWN_COLUMNS, isFullyConnected };
+export const MAP_GENERATOR_VERSION = 2;
 export const DEFAULT_HAZARD_TYPE = 'fire';
 
 const MIN_GRID_SIDE = 4;
@@ -156,7 +158,7 @@ function enforceBand(c: Canvas, area: AreaType, spec: ResolvedMapSpec, rng: Rng)
     for (let guard = 0; guard < 600 && c.count(rows) > max; guard++) if (!trimOne(c, rows)) break;
 }
 
-function buildArea(area: AreaType, spec: ResolvedMapSpec, rng: Rng): Grid | null {
+function buildArea(area: AreaType, spec: ResolvedMapSpec, rng: Rng, version: number): Grid | null {
     const { width, height } = MAP_SIZES[spec.size];
     const c = Canvas.from(AREA_GENERATORS[area](width, height, spec.density, rng));
     while (!c.connected()) {
@@ -165,17 +167,27 @@ function buildArea(area: AreaType, spec: ResolvedMapSpec, rng: Rng): Grid | null
         if (idx < 0) return null;
         c.removePiece(idx);
     }
-    if (spec.hazard !== 'none') placeHazards(c, area, bandCounts(area, spec.density, width, height).max, rng);
-    enforceBand(c, area, spec, rng);
-    const grid: Grid = {
-        width,
-        height,
-        tiles: [...c.tiles],
-        area,
-        labels: { ...spec.labels },
-        ...(spec.hazard !== 'none' && c.tiles.includes('hazard') ? { hazardType: spec.hazard } : {}),
+    const band = bandCounts(area, spec.density, width, height);
+    const finish = (): Grid | null => {
+        if (spec.hazard !== 'none') placeHazards(c, area, band.max, rng);
+        enforceBand(c, area, spec, rng);
+        const grid: Grid = {
+            width,
+            height,
+            tiles: [...c.tiles],
+            area,
+            labels: { ...spec.labels },
+            ...(spec.hazard !== 'none' && c.tiles.includes('hazard') ? { hazardType: spec.hazard } : {}),
+        };
+        return isPlayableMap(grid) && (spec.hazard === 'none' || c.tiles.includes('hazard') || version < 2) ? grid : null;
     };
-    return isPlayableMap(grid) ? grid : null;
+    if (version < 2) return finish();
+    const smooth = c.snapshot();
+    roughen(c, area, band.rows, band.max, rng);
+    const rough = finish();
+    if (rough) return rough;
+    c.restore(smooth);
+    return finish();
 }
 
 export function openArena(size: MapSize = 'medium', labels?: TerrainLabels): Grid {
@@ -183,11 +195,11 @@ export function openArena(size: MapSize = 'medium', labels?: TerrainLabels): Gri
     return { width, height, tiles: new Array<Tile>(width * height).fill('floor'), area: 'open', labels: { ...defaultLabels('open'), ...(labels ?? {}) } };
 }
 
-export function generateMap(spec: ResolvedMapSpec, rng: Rng): Grid {
+export function generateMap(spec: ResolvedMapSpec, rng: Rng, version: number = MAP_GENERATOR_VERSION): Grid {
     try {
-        const built = buildArea(spec.area, spec, rng);
+        const built = buildArea(spec.area, spec, rng, version);
         if (built) return built;
-        const fallback = buildArea('open', { ...spec, area: 'open' }, rng);
+        const fallback = buildArea('open', { ...spec, area: 'open' }, rng, version);
         if (fallback) return fallback;
     } catch (e) {
         void e;
@@ -195,8 +207,8 @@ export function generateMap(spec: ResolvedMapSpec, rng: Rng): Grid {
     return openArena(spec.size, spec.labels);
 }
 
-export function buildTerrain(spec: MapSpec | unknown, rng: Rng): Grid {
-    return generateMap(resolveMapSpec(spec), rng);
+export function buildTerrain(spec: MapSpec | unknown, rng: Rng, version: number = MAP_GENERATOR_VERSION): Grid {
+    return generateMap(resolveMapSpec(spec), rng, version);
 }
 
 export type SpawnEntry = { id: string; side: Side };
@@ -298,8 +310,8 @@ export function buildGrid(spec: MapSpec | unknown, sides: readonly SpawnEntry[],
     return { grid, positions: placeCombatants(grid, sides) };
 }
 
-export function buildMapFromSeed(spec: MapSpec | unknown, mapSeed: number): Grid {
-    return buildTerrain(spec, createRng(mapSeed, 0));
+export function buildMapFromSeed(spec: MapSpec | unknown, mapSeed: number, version: number = MAP_GENERATOR_VERSION): Grid {
+    return buildTerrain(spec, createRng(mapSeed, 0), version);
 }
 
 export function isValidGrid(raw: unknown): raw is Grid {
@@ -369,6 +381,29 @@ export function ensureGrid(state: CombatState): CombatState {
             barriers = validGrid ? keptBarriers : [];
         }
     }
+    let terrainEdits = state.terrainEdits;
+    if (terrainEdits !== undefined) {
+        const keptEdits = Array.isArray(terrainEdits)
+            ? terrainEdits.filter(e => !!e && !!e.pos && inBounds(grid, e.pos) && (TILE_KINDS as readonly unknown[]).includes(e.tile))
+            : [];
+        if (!validGrid || keptEdits.length !== (Array.isArray(terrainEdits) ? terrainEdits.length : -1)) {
+            changed = true;
+            terrainEdits = validGrid ? keptEdits : [];
+        }
+    }
+    let fieldItems = state.fieldItems;
+    if (fieldItems !== undefined) {
+        const keptItems = Array.isArray(fieldItems)
+            ? fieldItems.filter(i => !!i && !!i.pos && inBounds(grid, i.pos) && typeof i.id === 'string' && typeof i.ownerId === 'string')
+            : [];
+        if (!validGrid || keptItems.length !== (Array.isArray(fieldItems) ? fieldItems.length : -1)) {
+            changed = true;
+            fieldItems = validGrid ? keptItems : [];
+        }
+    }
     if (!changed) return state;
-    return { ...state, grid, combatants, ...(turn ? { turn } : {}), turnCount, ...(barriers !== undefined ? { barriers } : {}) };
+    return {
+        ...state, grid, combatants, ...(turn ? { turn } : {}), turnCount, ...(barriers !== undefined ? { barriers } : {}),
+        ...(terrainEdits !== undefined ? { terrainEdits } : {}), ...(fieldItems !== undefined ? { fieldItems } : {}),
+    };
 }

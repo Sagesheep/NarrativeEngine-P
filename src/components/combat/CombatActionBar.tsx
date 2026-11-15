@@ -23,9 +23,12 @@ const REASON_KEYS: Readonly<Record<string, TranslationKey>> = {
     'the action is already used': 'combat.board.actionUsed',
     'the bonus action is already used': 'combat.bar.bonusUsed',
     'no target': 'combat.bar.noTarget',
+    'no room to shove them': 'combat.bar.noRoom',
     'the ability is recharging': 'combat.bar.recharging',
     'not enough movement': 'combat.bar.noMovement',
     'no movement to add': 'combat.bar.noMovement',
+    'no square to throw it to': 'combat.throw.noLanding',
+    'the thrower is stunned': 'combat.throw.stunned',
 };
 
 const MORE_IDS: ReadonlySet<string> = new Set(MORE_ACTION_IDS);

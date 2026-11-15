@@ -77,6 +77,7 @@ export const EFFECTS: Readonly<Record<EffectId, EffectSpec>> = {
     sprint: { cost: 0, augments: [], helpful: true, builtin: true },
     leap: { cost: 0, augments: [], helpful: true, builtin: true },
     rally: { cost: 0, augments: [], helpful: true, builtin: true },
+    hurl: { cost: 0, augments: [], builtin: true },
 };
 
 export const AUGMENT_COSTS: Readonly<Record<AugmentId, number>> = {
@@ -111,8 +112,17 @@ export const GLYPH_NUMBERS = {
     enemyCooldownRounds: 2,
     maxEffects: 4,
     maxSameAugment: 2,
-    throwRange: 6,
     throwDie: 4,
+    throwLightRange: 4,
+    throwMediumRange: 2,
+    throwHeavyRange: 1,
+    throwLightMin: 2,
+    throwMediumMin: 2,
+    throwHeavyMin: 1,
+    throwHeavyCount: 2,
+    throwHeavySides: 6,
+    throwMediumSides: 8,
+    throwLandingSides: 6,
     jumpBase: 2,
     stuntDie: 6,
     stuntAreaDie: 4,

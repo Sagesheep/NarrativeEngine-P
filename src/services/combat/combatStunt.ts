@@ -1,5 +1,5 @@
 import {
-    ABILITY_KEYS, applyAction, checkStunt, distance, hasLineOfSight, STUNT_DIFFICULTIES, STUNT_OUTCOMES, stuntArea, stuntAvailable, terrainOf, tooLargeToShove,
+    ABILITY_KEYS, applyAction, checkStunt, distance, hasLineOfSight, STUNT_DIFFICULTIES, STUNT_OUTCOMES, stuntArea, stuntAvailable, surfaceOf, terrainOf, tooLargeToShove,
 } from '@narrative/engine';
 import type { AbilityKey } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
@@ -139,7 +139,7 @@ const TERRAIN_KINDS: ReadonlyArray<['cover' | 'difficult' | 'hazard', string]> =
 ];
 
 function terrainLines(state: CombatState, actor: Combatant): string[] {
-    const grid = state.grid;
+    const grid = surfaceOf(state);
     const from = actor.position;
     if (!grid || !from) return [];
     const lines: string[] = [];

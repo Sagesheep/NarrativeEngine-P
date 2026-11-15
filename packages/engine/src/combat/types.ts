@@ -90,7 +90,7 @@ export type TurnState = { actorId: string; moveLeft: number; actionUsed: boolean
 export type FormId = 'touch' | 'projectile' | 'self' | 'line' | 'cone' | 'burst' | 'dash';
 
 export type EffectId = 'damage' | 'heal' | 'shield' | 'push' | 'pull' | 'stun' | 'slow'
-    | 'haste' | 'blink' | 'swap' | 'barrier' | 'drain' | 'summon' | 'weapon' | 'guard' | 'sprint' | 'leap' | 'rally';
+    | 'haste' | 'blink' | 'swap' | 'barrier' | 'drain' | 'summon' | 'weapon' | 'guard' | 'sprint' | 'leap' | 'rally' | 'hurl';
 
 export type AugmentId = 'amplify' | 'widen' | 'extend' | 'pierce' | 'split' | 'quicken';
 
@@ -142,6 +142,22 @@ export type CombatCondition = {
 
 export type Barrier = { pos: Pos; expiresRound: number; sourceId: string };
 
+export type TerrainEdit = { pos: Pos; tile: Tile };
+
+export type CarriedItem = { id: string; name: string; count: number; sides: number; damageType?: string; equipped?: boolean };
+
+export type WeaponFields = { damage: DamageSpec; weaponName?: string; range?: AttackRange };
+
+export type FieldItem = CarriedItem & { pos: Pos; ownerId: string; armed?: WeaponFields };
+
+export type ThrowPayload =
+    | { kind: 'creature'; id: string }
+    | { kind: 'cover'; at: Pos }
+    | { kind: 'item'; itemId: string }
+    | { kind: 'hand' };
+
+export type Speech = 'speaks' | 'sounds' | 'silent';
+
 export type Combatant = {
     id: string;
     name: string;
@@ -153,6 +169,7 @@ export type Combatant = {
     species?: string;
     look?: string;
     manner?: string;
+    speech?: Speech;
     weaponName?: string;
     abilities: AbilityScores;
     maxHp: number;
@@ -176,6 +193,7 @@ export type Combatant = {
     proficiency?: number;
     castingAbility?: AbilityKey;
     abilityDamage?: Omit<DamageSpec, 'type'>;
+    carried?: CarriedItem[];
     summonerId?: string;
     summonSeq?: number;
     expiresRound?: number;
@@ -245,9 +263,12 @@ export type CombatState = {
     outcome: null | CombatOutcome;
     grid?: Grid;
     mapSeed?: number;
+    mapVersion?: number;
     turn?: TurnState;
     turnCount?: number;
     barriers?: Barrier[];
+    terrainEdits?: TerrainEdit[];
+    fieldItems?: FieldItem[];
     nextSummon?: number;
     maxSummons?: number;
     partyControl?: PartyControl;
@@ -264,7 +285,7 @@ export type CombatAction =
     | { type: 'defend'; actorId: string }
     | { type: 'move'; actorId: string; to: Pos }
     | { type: 'end_turn'; actorId: string }
-    | { type: 'use_ability'; actorId: string; abilityId: string; aim?: Pos | null }
+    | { type: 'use_ability'; actorId: string; abilityId: string; aim?: Pos | null; payload?: ThrowPayload }
     | { type: 'flee'; actorId: string }
     | { type: 'abandon'; actorId: string }
     | { type: 'parley'; actorId: string; intent: ParleyIntent; rating: ParleyRating; speakerId?: string; attemptId?: string }
@@ -299,6 +320,7 @@ export type CombatantSpec = {
     species?: string;
     look?: string;
     manner?: string;
+    speech?: Speech;
     range?: AttackRange;
     template?: TemplateOverlay;
 };
@@ -319,6 +341,7 @@ export type CombatSpec = {
     jitterRange?: number;
     map?: MapSpec;
     mapSeed?: number;
+    mapVersion?: number;
     maxSummons?: number;
     partyControl?: PartyControl;
     defeatMode?: DefeatMode;
@@ -344,4 +367,14 @@ export type PcCombatantInput = {
     look?: string;
     kit?: GlyphAbility[];
     mpCurrent?: number;
+    items?: PcCarriedInput[];
+};
+
+export type PcCarriedInput = {
+    id: string;
+    name: string;
+    quality?: WeaponQuality;
+    damageType?: string;
+    equipped?: boolean;
+    throwable?: boolean;
 };

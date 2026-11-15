@@ -16,10 +16,8 @@ export const BUILTIN_JUMP_ID = 'builtin:jump';
 export const BUILTIN_THROW_ID = 'builtin:throw';
 export const BUILTIN_HELP_ID = 'builtin:help';
 export const BUILTIN_STUNT_ID = 'builtin:stunt';
-export const BUILTIN_EFFECT_IDS: readonly EffectId[] = ['weapon', 'guard', 'sprint', 'leap', 'rally'];
+export const BUILTIN_EFFECT_IDS: readonly EffectId[] = ['weapon', 'guard', 'sprint', 'leap', 'rally', 'hurl'];
 export const THROWN_WEAPON_NAME = 'something snatched up';
-
-export type ShotOverride = { range: AttackRange; limit: number };
 
 export type AttackCheck = {
     ok: boolean;
@@ -42,10 +40,10 @@ export function hostileAdjacent(state: CombatState, actor: Combatant, at: Pos): 
     return Object.values(state.combatants).some(o => o.id !== actor.id && canTarget(actor, o) && !!o.position && distance(o.position, at) <= 1);
 }
 
-export function checkAttack(state: CombatState, actorId: string, targetId: string, from?: Pos, shot?: ShotOverride): AttackCheck {
+export function checkAttack(state: CombatState, actorId: string, targetId: string, from?: Pos): AttackCheck {
     const actor = state.combatants[actorId];
     const target = state.combatants[targetId];
-    const range = shot?.range ?? (actor ? rangeOf(actor) : 'close');
+    const range = actor ? rangeOf(actor) : 'close';
     if (!actor || !target || !canTarget(actor, target)) return { ok: false, reason: 'invalid_target', range, distance: 0, cover: 0, disadvantage: false };
     const grid = terrainOf(state);
     const at = from ?? actor.position;
@@ -56,7 +54,7 @@ export function checkAttack(state: CombatState, actorId: string, targetId: strin
             ? { ok: true, range, distance: dist, cover: 0, disadvantage: false }
             : { ok: false, reason: 'out_of_range', range, distance: dist, cover: 0, disadvantage: false };
     }
-    const limit = shot?.limit ?? (range === 'reach' ? REACH_DISTANCE : RANGED_DISTANCE);
+    const limit = range === 'reach' ? REACH_DISTANCE : RANGED_DISTANCE;
     if (dist > limit) return { ok: false, reason: 'out_of_range', range, distance: dist, cover: 0, disadvantage: false };
     if (!hasLineOfSight(grid, at, target.position)) return { ok: false, reason: 'no_line_of_sight', range, distance: dist, cover: 0, disadvantage: false };
     if (range === 'reach') return { ok: true, range, distance: dist, cover: 0, disadvantage: false };
@@ -85,19 +83,10 @@ export function builtinStats(c: Pick<Combatant, 'abilities' | 'proficiency' | 't
 export type ImprovisedWeapon = { attackBonus: number; damage: DamageSpec };
 
 export function throwProfile(c: Pick<Combatant, 'abilities' | 'proficiency' | 'tier'>): ImprovisedWeapon {
-    const mod = strengthMod(c);
     return {
-        attackBonus: proficiencyOf(c) + mod,
-        damage: { count: 1, sides: N.throwDie, bonus: mod, type: 'bludgeoning' },
+        attackBonus: proficiencyOf(c) + strengthMod(c),
+        damage: { count: 1, sides: N.throwDie, bonus: 0, type: 'bludgeoning' },
     };
-}
-
-export function throwShot(): ShotOverride {
-    return { range: 'ranged', limit: N.throwRange };
-}
-
-export function shotOf(ability: GlyphAbility): ShotOverride | undefined {
-    return ability.builtin?.kind === 'throw' ? throwShot() : undefined;
 }
 
 export function leapRange(c: Pick<Combatant, 'abilities'>): number {
@@ -181,10 +170,10 @@ export function builtinThrow(): GlyphAbility {
     return {
         id: BUILTIN_THROW_ID,
         name: 'Throw',
-        form: { id: 'projectile', augments: [] },
-        effects: [{ id: 'weapon', augments: [] }],
+        form: { id: 'touch', augments: [] },
+        effects: [{ id: 'hurl', augments: [] }, { id: 'weapon', augments: [] }],
         source: 'preset',
-        builtin: { kind: 'throw', slot: 'action', range: 'ranged' },
+        builtin: { kind: 'throw', slot: 'action' },
     };
 }
 

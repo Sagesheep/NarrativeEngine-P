@@ -15,6 +15,8 @@ import { Backdrop } from '../primitives/Backdrop';
 import { HatchPattern, TerrainKeyItems, TileLayer } from './CombatBoard';
 import { useTerrainNames } from './useTerrainNames';
 import { TILE_SIZE, sideColor, tileCenter } from './combatVisuals';
+import { PixelPropImage } from './pixelLayers';
+import { propRow } from './pixelMap';
 import { initialTileArt } from './tileAvailability';
 import { useTileArt } from './useTileArt';
 
@@ -32,12 +34,13 @@ function MapPreview({ map, mapSeed, roster }: { map: CombatResolvedMap; mapSeed:
     const grid = useMemo(() => buildMapFromSeed(map, mapSeed), [map, mapSeed]);
     const names = useTerrainNames(grid);
     const [tileArtOn] = useState<boolean>(() => initialTileArt());
-    const artReady = useTileArt(grid, map.place, mapSeed);
-    const art = tileArtOn ? artReady : null;
     const spawns = useMemo(
         () => placeCombatants(grid, [{ id: 'pc', side: 'player' as const }, ...roster.map((c, i) => ({ id: `c${i}`, side: c.side }))]),
         [grid, roster],
     );
+    const spawnSpots = useMemo<ReadonlySet<string>>(() => new Set(Object.values(spawns).map(p => `${p.x},${p.y}`)), [spawns]);
+    const artReady = useTileArt(grid, map.place, mapSeed, spawnSpots);
+    const art = tileArtOn ? artReady : null;
     const sides = new Map<string, ProposedCombatant['side'] | 'player'>([['pc', 'player'], ...roster.map((c, i) => [`c${i}`, c.side] as const)]);
     return (
         <>
@@ -52,6 +55,13 @@ function MapPreview({ map, mapSeed, roster }: { map: CombatResolvedMap; mapSeed:
         >
             <HatchPattern id={patternId} />
             <TileLayer grid={grid} patternId={patternId} names={names} art={art} />
+            {art?.pixel && (
+                <g data-testid="combat-preview-props">
+                    {[...art.pixel.props].sort((p, q) => propRow(p) - propRow(q)).map(prop => (
+                        <PixelPropImage key={prop.id} prop={prop} faded={false} onFail={art.onPixelFail} />
+                    ))}
+                </g>
+            )}
             {Object.entries(spawns).map(([id, p]) => {
                 const c = tileCenter(p);
                 return art

@@ -4,7 +4,7 @@ import { buildTierBlock, DEFAULT_JITTER_RANGE, TIER_TABLE } from './tiers';
 import {
     distance, inBounds, isOccupied, pathCost, pathFromSearch, rangeOf, searchMoves, destinations, samePos, sameTeam, terrainOf, tileAt,
 } from './grid';
-import { buildMapFromSeed, openArena, placeCombatants } from './mapBuilder';
+import { MAP_GENERATOR_VERSION, buildMapFromSeed, openArena, placeCombatants } from './mapBuilder';
 import { resolveMapSpec } from './mapSpec';
 import {
     canAttackWith, canTarget, closeDraft, currentActorId, currentTurn, DEFEND_CONDITION, dismissSummon, emit,
@@ -13,6 +13,7 @@ import {
 import type { Draft } from './core';
 import { abilityReadiness, abilitySlot, checkAbility, resolveAbility, resolveStunt } from './glyphs/apply';
 import { checkStunt } from './glyphs/stunt';
+import { normalizeThrowPayload, pickUpItems } from './glyphs/throw';
 import { BUILTIN_DASH_ID, BUILTIN_JUMP_ID, BUILTIN_SHOVE_ID, builtinAttack, builtinDefend, checkAttack, hostileAdjacent } from './glyphs/builtins';
 import type { AimResult } from './glyphs/targeting';
 import {
@@ -193,7 +194,7 @@ export function reachable(state: CombatState, actorId: string): Array<Pos & { co
 
 export function pathTo(state: CombatState, actorId: string, to: Pos): { path: Pos[]; cost: number } | null {
     const actor = state.combatants[actorId];
-    const grid = state.grid;
+    const grid = terrainOf(state);
     if (!actor || !grid || !actor.position || !inBounds(grid, to) || samePos(actor.position, to)) return null;
     if (isOccupied(state, to, actorId)) return null;
     const search = moveSearchFor(state, actorId);
@@ -322,12 +323,13 @@ export function applyAction(state: CombatState, action: CombatAction, options: A
             data: { from, to: dest, path: route.path, cost: route.cost, squares: route.path.length, ...rel },
             text: moveText(state, actor, route.path.length, rel),
         });
+        pickUpItems(draft, self, route.path);
         maybeAutoEnd(draft, actor.id, driven);
         return closeDraft(draft);
     }
     if (action.type === 'use_ability') {
         const aim = action.aim && typeof action.aim.x === 'number' && typeof action.aim.y === 'number' ? { x: action.aim.x, y: action.aim.y } : null;
-        const check = checkAbility(state, actor.id, action.abilityId, aim);
+        const check = checkAbility(state, actor.id, action.abilityId, aim, normalizeThrowPayload(action.payload));
         if (!check.ok || !check.ability || !check.aim) return rejection(state, action, check.reason ?? 'the ability cannot be used');
         return runAbility(state, actor.id, check.ability, check.aim, driven);
     }
@@ -674,6 +676,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
             ...(c.species ? { species: c.species } : {}),
             ...(c.look ? { look: c.look } : {}),
             ...(c.manner ? { manner: c.manner } : {}),
+            ...(c.speech ? { speech: c.speech } : {}),
             abilities: block.abilities,
             maxHp: Math.max(1, Math.round(maxHp)),
             hp: Math.max(1, Math.round(maxHp)),
@@ -700,7 +703,8 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
         .map(c => c.id);
 
     const mapSeed = Number.isFinite(spec.mapSeed) ? (spec.mapSeed as number) >>> 0 : deriveMapSeed(seed);
-    const grid = spec.map ? buildMapFromSeed(resolveMapSpec(spec.map, { combatants: spec.combatants.length }), mapSeed) : openArena('medium');
+    const mapVersion = Number.isFinite(spec.mapVersion) ? (spec.mapVersion as number) : MAP_GENERATOR_VERSION;
+    const grid = spec.map ? buildMapFromSeed(resolveMapSpec(spec.map, { combatants: spec.combatants.length }), mapSeed, mapVersion) : openArena('medium');
     const positions = placeCombatants(grid, Object.values(combatants).map(c => ({ id: c.id, side: c.side })));
     for (const [id, pos] of Object.entries(positions)) combatants[id].position = pos;
     for (const c of Object.values(combatants)) c.startHp = c.hp;
@@ -717,6 +721,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
         outcome: null,
         grid,
         mapSeed,
+        ...(spec.map && mapVersion !== 1 ? { mapVersion } : {}),
         turnCount: 0,
         ...(Number.isFinite(spec.maxSummons) ? { maxSummons: Math.max(0, Math.floor(spec.maxSummons as number)) } : {}),
         ...(spec.partyControl ? { partyControl: spec.partyControl } : {}),

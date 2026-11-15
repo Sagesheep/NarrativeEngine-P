@@ -1,5 +1,5 @@
 import {
-    applyAction, checkParley, currentTurn, lostHalf, onlySummonedEnemies, PARLEY_INTENTS, PARLEY_RATINGS, playerCharacterOf,
+    applyAction, canSpeak, checkParley, currentTurn, lostHalf, onlySummonedEnemies, PARLEY_INTENTS, PARLEY_RATINGS, playerCharacterOf, speechOf,
 } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
 import { debouncedSaveCampaignState } from '../../store/slices/campaignSlice';
@@ -31,7 +31,7 @@ export const PARLEY_RATING_INSTRUCTION = [
     'Rate the attempt from the enemies\' point of view: their goals, their nature and how the fight is going for them.',
     'Refusing is the default. Flattery, insistence, repetition and bare assertion do not improve a rating.',
     'Rate easy only if the enemies are losing badly or are being offered what they actually want; rate hopeless for mindless, fanatical or cornered foes and for demands that cost them everything.',
-    'A successful surrender demand makes every enemy still standing yield, elites and bosses included, so rate it with that in mind.',
+    'A successful surrender demand makes every enemy still standing who can speak yield, elites and bosses included, so rate it with that in mind. Enemies marked as unable to speak are not part of the exchange: do not rate for them and never choose one as the speaker.',
     'Do not decide the outcome and do not write the reply yet.',
 ].join(' ');
 
@@ -163,6 +163,7 @@ function enemyLines(state: CombatState): string[] {
                 c.species ? `species: ${c.species}` : '',
                 c.look ? `looks: ${c.look.slice(0, 120)}` : '',
                 c.summonerId ? 'summoned creature' : '',
+                speechOf(c) === 'speaks' ? '' : 'cannot speak or be reasoned with; not rated',
                 c.status === 'up' ? '' : c.status === 'surrendered' ? 'has yielded' : c.status === 'fled' ? 'has fled' : 'down',
             ].filter(Boolean);
             return `- ${c.name}: ${bits.join('; ')}`;
@@ -245,7 +246,8 @@ function ratingMessages(session: CombatSession, words: string, attemptId: string
 }
 
 export async function rateParley(session: CombatSession, pending: PendingParley, deps: ParleyDeps = defaultParleyDeps): Promise<ParleyRated> {
-    if (onlySummonedEnemies(session.state)) return { intent: 'other', rating: 'hopeless', source: 'engine' };
+    const standing = Object.values(session.state.combatants).filter(c => c.side === 'enemy' && c.status === 'up');
+    if (onlySummonedEnemies(session.state) || !standing.some(canSpeak)) return { intent: 'other', rating: 'hopeless', source: 'engine' };
     installAbortHook();
     const store = useAppStore.getState();
     const story = store.getActiveStoryEndpoint();
@@ -281,6 +283,13 @@ export function canParley(session: CombatSession | null, busy: boolean): boolean
     const actorId = playerActorId(session.state);
     if (!actorId) return false;
     return checkParley(session.state, actorId, currentTurn(session.state)).ok;
+}
+
+export function parleyBlockedBySpeech(session: CombatSession | null, busy: boolean): boolean {
+    if (!session || busy || running || session.parley || session.state.outcome) return false;
+    const actorId = playerActorId(session.state);
+    if (!actorId) return false;
+    return checkParley(session.state, actorId, currentTurn(session.state)).reason === 'no_speaker';
 }
 
 export function isParleyRunning(): boolean {

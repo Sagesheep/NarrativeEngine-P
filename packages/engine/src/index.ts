@@ -58,7 +58,7 @@ export {
     TILE_KINDS, DEFAULT_SPEED, REACH_DISTANCE, RANGED_DISTANCE, HAZARD_AVOID_PENALTY, HALF_COVER_BONUS, THREE_QUARTER_COVER_BONUS,
     inBounds, tileAt, isWalkable, isWalkableTile, distance, samePos, canStep, traceLine, hasLineOfSight, coverBetween,
     speedOf, rangeOf, sameTeam,
-    MAP_SIZES, SPAWN_COLUMNS, DEFAULT_HAZARD_TYPE,
+    MAP_SIZES, MAP_GENERATOR_VERSION, SPAWN_COLUMNS, DEFAULT_HAZARD_TYPE,
     normalizeMapSize, isFullyConnected, openArena, buildTerrain, generateMap, placeCombatants, buildGrid,
     buildMapFromSeed, isValidGrid, ensureGrid, withMapLabels, hasHazardFreeRoute, isPlayableMap,
     HAZARD_KINDS, MAP_SIZE_KEYS, LABEL_MAX, AREA_KEYWORDS, HAZARD_KEYWORDS, KEYWORD_COUNT,
@@ -72,6 +72,11 @@ export {
     earlierParleyFailures, parleyDc,
     STUNT_OUTCOMES, STUNT_DIFFICULTIES, STUNT_DC, STUNT_FLOORS, STUNT_MAX_PARTS, STUNT_DEFAULT_DAMAGE_TYPE, STUNT_DAMAGE_TYPE_MAX, STUNT_NAME,
     difficultyRank, stuntDifficulty, stuntAvailable, stuntArea, checkStunt,
+    previewPush, previewPushes, previewAbilityPushes, strikesOnEntry, blockerLabel, SHOVE_NO_ROOM,
+    surfaceOf, recoverFieldItems, fieldItemData,
+    THROW_REASONS, throwWeight, throwRangeOf, normalizeThrowPayload, samePayload, standingAt, payloadInfo, nearestFree, previewThrow,
+    payloadAt, payloadChoices, payloadTiles, legalLandings, throwReason, weaponFieldsOf, bareHands, applyWeaponFields, pickUpItems,
+    SPEECH_VALUES, SOUNDS_KEYWORDS, SILENT_KEYWORDS, SPEAKS_KEYWORDS, normalizeSpeech, inferSpeech, speechOf, canSpeak,
 } from './combat/index';
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget,
@@ -88,6 +93,9 @@ export type {
     PartyControl, DefeatMode, Team, ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord, MoraleBook, CombatEnding,
     FleeReason, FleeCheck, ParleyReason,
     StuntCheckProfile, StuntOutcome, StuntDifficulty, StuntPart, StuntSpec, StuntStep, StuntPlan, StuntCheck,
+    PushKind, PushBlocker, PushBlockerKind, PushPreview, PushOptions, Speech,
+    TerrainEdit, CarriedItem, FieldItem, WeaponFields, ThrowPayload, PcCarriedInput,
+    ThrowWeight, TerrainChange, ThrowPlan, ThrowPreview, PayloadInfo, PayloadChoice,
 } from './combat/index';
 
 export { resolveLootDrop } from './loot/lootEngine';

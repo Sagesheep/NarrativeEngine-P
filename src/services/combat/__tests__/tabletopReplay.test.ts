@@ -77,9 +77,14 @@ describe('tabletop actions replay and narrate (5B-2)', () => {
         expect(held.events.map(e => e.type)).toEqual(['ability', 'save']);
         same(held);
         expect(lines(held.events, held.state)).toEqual(['Kira shoves Thug, who holds their ground.']);
-        const walled = play(board({ grid: withTiles([[at(7, 5), 'wall']]) }), use('builtin:shove', foeAt), ev => ev.some(e => e.type === 'pushed'));
-        expect(lines(walled.events, walled.state)).toEqual(['Kira shoves Thug, who has nowhere to go.']);
+        const walled = play(board({ grid: withTiles([[at(8, 5), 'wall']]) }), use('builtin:shove', foeAt), ev => ev.some(e => e.type === 'pushed'));
+        expect(walled.events[2].data).toMatchObject({ squares: 1, stopped: { kind: 'wall' } });
+        expect(walled.events[2].text).toBe('Thug is pushed back 1 square, stopped by the wall.');
+        expect(lines(walled.events, walled.state)).toEqual(['Kira shoves Thug back.']);
         same(walled);
+        const pinned = applyAction(board({ grid: withTiles([[at(7, 5), 'wall']]) }), use('builtin:shove', foeAt));
+        expect(pinned.events.map(e => e.type)).toEqual(['rejected']);
+        expect(pinned.events[0].text).toContain('no room to shove them');
     });
 
     it('Jump: replays the leap and names the terrain jumped over when there is one', () => {
@@ -93,15 +98,16 @@ describe('tabletop actions replay and narrate (5B-2)', () => {
         same(plain);
     });
 
-    it('Throw: replays the attack and narrates it as something snatched up', () => {
+    it('Throw: replays the hit and the miss of whatever is at hand and narrates both', () => {
         const far = board({ foe: { position: at(9, 5) } });
-        const hit = play(far, use('builtin:throw', at(9, 5)), ev => ev.some(e => e.type === 'attack' && e.data.hit === true));
-        expect(hit.events.map(e => e.type)).toEqual(['ability', 'attack']);
+        const hand: CombatAction = { type: 'use_ability', actorId: 'pc', abilityId: 'builtin:throw', aim: at(9, 5), payload: { kind: 'hand' } };
+        const hit = play(far, hand, ev => ev.some(e => e.type === 'thrown' && e.data.hit === true));
+        expect(hit.events.map(e => e.type)).toEqual(['ability', 'thrown']);
         same(hit);
-        expect(lines(hit.events, hit.state)[0]).toMatch(/^Kira .* Thug.* with something snatched up \(bludgeoning\)\.$/);
-        const miss = play(far, use('builtin:throw', at(9, 5)), ev => ev.some(e => e.type === 'attack' && e.data.hit === false));
+        expect(lines(hit.events, hit.state)[0]).toMatch(/^Kira hurls something snatched up at Thug, /);
+        const miss = play(far, hand, ev => ev.some(e => e.type === 'thrown' && e.data.hit === false));
         same(miss);
-        expect(lines(miss.events, miss.state)[0]).toMatch(/misses|turned aside/);
+        expect(lines(miss.events, miss.state)[0]).toBe('Kira hurls something snatched up at Thug and misses; it clatters down beside Thug.');
     });
 
     it('Help: replays a standing-up and a shake-off, and narrates both', () => {

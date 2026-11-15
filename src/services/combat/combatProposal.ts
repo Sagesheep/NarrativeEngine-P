@@ -1,4 +1,4 @@
-import { normalizeMapSpec } from '@narrative/engine';
+import { normalizeMapSpec, normalizeSpeech } from '@narrative/engine';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import {
     COMBAT_ARCHETYPES, COMBAT_MANNER_MAX, COMBAT_TIERS, MAX_PROPOSED_COMBATANTS, PROPOSED_ATTACK_STYLES, PROPOSED_COMBATANT_SIDES,
@@ -106,6 +106,7 @@ export function parseCombatArgs(
         const species = cleanText(e.species, NAME_MAX) || undefined;
         const look = cleanText(e.look, TEXT_MAX) || undefined;
         const manner = cleanText(e.manner, COMBAT_MANNER_MAX) || undefined;
+        const speech = normalizeSpeech(e.speech);
         const attack = typeof e.attack === 'string' && (PROPOSED_ATTACK_STYLES as readonly string[]).includes(e.attack.trim().toLowerCase())
             ? e.attack.trim().toLowerCase() as ProposedAttackStyle
             : undefined;
@@ -119,6 +120,7 @@ export function parseCombatArgs(
             ...(npcId ? { npcId } : {}),
             ...(look ? { look } : {}),
             ...(manner ? { manner } : {}),
+            ...(speech ? { speech } : {}),
             ...(attack ? { attack } : {}),
         };
     });

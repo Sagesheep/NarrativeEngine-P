@@ -52,7 +52,7 @@ describe('built-in actions are chains through the one pipeline (5B-2)', () => {
         expect(chain(builtinDash())).toBe('self+sprint');
         expect(chain(builtinShove())).toBe('touch+push');
         expect(chain(builtinJump())).toBe('self+leap');
-        expect(chain(builtinThrow())).toBe('projectile+weapon');
+        expect(chain(builtinThrow())).toBe('touch+hurl+weapon');
         expect(chain(builtinHelp())).toBe('touch+rally');
         expect([builtinDash(), builtinShove(), builtinJump(), builtinThrow(), builtinHelp()].map(a => a.builtin?.slot)).toEqual(['action', 'bonus', 'bonus', 'action', 'action']);
         for (const a of [builtinDash(), builtinShove(), builtinJump(), builtinThrow(), builtinHelp()]) expect(a.builtin?.events).toBeUndefined();
@@ -80,9 +80,9 @@ describe('built-in actions are chains through the one pipeline (5B-2)', () => {
         expect(describeAbility(builtinJump(), stats, p)).toContain('within 5 squares');
         expect(describeAbility(builtinJump())).toContain('2 + its STR modifier squares (at least 2)');
         const thrown = describeAbility(builtinThrow(), stats, p);
-        expect(thrown).toContain('within 6 squares');
-        expect(thrown).toContain('Attack roll +5');
-        expect(thrown).toContain('1d4+3 bludgeoning');
+        expect(thrown).toContain('within 7 squares for something light, 5 for a cover object and 4 for a creature');
+        expect(thrown).toContain('attack roll +5');
+        expect(thrown).toContain('2d6+3 for a creature, 1d8+3 for a cover object');
         expect(describeAbility(builtinHelp())).toContain('stands a downed ally up with 1 HP');
     });
 });
@@ -167,16 +167,19 @@ describe('Shove', () => {
     it('is blocked by a wall, a cover square or a creature, and says so', () => {
         for (const blocker of ['wall', 'cover'] as const) {
             const grid = gridWith([[at(4, 2), blocker]]);
-            const r = act(seeded(arena([pc(), foe('f', at(3, 2))], { grid }), failSave), BUILTIN_SHOVE_ID, at(3, 2));
-            expect(kinds(r.events)).toEqual(['ability', 'save', 'pushed']);
-            expect(r.events[2].data).toMatchObject({ squares: 0, moves: [], builtin: 'shove' });
-            expect(r.state.combatants.f.position).toEqual(at(3, 2));
+            const s = seeded(arena([pc(), foe('f', at(3, 2))], { grid }), failSave);
+            const r = act(s, BUILTIN_SHOVE_ID, at(3, 2));
+            expect(kinds(r.events)).toEqual(['rejected']);
+            expect(r.events[0].text).toContain('no room to shove them');
+            expect(checkAbility(s, 'pc', BUILTIN_SHOVE_ID).reason).toBe('no room to shove them');
         }
         const wall = act(seeded(arena([pc(), foe('f', at(3, 2))], { grid: gridWith([[at(5, 2), 'wall']]) }), failSave), BUILTIN_SHOVE_ID, at(3, 2));
         expect(wall.events[2].data.squares).toBe(1);
+        expect(wall.events[2].data.stopped).toEqual({ kind: 'wall' });
+        expect(wall.events[2].text).toContain('stopped by the wall');
         expect(wall.state.combatants.f.position).toEqual(at(4, 2));
-        const crowd = act(seeded(arena([pc(), foe('f', at(3, 2)), foe('g', at(4, 2))]), failSave), BUILTIN_SHOVE_ID, at(3, 2));
-        expect(crowd.events[2].data.squares).toBe(0);
+        const crowd = seeded(arena([pc(), foe('f', at(3, 2)), foe('g', at(4, 2)), foe('h', at(4, 1)), foe('i', at(4, 3))]), failSave);
+        expect(act(crowd, BUILTIN_SHOVE_ID, at(3, 2)).events[0].text).toContain('no room to shove them');
     });
 
     it('applies a hazard entered on the way, and again on landing in it', () => {
@@ -300,15 +303,15 @@ describe('Jump', () => {
 describe('Throw', () => {
     const hit = cursorFor(SEED, r => r[0] >= 15 && r[0] <= 19, 1);
 
-    it('is an attack with whatever is at hand: 1d4 + STR bludgeoning, range 6, costing the action', () => {
+    it('throws whatever is at hand: 1d4 with no STR bonus, range 4 + STR, costing the action', () => {
         const s = seeded(arena([pc({ abilities: strong, weaponName: 'Glaive', range: 'reach' }), foe('f', at(7, 2))]), hit);
-        const r = act(s, BUILTIN_THROW_ID, at(7, 2));
-        expect(kinds(r.events)).toEqual(['ability', 'attack']);
-        expect(r.events[0].data).toMatchObject({ abilityId: BUILTIN_THROW_ID, slot: 'action', cost: 0, form: 'projectile', effects: ['weapon'] });
-        expect(r.events[1].data).toMatchObject({ hit: true, range: 'ranged', weapon: THROWN_WEAPON_NAME, damageType: 'bludgeoning' });
+        const r = applyAction(s, { type: 'use_ability', actorId: 'pc', abilityId: BUILTIN_THROW_ID, aim: at(7, 2), payload: { kind: 'hand' } });
+        expect(kinds(r.events)).toEqual(['ability', 'thrown']);
+        expect(r.events[0].data).toMatchObject({ abilityId: BUILTIN_THROW_ID, slot: 'action', cost: 0, form: 'touch', effects: ['hurl', 'weapon'] });
+        expect(r.events[1].data).toMatchObject({ hit: true, damageType: 'bludgeoning', payload: { kind: 'hand', name: THROWN_WEAPON_NAME } });
         const damage = r.events[1].data.damage as number;
-        expect(damage).toBeGreaterThanOrEqual(4);
-        expect(damage).toBeLessThanOrEqual(7);
+        expect(damage).toBeGreaterThanOrEqual(1);
+        expect(damage).toBeLessThanOrEqual(8);
         expect(r.events[1].data.total).toBe((r.events[1].data.natural as number) + throwProfile(s.combatants.pc).attackBonus);
         expect(throwProfile(s.combatants.pc).attackBonus).toBe(5);
         expect(r.state.combatants.f.hp).toBe(30 - damage);
@@ -317,33 +320,13 @@ describe('Throw', () => {
         expect(r.state.combatants.pc.mp).toBe(s.combatants.pc.mp);
     });
 
-    it('stops at 6 squares and at a wall', () => {
-        const near = arena([pc(), foe('f', at(8, 2))]);
-        expect(checkAbility(near, 'pc', BUILTIN_THROW_ID, at(8, 2)).ok).toBe(true);
-        const far = arena([pc(), foe('f', at(9, 2))]);
-        expect(checkAbility(far, 'pc', BUILTIN_THROW_ID, at(9, 2)).reason).toBe('out of range');
-        expect(legalAims(far, 'pc', builtinThrow())).toEqual([]);
-        const walled = arena([pc(), foe('f', at(6, 2))], { grid: gridWith([], [at(4, 2)]) });
-        expect(checkAbility(walled, 'pc', BUILTIN_THROW_ID, at(6, 2)).reason).toBe('no line of sight');
-        expect(checkAbility(arena([pc(), foe('f', at(3, 2), { side: 'ally' })]), 'pc', BUILTIN_THROW_ID, at(3, 2)).reason).toBe('no target there');
-    });
-
-    it('is harder to land behind cover, and the attack reports the cover', () => {
-        const nine = cursorFor(SEED, r => r[0] === 9, 1);
-        const open = act(seeded(arena([pc(), foe('f', at(7, 2))]), nine), BUILTIN_THROW_ID, at(7, 2));
-        expect(open.events[1].data).toMatchObject({ hit: true, cover: 0 });
-        const covered = act(seeded(arena([pc(), foe('f', at(7, 2))], { grid: gridWith([[at(5, 2), 'cover']]) }), nine), BUILTIN_THROW_ID, at(7, 2));
-        expect(covered.events[1].data).toMatchObject({ hit: false, cover: 2, ac: 12, weapon: THROWN_WEAPON_NAME });
-        expect(covered.state.combatants.f.hp).toBe(30);
-    });
-
-    it('takes disadvantage with a hostile beside the thrower, and a critical doubles the dice', () => {
-        const crowded = seeded(arena([pc(), foe('f', at(7, 2)), foe('g', at(3, 2))]), cursorFor(SEED, r => r[0] >= 10 && r[1] >= 10, 2));
-        const r = act(crowded, BUILTIN_THROW_ID, at(7, 2));
-        expect(r.events[1].data).toMatchObject({ adjacentShot: true, disadvantage: true });
-        const crit = act(seeded(arena([pc(), foe('f', at(7, 2))]), cursorFor(SEED, x => x[0] === 20, 1)), BUILTIN_THROW_ID, at(7, 2));
-        expect(crit.events[1].data).toMatchObject({ hit: true, crit: true });
-        expect(crit.events[1].data.damage).toBeGreaterThanOrEqual(2);
+    it('defaults to whatever is at hand when no payload is sent, and needs a landing square', () => {
+        const s = arena([pc(), foe('f', at(5, 2))]);
+        expect(checkAbility(s, 'pc', BUILTIN_THROW_ID, at(5, 2)).ok).toBe(true);
+        expect(checkAbility(s, 'pc', BUILTIN_THROW_ID, at(2, 2)).reason).toBe('aim at another square');
+        expect(checkAbility(s, 'pc', BUILTIN_THROW_ID).ok).toBe(true);
+        expect(legalAims(s, 'pc', builtinThrow())).toEqual([]);
+        expect(legalAims(s, 'pc', builtinThrow(), { kind: 'hand' }).length).toBeGreaterThan(0);
     });
 
     it('is refused once the action is spent', () => {
@@ -532,6 +515,6 @@ describe('action economy across the new actions', () => {
         expect(first).toBe(run());
         expect(first).toContain('"type":"hazard"');
         expect(first).toContain('"kind":"leap"');
-        expect(first).toContain('"type":"attack"');
+        expect(first).toContain('"type":"thrown"');
     });
 });

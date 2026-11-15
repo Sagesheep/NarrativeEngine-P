@@ -3,7 +3,7 @@ import { PC_POINT_BUY } from './pointBuy';
 import { deriveSheet } from './sheet';
 import { castingAbilityOf, deriveMaxMp } from './glyphs/numbers';
 import { DEFAULT_DAMAGE_TYPE } from './tiers';
-import type { Combatant, DamageSpec, PcCombatantInput, WeaponQuality } from './types';
+import type { CarriedItem, Combatant, DamageSpec, PcCombatantInput, WeaponQuality } from './types';
 
 export const PC_COMBATANT_ID = 'pc';
 
@@ -19,14 +19,43 @@ export const UNARMED_DIE = { count: 1, sides: 4 };
 
 export const FALLBACK_WEAPON_DIE = 6;
 
+function dieFor(quality: WeaponQuality | undefined, defaultWeaponDie: number | undefined): { count: number; sides: number } {
+    if (quality && WEAPON_QUALITY_DICE[quality]) return WEAPON_QUALITY_DICE[quality];
+    const sides = Number.isFinite(defaultWeaponDie) && (defaultWeaponDie as number) >= 2
+        ? Math.floor(defaultWeaponDie as number)
+        : FALLBACK_WEAPON_DIE;
+    return { count: 1, sides };
+}
+
 function weaponDie(input: PcCombatantInput): { count: number; sides: number } {
     const weapon = input.weapon;
     if (!weapon) return UNARMED_DIE;
-    if (weapon.quality && WEAPON_QUALITY_DICE[weapon.quality]) return WEAPON_QUALITY_DICE[weapon.quality];
-    const sides = Number.isFinite(input.defaultWeaponDie) && (input.defaultWeaponDie as number) >= 2
-        ? Math.floor(input.defaultWeaponDie as number)
-        : FALLBACK_WEAPON_DIE;
-    return { count: 1, sides };
+    return dieFor(weapon.quality, input.defaultWeaponDie);
+}
+
+export const MAX_CARRIED_ITEMS = 12;
+export const CARRIED_NAME_MAX = 60;
+export const THROWABLE_DIE = 4;
+
+function carriedOf(input: PcCombatantInput): CarriedItem[] {
+    const seen = new Set<string>();
+    const out: CarriedItem[] = [];
+    for (const item of input.items ?? []) {
+        const name = typeof item?.name === 'string' ? item.name.replace(/\s+/g, ' ').trim().slice(0, CARRIED_NAME_MAX) : '';
+        if (!name || typeof item.id !== 'string' || seen.has(item.id)) continue;
+        seen.add(item.id);
+        const die = item.throwable ? { count: 1, sides: THROWABLE_DIE } : dieFor(item.quality, input.defaultWeaponDie);
+        out.push({
+            id: item.id,
+            name,
+            count: die.count,
+            sides: die.sides,
+            ...(item.damageType?.trim() ? { damageType: item.damageType.trim() } : {}),
+            ...(item.equipped ? { equipped: true } : {}),
+        });
+        if (out.length >= MAX_CARRIED_ITEMS) break;
+    }
+    return out;
 }
 
 export function buildPcCombatant(input: PcCombatantInput): Combatant {
@@ -53,6 +82,7 @@ export function buildPcCombatant(input: PcCombatantInput): Combatant {
             castingAbility: castingAbilityOf(input.sheet),
         }
         : {};
+    const carried = carriedOf(input);
     return {
         id: input.id ?? PC_COMBATANT_ID,
         name: input.name.trim() || 'You',
@@ -72,6 +102,7 @@ export function buildPcCombatant(input: PcCombatantInput): Combatant {
         status: 'up',
         conditions: [],
         range: input.weapon?.range ?? 'close',
+        ...(carried.length > 0 ? { carried } : {}),
         ...casting,
     };
 }

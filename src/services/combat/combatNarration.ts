@@ -1,4 +1,4 @@
-import { currentActorId } from '@narrative/engine';
+import { currentActorId, speechOf, surfaceOf } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
 import { debouncedSaveCampaignState } from '../../store/slices/campaignSlice';
 import { buildPayload, sendMessage } from '../chatEngine';
@@ -20,12 +20,14 @@ export type BeatDirectiveOptions = {
     ending?: boolean;
     setPiece?: boolean;
     flourish?: boolean;
+    nonSpeakers?: boolean;
 };
 
 const LOCKED_RULE = 'Locked: every listed event happens, in the listed order, with the listed result. Add no other attacks, hits, misses, wounds that would matter, deaths, falls, escapes, surrenders, arrivals or changes of position. State no numbers. Settle nothing about what happens next.';
 const FREE_RULE = 'Free, and wanted: how each blow looked, sounded and felt; what the fighters shout, mutter, taunt and curse; pain, fear, anger and bravado; the place itself, using the terrain named here; allies and enemies reacting to each other. Describe a wound only as far as the listed condition (hurt, badly hurt, down) supports.';
 const SHAPE_RULE = 'Shape: action first, then the people. Lead each moment with what was done, then the reaction of whoever it was done to and whoever saw it. Give enemies and allies lines of speech in their own voices, from the Voices notes and their character notes. Coarse language is welcome where it fits the speaker and the tone this story has already set.';
-const PC_RULE = 'The player character: describe what they do. Do not invent speech, thoughts or decisions for them.';
+const NON_SPEAKER_RULE = 'Creatures marked as animals or as silent in the Voices notes never speak words, curse or reason; give them sound, movement and instinct instead.';
+const PC_RULE ='The player character: describe what they do. Do not invent speech, thoughts or decisions for them.';
 const FLOURISH_RULE = 'Where the player gave their own description under an event, honour its manner and quote any speech in it, but the listed result stands even if the description claims otherwise.';
 const STAY_RULE = 'This reply is a combat beat: no one leaves this place, and you add no hidden comment or movement tag of any kind.';
 const FRESH_RULE ='Freshness: do not reuse an opening, image or insult from the earlier beats of this fight.';
@@ -53,6 +55,7 @@ export function beatDirective(opts: BeatDirectiveOptions = {}): string {
         STAY_RULE,
         FREE_RULE,
         SHAPE_RULE,
+        opts.nonSpeakers ? NON_SPEAKER_RULE : '',
         opts.flourish ? `${PC_RULE} ${FLOURISH_RULE}` : PC_RULE,
         FRESH_RULE,
         TAG_RULE,
@@ -116,17 +119,56 @@ function baseName(name: string): string {
     return name.replace(/\s+\d+$/, '').trim().toLowerCase();
 }
 
+export const ANIMAL_MANNERS: readonly string[] = [
+    'low and circling',
+    'frothing, reckless',
+    'snarling, wary',
+    'skittish, snapping',
+    'hackles raised, stalking',
+    'patient, stalking',
+    'hungry, relentless',
+    'cornered, vicious',
+    'bold, lunging',
+    'whining, but still biting',
+    'lashing out in bursts',
+    'flanking, pack-minded',
+    'wild-eyed, frenzied',
+    'growling, testing',
+    'sullen, coiled',
+    'darting, opportunistic',
+    'territorial, bristling',
+    'ravenous, single-minded',
+];
+
+export const SILENT_MANNERS: readonly string[] = [
+    'relentless, mechanical',
+    'blank, unhurried',
+    'lurching, unstoppable',
+    'slow, implacable',
+    'humming, indifferent',
+    'shapeless, creeping',
+    'rigid, tireless',
+    'jerky, tireless',
+];
+
+function mannerListFor(c: Combatant): readonly string[] {
+    const speech = speechOf(c);
+    if (speech === 'sounds') return ANIMAL_MANNERS;
+    return speech === 'silent' ? SILENT_MANNERS : FIGHT_MANNERS;
+}
+
 export function fallbackManner(state: CombatState, id: string): string {
     const c = state.combatants[id];
     if (!c) return FIGHT_MANNERS[0];
+    const list = mannerListFor(c);
     const base = baseName(c.name);
     const kin = Object.values(state.combatants)
         .filter(o => o.side !== 'player' && baseName(o.name) === base)
         .map(o => o.id)
         .sort();
     const ordinal = Math.max(0, kin.indexOf(id));
-    const start = hashText(`${state.rngSeed}:${base}`) % FIGHT_MANNERS.length;
-    return FIGHT_MANNERS[(start + ordinal * 7) % FIGHT_MANNERS.length];
+    const start = hashText(`${state.rngSeed}:${base}`) % list.length;
+    return list[(start + ordinal * 7) % list.length];
 }
 
 function cleanLine(text: string | undefined): string {
@@ -170,7 +212,7 @@ function involvedIds(state: CombatState, events: readonly CombatEvent[]): Set<st
     return ids;
 }
 
-export function voiceLines(state: CombatState, log: readonly CombatEvent[], range: BeatRange, ledger: readonly NPCEntry[] = []): string[] {
+export function voicedCombatants(state: CombatState, log: readonly CombatEvent[], range: BeatRange): Combatant[] {
     const involved = involvedIds(state, rangeEvents(log, range));
     const atEnd = stateAtSeq(state, log, range.toSeq);
     const voiced = (c: Combatant | undefined): c is Combatant => !!c && c.side !== 'player' && !c.summonerId;
@@ -178,14 +220,26 @@ export function voiceLines(state: CombatState, log: readonly CombatEvent[], rang
     const others = state.order
         .map(id => state.combatants[id])
         .filter((c): c is Combatant => voiced(c) && !involved.has(c.id) && atEnd.combatants[c.id]?.status === 'up');
-    return [...first, ...others]
-        .slice(0, MAX_VOICE_LINES)
-        .map(c => {
-            const role = c.side;
-            const npc = c.npcId ? ledger.find(n => n.id === c.npcId) : undefined;
-            const voice = ledgerVoice(npc);
-            return voice ? `- ${c.name} (${role}) — ${voice}` : `- ${c.name} (${role}) — manner: ${mannerOf(state, c)}`;
-        });
+    return [...first, ...others].slice(0, MAX_VOICE_LINES);
+}
+
+export function hasNonSpeaker(state: CombatState, log: readonly CombatEvent[], range: BeatRange): boolean {
+    return voicedCombatants(state, log, range).some(c => speechOf(c) !== 'speaks');
+}
+
+const ANIMAL_VOICE = 'animal: makes only sounds (growls, barks, yelps), never words';
+const SILENT_VOICE = 'does not speak or cry out';
+
+export function voiceLines(state: CombatState, log: readonly CombatEvent[], range: BeatRange, ledger: readonly NPCEntry[] = []): string[] {
+    return voicedCombatants(state, log, range).map(c => {
+        const role = c.side;
+        const speech = speechOf(c);
+        if (speech === 'sounds') return `- ${c.name} (${role}) — ${ANIMAL_VOICE}; manner: ${mannerOf(state, c)}`;
+        if (speech === 'silent') return `- ${c.name} (${role}) — ${SILENT_VOICE}; manner: ${mannerOf(state, c)}`;
+        const npc = c.npcId ? ledger.find(n => n.id === c.npcId) : undefined;
+        const voice = ledgerVoice(npc);
+        return voice ? `- ${c.name} (${role}) — ${voice}` : `- ${c.name} (${role}) — manner: ${mannerOf(state, c)}`;
+    });
 }
 
 export function neutraliseFlourish(text: string): string {
@@ -283,7 +337,7 @@ const TERRAIN_WORDS: ReadonlyArray<[CombatTile, keyof CombatTerrainLabels, strin
 ];
 
 export function terrainLine(state: CombatState): string | null {
-    const grid = state.grid;
+    const grid = surfaceOf(state);
     if (!grid?.labels) return null;
     const present = new Set(grid.tiles);
     const parts = TERRAIN_WORDS
@@ -328,6 +382,7 @@ export function directiveForRange(session: CombatSession, range: BeatRange, cade
         ending: events.some(e => e.type === 'combat_ended'),
         setPiece: cadence === 'end',
         flourish: flourishesIn(range, session.flourishes).length > 0,
+        nonSpeakers: hasNonSpeaker(session.state, session.log, range),
     });
 }
 

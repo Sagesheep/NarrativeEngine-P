@@ -1,5 +1,6 @@
 import type { AttackRange, AugmentId, Combatant, EffectId, FormId, GlyphAbility } from '../types';
-import { abilityRoll, builtinStats, isBuiltinId, leapRange, throwProfile, weaponReach } from './builtins';
+import { abilityRoll, builtinStats, isBuiltinId, leapRange, strengthMod, throwProfile, weaponReach } from './builtins';
+import { throwRangeOf } from './throw';
 import {
     AUGMENT_COSTS, AUGMENT_IDS, EFFECT_IDS, EFFECTS, FORM_IDS, FORMS, GLYPH_NUMBERS as N, SINGLE_TARGET_FORMS,
 } from './registry';
@@ -115,9 +116,28 @@ function sturdy(w: Wielder | undefined): Sturdy | null {
     return w && w.abilities && w.tier ? { abilities: w.abilities, tier: w.tier, ...(w.proficiency !== undefined ? { proficiency: w.proficiency } : {}) } : null;
 }
 
+function ranges(w: Sturdy | null): { light: string; medium: string; heavy: string } {
+    if (!w) return { light: '4 + STR modifier (at least 2)', medium: '2 + STR modifier (at least 2)', heavy: '1 + STR modifier (at least 1)' };
+    return { light: `${throwRangeOf(w, 'light')}`, medium: `${throwRangeOf(w, 'medium')}`, heavy: `${throwRangeOf(w, 'heavy')}` };
+}
+
+function throwRules(ability: GlyphAbility, wielder?: Wielder): string {
+    const s = sturdy(wielder);
+    const r = ranges(s);
+    const bonus = s ? signed(throwProfile(s).attackBonus) : 'using proficiency and STR';
+    const mod = s ? signed(strengthMod(s)) : ' plus STR modifier';
+    return [
+        `${formClause(ability)}.`,
+        `Hurl it as a projectile to a square in line of sight, within ${r.light} squares for something light, ${r.medium} for a cover object and ${r.heavy} for a creature; walls stop it.`,
+        `A creature on the landing square is attacked: attack roll ${bonus}, cover applies. A hit deals 2d6${mod} for a creature, 1d8${mod} for a cover object, a carried weapon's own die${mod}, or 1d4 for whatever is at hand; doubled dice on a critical hit.`,
+        'A creature thrown against its will makes a STR or DEX save (its better one) against DC 8 + proficiency + STR modifier first, and takes 1d6 on landing; only minions and grunts can be lifted, or any fallen creature but a boss. A willing ally takes no damage and cannot be thrown onto a hazard.',
+        'A creature lands on the square, or on the nearest free one. A thrown cover object leaves open floor behind and difficult ground where it lands. A carried item lies where it lands until the party walks over it. No MP.',
+    ].join(' ');
+}
+
 export function formClause(ability: GlyphAbility): string {
     const kind = ability.builtin?.kind;
-    if (kind === 'throw') return shotClause(N.throwRange);
+    if (kind === 'throw') return 'Touch an adjacent creature or cover object, or take a carried item or whatever is at hand';
     if (kind === 'shove') return 'Touch, one hostile target at 1 square';
     if (kind === 'help') return 'Touch, one adjacent ally';
     if (ability.builtin?.kind === 'attack') return weaponClause(ability.builtin.range ?? 'close');
@@ -197,12 +217,6 @@ export function effectClause(ability: GlyphAbility, effect: GlyphAbility['effect
         case 'rally':
             return 'ends Stunned and Slowed on an adjacent ally, or stands a downed ally up with 1 HP';
         case 'weapon': {
-            if (ability.builtin?.kind === 'throw') {
-                const s = sturdy(wielder);
-                if (!s) return 'takes 1d4 plus the thrower\'s STR modifier bludgeoning damage, doubled dice on a critical hit';
-                const t = throwProfile(s).damage;
-                return `takes ${t.count}d${t.sides}${t.bonus !== 0 ? signed(t.bonus) : ''} ${t.type} damage, doubled dice on a critical hit`;
-            }
             if (!wielder) return 'takes weapon damage';
             const d = wielder.damage;
             return `takes ${d.count}d${d.sides}${d.bonus !== 0 ? signed(d.bonus) : ''} ${d.type} damage, doubled dice on a critical hit`;
@@ -217,13 +231,13 @@ export function effectClause(ability: GlyphAbility, effect: GlyphAbility['effect
 export function describeAbility(ability: GlyphAbility, caster: CasterStats = { proficiency: 2, castingMod: 0 }, wielder?: Wielder): string {
     const form = FORMS[ability.form?.id];
     if (!form) return '';
+    if (ability.builtin?.kind === 'throw') return throwRules(ability, wielder);
     const parts: string[] = [formClause(ability) + (isQuickened(ability) || ability.builtin?.slot === 'bonus' ? ', bonus action' : '') + '.'];
     const roll = abilityRoll(ability);
     const clauses = ability.effects.filter(e => EFFECTS[e.id]).map(e => effectClause(ability, e, caster, roll, wielder));
     if (clauses.length > 0) {
-        const thrower = ability.builtin?.kind === 'throw' ? sturdy(wielder) : null;
         const bonus = ability.builtin
-            ? (thrower ? signed(throwProfile(thrower).attackBonus) : ability.builtin.kind === 'throw' ? 'using STR' : wielder ? signed(wielder.attackBonus) : 'with the weapon')
+            ? (wielder ? signed(wielder.attackBonus) : 'with the weapon')
             : `+${caster.proficiency + caster.castingMod}`;
         const lead = roll === 'attack'
             ? `Attack roll ${bonus}; on a hit the target `

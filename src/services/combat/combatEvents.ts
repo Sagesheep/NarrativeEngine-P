@@ -1,4 +1,5 @@
-import { coverBetween, distance, hasLineOfSight, hpBand, terrainOf } from '@narrative/engine';
+import { bareHands, coverBetween, distance, hasLineOfSight, hpBand, terrainOf } from '@narrative/engine';
+import type { CarriedItem, FieldItem, WeaponFields } from '@narrative/engine';
 import type { CombatEvent, CombatPos, CombatSide, CombatState, Combatant } from '../../types';
 
 export const ACTION_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'defend', 'end_turn', 'ability', 'turn_lost', 'flee', 'parley', 'stunt_check']);
@@ -81,15 +82,70 @@ function restoreTemp(target: Combatant, value: unknown): void {
     else delete target.tempHp;
 }
 
+function fieldItemFrom(raw: unknown): FieldItem | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const r = raw as FieldItem;
+    if (typeof r.id !== 'string' || typeof r.ownerId !== 'string' || typeof r.pos?.x !== 'number' || typeof r.pos?.y !== 'number') return null;
+    return { ...r, pos: { x: r.pos.x, y: r.pos.y } };
+}
+
+function carriedFrom(item: FieldItem): CarriedItem {
+    return {
+        id: item.id, name: item.name, count: item.count, sides: item.sides,
+        ...(item.damageType ? { damageType: item.damageType } : {}),
+        ...(item.equipped ? { equipped: true } : {}),
+    };
+}
+
+function setWeapon(c: Combatant, fields: WeaponFields): void {
+    c.damage = { ...fields.damage };
+    if (fields.weaponName) c.weaponName = fields.weaponName;
+    else delete c.weaponName;
+    if (fields.range) c.range = fields.range;
+    else delete c.range;
+}
+
 export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq: number): CombatState {
     const combatants: Record<string, Combatant> = {};
     for (const [id, c] of Object.entries(state.combatants)) {
         combatants[id] = { ...c, ...(c.position ? { position: { ...c.position } } : {}) };
     }
     let barriers = (state.barriers ?? []).map(b => ({ ...b, pos: { ...b.pos } }));
+    let terrainEdits = (state.terrainEdits ?? []).map(e => ({ ...e, pos: { ...e.pos } }));
+    let fieldItems = (state.fieldItems ?? []).map(i => ({ ...i, pos: { ...i.pos } }));
     const later = log.filter(e => e.seq > seq).sort((a, b) => b.seq - a.seq);
     for (const event of later) {
         if (event.type === 'stunt_check') continue;
+        if (event.type === 'item_dropped') {
+            const item = fieldItemFrom(event.data.item);
+            if (!item) continue;
+            fieldItems = fieldItems.filter(i => i.id !== item.id);
+            const owner = combatants[item.ownerId];
+            if (owner) {
+                const carried = (owner.carried ?? []).filter(i => i.id !== item.id);
+                const index = typeof event.data.index === 'number' && event.data.index >= 0 ? Math.min(event.data.index, carried.length) : carried.length;
+                carried.splice(index, 0, carriedFrom(item));
+                owner.carried = carried;
+                if (item.armed) setWeapon(owner, item.armed);
+            }
+            continue;
+        }
+        if (event.type === 'item_recovered') {
+            const item = fieldItemFrom(event.data.item);
+            if (!item) continue;
+            fieldItems = [...fieldItems.filter(i => i.id !== item.id), item];
+            if (event.data.how === 'picked_up') {
+                const picker = event.actorId ? combatants[event.actorId] : undefined;
+                if (picker) {
+                    picker.carried = (picker.carried ?? []).filter(i => i.id !== item.id);
+                    if (event.data.rearmed === true && item.armed) setWeapon(picker, bareHands(item.armed));
+                }
+            }
+            continue;
+        }
+        if (event.type === 'thrown' && Array.isArray(event.data.terrain)) {
+            terrainEdits = terrainEdits.slice(0, Math.max(0, terrainEdits.length - event.data.terrain.length));
+        }
         if (event.type === 'moved') {
             const actor = event.actorId ? combatants[event.actorId] : undefined;
             const from = event.data.from as { x: number; y: number } | undefined;
@@ -126,7 +182,13 @@ export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq:
         if (event.type === 'flee' && event.data.success === true) target.status = 'up';
         if (event.type === 'summoned') target.status = 'gone';
     }
-    return { ...state, combatants, ...(state.barriers || barriers.length > 0 ? { barriers } : {}) };
+    return {
+        ...state,
+        combatants,
+        ...(state.barriers || barriers.length > 0 ? { barriers } : {}),
+        ...(state.terrainEdits || terrainEdits.length > 0 ? { terrainEdits } : {}),
+        ...(state.fieldItems || fieldItems.length > 0 ? { fieldItems } : {}),
+    };
 }
 
 export type HpBandLabel = 'unhurt' | 'hurt' | 'badly hurt' | 'down' | 'fled' | 'yielded';
@@ -224,8 +286,54 @@ export const NARRATED_EVENT_TYPES: readonly string[] = [
     'attack', 'initiative', 'round', 'moved', 'hazard', 'combat_started', 'defend', 'end_turn', 'down', 'combat_ended',
     'condition_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed',
     'teleported', 'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
-    'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check',
+    'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check', 'thrown', 'item_dropped', 'item_recovered',
 ];
+
+type ThrownPayload = { kind: string; name: string; willing?: boolean };
+
+function itemName(raw: unknown): string {
+    const text = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+    if (!text) return 'the item';
+    return /^(a|an|the|his|her|their|my|your|something)\s/i.test(text) || /'s\s/.test(text) ? text : `the ${text}`;
+}
+
+function thrownWhat(payload: ThrownPayload): string {
+    if (payload.kind === 'hand') return 'something snatched up';
+    if (payload.kind === 'cover') return payload.name && payload.name !== 'cover' ? `the ${payload.name}` : 'a chunk of cover';
+    if (payload.kind === 'item') return itemName(payload.name);
+    return payload.name || 'someone';
+}
+
+const THROW_HIT_TAILS: Readonly<Record<HitSeverity, string>> = {
+    graze: ', just grazing them',
+    hit: ', hitting them',
+    hard: ', hitting hard',
+    devastating: ', a crushing blow',
+};
+
+function thrownLine(event: CombatEvent, state: CombatState): string {
+    const actor = nameIn(state, event.actorId);
+    const raw = event.data.payload as Partial<ThrownPayload> | undefined;
+    const payload: ThrownPayload = { kind: typeof raw?.kind === 'string' ? raw.kind : 'hand', name: typeof raw?.name === 'string' ? raw.name : '', willing: raw?.willing === true };
+    const what = thrownWhat(payload);
+    const struck = event.targetId ? nameIn(state, event.targetId) : '';
+    const cover = payload.kind === 'cover';
+    if (struck) {
+        if (event.data.hit === true) {
+            if (cover) return `${actor} heaves ${what} across the room and it crashes into ${struck}.`;
+            if (event.data.crit === true) return `${actor} hurls ${what} at ${struck}, a perfect throw.`;
+            const severity = hitSeverity(event, state) ?? 'hit';
+            return `${actor} hurls ${what} at ${struck}${THROW_HIT_TAILS[severity]}.`;
+        }
+        if (cover) return `${actor} heaves ${what} across the room; it smashes where ${struck} stood.`;
+        if (payload.kind === 'creature') return `${actor} hurls ${what} at ${struck} and misses; ${what} crashes down beside ${struck}.`;
+        return `${actor} hurls ${what} at ${struck} and misses; it clatters down beside ${struck}.`;
+    }
+    if (payload.kind === 'creature') return payload.willing ? `${actor} throws ${what} clear to a new spot.` : `${actor} hurls ${what} across the field.`;
+    if (cover) return `${actor} heaves ${what} across the room; it smashes down on open ground.`;
+    if (payload.kind === 'hand') return `${actor} flings something snatched up across the field.`;
+    return `${actor} throws ${what} across the field.`;
+}
 
 function num(raw: unknown): number | null {
     return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
@@ -346,11 +454,21 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
             if (builtinKind(event) === 'shove') {
                 return event.data.success === true ? `${name(event.actorId)} shoves ${name(event.targetId)}, who holds their ground.` : '';
             }
+            if (builtinKind(event) === 'throw') {
+                return event.data.success === true ? `${name(event.actorId)} tries to lift ${name(event.targetId)}, who wrenches free.` : '';
+            }
             const close = isCloseSave(event);
             if (event.data.success === true) return `${name(event.targetId)} ${close ? 'only just ' : ''}${dodgeVerb(event.data.save)} the worst of it.`;
             return close ? `${name(event.targetId)} only just fails to get clear and is caught.` : `${name(event.targetId)} is caught full on.`;
         }
+        case 'thrown':
+            return thrownLine(event, state);
+        case 'item_dropped':
+            return '';
+        case 'item_recovered':
+            return event.data.how === 'picked_up' ? `${name(event.actorId)} picks up ${itemName(event.data.name)}.` : '';
         case 'ability_damage': {
+            if (event.data.kind === 'landing' && builtinKind(event) === 'throw') return '';
             const type = typeof event.data.damageType === 'string' && event.data.damageType.trim() ? event.data.damageType.trim() : '';
             const how = abilityDamageHow(event, state);
             const what = type ? `${type}` : 'blast';
@@ -366,16 +484,20 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
             return event.data.applied === false
                 ? `${name(event.targetId)} keeps the stronger shield it already has.`
                 : `A shield settles over ${name(event.targetId)}.`;
-        case 'pushed':
-            if (builtinKind(event) === 'stunt' && Number(event.data.squares) <= 0) return `${name(event.targetId)} does not budge.`;
+        case 'pushed': {
+            const moved = Number(event.data.squares) > 0;
+            const target = name(event.targetId);
+            if (builtinKind(event) === 'stunt' && !moved) return `${target} is pinned in place and does not move.`;
             if (builtinKind(event) === 'shove') {
-                return Number(event.data.squares) > 0
-                    ? `${name(event.actorId)} shoves ${name(event.targetId)} back.`
-                    : `${name(event.actorId)} shoves ${name(event.targetId)}, who has nowhere to go.`;
+                return moved
+                    ? `${name(event.actorId)} shoves ${target} back.`
+                    : `${name(event.actorId)} shoves ${target}, but ${target} is pinned in place and does not move.`;
             }
+            if (!moved) return `${target} is ${event.data.kind === 'pull' ? 'pulled' : 'pushed'}, but is pinned in place and does not move.`;
             return event.data.kind === 'pull'
-                ? `${name(event.targetId)} is dragged toward ${name(event.actorId)}.`
-                : `${name(event.targetId)} is thrown back.`;
+                ? `${target} is dragged toward ${name(event.actorId)}.`
+                : `${target} is thrown back.`;
+        }
         case 'teleported':
             if (event.data.kind === 'leap') return leapLine(event, state, name(event.actorId));
             if (builtinKind(event) === 'stunt') return `${name(event.actorId)} gets across to a new spot.`;
@@ -455,11 +577,11 @@ export function turnLines(group: TurnGroup, state: CombatState, opts: { numbers:
 
 export type MomentTag = 'first blood' | 'now badly hurt' | 'killing blow' | 'last one standing' | 'the player character falls';
 
-const DAMAGE_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'ability_damage', 'hazard']);
+const DAMAGE_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'ability_damage', 'hazard', 'thrown']);
 
 function hpChange(event: CombatEvent, target: Combatant | undefined): { before: number; after: number } | null {
     if (!target || !DAMAGE_EVENT_TYPES.has(event.type)) return null;
-    if (event.type === 'attack' && event.data.hit !== true) return null;
+    if ((event.type === 'attack' || event.type === 'thrown') && event.data.hit !== true) return null;
     const after = num(event.data.hpAfter);
     if (after === null) return null;
     const stated = num(event.data.hpBefore);

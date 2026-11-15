@@ -183,6 +183,7 @@ function fixtureStart(): CombatState {
             { name: 'Bram', side: 'ally', tier: 'grunt' },
         ],
         map: { size: 'small', area: 'scattered', density: 'normal' },
+        mapVersion: 1,
         partyControl: 'player',
     }, pc, 4242).state;
 }

@@ -30,6 +30,7 @@ export const EFFECT_LABEL_KEYS: Readonly<Record<EffectId, TranslationKey>> = {
     sprint: 'combat.glyph.effect.sprint',
     leap: 'combat.glyph.effect.leap',
     rally: 'combat.glyph.effect.rally',
+    hurl: 'combat.glyph.effect.hurl',
 };
 
 export const AUGMENT_LABEL_KEYS: Readonly<Record<AugmentId, TranslationKey>> = {

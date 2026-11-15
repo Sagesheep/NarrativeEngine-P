@@ -4,6 +4,7 @@ import { TIER_TABLE } from './tiers';
 import { dismissSummon, emit, endFight, isHostile, isPlayerSide, playerCharacterOf } from './core';
 import type { Draft } from './core';
 import { proficiencyOf } from './glyphs/numbers';
+import { canSpeak } from './speech';
 import type {
     CombatState, Combatant, Grid, MoraleBook, ParleyEffect, ParleyIntent, ParleyRating, ParleyRecord, Pos, Team, TurnState,
 } from './types';
@@ -23,7 +24,7 @@ export type FleeReason = 'no_grid' | 'not_your_turn' | 'action_used' | 'first_ro
 
 export type FleeCheck = { ok: boolean; reason?: FleeReason; contested: boolean };
 
-export type ParleyReason = 'not_your_turn' | 'not_player_character' | 'action_used' | 'no_enemy';
+export type ParleyReason = 'not_your_turn' | 'not_player_character' | 'action_used' | 'no_enemy' | 'no_speaker';
 
 export function teamOfSide(side: Combatant['side']): Team | null {
     if (isPlayerSide(side)) return 'party';
@@ -213,12 +214,14 @@ export function checkParley(state: CombatState, actorId: string, turn: TurnState
     if (!actor || !turn || turn.actorId !== actorId || actor.status !== 'up' || state.outcome) return { ok: false, reason: 'not_your_turn' };
     if (actor.side !== 'player') return { ok: false, reason: 'not_player_character' };
     if (turn.actionUsed) return { ok: false, reason: 'action_used' };
-    if (!Object.values(state.combatants).some(c => c.side === 'enemy' && c.status === 'up')) return { ok: false, reason: 'no_enemy' };
+    const standing = Object.values(state.combatants).filter(c => c.side === 'enemy' && c.status === 'up');
+    if (standing.length === 0) return { ok: false, reason: 'no_enemy' };
+    if (!standing.some(canSpeak)) return { ok: false, reason: 'no_speaker' };
     return { ok: true };
 }
 
 export function resolveSpeaker(state: CombatState, requested?: string | null): Combatant | undefined {
-    const upEnemies = state.order.map(id => state.combatants[id]).filter((c): c is Combatant => !!c && c.side === 'enemy' && c.status === 'up');
+    const upEnemies = state.order.map(id => state.combatants[id]).filter((c): c is Combatant => !!c && c.side === 'enemy' && c.status === 'up' && canSpeak(c));
     if (requested) {
         const want = requested.trim().toLowerCase();
         const hit = upEnemies.find(c => c.id === requested || c.name.trim().toLowerCase() === want);
@@ -255,6 +258,7 @@ function surrenderAll(draft: Draft): void {
             dismissSummon(draft, c, 'summoner_left');
             continue;
         }
+        if (!canSpeak(c)) continue;
         c.status = 'surrendered';
         c.conditions = [];
         delete c.tempHp;

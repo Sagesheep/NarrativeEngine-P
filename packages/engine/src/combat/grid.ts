@@ -14,9 +14,25 @@ const DIRECTIONS: readonly Pos[] = [
 ];
 
 const terrainCache = new WeakMap<readonly unknown[], { grid: Grid; terrain: Grid }>();
+const surfaceCache = new WeakMap<readonly unknown[], { grid: Grid; surface: Grid }>();
 
-export function terrainOf(state: Pick<CombatState, 'grid' | 'barriers'>): Grid | undefined {
+export function surfaceOf(state: Pick<CombatState, 'grid' | 'terrainEdits'>): Grid | undefined {
     const grid = state.grid;
+    const edits = state.terrainEdits;
+    if (!grid || !edits || edits.length === 0) return grid;
+    const hit = surfaceCache.get(edits);
+    if (hit && hit.grid === grid) return hit.surface;
+    const tiles = [...grid.tiles];
+    for (const e of edits) {
+        if (inBounds(grid, e.pos)) tiles[e.pos.y * grid.width + e.pos.x] = e.tile;
+    }
+    const surface: Grid = { ...grid, tiles };
+    surfaceCache.set(edits, { grid, surface });
+    return surface;
+}
+
+export function terrainOf(state: Pick<CombatState, 'grid' | 'barriers' | 'terrainEdits'>): Grid | undefined {
+    const grid = surfaceOf(state);
     const barriers = state.barriers;
     if (!grid || !barriers || barriers.length === 0) return grid;
     const hit = terrainCache.get(barriers);

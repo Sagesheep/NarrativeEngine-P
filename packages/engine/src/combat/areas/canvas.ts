@@ -273,6 +273,16 @@ export class Canvas {
         return cells;
     }
 
+    snapshot(): { tiles: Tile[]; pieces: Piece[] } {
+        return { tiles: [...this.tiles], pieces: this.pieces.map(p => ({ ...p, cells: [...p.cells] })) };
+    }
+
+    restore(snap: { tiles: Tile[]; pieces: Piece[] }): void {
+        for (let i = 0; i < snap.tiles.length; i++) this.tiles[i] = snap.tiles[i];
+        this.pieces.length = 0;
+        for (const p of snap.pieces) this.pieces.push({ ...p, cells: [...p.cells] });
+    }
+
     layout(): AreaLayout {
         return { width: this.width, height: this.height, tiles: [...this.tiles], pieces: this.pieces.map(p => ({ ...p, cells: [...p.cells] })) };
     }

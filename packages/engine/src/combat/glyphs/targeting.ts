@@ -1,12 +1,14 @@
 import { distance, hasLineOfSight, inBounds, isWalkable, samePos, sameTeam, terrainOf, tileAt, traceLine } from '../grid';
 import { canTarget, currentTurn, hasCondition, SLOWED, STUNNED } from '../core';
-import type { CombatState, Combatant, GlyphAbility, Grid, Pos } from '../types';
-import { checkAttack, leapRange, recoverable, shotOf, tooLargeToShove } from './builtins';
-import type { ShotOverride } from './builtins';
+import type { CombatState, Combatant, GlyphAbility, Grid, Pos, ThrowPayload } from '../types';
+import { checkAttack, leapRange, recoverable, tooLargeToShove } from './builtins';
 import { GLYPH_NUMBERS as N } from './registry';
+import { legalLandings, payloadTiles, previewThrow } from './throw';
+import type { ThrowPlan } from './throw';
 import {
-    blinkRange, burstRadius, burstRange, coneLength, dashLength, lineLength, lineWidth, projectileRange, splitCount,
+    blinkRange, burstRadius, burstRange, coneLength, dashLength, lineLength, lineWidth, projectileRange, pushDistance, splitCount,
 } from './numbers';
+import { previewPush, SHOVE_NO_ROOM } from './push';
 
 export type AimResult = {
     ok: boolean;
@@ -17,6 +19,7 @@ export type AimResult = {
     destination?: Pos;
     barrierTiles?: Pos[];
     summonAt?: Pos;
+    throw?: ThrowPlan;
 };
 
 const OCTANTS: readonly Pos[] = [
@@ -168,7 +171,16 @@ function shove(state: CombatState, user: Combatant, aim: Pos): AimResult {
     const target = livingAt(state, aim);
     if (!target || !canTarget(user, target)) return fail('no target there');
     if (tooLargeToShove(target)) return fail('too large to shove');
+    const plan = previewPush(state, user.id, target.id, 'push', pushDistance([]), { origin: user.position as Pos, strike: true });
+    if (!plan || plan.squares === 0) return fail(SHOVE_NO_ROOM);
     return { ok: true, tiles: [{ ...(target.position as Pos) }], targetIds: [target.id], origin: { ...(user.position as Pos) } };
+}
+
+export function hasPinnedShoveTarget(state: CombatState, userId: string): boolean {
+    const user = state.combatants[userId];
+    if (!user?.position) return false;
+    const at = user.position;
+    return Object.values(state.combatants).some(c => c.status === 'up' && canTarget(user, c) && !!c.position && distance(at, c.position) === N.touchRange && !tooLargeToShove(c));
 }
 
 function help(state: CombatState, user: Combatant, aim: Pos): AimResult {
@@ -309,22 +321,37 @@ function dash(state: CombatState, terrain: Grid, user: Combatant, ability: Glyph
     return { ok: true, tiles: [{ ...aim }], targetIds: [target.id], origin: { ...from }, destination: best };
 }
 
-function weaponAim(state: CombatState, user: Combatant, aim: Pos, shot?: ShotOverride): AimResult {
+function weaponAim(state: CombatState, user: Combatant, aim: Pos): AimResult {
     const target = livingAt(state, aim);
     if (!target || !canTarget(user, target)) return fail('no target there');
-    const check = checkAttack(state, user.id, target.id, undefined, shot);
+    const check = checkAttack(state, user.id, target.id);
     if (!check.ok) return fail(check.reason === 'no_line_of_sight' ? 'no line of sight' : 'out of range');
     return { ok: true, tiles: [{ ...(target.position as Pos) }], targetIds: [target.id], origin: { ...(user.position as Pos) } };
 }
 
-export function abilityTargets(state: CombatState, userId: string, ability: GlyphAbility, aim: Pos | null | undefined): AimResult {
+function throwAim(state: CombatState, user: Combatant, aim: Pos, payload: ThrowPayload | undefined): AimResult {
+    const preview = previewThrow(state, user.id, payload ?? { kind: 'hand' }, aim);
+    if (!preview.ok) return fail(preview.reason);
+    const plan = preview.plan;
+    return {
+        ok: true,
+        tiles: plan.path.map(p => ({ ...p })),
+        targetIds: plan.struckId ? [plan.struckId] : [],
+        origin: { ...plan.from },
+        destination: { ...plan.landing },
+        throw: plan,
+    };
+}
+
+export function abilityTargets(state: CombatState, userId: string, ability: GlyphAbility, aim: Pos | null | undefined, payload?: ThrowPayload): AimResult {
     const user = state.combatants[userId];
     const terrain = terrainOf(state);
     if (!user || user.status !== 'up' || !user.position || !terrain) return fail('the user cannot act');
     if (ability.form.id !== 'self' && (!aim || !inBounds(terrain, aim))) return fail('choose a square');
     const at = aim as Pos;
     const kind = ability.builtin?.kind;
-    if (kind === 'attack' || kind === 'throw') return weaponAim(state, user, at, shotOf(ability));
+    if (kind === 'throw') return throwAim(state, user, at, payload);
+    if (kind === 'attack') return weaponAim(state, user, at);
     if (kind === 'shove') return shove(state, user, at);
     if (kind === 'help') return help(state, user, at);
     switch (ability.form.id) {
@@ -349,17 +376,18 @@ function tilesWithin(grid: Grid, from: Pos, range: number): Pos[] {
     return out;
 }
 
-export function legalAims(state: CombatState, userId: string, ability: GlyphAbility): Pos[] {
+export function legalAims(state: CombatState, userId: string, ability: GlyphAbility, payload?: ThrowPayload): Pos[] {
     const user = state.combatants[userId];
     const terrain = terrainOf(state);
     if (!user || user.status !== 'up' || !user.position || !terrain) return [];
     const from = user.position;
+    if (ability.builtin?.kind === 'throw') return payload ? legalLandings(state, userId, payload) : payloadTiles(state, userId);
     const ok = (p: Pos) => abilityTargets(state, userId, ability, p).ok;
     const living = () => state.order
         .map(id => state.combatants[id])
         .filter((c): c is Combatant => !!c && c.status === 'up' && c.id !== userId && !!c.position)
         .map(c => ({ ...(c.position as Pos) }));
-    if (ability.builtin?.kind === 'attack' || ability.builtin?.kind === 'throw') return living().filter(ok);
+    if (ability.builtin?.kind === 'attack') return living().filter(ok);
     switch (ability.form.id) {
         case 'self':
             if (hasLeap(ability)) return tilesWithin(terrain, from, leapRange(user)).filter(ok);

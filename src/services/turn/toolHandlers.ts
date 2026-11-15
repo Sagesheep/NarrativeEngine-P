@@ -171,6 +171,7 @@ const START_COMBAT_TOOL = {
                             npcName: { type: 'string' as const, description: 'Exact name of a known NPC this combatant is, if any.' },
                             look: { type: 'string' as const, description: 'Optional short description.' },
                             manner: { type: 'string' as const, description: 'Optional, two or three words: how this one talks and carries itself in a fight, e.g. "sneering, overconfident".' },
+                            speech: { type: 'string' as const, enum: ['speaks', 'sounds', 'silent'], description: 'Can this creature speak words? speaks: people and anything that talks. sounds: animals and beasts that only growl, bark or shriek. silent: mindless or mechanical things (constructs, oozes, drones). Default is guessed from the name.' },
                             attack: { type: 'string' as const, enum: ['melee', 'ranged'], description: 'Optional. How it fights: melee or ranged.' },
                         },
                         required: ['name'],

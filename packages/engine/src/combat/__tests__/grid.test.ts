@@ -442,7 +442,7 @@ describe('grid fights end to end', () => {
     });
 
     it('plays a seeded golden fight on the grid', () => {
-        const start = createCombat({ id: 'gold', combatants: grunts(2), map: { size: 'small', area: 'open', density: 'sparse' }, mapSeed: 3 }, buildPcCombatant(pcInput), 1234);
+        const start = createCombat({ id: 'gold', combatants: grunts(2), map: { size: 'small', area: 'open', density: 'sparse' }, mapSeed: 3, mapVersion: 1 }, buildPcCombatant(pcInput), 1234);
         const { state, events } = playOut(start.state);
         expect(state.outcome).not.toBeNull();
         expect([...start.events, ...events].map(e => `${e.seq}|${e.round}|${e.turn}|${e.text}`)).toMatchSnapshot();

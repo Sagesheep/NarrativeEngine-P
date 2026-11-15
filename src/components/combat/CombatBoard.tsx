@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react';
 import { X } from 'lucide-react';
-import { canTarget, checkAttack, coverBetween, currentActorId, currentTurn, distance, inBounds, pathTo, reachable, terrainOf, tileAt } from '@narrative/engine';
+import { canTarget, checkAttack, coverBetween, currentActorId, currentTurn, distance, inBounds, pathTo, reachable, SHOVE_NO_ROOM, surfaceOf, terrainOf, tileAt } from '@narrative/engine';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useAppStore } from '../../store/useAppStore';
 import { normalizeCombatConfig } from '../../types';
@@ -20,9 +20,16 @@ import { cellArt } from './tileset';
 import type { TileArt } from './tileset';
 import { useTileArt } from './useTileArt';
 import type { TileArtState } from './useTileArt';
+import { useContainerSize } from './useContainerSize';
+import { depthOrder, fadedProps, pixelBoardSize } from './pixelMap';
+import { PixelPropImage, PixelTileLayer } from './pixelLayers';
 import type { AbilityAim } from './useAbilityAim';
-import { AimOverlay, BarrierLayer, ConditionBadges, TempHpRing } from './abilityOverlays';
+import { AimOverlay, BarrierLayer, ConditionBadges, FieldItemLayer, TempHpRing } from './abilityOverlays';
 import { combatantNotes } from './abilityNotes';
+import { ThrowChoices } from './ThrowChoices';
+import { describeThrowPlan, throwReasonKey } from './throwAim';
+
+const noop = (): void => undefined;
 
 type TileLayerProps = {
     grid: CombatGrid;
@@ -31,6 +38,7 @@ type TileLayerProps = {
     onHover?: (p: CombatPos | null) => void;
     names?: Partial<Record<CombatTile, string>>;
     art?: TileArtState | null;
+    strongGrid?: boolean;
 };
 
 function FlatCues({ tile, left, top, patternId }: { tile: CombatTile; left: number; top: number; patternId: string }) {
@@ -152,7 +160,10 @@ function ArtTileLayer({ grid, patternId, onTile, onHover, names, art }: TileLaye
     );
 }
 
-export const TileLayer = memo(function TileLayer({ grid, patternId, onTile, onHover, names, art }: TileLayerProps) {
+export const TileLayer = memo(function TileLayer({ grid, patternId, onTile, onHover, names, art, strongGrid = false }: TileLayerProps) {
+    if (art?.pixel) {
+        return <PixelTileLayer grid={grid} plan={art.pixel} onTile={onTile} onHover={onHover} names={names} onFail={art.onPixelFail} strongGrid={strongGrid} />;
+    }
     if (art) return <ArtTileLayer grid={grid} patternId={patternId} onTile={onTile} onHover={onHover} names={names} art={art} />;
     const cells = [];
     for (let y = 0; y < grid.height; y++) {
@@ -293,7 +304,7 @@ function InspectCard({
         if (!check.ok && check.reason === 'out_of_range') blocked = t('combat.inspect.outOfRange');
         if (!check.ok && check.reason === 'no_line_of_sight') blocked = t('combat.inspect.noSight');
     }
-    const grid = state.grid;
+    const grid = surfaceOf(state);
     const terrain = terrainOf(state);
     const standing = grid && combatant.position ? terrainLabel(grid, tileAt(grid, combatant.position)) : null;
     const coverLabel = grid ? terrainLabel(grid, 'cover') : null;
@@ -385,7 +396,7 @@ export function CombatBoard({
 }) {
     const { t } = useTranslation();
     const state = session.state;
-    const grid = state.grid;
+    const grid = surfaceOf(state);
     const patternId = `combat-hatch-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
     const playerId = playerActorId(state);
     const player = playerId ? state.combatants[playerId] : undefined;
@@ -395,6 +406,7 @@ export function CombatBoard({
     const [hover, setHover] = useState<CombatPos | null>(null);
     const [cursor, setCursor] = useState<CombatPos | null>(null);
     const [escaped, setEscaped] = useState(false);
+    const [itemsOpen, setItemsOpen] = useState(false);
     const [pickSeen, setPickSeen] = useState(picking);
     if (picking !== pickSeen) {
         setPickSeen(picking);
@@ -477,8 +489,11 @@ export function CombatBoard({
 
     const names = useTerrainNames(grid);
     const [tileArtOn, setTileArtOn] = useState<boolean>(() => initialTileArt());
-    const artReady = useTileArt(grid, session.map?.place, state.mapSeed ?? 0);
+    const [startSpots] = useState<ReadonlySet<string>>(() => new Set(Object.values(state.combatants).flatMap(c => (c.position ? [key(c.position)] : []))));
+    const artReady = useTileArt(grid, session.map?.place, state.mapSeed ?? 0, startSpots);
     const art = tileArtOn ? artReady : null;
+    const gridStrong = aiming || Object.keys(shown).length > 0 || (!!focus && reach.has(key(focus.pos)));
+    const boardSize = useContainerSize(surface, !!art?.pixel);
     const tileArtToggle = useMemo(() => (artReady ? {
         on: tileArtOn,
         toggle: () => {
@@ -486,7 +501,8 @@ export function CombatBoard({
             setTileArtOn(!tileArtOn);
         },
     } : undefined), [artReady, tileArtOn]);
-    const tileLayer = useMemo(() => grid ? <TileLayer grid={grid} patternId={patternId} onTile={onTile} onHover={setHover} names={names} art={art} /> : null, [grid, patternId, onTile, setHover, names, art]);
+    const strongGrid = !!art?.pixel && gridStrong;
+    const tileLayer = useMemo(() => grid ? <TileLayer grid={grid} patternId={patternId} onTile={onTile} onHover={setHover} names={names} art={art} strongGrid={strongGrid} /> : null, [grid, patternId, onTile, setHover, names, art, strongGrid]);
 
     if (!grid) return null;
 
@@ -497,14 +513,27 @@ export function CombatBoard({
 
     const aimPreview = aim && focus ? aim.preview(focus.pos) : null;
     const focusBarrier = focus ? state.barriers?.find(b => b.pos.x === focus.pos.x && b.pos.y === focus.pos.y) : undefined;
+    const focusItem = focus ? state.fieldItems?.find(i => i.pos.x === focus.pos.x && i.pos.y === focus.pos.y) : undefined;
     let status = '';
     if (!interactive) status = state.outcome ? '' : t('combat.board.waiting');
+    else if (aim?.throwing) {
+        const th = aim.throwing;
+        if (th.step === 1) {
+            if (!focus) status = t('combat.throw.pickStatus');
+            else if (aimPreview?.ok && aimPreview.lift) status = t('combat.throw.pickPreview', { name: aimPreview.liftName ?? '' });
+            else status = t(throwReasonKey(aimPreview?.reason ?? 'nothing to throw there'));
+        } else if (aim.legalList.length === 0) status = t('combat.throw.noLanding');
+        else if (!focus) status = t('combat.throw.landStatus', { name: th.payloadName ?? '' });
+        else if (aimPreview?.ok && aimPreview.plan && aim.legal.has(key(focus.pos))) status = describeThrowPlan(aimPreview.plan, state, t);
+        else status = t(throwReasonKey(aimPreview?.reason));
+    }
     else if (aim) {
         if (!focus) status = t('combat.aim.status', { name: aim.ability.name });
         else if (aimPreview?.ok && aim.legal.has(key(focus.pos))) status = t('combat.aim.preview', { name: aim.ability.name, count: aimPreview.hits.length, allies: aimPreview.hits.filter(h => h.friendly).length });
-        else status = t('combat.aim.illegal', { name: aim.ability.name });
+        else status = t(aimPreview?.reason === SHOVE_NO_ROOM ? 'combat.aim.noRoom' : 'combat.aim.illegal', { name: aim.ability.name });
     }
     else if (focusBarrier) status = t('combat.board.barrier', { round: focusBarrier.expiresRound });
+    else if (focusItem && !focusToken) status = t('combat.item.lies', { name: focusItem.name });
     else if (focusToken && focusToken.id !== player?.id && focusCheck) {
         const name = focusToken.name;
         if (!focusCheck.ok) status = t(focusCheck.reason === 'no_line_of_sight' ? 'combat.board.noSight' : 'combat.board.outOfRange', { name });
@@ -566,6 +595,21 @@ export function CombatBoard({
             setCursor(inBounds(grid, next) ? next : base);
             return;
         }
+        if (aim?.throwing?.step === 1) {
+            const k = e.key.toLowerCase();
+            if (k === 'w' && aim.throwing.hand) {
+                e.preventDefault();
+                e.stopPropagation();
+                aim.throwing.choose(aim.throwing.hand.payload);
+                return;
+            }
+            if (k === 'i' && aim.throwing.items.length > 0) {
+                e.preventDefault();
+                e.stopPropagation();
+                setItemsOpen(true);
+                return;
+            }
+        }
         if (e.key === 'Enter') {
             const at = cursor ?? (targetId ? state.combatants[targetId]?.position : undefined);
             if (!at) return;
@@ -578,6 +622,7 @@ export function CombatBoard({
             e.preventDefault();
             e.stopPropagation();
             if (aim) {
+                setItemsOpen(false);
                 aim.cancel();
                 return;
             }
@@ -603,6 +648,86 @@ export function CombatBoard({
     const selected = targetId ? state.combatants[targetId] : undefined;
     const selectedPos = selected ? shown[selected.id] ?? selected.position : undefined;
 
+    const pixelPlan = art?.pixel ?? null;
+    const pixelBox = pixelPlan && boardSize ? pixelBoardSize(grid.width, grid.height, boardSize.width, boardSize.height) : null;
+    const standing = state.order.flatMap(id => {
+        const c = state.combatants[id];
+        const pos = shown[id] ?? c?.position;
+        return c && pos && isOnBoard(c) ? [{ id, y: pos.y, x: pos.x }] : [];
+    });
+    const depth = pixelPlan ? depthOrder(pixelPlan.props, standing) : [];
+    const faded = pixelPlan && pixelPlan.props.length > 0
+        ? fadedProps(pixelPlan.props, [
+            ...standing,
+            ...(focus ? [focus.pos] : []),
+            ...[...reach.keys()].map(k => { const [rx, ry] = k.split(',').map(Number); return { x: rx, y: ry }; }),
+            ...(aim ? aim.legalList : []),
+            ...(aimPreview?.ok ? aimPreview.tiles : []),
+        ])
+        : new Set<string>();
+
+    const renderToken = (id: string) => {
+        const c = state.combatants[id];
+        const pos = shown[id] ?? c?.position;
+        if (!c || !pos || !isOnBoard(c)) return null;
+        const { x, y } = center(pos);
+        const r = TILE_SIZE * 0.36;
+        const ring = 2 * Math.PI * (r + 0.9);
+        const frac = c.status === 'up' ? Math.max(0, Math.min(1, c.hp / Math.max(1, c.maxHp))) : 0;
+        const isSelected = targetId === id;
+        const outline = c.side === 'ally' ? '1 0.8' : c.side === 'neutral' ? '0.3 0.7' : undefined;
+        return (
+            <g
+                key={id}
+                data-testid={`token-${id}`}
+                role="img"
+                aria-label={describeToken(c)}
+                opacity={c.status === 'up' ? 1 : 0.35}
+                onClick={() => onTile(c.position ?? pos)}
+                onMouseEnter={() => setHover(c.position ?? pos)}
+                data-summon={c.summonerId ? 'true' : undefined}
+                data-status={c.status}
+                style={{ cursor: aim || (interactive && attackable.some(a => a.id === id)) ? 'crosshair' : 'pointer' }}
+            >
+                <title>{describeToken(c)}</title>
+                {actingId === id && <circle cx={x} cy={y} r={r + 2.2} style={{ fill: 'none', stroke: 'var(--combat-path)', strokeWidth: 0.9, opacity: 0.85 }} />}
+                {isSelected && <circle data-testid="combat-selected" cx={x} cy={y} r={r + 2.2} style={{ fill: 'none', stroke: 'var(--combat-cursor)', strokeWidth: 0.5, strokeDasharray: '1 1' }} />}
+                {art && <circle data-testid="combat-token-ring" cx={x} cy={y} r={r + 0.9} style={{ fill: 'none', stroke: 'var(--combat-board-bg)', strokeWidth: 2.1, opacity: 0.9 }} />}
+                <circle cx={x} cy={y} r={r + 0.9} style={{ fill: 'none', stroke: 'var(--combat-hp-track)', strokeWidth: 0.9 }} />
+                <circle
+                    cx={x}
+                    cy={y}
+                    r={r + 0.9}
+                    transform={`rotate(-90 ${x} ${y})`}
+                    style={{ fill: 'none', stroke: hpColor(c), strokeWidth: 0.9, strokeDasharray: `${ring * frac} ${ring}` }}
+                />
+                <TempHpRing c={c} x={x} y={y} r={r} />
+                {c.summonerId && <circle data-testid="combat-summon-ring" cx={x} cy={y} r={r - 0.9} style={{ fill: 'none', stroke: 'var(--combat-token-text)', strokeWidth: 0.4, strokeDasharray: '0.8 0.6', pointerEvents: 'none' }} />}
+                <circle
+                    cx={x}
+                    cy={y}
+                    r={r}
+                    style={{ fill: sideColor(c.side), stroke: outline ? 'var(--combat-token-text)' : 'none', strokeWidth: 0.5, strokeDasharray: outline }}
+                />
+                <text x={x} y={y + 1.3} textAnchor="middle" style={{ fontSize: 3.6, fontWeight: 700, fill: 'var(--combat-token-text)', pointerEvents: 'none' }}>
+                    {c.name.trim().charAt(0).toUpperCase() || '?'}
+                </text>
+                <ConditionBadges c={c} x={x} y={y} r={r} />
+                {c.status === 'surrendered' && (
+                    <g data-testid="combat-yielded-mark" style={{ pointerEvents: 'none' }}>
+                        <line x1={x + r * 0.5} y1={y - r - 2.4} x2={x + r * 0.5} y2={y - r + 0.6} style={{ stroke: 'var(--combat-token-text)', strokeWidth: 0.35 }} />
+                        <rect x={x + r * 0.5} y={y - r - 2.4} width={1.8} height={1.2} style={{ fill: 'var(--combat-token-text)' }} />
+                    </g>
+                )}
+                {isParty(c) && c.status === 'up' && (
+                    <text x={x} y={y + r + 3.4} textAnchor="middle" style={{ fontSize: 2.3, fill: 'var(--combat-party)', pointerEvents: 'none' }}>
+                        {c.hp}/{c.maxHp}
+                    </text>
+                )}
+            </g>
+        );
+    };
+
     return (
         <div id="combat-board" data-testid="combat-board" className="h-full min-h-0 flex flex-col" style={{ background: 'var(--combat-board-bg)' }}>
             <div className="relative flex-1 min-h-0">
@@ -617,12 +742,19 @@ export function CombatBoard({
                     onKeyDown={onKeyDown}
                     onMouseLeave={() => setHover(null)}
                     onBlur={() => setEscaped(false)}
-                    className="absolute inset-0 p-2 outline-none focus-visible:ring-1 focus-visible:ring-terminal"
+                    className={`absolute inset-0 p-2 outline-none focus-visible:ring-1 focus-visible:ring-terminal${pixelBox ? ' flex items-center justify-center' : ''}`}
                 >
-                    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
+                    <svg
+                        viewBox={`0 0 ${w} ${h}`}
+                        width={pixelBox ? pixelBox.width : '100%'}
+                        height={pixelBox ? pixelBox.height : '100%'}
+                        preserveAspectRatio="xMidYMid meet"
+                        style={pixelBox ? { display: 'block', flexShrink: 0 } : { display: 'block' }}
+                    >
                         <HatchPattern id={patternId} />
                         {tileLayer}
                         <BarrierLayer barriers={state.barriers} />
+                        <FieldItemLayer items={state.fieldItems} />
                         <g data-testid="combat-overlay" style={{ pointerEvents: 'none' }}>
                             {aim && <AimOverlay aim={aim} preview={aimPreview} focus={focus?.pos ?? null} state={state} />}
                             {[...reach.keys()].map(k => {
@@ -681,69 +813,17 @@ export function CombatBoard({
                                 />
                             )}
                         </g>
-                        <g data-testid="combat-tokens">
-                            {state.order.map(id => {
-                                const c = state.combatants[id];
-                                const pos = shown[id] ?? c?.position;
-                                if (!c || !pos || !isOnBoard(c)) return null;
-                                const { x, y } = center(pos);
-                                const r = TILE_SIZE * 0.36;
-                                const ring = 2 * Math.PI * (r + 0.9);
-                                const frac = c.status === 'up' ? Math.max(0, Math.min(1, c.hp / Math.max(1, c.maxHp))) : 0;
-                                const isSelected = targetId === id;
-                                const outline = c.side === 'ally' ? '1 0.8' : c.side === 'neutral' ? '0.3 0.7' : undefined;
-                                return (
-                                    <g
-                                        key={id}
-                                        data-testid={`token-${id}`}
-                                        role="img"
-                                        aria-label={describeToken(c)}
-                                        opacity={c.status === 'up' ? 1 : 0.35}
-                                        onClick={() => onTile(c.position ?? pos)}
-                                        onMouseEnter={() => setHover(c.position ?? pos)}
-                                        data-summon={c.summonerId ? 'true' : undefined}
-                                        data-status={c.status}
-                                        style={{ cursor: aim || (interactive && attackable.some(a => a.id === id)) ? 'crosshair' : 'pointer' }}
-                                    >
-                                        <title>{describeToken(c)}</title>
-                                        {actingId === id && <circle cx={x} cy={y} r={r + 2.2} style={{ fill: 'none', stroke: 'var(--combat-path)', strokeWidth: 0.9, opacity: 0.85 }} />}
-                                        {isSelected && <circle data-testid="combat-selected" cx={x} cy={y} r={r + 2.2} style={{ fill: 'none', stroke: 'var(--combat-cursor)', strokeWidth: 0.5, strokeDasharray: '1 1' }} />}
-                                        {art && <circle data-testid="combat-token-ring" cx={x} cy={y} r={r + 0.9} style={{ fill: 'none', stroke: 'var(--combat-board-bg)', strokeWidth: 2.1, opacity: 0.9 }} />}
-                                        <circle cx={x} cy={y} r={r + 0.9} style={{ fill: 'none', stroke: 'var(--combat-hp-track)', strokeWidth: 0.9 }} />
-                                        <circle
-                                            cx={x}
-                                            cy={y}
-                                            r={r + 0.9}
-                                            transform={`rotate(-90 ${x} ${y})`}
-                                            style={{ fill: 'none', stroke: hpColor(c), strokeWidth: 0.9, strokeDasharray: `${ring * frac} ${ring}` }}
-                                        />
-                                        <TempHpRing c={c} x={x} y={y} r={r} />
-                                        {c.summonerId && <circle data-testid="combat-summon-ring" cx={x} cy={y} r={r - 0.9} style={{ fill: 'none', stroke: 'var(--combat-token-text)', strokeWidth: 0.4, strokeDasharray: '0.8 0.6', pointerEvents: 'none' }} />}
-                                        <circle
-                                            cx={x}
-                                            cy={y}
-                                            r={r}
-                                            style={{ fill: sideColor(c.side), stroke: outline ? 'var(--combat-token-text)' : 'none', strokeWidth: 0.5, strokeDasharray: outline }}
-                                        />
-                                        <text x={x} y={y + 1.3} textAnchor="middle" style={{ fontSize: 3.6, fontWeight: 700, fill: 'var(--combat-token-text)', pointerEvents: 'none' }}>
-                                            {c.name.trim().charAt(0).toUpperCase() || '?'}
-                                        </text>
-                                        <ConditionBadges c={c} x={x} y={y} r={r} />
-                                        {c.status === 'surrendered' && (
-                                            <g data-testid="combat-yielded-mark" style={{ pointerEvents: 'none' }}>
-                                                <line x1={x + r * 0.5} y1={y - r - 2.4} x2={x + r * 0.5} y2={y - r + 0.6} style={{ stroke: 'var(--combat-token-text)', strokeWidth: 0.35 }} />
-                                                <rect x={x + r * 0.5} y={y - r - 2.4} width={1.8} height={1.2} style={{ fill: 'var(--combat-token-text)' }} />
-                                            </g>
-                                        )}
-                                        {isParty(c) && c.status === 'up' && (
-                                            <text x={x} y={y + r + 3.4} textAnchor="middle" style={{ fontSize: 2.3, fill: 'var(--combat-party)', pointerEvents: 'none' }}>
-                                                {c.hp}/{c.maxHp}
-                                            </text>
-                                        )}
-                                    </g>
-                                );
-                            })}
-                        </g>
+                        {pixelPlan ? (
+                            <g data-testid="combat-depth">
+                                {depth.map(item => (item.type === 'prop'
+                                    ? <PixelPropImage key={item.prop.id} prop={item.prop} faded={faded.has(item.prop.id)} onFail={art?.onPixelFail ?? noop} />
+                                    : renderToken(item.id)))}
+                            </g>
+                        ) : (
+                            <g data-testid="combat-tokens">
+                                {state.order.map(id => renderToken(id))}
+                            </g>
+                        )}
                         {cursor && (
                             <rect
                                 data-testid="combat-cursor"
@@ -761,6 +841,20 @@ export function CombatBoard({
                         )}
                     </svg>
                 </div>
+                {aim?.throwing && (
+                    <ThrowChoices
+                        throwing={aim.throwing}
+                        itemsOpen={itemsOpen && aim.throwing.step === 1}
+                        onItems={(open) => {
+                            setItemsOpen(open);
+                            if (!open) surface.current?.focus({ preventScroll: true });
+                        }}
+                        onBack={() => {
+                            aim.cancel();
+                            surface.current?.focus({ preventScroll: true });
+                        }}
+                    />
+                )}
                 {selected && selectedPos && (
                     <InspectCard
                         combatant={selected}

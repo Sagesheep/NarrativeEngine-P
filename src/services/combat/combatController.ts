@@ -1,7 +1,7 @@
 import {
     applyAction, buildPcCombatant, concedeCombat, createCombat, currentActorId, deriveMaxMp, stepEngine, validateAbility,
 } from '@narrative/engine';
-import type { AbilityKey, AttackRange, CombatantSpec, GlyphAbility, PcCombatantInput, WeaponQuality } from '@narrative/engine';
+import type { AbilityKey, AttackRange, CombatantSpec, GlyphAbility, PcCarriedInput, PcCombatantInput, WeaponQuality } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
 import { debouncedSaveCampaignState } from '../../store/slices/campaignSlice';
 import { commitPendingTurn, findPendingCommitMessage } from '../turn/pendingCommit';
@@ -14,7 +14,7 @@ import { COMBAT_FLOURISH_MAX, normalizeCombatConfig, normalizeSpellbook } from '
 import type {
     CharacterProfile, ChatMessage, CombatAction, CombatFallen, CombatNarrationCadence, CombatEvent, CombatPartyControl,
     CombatProposal, CombatSession, CombatState, Combatant, FateRecord, GameContext, InventoryItem, NPCEntry, ParleyRecord,
-    ProposedCombatant,
+    ProposedCombatant, Speech,
 } from '../../types';
 import { groupEventsByTurn, hpBandLabel, isGroupComplete, turnLines } from './combatEvents';
 import { compendiumFor, type CompendiumLookupState } from './compendiumLookup';
@@ -50,6 +50,25 @@ export function weaponRange(range: InventoryItem['range']): AttackRange | undefi
     return undefined;
 }
 
+const THROWABLE_KEYWORDS: readonly string[] = ['throwable', 'throwing', 'thrown'];
+
+export function carriedItemsFor(items: readonly InventoryItem[] | undefined): PcCarriedInput[] {
+    const out: PcCarriedInput[] = [];
+    for (const item of items ?? []) {
+        const weapon = item.category === 'weapon';
+        const throwable = !weapon && (item.keywords ?? []).some(k => THROWABLE_KEYWORDS.includes(k.trim().toLowerCase()));
+        if (!weapon && !throwable) continue;
+        out.push({
+            id: item.id,
+            name: item.name,
+            ...(weapon && item.quality ? { quality: item.quality as WeaponQuality } : {}),
+            ...(weapon && item.equipped ? { equipped: true } : {}),
+            ...(throwable ? { throwable: true } : {}),
+        });
+    }
+    return out;
+}
+
 export function equippedKit(context: Pick<GameContext, 'spellbook' | 'combatConfig'>): GlyphAbility[] {
     const config = normalizeCombatConfig(context.combatConfig);
     const book = normalizeSpellbook(context.spellbook);
@@ -67,6 +86,7 @@ export function buildPcInput(store: Pick<Store, 'context' | 'inventoryItems'>): 
     const config = normalizeCombatConfig(context.combatConfig);
     const profile = context.characterProfileData;
     const weapon = equippedWeapon(context.inventoryItems ?? store.inventoryItems);
+    const items = carriedItemsFor(context.inventoryItems ?? store.inventoryItems);
     return {
         name: profile?.name?.trim() || 'You',
         sheet,
@@ -82,6 +102,7 @@ export function buildPcInput(store: Pick<Store, 'context' | 'inventoryItems'>): 
             }
             : null,
         ...(config.defaultWeaponDie ? { defaultWeaponDie: config.defaultWeaponDie } : {}),
+        ...(items.length > 0 ? { items } : {}),
     };
 }
 
@@ -229,7 +250,8 @@ export function buildCombatantSpecs(
 ): CombatantSpec[] {
     return combatants.filter(c => isIncluded(c, partyControl)).map(c => {
         const range = rangeForAttack(c.attack);
-        const { overlay } = compendiumFor(c, lookup);
+        const { overlay, speech: templateSpeech } = compendiumFor(c, lookup);
+        const speech: Speech | undefined = c.npcId ? 'speaks' : templateSpeech ?? c.speech;
         return {
             name: c.name,
             side: c.side,
@@ -239,6 +261,7 @@ export function buildCombatantSpecs(
             ...(c.species ? { species: c.species } : {}),
             ...(c.look ? { look: c.look } : {}),
             ...(c.manner ? { manner: c.manner } : {}),
+            ...(speech ? { speech } : {}),
             ...(range ? { range } : {}),
             ...(overlay ? { template: overlay } : {}),
         };

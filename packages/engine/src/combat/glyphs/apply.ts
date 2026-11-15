@@ -1,13 +1,13 @@
 import { abilityMod } from '../abilities';
 import { buildTierBlock } from '../tiers';
-import { canStep, coverBetween, distance, samePos, sameTeam, speedOf, terrainOf, tileAt, traceLine } from '../grid';
+import { coverBetween, distance, samePos, sameTeam, speedOf, terrainOf, tileAt, traceLine } from '../grid';
 import {
     applyDamage, canAttackWith, canTarget, currentActorId, currentTurn, DEFEND_CONDITION, dismissSummon, emit, freshTurn, hasCondition,
     HASTED, hazardStrike, isPlayerSide, markDown, rollDamage, setCondition, SHIELDED, SLOWED, spendAttackAction, STUNNED,
 } from '../core';
 import type { Draft } from '../core';
-import type { AbilityKey, AttackRange, CombatState, Combatant, DamageSpec, EffectId, GlyphAbility, Pos, TurnState } from '../types';
-import { abilityRoll, builtinStats, checkAttack, findBuiltin, recoverable, shotOf, THROWN_WEAPON_NAME, throwProfile } from './builtins';
+import type { AbilityKey, AttackRange, CombatState, Combatant, DamageSpec, EffectId, GlyphAbility, Pos, ThrowPayload, TurnState } from '../types';
+import { abilityRoll, builtinStats, checkAttack, findBuiltin, recoverable } from './builtins';
 import { EFFECTS, GLYPH_NUMBERS as N, UNSTUNNABLE_TIERS } from './registry';
 import {
     barrierRounds, casterStats, damageDice, drainDice, hasteTurns, healDice, isQuickened, proficiencyOf, pushDistance, saveDc, saveModifier,
@@ -15,9 +15,12 @@ import {
 } from './numbers';
 import type { CasterStats } from './numbers';
 import { abilityCost, validateAbility } from './validate';
-import { abilityTargets, isEmptyTile, legalAims } from './targeting';
+import { abilityTargets, hasPinnedShoveTarget, isEmptyTile, legalAims } from './targeting';
 import type { AimResult } from './targeting';
+import { blockerLabel, previewPush, previewPushes, SHOVE_NO_ROOM } from './push';
+import type { PushPreview } from './push';
 import type { StuntPlan, StuntStep } from './stunt';
+import { resolveThrow, throwReason } from './throw';
 
 export type AbilitySlot = 'action' | 'bonus';
 
@@ -73,7 +76,7 @@ export function abilityReadiness(state: CombatState, actor: Combatant, ability: 
     return null;
 }
 
-export function checkAbility(state: CombatState, actorId: string, abilityId: string, aim?: Pos | null): AbilityCheck {
+export function checkAbility(state: CombatState, actorId: string, abilityId: string, aim?: Pos | null, payload?: ThrowPayload): AbilityCheck {
     const actor = state.combatants[actorId];
     const ability = findUsableAbility(actor, abilityId);
     const base = { cost: ability ? abilityCost(ability) : 0, slot: ability ? abilitySlot(ability) : 'action' as AbilitySlot };
@@ -83,11 +86,15 @@ export function checkAbility(state: CombatState, actorId: string, abilityId: str
     const ready = abilityReadiness(state, actor, ability, currentTurn(state));
     if (ready) return { ok: false, reason: ready, ...base, ability };
     if (aim === undefined) {
-        return legalAims(state, actorId, ability).length > 0
-            ? { ok: true, ...base, ability }
-            : { ok: false, reason: 'no target', ...base, ability };
+        if (ability.builtin?.kind === 'throw') {
+            const refusal = throwReason(state, actorId);
+            return refusal ? { ok: false, reason: refusal, ...base, ability } : { ok: true, ...base, ability };
+        }
+        if (legalAims(state, actorId, ability).length > 0) return { ok: true, ...base, ability };
+        const pinned = ability.builtin?.kind === 'shove' && hasPinnedShoveTarget(state, actorId);
+        return { ok: false, reason: pinned ? SHOVE_NO_ROOM : 'no target', ...base, ability };
     }
-    const result = abilityTargets(state, actorId, ability, aim);
+    const result = abilityTargets(state, actorId, ability, aim, payload);
     if (!result.ok) return { ok: false, reason: result.reason ?? 'no target', ...base, ability };
     return { ok: true, ...base, ability, aim: result };
 }
@@ -124,14 +131,6 @@ function statsFor(user: Combatant, ability: GlyphAbility): CasterStats {
     const check = ability.builtin?.check;
     if (check) return { proficiency: proficiencyOf(user), castingMod: abilityMod(user.abilities[check.ability] ?? 10) };
     return ability.builtin ? builtinStats(user) : casterStats(user);
-}
-
-function signDir(from: Pos, to: Pos): Pos {
-    return { x: Math.sign(to.x - from.x), y: Math.sign(to.y - from.y) };
-}
-
-function livingAt(state: CombatState, p: Pos, exceptId: string): boolean {
-    return Object.values(state.combatants).some(c => c.id !== exceptId && c.status === 'up' && samePos(c.position, p));
 }
 
 function isWilling(ctx: Ctx, target: Combatant): boolean {
@@ -235,51 +234,65 @@ function addCondition(ctx: Ctx, target: Combatant, id: string, turns: number): v
     });
 }
 
+export function strikesOnEntry(ability: GlyphAbility): boolean {
+    return ability.builtin?.kind === 'shove' || isStunt(ability);
+}
+
 function moveBy(ctx: Ctx, target: Combatant, kind: 'push' | 'pull', squares: number): void {
-    const terrain = terrainOf(ctx.draft.state);
-    const origin = ctx.aim.origin;
-    if (!terrain || !origin || !target.position || samePos(origin, target.position)) return;
-    const away = signDir(origin, target.position);
-    const dir = kind === 'push' ? away : { x: -away.x, y: -away.y };
-    const from = { ...target.position };
-    let at = { ...target.position };
-    const path: Pos[] = [];
-    for (let i = 0; i < squares; i++) {
-        const next = { x: at.x + dir.x, y: at.y + dir.y };
-        if (!canStep(terrain, at, next) || livingAt(ctx.draft.state, next, target.id)) break;
-        at = next;
-        path.push(next);
-    }
-    const moved = path.length;
-    const shoved = ctx.ability.builtin?.kind === 'shove' || isStunt(ctx.ability);
+    const state = ctx.draft.state;
+    const shoved = strikesOnEntry(ctx.ability);
+    const plan = previewPush(state, ctx.user.id, target.id, kind, squares, { ...(ctx.aim.origin ? { origin: ctx.aim.origin } : {}), strike: shoved });
+    if (!plan) return;
+    const moved = plan.squares;
+    const stopped = plan.stoppedBy;
+    const why = stopped ? `, stopped by ${blockerLabel(stopped, id => state.combatants[id]?.name ?? 'another creature')}` : '';
+    const extra = { ...(stopped ? { stopped } : {}), ...(plan.slid ? { slid: true } : {}) };
     if (moved === 0) {
-        if (shoved) {
-            emit(ctx.draft, {
-                type: 'pushed',
-                actorId: ctx.user.id,
-                targetId: target.id,
-                data: { kind, squares: 0, ability: ctx.ability.name, moves: [], ...tag(ctx) },
-                text: isStunt(ctx.ability) ? `${target.name} has nowhere to go.` : `${target.name} is shoved but has nowhere to go.`,
-            });
-        }
+        const lead = isStunt(ctx.ability)
+            ? `${target.name} has nowhere to go`
+            : shoved
+                ? `${target.name} is shoved but has nowhere to go`
+                : `${target.name} is ${kind === 'push' ? 'pushed' : 'pulled'} but has nowhere to go`;
+        emit(ctx.draft, {
+            type: 'pushed',
+            actorId: ctx.user.id,
+            targetId: target.id,
+            data: { kind, squares: 0, ability: ctx.ability.name, moves: [], ...extra, ...tag(ctx) },
+            text: `${lead}${why}.`,
+        });
         return;
     }
-    target.position = at;
+    target.position = { ...plan.landing };
     const unit = moved === 1 ? 'square' : 'squares';
     emit(ctx.draft, {
         type: 'pushed',
         actorId: ctx.user.id,
         targetId: target.id,
-        data: { kind, squares: moved, ability: ctx.ability.name, moves: [{ id: target.id, from, to: { ...at } }], ...tag(ctx) },
-        text: kind === 'push' ? `${target.name} is pushed back ${moved} ${unit}.` : `${target.name} is pulled ${moved} ${unit}.`,
+        data: { kind, squares: moved, ability: ctx.ability.name, moves: [{ id: target.id, from: { ...plan.from }, to: { ...plan.landing } }], ...extra, ...tag(ctx) },
+        text: `${kind === 'push' ? `${target.name} is pushed back ${moved} ${unit}` : `${target.name} is pulled ${moved} ${unit}`}${why}.`,
     });
-    const grid = ctx.draft.state.grid;
-    if (shoved && grid) {
-        for (const p of path) {
-            if (target.status !== 'up') break;
-            if (tileAt(grid, p) === 'hazard') hazardStrike(ctx.draft, target);
+    if (shoved) {
+        for (let i = 0; i < plan.hazards.length && target.status === 'up'; i++) hazardStrike(ctx.draft, target);
+    }
+}
+
+export function previewAbilityPushes(state: CombatState, userId: string, ability: GlyphAbility, aim: AimResult): PushPreview[] {
+    if (ability.form.id === 'self' || !aim.ok) return [];
+    const out: PushPreview[] = [];
+    let live = state;
+    for (const effect of ability.effects) {
+        if (effect.id !== 'push' && effect.id !== 'pull') continue;
+        const plans = previewPushes(live, userId, aim.targetIds, effect.id, pushDistance(effect.augments), {
+            ...(aim.origin ? { origin: aim.origin } : {}),
+            strike: strikesOnEntry(ability),
+        });
+        for (const plan of plans) {
+            out.push(plan);
+            const mover = live.combatants[plan.targetId];
+            if (plan.squares > 0 && mover) live = { ...live, combatants: { ...live.combatants, [plan.targetId]: { ...mover, position: { ...plan.landing } } } };
         }
     }
+    return out;
 }
 
 function teleport(ctx: Ctx, to: Pos, kind: 'blink' | 'dash' | 'leap', towardId?: string, over?: string[]): void {
@@ -310,7 +323,7 @@ const LEAP_TERRAIN: readonly string[] = ['hazard', 'difficult', 'cover'];
 function leapTo(ctx: Ctx, to: Pos): void {
     const s = ctx.draft.state;
     const from = ctx.user.position as Pos;
-    const grid = s.grid;
+    const grid = terrainOf(s);
     const crossed = new Set<string>();
     if (grid) {
         for (const step of traceLine(from, to).slice(1, -1)) {
@@ -511,14 +524,13 @@ function usesWeapon(ability: GlyphAbility): boolean {
 type Wield = { attackBonus: number; damage: DamageSpec; weapon?: string };
 
 function wieldOf(ctx: Ctx): Wield {
-    if (ctx.ability.builtin?.kind === 'throw') return { ...throwProfile(ctx.user), weapon: THROWN_WEAPON_NAME };
     return { attackBonus: ctx.user.attackBonus, damage: ctx.user.damage, ...(ctx.user.weaponName ? { weapon: ctx.user.weaponName } : {}) };
 }
 
 function weaponRoll(ctx: Ctx, target: Combatant): { hit: boolean; crit: boolean } {
     const user = ctx.user;
     const wield = wieldOf(ctx);
-    const check = checkAttack(ctx.draft.state, user.id, target.id, undefined, shotOf(ctx.ability));
+    const check = checkAttack(ctx.draft.state, user.id, target.id);
     const defending = hasCondition(target, DEFEND_CONDITION);
     const disadvantage = defending || check.disadvantage || hasCondition(user, SLOWED);
     const first = ctx.draft.rng.roll(20);
@@ -620,6 +632,10 @@ export function resolveAbility(draft: Draft, actorId: string, ability: GlyphAbil
         s.turn = slot === 'bonus' ? { ...turn, bonusUsed: true } : { ...turn, actionUsed: true };
         if (usesMp(user)) user.mp = Math.max(0, (user.mp ?? 0) - cost);
         else user.cooldowns = { ...(user.cooldowns ?? {}), [ability.id]: s.round + N.enemyCooldownRounds };
+    }
+    if (ability.builtin?.kind === 'throw') {
+        if (aim.throw) resolveThrow(draft, actorId, ability, aim.throw.payload, aim.throw.landing);
+        return;
     }
     applyChain(draft, actorId, ability, aim, false);
 }

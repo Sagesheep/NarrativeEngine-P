@@ -9,7 +9,7 @@ describe('normalizeCombatConfig', () => {
         expect(DEFAULT_COMBAT_CONFIG).toEqual({
             partyControl: 'engine', defeatMode: 'knockout', narrationCadence: 'side', narrationLength: 'standard',
             confirmStart: true, offerOnDangerous: true, resourceLabel: 'MP',
-            maxChainLength: 6, maxEquippedAbilities: 6, maxSummons: 2, mpRecovery: 'fight',
+            maxChainLength: 6, maxEquippedAbilities: 6, maxSummons: 2, mpRecovery: 'fight', tileStyle: 'auto',
         });
     });
 
@@ -17,13 +17,13 @@ describe('normalizeCombatConfig', () => {
         const cfg = normalizeCombatConfig({
             partyControl: 'solo', defeatMode: 'ironman', narrationCadence: 'end', narrationLength: 'rich',
             confirmStart: false, offerOnDangerous: false, resourceLabel: ' RAM ',
-            maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0,
+            maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0, tileStyle: 'painted',
             mookJitterRange: 2, defaultWeaponDie: 8,
         });
         expect(cfg).toEqual({
             partyControl: 'solo', defeatMode: 'ironman', narrationCadence: 'end', narrationLength: 'rich',
             confirmStart: false, offerOnDangerous: false, resourceLabel: 'RAM',
-            maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0, mpRecovery: 'fight',
+            maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0, mpRecovery: 'fight', tileStyle: 'painted',
             mookJitterRange: 2, defaultWeaponDie: 8,
         });
     });
@@ -32,8 +32,16 @@ describe('normalizeCombatConfig', () => {
         const cfg = normalizeCombatConfig({
             partyControl: 'chaos', defeatMode: 'permadeath', narrationCadence: 'never', narrationLength: 'epic',
             confirmStart: 'yes', resourceLabel: '   ', maxChainLength: 0, maxEquippedAbilities: Number.NaN, maxSummons: -1,
+            tileStyle: 'pixel',
         });
         expect(cfg).toEqual(DEFAULT_COMBAT_CONFIG);
+    });
+
+    it('gives a save from before the tile style setting the auto style', () => {
+        const old = migrateLegacyContext({ combatConfig: { partyControl: 'solo' } } as unknown as Parameters<typeof migrateLegacyContext>[0]);
+        expect(old.combatConfig?.tileStyle).toBe('auto');
+        const kept = migrateLegacyContext({ combatConfig: { ...DEFAULT_COMBAT_CONFIG, tileStyle: 'painted' } });
+        expect(kept.combatConfig?.tileStyle).toBe('painted');
     });
 
     it('drops the abandoned keyword-detection fields', () => {

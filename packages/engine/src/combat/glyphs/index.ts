@@ -18,9 +18,16 @@ export {
     builtinDefend, builtinDash, builtinShove, builtinJump, builtinThrow, builtinHelp, builtinAbilities, findBuiltin, availableAbilities,
     leapRange, throwProfile, tooLargeToShove, recoverable,
 } from './builtins';
+export {
+    THROW_REASONS, throwWeight, throwRangeOf, normalizeThrowPayload, samePayload, standingAt, payloadInfo, nearestFree, previewThrow,
+    payloadAt, payloadChoices, payloadTiles, legalLandings, throwReason, weaponFieldsOf, bareHands, applyWeaponFields, pickUpItems,
+} from './throw';
+export type { ThrowWeight, TerrainChange, ThrowPlan, ThrowPreview, PayloadInfo, PayloadChoice } from './throw';
 export { abilityTargets, legalAims, directionOf, tileEffectOf, isEmptyTile } from './targeting';
 export type { AimResult } from './targeting';
-export { findKitAbility, findUsableAbility, abilitySlot, usesMp, abilityReadiness, checkAbility } from './apply';
+export { previewPush, previewPushes, blockerLabel, SHOVE_NO_ROOM } from './push';
+export type { PushKind, PushBlocker, PushBlockerKind, PushPreview, PushOptions } from './push';
+export { findKitAbility, findUsableAbility, abilitySlot, usesMp, abilityReadiness, checkAbility, previewAbilityPushes, strikesOnEntry } from './apply';
 export {
     STUNT_OUTCOMES, STUNT_DIFFICULTIES, STUNT_DC, STUNT_FLOORS, STUNT_MAX_PARTS, STUNT_DEFAULT_DAMAGE_TYPE, STUNT_DAMAGE_TYPE_MAX, STUNT_NAME,
     difficultyRank, stuntDifficulty, stuntAvailable, stuntArea, checkStunt,

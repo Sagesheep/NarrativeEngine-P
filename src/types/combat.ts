@@ -1,6 +1,6 @@
 import type {
     Archetype, AugmentId, CombatEvent, CombatState, CombatTier, EffectId, FormId, GlyphAbility, MapSpec, ParleyEffect, ParleyIntent,
-    ParleyRating, StuntDifficulty, StuntSpec,
+    ParleyRating, Speech, StuntDifficulty, StuntSpec,
 } from '@narrative/engine';
 import { isBuiltinId } from '@narrative/engine';
 
@@ -11,7 +11,7 @@ export type {
     AreaType as CombatAreaType, MapDensity as CombatMapDensity, HazardKind as CombatHazardKind,
     TerrainLabels as CombatTerrainLabels, ResolvedMapSpec as CombatResolvedMap,
     GlyphAbility, FormId, EffectId, AugmentId, CombatCondition,
-    ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord,
+    ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord, Speech,
     StuntOutcome, StuntDifficulty, StuntPart, StuntSpec,
 } from '@narrative/engine';
 
@@ -20,6 +20,7 @@ export type CombatDefeatMode = 'knockout' | 'hardcore' | 'ironman';
 export type CombatNarrationCadence = 'action' | 'side' | 'round' | 'end';
 export type CombatMpRecovery = 'fight';
 export type CombatNarrationLength = 'brief' | 'standard' | 'rich';
+export type CombatTileStyle = 'auto' | 'painted';
 
 export type CombatSettings = {
     partyControl: CombatPartyControl;
@@ -33,6 +34,7 @@ export type CombatSettings = {
     maxEquippedAbilities: number;
     maxSummons: number;
     mpRecovery: CombatMpRecovery;
+    tileStyle: CombatTileStyle;
     mookJitterRange?: number;
     defaultWeaponDie?: number;
 };
@@ -49,6 +51,7 @@ export type ProposedCombatant = {
     npcId?: string;
     look?: string;
     manner?: string;
+    speech?: Speech;
     attack?: ProposedAttackStyle;
     included?: boolean;
 };
@@ -169,6 +172,8 @@ export const COMBAT_DEFEAT_MODES: readonly CombatDefeatMode[] = ['knockout', 'ha
 export const COMBAT_NARRATION_CADENCES: readonly CombatNarrationCadence[] = ['action', 'side', 'round', 'end'];
 export const COMBAT_NARRATION_LENGTHS: readonly CombatNarrationLength[] = ['brief', 'standard', 'rich'];
 
+export const COMBAT_TILE_STYLES: readonly CombatTileStyle[] = ['auto', 'painted'];
+
 export const COMBAT_RESOURCE_LABEL_MAX = 24;
 
 export const DEFAULT_COMBAT_CONFIG: Readonly<CombatSettings> = Object.freeze({
@@ -183,6 +188,7 @@ export const DEFAULT_COMBAT_CONFIG: Readonly<CombatSettings> = Object.freeze({
     maxEquippedAbilities: 6,
     maxSummons: 2,
     mpRecovery: 'fight',
+    tileStyle: 'auto',
 });
 
 export const COMBAT_MP_RECOVERIES: readonly CombatMpRecovery[] = ['fight'];
@@ -299,6 +305,7 @@ export function normalizeCombatConfig(partial?: unknown): CombatSettings {
         maxEquippedAbilities: pickCount(raw.maxEquippedAbilities, d.maxEquippedAbilities, 1),
         maxSummons: pickCount(raw.maxSummons, d.maxSummons, 0),
         mpRecovery: pickEnum(raw.mpRecovery, COMBAT_MP_RECOVERIES, d.mpRecovery),
+        tileStyle: pickEnum(raw.tileStyle, COMBAT_TILE_STYLES, d.tileStyle),
     };
     if (typeof raw.mookJitterRange === 'number' && Number.isFinite(raw.mookJitterRange)) out.mookJitterRange = raw.mookJitterRange;
     if (typeof raw.defaultWeaponDie === 'number' && Number.isFinite(raw.defaultWeaponDie)) out.defaultWeaponDie = raw.defaultWeaponDie;

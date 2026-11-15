@@ -3,7 +3,7 @@ import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Loader2, MessageSquare } from 'lucide-react';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { CombatSession } from '../../types';
-import { canParley, PARLEY_WORDS_MAX, submitParley } from '../../services/combat/combatParley';
+import { canParley, parleyBlockedBySpeech, PARLEY_WORDS_MAX, submitParley } from '../../services/combat/combatParley';
 
 export function CombatParleyBox({ session, busy }: { session: CombatSession; busy: boolean }) {
     const { t } = useTranslation();
@@ -12,6 +12,28 @@ export function CombatParleyBox({ session, busy }: { session: CombatSession; bus
         return (
             <div data-testid="combat-parley-pending" className="flex items-center gap-2 px-3 py-2 border-t border-border text-[11px] font-mono text-text-dim">
                 <Loader2 size={12} className="animate-spin" /> {t('combat.parley.busy')}
+            </div>
+        );
+    }
+    if (parleyBlockedBySpeech(session, busy)) {
+        return (
+            <div data-testid="combat-parley-blocked" className="flex items-end gap-2 px-3 py-2 border-t border-border">
+                <textarea
+                    disabled
+                    rows={2}
+                    aria-label={t('combat.parley.label')}
+                    placeholder={t('combat.parley.noSpeaker')}
+                    title={t('combat.parley.noSpeaker')}
+                    className="flex-1 min-w-0 resize-none bg-void border border-border px-2 py-1 text-[12px] text-text-primary opacity-50 cursor-not-allowed"
+                />
+                <button
+                    type="button"
+                    disabled
+                    title={t('combat.parley.noSpeaker')}
+                    className="flex items-center gap-1 border border-border text-[10px] uppercase tracking-wider px-3 py-1.5 rounded-sm text-text-primary opacity-40 cursor-not-allowed"
+                >
+                    <MessageSquare size={12} /> {t('combat.parley.send')}
+                </button>
             </div>
         );
     }

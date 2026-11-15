@@ -1,13 +1,14 @@
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget,
     CombatSheet, DerivedSheet, Rng,
-    Side, Controller, CombatantStatus, DamageSpec, Combatant, CombatOutcome, CombatState,
+    Side, Controller, CombatantStatus, DamageSpec, Combatant, CombatOutcome, CombatState, Speech,
     CombatAction, CombatEvent, TierBlock, CombatantSpec, CombatSpec, WeaponQuality, PcWeapon,
     PcCombatantInput, AttackRange, Tile, Grid, Pos, MapSize, MapSpec, TurnState, TemplateOverlay,
     AreaType, MapDensity, HazardKind, TerrainLabels, ResolvedMapSpec,
     FormId, EffectId, AugmentId, GlyphAbility, BuiltinKind, BuiltinProfile, CombatCondition, Barrier,
     StuntCheckProfile, StuntOutcome, StuntDifficulty, StuntPart, StuntSpec,
     PartyControl, DefeatMode, Team, ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord, MoraleBook, CombatEnding,
+    TerrainEdit, CarriedItem, FieldItem, WeaponFields, ThrowPayload, PcCarriedInput,
 } from './types';
 export {
     MORALE_DC, MORALE_DC_LEADER_DOWN, PARLEY_DC, PARLEY_LOSING_SHIFT, PARLEY_FAILURE_STEP, PARLEY_INTENTS, PARLEY_RATINGS,
@@ -17,6 +18,7 @@ export {
 } from './party';
 export type { FleeReason, FleeCheck, ParleyReason } from './party';
 export { createRng } from './rng';
+export { SPEECH_VALUES, SOUNDS_KEYWORDS, SILENT_KEYWORDS, SPEAKS_KEYWORDS, normalizeSpeech, inferSpeech, speechOf, canSpeak } from './speech';
 export { ABILITY_KEYS, TIER_LEVEL, abilityMod, proficiencyForLevel } from './abilities';
 export {
     PC_POINT_BUY, POINT_BUY_COST, OP_POINT_BUY_COST, INVALID_POINT_COST,
@@ -35,17 +37,17 @@ export {
 } from './resolve';
 export {
     STUNNED, SLOWED, HASTED, SHIELDED, COMBAT_EVENT_TYPES, canAttackWith, hasCondition, countsForOutcome,
-    playerCharacterOf, OUTCOME_TEXT, HARDCORE_DEATH_MAX, isPlayerSide,
+    playerCharacterOf, OUTCOME_TEXT, HARDCORE_DEATH_MAX, isPlayerSide, recoverFieldItems, fieldItemData,
 } from './core';
 export * from './glyphs/index';
 export type { HpBand, AttackCheck, ActionOptions } from './resolve';
 export {
     TILE_KINDS, DEFAULT_SPEED, REACH_DISTANCE, RANGED_DISTANCE, HAZARD_AVOID_PENALTY, HALF_COVER_BONUS, THREE_QUARTER_COVER_BONUS,
     inBounds, tileAt, isWalkable, isWalkableTile, distance, samePos, canStep, traceLine, hasLineOfSight, coverBetween,
-    speedOf, rangeOf, sameTeam, isFullyConnected, terrainOf,
+    speedOf, rangeOf, sameTeam, isFullyConnected, terrainOf, surfaceOf,
 } from './grid';
 export {
-    MAP_SIZES, SPAWN_COLUMNS, DEFAULT_HAZARD_TYPE,
+    MAP_SIZES, MAP_GENERATOR_VERSION, SPAWN_COLUMNS, DEFAULT_HAZARD_TYPE,
     normalizeMapSize, openArena, buildTerrain, generateMap, placeCombatants, buildGrid,
     buildMapFromSeed, isValidGrid, ensureGrid, withMapLabels, hasHazardFreeRoute, isPlayableMap,
 } from './mapBuilder';

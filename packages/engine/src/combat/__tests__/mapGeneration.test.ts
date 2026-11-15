@@ -70,7 +70,7 @@ describe('T6 property: every area, density, size and seed', () => {
 describe('T6 snapshot: one map per area (medium, normal)', () => {
     for (const area of AREA_TYPES) {
         it(`${area}`, () => {
-            const g = buildMapFromSeed({ area, density: 'normal', size: 'medium' }, 2026);
+            const g = buildMapFromSeed({ area, density: 'normal', size: 'medium' }, 2026, 1);
             expect(`${render(g)}\nshare ${(terrainShare(area, g) * 100).toFixed(1)}% labels ${JSON.stringify(g.labels)}`).toMatchSnapshot();
         });
     }

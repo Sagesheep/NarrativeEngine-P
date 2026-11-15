@@ -1,7 +1,7 @@
 import { createRng } from './rng';
 import { speedOf } from './grid';
 import { DEFAULT_HAZARD_TYPE } from './mapBuilder';
-import type { CombatCondition, CombatEvent, CombatOutcome, CombatState, Combatant, Rng, Side, TurnState } from './types';
+import type { CombatCondition, CombatEvent, CombatOutcome, CombatState, Combatant, FieldItem, Rng, Side, TurnState } from './types';
 
 export const DEFEND_CONDITION = 'defending';
 export const STUNNED = 'stunned';
@@ -155,9 +155,34 @@ export function rollFate(draft: Draft): void {
     });
 }
 
+export function recoverFieldItems(draft: Draft): void {
+    const s = draft.state;
+    const items = s.fieldItems;
+    if (!items || items.length === 0) return;
+    s.fieldItems = [];
+    for (const item of items) {
+        emit(draft, {
+            type: 'item_recovered',
+            actorId: item.ownerId,
+            data: { how: 'fight_end', itemId: item.id, name: item.name, at: { ...item.pos }, item: fieldItemData(item) },
+            text: `${item.name} is gathered up after the fight.`,
+        });
+    }
+}
+
+export function fieldItemData(item: FieldItem): Record<string, unknown> {
+    return {
+        id: item.id, name: item.name, count: item.count, sides: item.sides, ownerId: item.ownerId, pos: { ...item.pos },
+        ...(item.damageType ? { damageType: item.damageType } : {}),
+        ...(item.equipped ? { equipped: true } : {}),
+        ...(item.armed ? { armed: { damage: { ...item.armed.damage }, ...(item.armed.weaponName ? { weaponName: item.armed.weaponName } : {}), ...(item.armed.range ? { range: item.armed.range } : {}) } } : {}),
+    };
+}
+
 export function endFight(draft: Draft, outcome: CombatOutcome, data: Record<string, unknown> = {}): void {
     if (draft.state.outcome) return;
     draft.state.outcome = outcome;
+    recoverFieldItems(draft);
     emit(draft, { type: 'combat_ended', data: { outcome, ...data }, text: OUTCOME_TEXT[outcome] });
     rollFate(draft);
 }
@@ -260,5 +285,5 @@ export const COMBAT_EVENT_TYPES: readonly string[] = [
     'combat_started', 'initiative', 'round', 'moved', 'attack', 'defend', 'end_turn', 'down', 'hazard', 'condition_ended',
     'combat_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed', 'teleported',
     'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
-    'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check',
+    'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check', 'thrown', 'item_dropped', 'item_recovered',
 ];
