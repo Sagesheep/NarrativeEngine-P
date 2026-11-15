@@ -1,5 +1,6 @@
 import { API_BASE } from '../../lib/apiBase';
 import type { UtilityCallHandle } from './utilityCallTracker';
+import { noteReasoningOffRefused, serviceTierHostOf, withoutReasoningOff } from '../../utils/llmApiHelper';
 
 /**
  * Drop-in fetch() replacement that relays an AI-provider request through the local
@@ -17,15 +18,31 @@ export async function llmFetch(target: string, init?: RequestInit, call?: Utilit
             call.recordRequestBody(body);
         }
     }
-    return fetch(`${API_BASE}/llm/proxy`, {
+    const send = (requestBody: string | undefined): Promise<Response> => fetch(`${API_BASE}/llm/proxy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             target,
             method: init?.method ?? 'GET',
             headers: init?.headers ?? {},
-            body,
+            body: requestBody,
         }),
         signal: init?.signal ?? undefined,
     });
+
+    const res = await send(body);
+    // A model whose reasoning is mandatory rejects OpenRouter's reasoning-off switch
+    // (llmApiHelper, `reasoningOffRefused`). Send the request once more without it;
+    // the model is remembered so later calls skip the switch.
+    if (res.status >= 400 && res.status < 500 && body !== undefined && serviceTierHostOf(target) === 'openrouter') {
+        const retry = withoutReasoningOff(body);
+        if (retry) {
+            const reason = await res.clone().text().catch(() => '');
+            if (/reasoning/i.test(reason)) {
+                noteReasoningOffRefused(retry.model);
+                return send(retry.body);
+            }
+        }
+    }
+    return res;
 }

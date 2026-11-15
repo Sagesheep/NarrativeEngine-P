@@ -66,6 +66,53 @@ export function serviceTierHostOf(endpoint: string): 'nanogpt' | 'openrouter' | 
     return undefined;
 }
 
+// -- Reasoning off on OpenRouter ------------------------------------------------
+//
+// OpenRouter leaves a model on its own default when a request says nothing about
+// reasoning, and many models default to reasoning on. A call that asks for
+// thinking off (a short JSON answer on a small max_tokens) then has its whole
+// budget spent on reasoning and comes back empty. OpenRouter's switch is
+// `reasoning: { effort: "none" }`. Models whose reasoning is mandatory reject
+// it, so the relay retries once without it and the model is remembered here,
+// for this page session, so later calls do not pay for the failed attempt.
+
+const reasoningOffRefusedModels = new Set<string>();
+
+/** True once OpenRouter has refused `reasoning.effort: "none"` for this model. */
+export function reasoningOffRefused(model: string | undefined): boolean {
+    return typeof model === 'string' && reasoningOffRefusedModels.has(model);
+}
+
+export function noteReasoningOffRefused(model: string | undefined): void {
+    if (typeof model === 'string' && model) reasoningOffRefusedModels.add(model);
+}
+
+/** Test seam: forget every remembered refusal. */
+export function resetReasoningOffRefusals(): void {
+    reasoningOffRefusedModels.clear();
+}
+
+/**
+ * If `bodyText` is a chat request carrying exactly the switch above, returns the
+ * same request without it and the model it names; otherwise null. A `reasoning`
+ * field with anything else in it came from the user's custom body and is left alone.
+ */
+export function withoutReasoningOff(bodyText: string): { body: string; model: string } | null {
+    if (!bodyText.includes('"reasoning"')) return null;
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(bodyText);
+    } catch {
+        return null;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const { reasoning, ...rest } = parsed as Record<string, unknown>;
+    if (!reasoning || typeof reasoning !== 'object' || Array.isArray(reasoning)) return null;
+    const keys = Object.keys(reasoning);
+    if (keys.length !== 1 || (reasoning as Record<string, unknown>).effort !== 'none') return null;
+    return { body: JSON.stringify(rest), model: typeof rest.model === 'string' ? rest.model : '' };
+}
+
 /** Whether this provider can take a service tier: an OpenAI-style body on NanoGPT or OpenRouter. */
 export function supportsServiceTier(provider: AnyProvider): boolean {
     const format = getApiFormat(provider);
@@ -463,11 +510,17 @@ function buildBaseChatBody(
     // OpenRouter) take that host's controls, not these.
     const isDeepSeekApi = !isOllama && (() => { try { return new URL(provider.endpoint.replace(/\/+$/, '')).hostname.includes('deepseek'); } catch { return false; } })();
 
+    const isOpenRouter = !isOllama && serviceTierHostOf(provider.endpoint) === 'openrouter';
+
     if (effort === 'off' && isDeepSeekApi) {
         // DeepSeek thinks by default (effort high), so leaving the field out is not
         // "off": the reasoning is billed against max_tokens and a small answer budget
         // comes back empty. Only an explicit disable turns it off.
         body.thinking = { type: 'disabled' };
+    } else if (effort === 'off' && isOpenRouter && !reasoningOffRefused(provider.modelName)) {
+        // Same problem on OpenRouter, with OpenRouter's own switch. See the note
+        // above `reasoningOffRefused` for the models that refuse it.
+        body.reasoning = { effort: 'none' };
     } else if (effort && effort !== 'off') {
         if (isOllama) {
             const ollamaThinkBudget: Record<ThinkingEffort, number | undefined> = {
