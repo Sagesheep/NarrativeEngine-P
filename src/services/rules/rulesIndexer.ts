@@ -166,6 +166,16 @@ export async function indexRules(
         if (!meta) {
             meta = deriveDefaultMeta(chunk);
             chunkMeta[chunk.id] = meta;
+        } else if (
+            chunk.ragMode
+            && !meta.activationModesUserEdited
+            && !(meta.activationModes.length === 1 && meta.activationModes[0] === chunk.ragMode)
+        ) {
+            // The `<!-- rag: ... -->` hint on this section changed since it was last
+            // indexed (say, `vector` became `always`). The hint is the author's
+            // instruction, so it replaces the mode derived last time; a mode the user
+            // set by hand in the Rules tab (activationModesUserEdited) still wins.
+            chunkMeta[chunk.id] = { ...meta, activationModes: [chunk.ragMode] };
         }
     }
 
