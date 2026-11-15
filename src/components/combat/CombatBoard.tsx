@@ -235,7 +235,7 @@ export function TerrainKeyItems({ grid }: { grid: CombatGrid | undefined }) {
     );
 }
 
-function BoardLegend({ grid, tileArt }: { grid: CombatGrid; tileArt?: { on: boolean; toggle: () => void } }) {
+function BoardLegend({ grid, tileArt, effects, setEffects }: { grid: CombatGrid; tileArt?: { on: boolean; toggle: () => void }; effects: 'off' | 'subtle' | 'enhanced'; setEffects: (value: 'off' | 'subtle' | 'enhanced') => void }) {
     const { t } = useTranslation();
     const [open, setOpen] = useState<boolean>(() => initialLegendOpen());
     const toggle = () => {
@@ -250,6 +250,14 @@ function BoardLegend({ grid, tileArt }: { grid: CombatGrid; tileArt?: { on: bool
                 </ul>
             )}
             <span id="combat-board-help" className={open ? 'text-text-dim' : 'sr-only'}>{t('combat.board.help')}</span>
+            <label className="flex items-center gap-1 text-text-dim">
+                {t('combat.effects.label')}
+                <select data-testid="combat-effects" value={effects} onChange={e => setEffects(e.target.value as 'off' | 'subtle' | 'enhanced')} className="border border-border rounded-sm bg-transparent text-text-primary">
+                    <option value="off">{t('combat.effects.off')}</option>
+                    <option value="subtle">{t('combat.effects.subtle')}</option>
+                    <option value="enhanced">{t('combat.effects.enhanced')}</option>
+                </select>
+            </label>
             {tileArt && (
                 <button
                     type="button"
@@ -399,7 +407,11 @@ export function CombatBoard({
     const { t } = useTranslation();
     const state = session.state;
     const grid = surfaceOf(state);
+    const effectsSetting = useAppStore(s => s.settings.combatEffects);
+    const updateSettings = useAppStore(s => s.updateSettings);
+    const effects = effectsSetting === 'subtle' || effectsSetting === 'enhanced' ? effectsSetting : 'off';
     const patternId = `combat-hatch-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+    const effectsId = `${patternId}-effects`;
     const playerId = playerActorId(state);
     const player = playerId ? state.combatants[playerId] : undefined;
     const viewer = player ?? playerCharacter(state);
@@ -700,6 +712,7 @@ export function CombatBoard({
             >
                 <title>{describeToken(c)}</title>
                 {actingId === id && <circle cx={x} cy={y} r={r + 2.2} style={{ fill: 'none', stroke: 'var(--combat-path)', strokeWidth: 0.9, opacity: 0.85 }} />}
+                {isSelected && effects !== 'off' && <circle data-testid="combat-selection-glow" cx={x} cy={y} r={r + (effects === 'enhanced' ? 5 : 3.5)} fill={`url(#${effectsId}-glow)`} pointerEvents="none" />}
                 {isSelected && <circle data-testid="combat-selected" cx={x} cy={y} r={r + 2.2} style={{ fill: 'none', stroke: 'var(--combat-cursor)', strokeWidth: 0.5, strokeDasharray: '1 1' }} />}
                 {art && <circle data-testid="combat-token-ring" cx={x} cy={y} r={r + 0.9} style={{ fill: 'none', stroke: 'var(--combat-board-bg)', strokeWidth: 2.1, opacity: 0.9 }} />}
                 <circle cx={x} cy={y} r={r + 0.9} style={{ fill: 'none', stroke: 'var(--combat-hp-track)', strokeWidth: 0.9 }} />
@@ -762,7 +775,53 @@ export function CombatBoard({
                         style={pixelBox ? { display: 'block', flexShrink: 0 } : { display: 'block' }}
                     >
                         <HatchPattern id={patternId} />
-                        {tileLayer}
+                        {effects !== 'off' && <defs>
+                            <filter id={`${effectsId}-grade`} colorInterpolationFilters="sRGB">
+                                <feColorMatrix type="saturate" values="1.25" />
+                                <feComponentTransfer>
+                                    <feFuncR type="linear" slope="1.08" intercept="-0.025" />
+                                    <feFuncG type="linear" slope="1.06" intercept="-0.025" />
+                                    <feFuncB type="linear" slope="1.08" intercept="-0.025" />
+                                </feComponentTransfer>
+                            </filter>
+                            <radialGradient id={`${effectsId}-light`}>
+                                <stop offset="0%" stopColor="#ffe3a4" stopOpacity="0.40" />
+                                <stop offset="35%" stopColor="#ffad53" stopOpacity="0.15" />
+                                <stop offset="100%" stopColor="#ffad53" stopOpacity="0" />
+                            </radialGradient>
+                            <linearGradient id={`${effectsId}-fog`}>
+                                <stop offset="0%" stopColor="#d4e6e5" stopOpacity="0" />
+                                <stop offset="45%" stopColor="#d4e6e5" stopOpacity="0.12" />
+                                <stop offset="100%" stopColor="#d4e6e5" stopOpacity="0" />
+                            </linearGradient>
+                            <radialGradient id={`${effectsId}-ambient`}>
+                                <stop offset="0%" stopColor="#ffc477" stopOpacity={effects === 'enhanced' ? 0.13 : 0.07} />
+                                <stop offset="65%" stopColor="#d98b4b" stopOpacity="0.02" />
+                                <stop offset="100%" stopColor="#080b16" stopOpacity={effects === 'enhanced' ? 0.32 : 0.18} />
+                            </radialGradient>
+                            <radialGradient id={`${effectsId}-glow`}>
+                                <stop offset="40%" stopColor="#ffe6a3" stopOpacity="0" />
+                                <stop offset="70%" stopColor="#ffe6a3" stopOpacity={effects === 'enhanced' ? 0.45 : 0.25} />
+                                <stop offset="100%" stopColor="#ffe6a3" stopOpacity="0" />
+                            </radialGradient>
+                        </defs>}
+                        {effects === 'enhanced' && <style>{`
+                            @keyframes combat-light-breathe { 0%, 100% { opacity: .78 } 50% { opacity: 1 } }
+                            @keyframes combat-fog-drift { 0% { transform: translateX(-8%); opacity: .55 } 50% { opacity: 1 } 100% { transform: translateX(8%); opacity: .55 } }
+                            .combat-cinematic-light { animation: combat-light-breathe 4s ease-in-out infinite; }
+                            .combat-cinematic-fog { animation: combat-fog-drift 18s ease-in-out infinite alternate; }
+                            @media (prefers-reduced-motion: reduce) { .combat-cinematic-light, .combat-cinematic-fog { animation: none; } }
+                        `}</style>}
+                        <g filter={effects === 'enhanced' ? `url(#${effectsId}-grade)` : undefined}>{tileLayer}</g>
+                        {effects === 'enhanced' && <g data-testid="combat-cinematic-effects" pointerEvents="none">
+                            <ellipse className="combat-cinematic-light" cx={w * 0.25} cy={h * 0.18} rx={w * 0.48} ry={h * 0.5} fill={`url(#${effectsId}-light)`} />
+                            <ellipse cx={w * 0.78} cy={h * 0.68} rx={w * 0.34} ry={h * 0.38} fill={`url(#${effectsId}-light)`} opacity="0.48" />
+                            <g className="combat-cinematic-fog">
+                                <ellipse cx={w * 0.28} cy={h * 0.79} rx={w * 0.42} ry={h * 0.12} fill={`url(#${effectsId}-fog)`} />
+                                <ellipse cx={w * 0.74} cy={h * 0.36} rx={w * 0.38} ry={h * 0.08} fill={`url(#${effectsId}-fog)`} />
+                            </g>
+                        </g>}
+                        {effects !== 'off' && <rect data-testid="combat-ambient-effects" x={0} y={0} width={w} height={h} fill={`url(#${effectsId}-ambient)`} pointerEvents="none" />}
                         <BarrierLayer barriers={state.barriers} />
                         <FieldItemLayer items={state.fieldItems} />
                         <ObjectiveTileMarks marks={objectiveMarks} width={grid.width} height={grid.height} />
@@ -878,7 +937,7 @@ export function CombatBoard({
             </div>
             <div className="flex items-center justify-between gap-3 px-3 py-1 text-[11px] font-mono flex-wrap">
                 <span data-testid="combat-board-status" aria-live="polite" className="text-text-primary truncate min-w-0 flex-1">{status}</span>
-                <BoardLegend grid={grid} tileArt={tileArtToggle} />
+                <BoardLegend grid={grid} tileArt={tileArtToggle} effects={effects} setEffects={value => updateSettings({ combatEffects: value })} />
             </div>
         </div>
     );

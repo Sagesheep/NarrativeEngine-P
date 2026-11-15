@@ -162,6 +162,7 @@ export type AppSettings = {
     contextLimit: number;
     debugMode?: boolean;
     theme?: 'light' | 'dark' | 'system';
+    combatEffects?: 'off' | 'subtle' | 'enhanced';
     locale?: LocaleCode;             // UI chrome language. Defaults to the browser language on first run, then never auto-changes. Independent of narration language (Phase 3).
     showReasoning?: boolean;
     /** @deprecated Unread since 2026-10-05: Deep Archive Search is switched in Block View (`deepScan`). Kept so stored settings load. */

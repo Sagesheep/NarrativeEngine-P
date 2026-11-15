@@ -430,6 +430,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         contextLimit: (raw.contextLimit as number) ?? 4096,
         debugMode: (raw.debugMode as boolean) ?? false,
         theme: (raw.theme as 'light' | 'dark' | 'system') ?? 'light',
+        combatEffects: (raw.combatEffects === 'subtle' ? 'subtle' : raw.combatEffects === 'enhanced' ? 'enhanced' : 'off') as AppSettings['combatEffects'],
         // First run only: seed from the browser. Once a locale is stored — even
         // 'en' — it is an explicit choice and is never auto-changed again.
         locale: isLocaleCode(raw.locale) ? raw.locale : detectLocale(),
