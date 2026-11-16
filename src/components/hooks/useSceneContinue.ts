@@ -115,6 +115,7 @@ export function useSceneContinue(messageId: string | null) {
                     temperature,
                     allowDiceTool,
                     combatModeActive: false, // passed through to getToolDefinitions (unused for roll_dice filter)
+                    diceSystem: store.context.diceSystem,
                     abortSignal,
                 },
                 (partial) => {

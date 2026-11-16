@@ -308,6 +308,46 @@ describe('generateSceneContinuation — tool loop (§5)', () => {
         expect(result.text).toContain('You slip past unnoticed.');
     });
 
+    it.each([
+        { case: 'an omitted die', args: { reason: 'Sneak past', category: 'Stealth' } },
+        { case: 'an explicit die', args: { reason: 'Sneak past', category: 'Stealth', dice: '1d100' } },
+    ])('uses campaign dice and outcome bands for $case', async ({ args }) => {
+        const { buildDefaultDiceSystem } = await vi.importActual<typeof import('../../../types')>('../../../types');
+        const { handleDiceTool } = await vi.importActual<typeof import('../toolHandlers')>('../toolHandlers');
+        const defaults = buildDefaultDiceSystem();
+        const diceSystem = {
+            ...defaults,
+            categories: defaults.categories.map(category => ({ ...category, dieTypeId: 'dt_d100' })),
+        };
+        resolveToolHandlerMock.mockReturnValue((ctx: Parameters<typeof handleDiceTool>[1] & { arguments: string }) =>
+            handleDiceTool(ctx.arguments, ctx),
+        );
+        sendMessageMock.mockImplementationOnce(simulateSend({
+            toolCall: { id: 'roll', name: 'roll_dice', arguments: JSON.stringify(args) },
+        }));
+        sendMessageMock.mockImplementationOnce(simulateSend({ finalText: 'You slip past unnoticed.' }));
+
+        const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+        try {
+            await generateSceneContinuation({
+                provider: fakeProvider() as never,
+                basePayload: [],
+                assistantText: 'prev',
+                directive: 'd',
+                temperature: 0.7,
+                allowDiceTool: true,
+                combatModeActive: false,
+                diceSystem,
+            }, () => {});
+        } finally {
+            random.mockRestore();
+        }
+
+        const payload = sendMessageMock.mock.calls[1][1] as OpenAIMessage[];
+        const roll = payload.find(message => message.role === 'tool' && message.name === 'roll_dice');
+        expect(JSON.parse(roll?.content ?? '{}')).toMatchObject({ dice: '1d100', result: 51, tier: 'Success' });
+    });
+
     it('caps tool calls at MAX_CONTINUE_TOOL_CALLS and treats further output as final', async () => {
         // Always returns a tool call — should fire MAX_CONTINUE_TOOL_CALLS times then
         // the (MAX+1)-th call's finalText is treated as final.
