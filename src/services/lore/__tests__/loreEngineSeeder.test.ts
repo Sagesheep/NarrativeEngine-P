@@ -201,6 +201,20 @@ describe('extractEngineSeeds — explicit **Engine Seed Field:** lines (any cate
         const c = chunk({ category: 'misc', header: 'X', content: '**World Event Who:** a faction, a rogue group' });
         expect(extractEngineSeeds([c]).worldWho.sort()).toEqual(['a faction', 'a rogue group']);
     });
+    it('**Quest Hook Who/What/Where/Why:** labels (compendium template) populate the same world fields', () => {
+        const c = chunk({ category: 'misc', header: 'Engine Seeds', content: [
+            '**Quest Hook Who:** a bruised dockworker, a nervous street medic',
+            '**Quest Hook What:** spotted armed strangers near, claims something was buried at',
+            '**Quest Hook Where:** the lower processing vaults, a flooded sub-district',
+            '**Quest Hook Why:** and nobody official will touch it, suggesting a payout for the right people',
+        ].join('\n') });
+        const seed = extractEngineSeeds([c]);
+        expect(seed.worldWho).toEqual(['a bruised dockworker', 'a nervous street medic']);
+        expect(seed.worldWhat).toEqual(['spotted armed strangers near', 'claims something was buried at']);
+        expect(seed.worldWhere).toEqual(['the lower processing vaults', 'a flooded sub-district']);
+        expect(seed.worldWhy).toEqual(['and nobody official will touch it', 'suggesting a payout for the right people']);
+    });
+
     it('**World Event What:** line populates worldWhat', () => {
         const c = chunk({ category: 'misc', header: 'X', content: '**World Event What:** declared war, formed alliance' });
         expect(extractEngineSeeds([c]).worldWhat.sort()).toEqual(['declared war', 'formed alliance']);

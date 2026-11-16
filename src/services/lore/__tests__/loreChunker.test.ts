@@ -412,3 +412,14 @@ describe('chunkLoreFile — escaped-header normalization', () => {
         expect(chunks.some(c => c.header === 'Hidden Header')).toBe(true);
     });
 });
+
+describe('chunkLoreFile — World Lore Builder "Character Creation Questions" section', () => {
+    it('classifies the interview section as rules, not as an NPC character chunk', () => {
+        // `## Character Creation Questions` is what exportDraftToMarkdown writes for the builder's
+        // interview; the CHARACTER substring used to make it a character chunk and seed a bogus NPC.
+        const md = '# World\n\n## Pre-seeded NPCs\n\n### Aldric\n\n**Goals:** conquer the realm\n**Disposition:** bold\n\n## Character Creation Questions\n\nAsk one segment at a time. Name, origin, occupation.\n';
+        const chunks = chunkLoreFile(md);
+        expect(findChunk(chunks, 'aldric').category).toBe('character');
+        expect(findChunk(chunks, 'character-creation-questions').category).toBe('rules');
+    });
+});
