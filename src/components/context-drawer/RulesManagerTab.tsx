@@ -95,18 +95,22 @@ export function RulesManagerTab({ onBack, embedded }: { onBack?: () => void; emb
             ? cwm.meta.activationModes.filter(m => m !== mode)
             : [...cwm.meta.activationModes, mode];
         if (modes.length === 0) return;
-        updateMeta(chunkId, { activationModes: modes });
+        updateMeta(chunkId, { activationModes: modes, activationModesUserEdited: true });
     };
 
     const persistBulk = (resolve: (meta: RuleChunkMeta) => ('vector' | 'keyword' | 'always')[]) => {
         const currentMeta = context.rulesChunkMeta ?? {};
         const newMeta = { ...currentMeta };
-        for (const cwm of chunksWithMeta) {
+        const updatedChunks = chunksWithMeta.map(cwm => {
             const existing = currentMeta[cwm.chunk.id] ?? cwm.meta;
-            newMeta[cwm.chunk.id] = { ...existing, activationModes: resolve(existing) };
-        }
+            const activationModes = resolve(existing);
+            if (activationModes === existing.activationModes) return cwm;
+            const meta = { ...existing, activationModes, activationModesUserEdited: true };
+            newMeta[cwm.chunk.id] = meta;
+            return { ...cwm, meta };
+        });
         updateContext({ rulesChunkMeta: newMeta });
-        setChunksWithMeta(prev => prev.map(c => ({ ...c, meta: { ...c.meta, activationModes: resolve(c.meta) } })));
+        setChunksWithMeta(updatedChunks);
     };
 
     const bulkToggleMode = (mode: 'vector' | 'keyword' | 'always') => {
@@ -115,8 +119,9 @@ export function RulesManagerTab({ onBack, embedded }: { onBack?: () => void; emb
         const turnOn = withMode < chunksWithMeta.length / 2;
         persistBulk(meta => {
             const has = meta.activationModes.includes(mode);
+            if (has === turnOn) return meta.activationModes;
             return turnOn
-                ? (has ? meta.activationModes : [...meta.activationModes, mode])
+                ? [...meta.activationModes, mode]
                 : meta.activationModes.filter(m => m !== mode);
         });
     };

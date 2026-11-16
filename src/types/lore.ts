@@ -43,6 +43,7 @@ export type RuleChunkMeta = {
     priority?: number;
     keywordsUserEdited?: boolean;
     activationModesUserEdited?: boolean;
+    indexedRagMode?: NonNullable<LoreChunk['ragMode']> | null; // null means the last index had no explicit hint
     hasEmbedding?: boolean;
     modelId?: string;
     version?: number;
