@@ -1,6 +1,6 @@
-import { normalizeSpeech, parseDiceExpr } from '@narrative/engine';
+import { normalizeSpeech, normalizeTactic, parseDiceExpr } from '@narrative/engine';
 import { isModEnabled } from '../mods/modEnablement';
-import type { ProposedCombatant, Speech, TemplateOverlay } from '../../types';
+import type { ProposedCombatant, Speech, Tactic, TemplateOverlay } from '../../types';
 
 export const ENEMY_COMPENDIUM_KEY = 'mod.enemies.compendium';
 
@@ -17,6 +17,7 @@ export type CompendiumTemplate = {
     weaknesses?: string[];
     resistances?: string[];
     speech?: string;
+    tactic?: string;
 };
 
 export type CompendiumSource =
@@ -126,13 +127,14 @@ export function templateOverlay(
 export function compendiumFor(
     combatant: Pick<ProposedCombatant, 'name' | 'npcId' | 'species'>,
     state: CompendiumLookupState,
-): { overlay?: TemplateOverlay; source: CompendiumSource; speech?: Speech } {
+): { overlay?: TemplateOverlay; source: CompendiumSource; speech?: Speech; tactic?: Tactic } {
     const template = findCompendiumTemplate(combatant.species, state);
     if (!template) return { source: { kind: 'tier' } };
     const { overlay, fields, unique } = templateOverlay(template, combatant);
     const hasLists = !!overlay.weaknesses || !!overlay.resistances;
     const speech = normalizeSpeech(template.speech);
-    const extra = speech ? { speech } : {};
+    const tactic = normalizeTactic(template.tactic);
+    const extra = { ...(speech ? { speech } : {}), ...(tactic ? { tactic } : {}) };
     if (fields.length === 0 && !hasLists) return { source: { kind: 'tier' }, ...extra };
     return {
         ...extra,

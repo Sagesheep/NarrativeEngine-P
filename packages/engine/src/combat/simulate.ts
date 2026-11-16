@@ -1,6 +1,6 @@
 import { buildPcCombatant } from './pc';
 import { applyAction, chooseEngineTurn, createCombat, currentActorId, runEngineTurns } from './resolve';
-import type { CombatantSpec, CombatState, MapSpec, PcCombatantInput } from './types';
+import type { CombatantSpec, CombatState, MapSpec, ObjectiveRequest, PcCombatantInput, ReinforcementRequest } from './types';
 
 export type SimulationResult = {
     fights: number;
@@ -11,6 +11,8 @@ export type SimulationResult = {
 
 export type SimulationOptions = {
     baseSeed?: number;
+    objective?: ObjectiveRequest;
+    reinforcements?: ReinforcementRequest;
     jitterRange?: number;
     map?: MapSpec;
 };
@@ -39,7 +41,8 @@ export function simulateFights(pc: PcCombatantInput, enemies: CombatantSpec[], f
     for (let i = 0; i < fights; i++) {
         const seed = baseSeed + i * 7919;
         const started = createCombat(
-            { id: `sim${i}`, combatants: enemies, jitterRange: options.jitterRange, ...(options.map ? { map: options.map } : {}), mapSeed: seed * 31 + 17 },
+            { id: `sim${i}`, combatants: enemies, jitterRange: options.jitterRange, ...(options.map ? { map: options.map } : {}), mapSeed: seed * 31 + 17,
+                ...(options.objective ? { objective: options.objective } : {}), ...(options.reinforcements ? { reinforcements: options.reinforcements } : {}) },
             buildPcCombatant(pc),
             seed,
         );

@@ -8,6 +8,7 @@ import type { ChatMessage, CombatAction, CombatSession } from '../../types';
 import { cleanFlourish, playerActorId, takesFlourish } from '../../services/combat/combatController';
 import { CombatBoard } from './CombatBoard';
 import { CombatInitiativeStrip } from './CombatInitiativeStrip';
+import { CombatObjectiveBanner } from './CombatObjectiveBanner';
 import { CombatActionBar } from './CombatActionBar';
 import { CombatParleyBox } from './CombatParleyBox';
 import { attackableTargets } from './combatVisuals';
@@ -160,7 +161,10 @@ export function CombatScreen({
             className="flex-1 min-h-0 min-w-0 grid bg-void"
             style={{ gridTemplateRows: 'auto minmax(0, 1fr) auto' }}
         >
-            <CombatInitiativeStrip session={session} busy={busy} selectedId={targetId} onSelect={select} onEnd={onEnd} />
+            <div className="min-w-0">
+                <CombatInitiativeStrip session={session} busy={busy} selectedId={targetId} onSelect={select} onEnd={onEnd} />
+                <CombatObjectiveBanner state={session.state} />
+            </div>
             <div
                 className="min-h-0 min-w-0 grid"
                 style={narrow

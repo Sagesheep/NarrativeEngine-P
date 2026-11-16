@@ -168,7 +168,7 @@ describe('T2 movement', () => {
         const player = board(['.^^^.', '.....'], [{ id: 'pc', side: 'player', at: [0, 0] }, { id: 'e', side: 'enemy', at: [4, 1] }]);
         expect(pathTo(player, 'pc', { x: 3, y: 0 })!.path.some(p => tileAt(player.grid!, p) === 'hazard')).toBe(true);
         const corridor = board(['.^^.'], [{ id: 'e', side: 'enemy', at: [0, 0] }, { id: 'pc', side: 'player', at: [3, 0] }]);
-        expect(chooseEngineTurn(corridor, 'e').actions[0]).toEqual({ type: 'move', actorId: 'e', to: { x: 2, y: 0 } });
+        expect(chooseEngineTurn(corridor, 'e').actions[0]).toEqual({ type: 'end_turn', actorId: 'e' });
     });
 });
 
@@ -300,11 +300,12 @@ describe('T4 enemy policy', () => {
         expect(chooseEngineTurn(s, 'e').actions[1]).toEqual({ type: 'attack', actorId: 'e', targetId: 'pc' });
     });
 
-    it('breaks HP ties with the rng and advances the cursor', () => {
+    it('breaks ties in a stable order without touching the rng', () => {
         const s = board(['...'], [{ id: 'e', side: 'enemy', at: [1, 0] }, { id: 'pc', side: 'player', at: [0, 0] }, { id: 'a', side: 'ally', at: [2, 0] }]);
         const plan = chooseEngineTurn(s, 'e');
-        expect(['pc', 'a']).toContain((plan.actions[0] as { targetId: string }).targetId);
-        expect(plan.state.rngCursor).toBe(s.rngCursor + 1);
+        expect(plan.actions[0]).toEqual({ type: 'attack', actorId: 'e', targetId: 'pc' });
+        expect(chooseEngineTurn({ ...s, rngCursor: 99 }, 'e').actions).toEqual(plan.actions);
+        expect(plan.state.rngCursor).toBe(s.rngCursor);
     });
 
     it('ranged: shoots without moving when it has a clear shot and no hostile adjacent', () => {
@@ -315,7 +316,7 @@ describe('T4 enemy policy', () => {
     it('ranged: steps out of reach before shooting when a hostile is adjacent', () => {
         const s = melee(['....', '....'], { x: 1, y: 1 }, { x: 0, y: 1 }, { range: 'ranged' });
         const plan = chooseEngineTurn(s, 'e');
-        expect(plan.actions[0]).toEqual({ type: 'move', actorId: 'e', to: { x: 2, y: 0 } });
+        expect(plan.actions[0]).toEqual({ type: 'move', actorId: 'e', to: { x: 3, y: 0 } });
         expect(plan.actions[1]).toEqual({ type: 'attack', actorId: 'e', targetId: 'pc' });
     });
 

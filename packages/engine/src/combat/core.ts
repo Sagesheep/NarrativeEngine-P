@@ -1,6 +1,8 @@
 import { createRng } from './rng';
 import { speedOf } from './grid';
 import { DEFAULT_HAZARD_TYPE } from './mapBuilder';
+import { finalizeObjective, settleObjective } from './objectives/run';
+import { OBJECTIVE_EVENT_TYPES } from './objectives/tables';
 import type { CombatCondition, CombatEvent, CombatOutcome, CombatState, Combatant, FieldItem, Rng, Side, TurnState } from './types';
 
 export const DEFEND_CONDITION = 'defending';
@@ -62,6 +64,7 @@ export function isHostile(a: Side, b: Side): boolean {
 
 export function canTarget(actor: Combatant, target: Combatant): boolean {
     if (actor.id === target.id || target.status !== 'up') return false;
+    if (target.mark === 'bystander' && actor.side === 'enemy') return true;
     if (actor.controller === 'player') return target.side === 'enemy' || target.side === 'neutral';
     return isHostile(actor.side, target.side);
 }
@@ -182,8 +185,9 @@ export function fieldItemData(item: FieldItem): Record<string, unknown> {
 export function endFight(draft: Draft, outcome: CombatOutcome, data: Record<string, unknown> = {}): void {
     if (draft.state.outcome) return;
     draft.state.outcome = outcome;
+    const objective = draft.state.objective ? finalizeObjective(draft, outcome, data) : null;
     recoverFieldItems(draft);
-    emit(draft, { type: 'combat_ended', data: { outcome, ...data }, text: OUTCOME_TEXT[outcome] });
+    emit(draft, { type: 'combat_ended', data: { outcome, ...data, ...(objective ? { objective } : {}) }, text: OUTCOME_TEXT[outcome] });
     rollFate(draft);
 }
 
@@ -265,6 +269,10 @@ export function hazardStrike(draft: Draft, c: Combatant): void {
 }
 
 export function settleOutcome(draft: Draft): void {
+    if (draft.state.objective) {
+        settleObjective(draft);
+        return;
+    }
     const outcome = checkOutcome(draft.state);
     if (!outcome || draft.state.outcome) return;
     endFight(draft, outcome);
@@ -286,4 +294,5 @@ export const COMBAT_EVENT_TYPES: readonly string[] = [
     'combat_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed', 'teleported',
     'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
     'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check', 'thrown', 'item_dropped', 'item_recovered',
+    ...OBJECTIVE_EVENT_TYPES,
 ];

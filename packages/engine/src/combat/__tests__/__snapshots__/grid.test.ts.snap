@@ -4,9 +4,9 @@ exports[`grid fights end to end > plays a seeded golden fight on the grid 1`] = 
 [
   "1|1|0|Combat begins. Kira against Bandit 2, Bandit 1.",
   "2|1|0|Initiative: Kira 21, Bandit 2 5, Bandit 1 2.",
-  "3|1|1|Kira moves 6 squares toward Bandit 1.",
+  "3|1|1|Kira moves 6 squares toward Bandit 2.",
   "4|1|1|Kira ends the turn.",
-  "5|1|2|Bandit 2 moves 3 squares toward Kira.",
+  "5|1|2|Bandit 2 moves 2 squares toward Kira.",
   "6|1|2|Bandit 2 attacks Kira and misses.",
   "7|1|2|Bandit 2 ends the turn.",
   "8|1|3|Bandit 1 moves 2 squares toward Kira.",

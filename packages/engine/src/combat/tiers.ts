@@ -23,6 +23,14 @@ export const BASE_ENEMY_ABILITIES: Readonly<AbilityScores> = {
     STR: 12, DEX: 12, CON: 12, INT: 10, WIS: 10, CHA: 10,
 };
 
+type CasterBuild = { hp: number; ac: number };
+
+const DEFAULT_CASTER_BUILD: CasterBuild = { hp: 0.8, ac: 0 };
+
+const CASTER_TIER_BUILD: Readonly<Partial<Record<CombatTier, CasterBuild>>> = {
+    elite: { hp: 0.93, ac: -3 },
+};
+
 const JITTER_TIERS: ReadonlySet<CombatTier> = new Set<CombatTier>(['minion', 'grunt']);
 
 export const DEFAULT_DAMAGE_TYPE = 'physical';
@@ -63,7 +71,8 @@ export function buildTierBlock(
             ac -= 1;
             break;
         case 'caster':
-            hp *= 0.8;
+            hp *= (CASTER_TIER_BUILD[tier] ?? DEFAULT_CASTER_BUILD).hp;
+            ac += (CASTER_TIER_BUILD[tier] ?? DEFAULT_CASTER_BUILD).ac;
             attackBonus += 1;
             type = damageTypeFromLook(look);
             break;

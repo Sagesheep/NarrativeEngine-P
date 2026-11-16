@@ -5,8 +5,10 @@ import { AREA_TYPES, MAP_DENSITIES, buildMapFromSeed, normalizeMapSize, placeCom
 import { useTranslation } from '../../i18n/useTranslation';
 import { useAppStore } from '../../store/useAppStore';
 import { COMBAT_TIERS, PROPOSED_COMBATANT_SIDES, MAX_PROPOSED_COMBATANTS, normalizeCombatConfig } from '../../types';
-import type { CombatAreaType, CombatMapDensity, CombatProposal, CombatResolvedMap, ProposedCombatant } from '../../types';
+import type { CombatAreaType, CombatMapDensity, CombatProposal, CombatResolvedMap, ProposedCombatant, ProposedObjective } from '../../types';
 import { combatMapTexts, resolveCombatMap } from '../../services/combat/combatMap';
+import { reconcileObjective } from '../../services/combat/combatObjective';
+import { CombatObjectiveForm } from './CombatObjectiveForm';
 import { dedupeCombatantNames, hasEnemy } from '../../services/combat/combatProposal';
 import { isIncluded, newMapSeed } from '../../services/combat/combatController';
 import { compendiumFor } from '../../services/combat/compendiumLookup';
@@ -99,6 +101,7 @@ export function CombatProposalDialog({
     const moduleEnabled = useAppStore(s => s.settings?.moduleEnabled);
     const partyControl = useAppStore(s => normalizeCombatConfig(s.context?.combatConfig).partyControl);
     const [roster, setRoster] = useState<ProposedCombatant[]>(proposal.combatants);
+    const [objective, setObjective] = useState<ProposedObjective | undefined>(proposal.objective);
     const [draftName, setDraftName] = useState('');
     const [mapSeed, setMapSeed] = useState<number>(() => proposal.mapSeed ?? newMapSeed());
     const [initial] = useState(() => {
@@ -155,7 +158,9 @@ export function CombatProposalDialog({
     const start = () => {
         if (!canStart) return;
         const names = dedupeCombatantNames(roster.map(c => c.name));
-        onStart({ ...proposal, combatants: roster.map((c, i) => ({ ...c, name: names[i] })), map, mapSeed });
+        const combatants = roster.map((c, i) => ({ ...c, name: names[i] }));
+        const reconciled = reconcileObjective(combatants, objective);
+        onStart({ ...proposal, combatants: reconciled.combatants, objective: reconciled.objective, map, mapSeed });
     };
 
     const onBackdrop = () => {
@@ -301,6 +306,7 @@ export function CombatProposalDialog({
                                 </li>
                             ))}
                         </ul>
+                        <CombatObjectiveForm roster={roster} objective={objective} onChange={setObjective} />
                         <div className="flex items-center gap-2">
                             <input
                                 value={draftName}

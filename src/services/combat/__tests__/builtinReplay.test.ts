@@ -53,17 +53,17 @@ describe('an attack and defend log recorded before 5B-1 (5B-1)', () => {
         const log: CombatEvent[] = [];
         let tail: CombatEvent[] = [];
         for (let i = 0; i < 3000 && !state.outcome; i++) {
-            if (i === 21) tail = [];
+            if (i === 19) tail = [];
             const next = step(state);
             log.push(...next.events);
             tail.push(...next.events);
             state = next.state;
         }
-        expect(fnv(JSON.stringify(tail) + JSON.stringify(state))).toBe('c25822bf');
+        expect(fnv(JSON.stringify(tail) + JSON.stringify(state))).toBe('bb3bf982');
         expect(log.some(e => e.type === 'attack')).toBe(true);
         expect(log.some(e => e.type === 'defend')).toBe(true);
-        expect(log).toHaveLength(66);
+        expect(log).toHaveLength(86);
         const replays = Array.from({ length: state.eventSeq + 1 }, (_, seq) => stateAtSeq(state, log, seq));
-        expect(fnv(JSON.stringify(replays))).toBe('b4614028');
+        expect(fnv(JSON.stringify(replays))).toBe('63b9c7b3');
     });
 });

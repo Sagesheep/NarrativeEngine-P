@@ -36,7 +36,7 @@ export type Side = 'player' | 'ally' | 'enemy' | 'neutral';
 
 export type Controller = 'player' | 'engine';
 
-export type CombatantStatus = 'up' | 'down' | 'fled' | 'surrendered' | 'gone';
+export type CombatantStatus = 'up' | 'down' | 'fled' | 'surrendered' | 'gone' | 'escaped';
 
 export type DamageSpec = { count: number; sides: number; bonus: number; type: string };
 
@@ -158,6 +158,14 @@ export type ThrowPayload =
 
 export type Speech = 'speaks' | 'sounds' | 'silent';
 
+export type Tactic = 'aggressive' | 'skirmisher' | 'guard' | 'hunter' | 'coward' | 'berserker' | 'support';
+
+export type PlanIntentKind = 'attack' | 'support' | 'reposition' | 'retreat' | 'guard' | 'control';
+
+export type PlanIntent = { kind: PlanIntentKind; targetId?: string; destination?: Pos };
+
+export type TurnPlan = { actorId: string; tactic: Tactic; steps: CombatAction[]; intent: PlanIntent };
+
 export type Combatant = {
     id: string;
     name: string;
@@ -170,6 +178,7 @@ export type Combatant = {
     look?: string;
     manner?: string;
     speech?: Speech;
+    tactic?: Tactic;
     weaponName?: string;
     abilities: AbilityScores;
     maxHp: number;
@@ -201,6 +210,125 @@ export type Combatant = {
     startHp?: number;
     moraleRolled?: boolean;
     routed?: boolean;
+    mark?: ObjectiveMark;
+};
+
+export type ObjectiveMark = 'leader' | 'ward' | 'bystander';
+
+export type WinKind = 'rout' | 'defeat_leader' | 'survive' | 'escape' | 'protect' | 'seize';
+
+export type LoseKind = 'pc_falls' | 'ward_falls' | 'round_limit' | 'leader_escapes';
+
+export type SideKind = 'within_rounds' | 'no_one_falls' | 'save_bystander' | 'reach_tile';
+
+export type PairedWin =
+    | { kind: 'rout' }
+    | { kind: 'defeat_leader'; leaderId: string }
+    | { kind: 'survive'; rounds: number }
+    | { kind: 'escape'; exits: Pos[]; everyone: boolean }
+    | { kind: 'seize'; tile: Pos };
+
+export type WinCondition = PairedWin | { kind: 'protect'; wardId: string; rounds?: number; with?: PairedWin };
+
+export type LoseCondition =
+    | { kind: 'pc_falls' }
+    | { kind: 'ward_falls'; wardId: string }
+    | { kind: 'round_limit' }
+    | { kind: 'leader_escapes'; leaderId: string; exits: Pos[] };
+
+export type SideObjective =
+    | { kind: 'within_rounds'; rounds: number }
+    | { kind: 'no_one_falls' }
+    | { kind: 'save_bystander'; bystanderId: string }
+    | { kind: 'reach_tile'; tile: Pos };
+
+export type ObjectiveProgress = {
+    escaped?: string[];
+    holderId?: string;
+    reachedBy?: string;
+    someoneFell?: boolean;
+};
+
+export type ObjectiveEndReason = WinKind | LoseKind | 'defeat' | 'fled' | 'parley' | 'conceded' | 'abandoned';
+
+export type ObjectiveResult = {
+    status: 'won' | 'lost' | 'ended';
+    by: ObjectiveEndReason;
+    round: number;
+    outcome: CombatOutcome;
+    parleyIntent?: ParleyIntent;
+    side?: { kind: SideKind; met: boolean };
+};
+
+export type CombatObjective = {
+    win: WinCondition;
+    lose?: LoseCondition[];
+    side?: SideObjective;
+    roundLimit?: number;
+    progress?: ObjectiveProgress;
+    result?: ObjectiveResult;
+};
+
+export type ObjectiveRequest = {
+    win: string;
+    with?: string;
+    leader?: string;
+    ward?: string;
+    bystander?: string;
+    rounds?: number;
+    everyone?: boolean;
+    lose?: string[];
+    side?: string;
+    sideRounds?: number;
+    roundLimit?: number;
+    exits?: Pos[];
+    seize?: Pos;
+    reach?: Pos;
+    leaderExits?: Pos[];
+};
+
+export type RepairCode =
+    | 'unknown_kind' | 'missing_unit' | 'wrong_side' | 'picked_leader' | 'tile_moved' | 'no_tile' | 'clamped'
+    | 'round_limit_raised' | 'round_limit_added' | 'lose_dropped' | 'lose_added' | 'side_dropped' | 'fallback_rout'
+    | 'reinforcements_trimmed' | 'reinforcements_dropped' | 'trigger_changed';
+
+export type ObjectiveRepair = { field: string; code: RepairCode; text: string; from?: unknown; to?: unknown };
+
+export type ReinforcementEdge = 'far' | 'near' | 'flank';
+
+export type ReinforcementLevel = 'none' | 'some' | 'many';
+
+export type ReinforcementTrigger =
+    | { kind: 'round'; round: number }
+    | { kind: 'leader_half'; leaderId: string }
+    | { kind: 'tile'; tiles: Pos[] };
+
+export type ReinforcementWaveRequest = {
+    round?: number;
+    trigger?: 'leader_half' | 'tile';
+    edge?: ReinforcementEdge;
+    combatants: CombatantSpec[];
+};
+
+export type ReinforcementRequest = ReinforcementLevel | { waves: ReinforcementWaveRequest[] };
+
+export type ReinforcementWave = {
+    id: string;
+    trigger: ReinforcementTrigger;
+    edge: ReinforcementEdge;
+    units: Combatant[];
+    arriveRound?: number;
+    tiles?: Pos[];
+    arrived?: string[];
+    done?: boolean;
+};
+
+export type ReinforcementBook = { budget: number; waves: ReinforcementWave[] };
+
+export type ObjectiveReport = {
+    objective: CombatObjective;
+    reinforcements?: ReinforcementBook;
+    repairs: ObjectiveRepair[];
 };
 
 export type CombatOutcome = 'victory' | 'defeat' | 'fled' | 'truce' | 'aborted';
@@ -278,6 +406,8 @@ export type CombatState = {
     parleys?: ParleyRecord[];
     fate?: FateRecord;
     ending?: CombatEnding;
+    objective?: CombatObjective;
+    reinforcements?: ReinforcementBook;
 };
 
 export type CombatAction =
@@ -321,6 +451,7 @@ export type CombatantSpec = {
     look?: string;
     manner?: string;
     speech?: Speech;
+    tactic?: Tactic;
     range?: AttackRange;
     template?: TemplateOverlay;
 };
@@ -345,6 +476,8 @@ export type CombatSpec = {
     maxSummons?: number;
     partyControl?: PartyControl;
     defeatMode?: DefeatMode;
+    objective?: ObjectiveRequest;
+    reinforcements?: ReinforcementRequest;
 };
 
 export type WeaponQuality = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';

@@ -1,6 +1,6 @@
 import type {
-    Archetype, AugmentId, CombatEvent, CombatState, CombatTier, EffectId, FormId, GlyphAbility, MapSpec, ParleyEffect, ParleyIntent,
-    ParleyRating, Speech, StuntDifficulty, StuntSpec,
+    Archetype, AugmentId, CombatEvent, CombatState, CombatTier, EffectId, FormId, GlyphAbility, MapSpec, ObjectiveRequest, ParleyEffect,
+    ParleyIntent, ParleyRating, ReinforcementLevel, Speech, StuntDifficulty, StuntSpec, Tactic,
 } from '@narrative/engine';
 import { isBuiltinId } from '@narrative/engine';
 
@@ -11,9 +11,14 @@ export type {
     AreaType as CombatAreaType, MapDensity as CombatMapDensity, HazardKind as CombatHazardKind,
     TerrainLabels as CombatTerrainLabels, ResolvedMapSpec as CombatResolvedMap,
     GlyphAbility, FormId, EffectId, AugmentId, CombatCondition,
-    ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord, Speech,
+    ParleyIntent, ParleyRating, ParleyEffect, ParleyRecord, FateRecord, Speech, Tactic, PlanIntent,
     StuntOutcome, StuntDifficulty, StuntPart, StuntSpec,
+    CombatObjective, ObjectiveResult, ObjectiveRepair, ObjectiveMarks, ObjectiveClock, ReinforcementLevel, WinKind, LoseKind, SideKind,
 } from '@narrative/engine';
+
+export type ProposedObjective = Omit<ObjectiveRequest, 'exits' | 'seize' | 'reach' | 'leaderExits'> & {
+    reinforcements?: ReinforcementLevel;
+};
 
 export type CombatPartyControl = 'solo' | 'engine' | 'player';
 export type CombatDefeatMode = 'knockout' | 'hardcore' | 'ironman';
@@ -52,6 +57,7 @@ export type ProposedCombatant = {
     look?: string;
     manner?: string;
     speech?: Speech;
+    tactic?: Tactic;
     attack?: ProposedAttackStyle;
     included?: boolean;
 };
@@ -75,6 +81,7 @@ export type CombatProposal = {
     reason: string;
     source: 'tool' | 'manual';
     mapSeed?: number;
+    objective?: ProposedObjective;
 };
 
 export type CombatSession = {

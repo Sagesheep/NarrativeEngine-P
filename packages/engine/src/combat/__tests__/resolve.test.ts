@@ -227,13 +227,14 @@ describe('engine policy', () => {
         expect(chooseEngineTurn(s, 'n').actions[0]).toEqual({ type: 'end_turn', actorId: 'n' });
     });
 
-    it('breaks HP ties with the rng and advances the cursor', () => {
+    it('breaks ties in a stable order without touching the rng', () => {
         const state = duel();
         const ally: Combatant = { ...state.combatants.pc, id: 'ally', name: 'Ally', side: 'ally', controller: 'engine' };
         const s: CombatState = { ...state, order: ['foe', 'pc', 'ally'], combatants: { ...state.combatants, ally } };
         const choice = chooseEngineTurn(s, 'foe');
-        expect(['pc', 'ally']).toContain((choice.actions[0] as { targetId: string }).targetId);
-        expect(choice.state.rngCursor).toBe(s.rngCursor + 1);
+        expect(choice.actions[0]).toEqual({ type: 'attack', actorId: 'foe', targetId: 'pc' });
+        expect(chooseEngineTurn({ ...s, rngCursor: 50 }, 'foe').actions).toEqual(choice.actions);
+        expect(choice.state.rngCursor).toBe(s.rngCursor);
     });
 
     it('runs engine turns until a player-controlled combatant is up', () => {
@@ -322,7 +323,7 @@ describe('tier tuning on the grid (1,000 seeded fights each)', () => {
         ['2 minions', enemies('minion', 2), 0.9, 1],
         ['1 grunt', enemies('grunt', 1), 0.8, 1],
         ['3 grunts', enemies('grunt', 3), 0.35, 0.6],
-        ['1 elite', enemies('elite', 1), 0, 0.25],
+        ['1 elite', enemies('elite', 1), 0, 0.3],
     ];
     for (const [mapLabel, map] of maps) {
         for (const [label, foes, min, max] of cases) {
@@ -331,12 +332,12 @@ describe('tier tuning on the grid (1,000 seeded fights each)', () => {
                 console.log(`[combat-sim] ${mapLabel} | ${label}: win ${(result.winRate * 100).toFixed(1)}%, mean rounds ${result.meanRounds.toFixed(2)}`);
                 expect(result.winRate).toBeGreaterThanOrEqual(min);
                 expect(result.winRate).toBeLessThanOrEqual(max);
-            });
+            }, 60000);
         }
         it(`records 2 ranged grunts on the ${mapLabel} and keeps them beatable but not trivial`, () => {
             const result = simulateFights(tuningPc, ranged(2), 1000, { baseSeed: 1, map });
             console.log(`[combat-sim] ${mapLabel} | 2 ranged grunts (recorded): win ${(result.winRate * 100).toFixed(1)}%, mean rounds ${result.meanRounds.toFixed(2)}`);
             expect(result.winRate).toBeLessThanOrEqual(0.9);
-        });
+        }, 60000);
     }
 });

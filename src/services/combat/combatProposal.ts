@@ -1,12 +1,13 @@
-import { normalizeMapSpec, normalizeSpeech } from '@narrative/engine';
+import { normalizeMapSpec, normalizeSpeech, normalizeTactic } from '@narrative/engine';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import {
     COMBAT_ARCHETYPES, COMBAT_MANNER_MAX, COMBAT_TIERS, MAX_PROPOSED_COMBATANTS, PROPOSED_ATTACK_STYLES, PROPOSED_COMBATANT_SIDES,
 } from '../../types';
 import type {
     Archetype, CombatMapSpec, CombatProposal, CombatSession, CombatTier, GameContext, NPCEntry,
-    ProposedAttackStyle, ProposedCombatant, ProposedCombatantSide,
+    ProposedAttackStyle, ProposedCombatant, ProposedCombatantSide, ProposedObjective,
 } from '../../types';
+import { isPlainObjective, parseProposedObjective, reconcileObjective } from './combatObjective';
 
 const NAME_MAX = 60;
 const TEXT_MAX = 160;
@@ -15,6 +16,7 @@ export type ParsedCombatArgs = {
     combatants: ProposedCombatant[];
     map?: CombatMapSpec;
     reason: string;
+    objective?: ProposedObjective;
 };
 
 function asRecord(raw: unknown): Record<string, unknown> | null {
@@ -86,7 +88,7 @@ function parseMap(raw: unknown): CombatMapSpec | undefined {
 export function parseCombatArgs(
     raw: string | Record<string, unknown>,
     ledger: readonly NPCEntry[] = [],
-): { ok: true; value: ParsedCombatArgs } | { ok: false; error: string } {
+): { ok: true; value: ParsedCombatArgs; notes: string[] } | { ok: false; error: string } {
     const args = parseArgsObject(raw);
     if (!args) return { ok: false, error: 'the arguments were not a JSON object' };
     const list = parseMaybeJson(args.combatants);
@@ -107,6 +109,7 @@ export function parseCombatArgs(
         const look = cleanText(e.look, TEXT_MAX) || undefined;
         const manner = cleanText(e.manner, COMBAT_MANNER_MAX) || undefined;
         const speech = normalizeSpeech(e.speech);
+        const tactic = normalizeTactic(e.tactic);
         const attack = typeof e.attack === 'string' && (PROPOSED_ATTACK_STYLES as readonly string[]).includes(e.attack.trim().toLowerCase())
             ? e.attack.trim().toLowerCase() as ProposedAttackStyle
             : undefined;
@@ -121,13 +124,36 @@ export function parseCombatArgs(
             ...(look ? { look } : {}),
             ...(manner ? { manner } : {}),
             ...(speech ? { speech } : {}),
+            ...(tactic ? { tactic } : {}),
             ...(attack ? { attack } : {}),
         };
     });
     const map = parseMap(args.map);
+    const notes: string[] = [];
+    const parsedObjective = parseMaybeJson(args.objective);
+    const rawObjective = parsedObjective === undefined && typeof args.objective === 'string' && args.objective.trim() ? args.objective.trim() : parsedObjective;
+    let objective = rawObjective === undefined || rawObjective === null ? null : parseProposedObjective(rawObjective);
+    if (rawObjective !== undefined && rawObjective !== null && !objective) {
+        notes.push('The objective was not understood and was ignored; the fight is a plain rout.');
+    }
+    if (objective && isPlainObjective(objective)) objective = null;
+    let roster = combatants;
+    let settled: ProposedObjective | undefined;
+    if (objective) {
+        const reconciled = reconcileObjective(combatants, objective);
+        roster = reconciled.combatants;
+        settled = reconciled.objective;
+        for (const unit of reconciled.added) notes.push(`${unit.name} was not listed in combatants and was added to the fight as ${unit.side === 'ally' ? 'an ally' : 'a neutral bystander'}.`);
+    }
     return {
         ok: true,
-        value: { combatants, ...(map ? { map } : {}), reason: cleanText(args.reason, TEXT_MAX) },
+        value: {
+            combatants: roster,
+            ...(map ? { map } : {}),
+            reason: cleanText(args.reason, TEXT_MAX),
+            ...(settled ? { objective: settled } : {}),
+        },
+        notes,
     };
 }
 

@@ -1,4 +1,4 @@
-import { bareHands, coverBetween, distance, hasLineOfSight, hpBand, terrainOf } from '@narrative/engine';
+import { bareHands, bystanderIdOf, coverBetween, distance, hasLineOfSight, hpBand, leaderIdOf, terrainOf, undoObjectiveEvent, wardIdOf } from '@narrative/engine';
 import type { CarriedItem, FieldItem, WeaponFields } from '@narrative/engine';
 import type { CombatEvent, CombatPos, CombatSide, CombatState, Combatant } from '../../types';
 
@@ -116,6 +116,7 @@ export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq:
     const later = log.filter(e => e.seq > seq).sort((a, b) => b.seq - a.seq);
     for (const event of later) {
         if (event.type === 'stunt_check') continue;
+        if (undoObjectiveEvent(combatants, event)) continue;
         if (event.type === 'item_dropped') {
             const item = fieldItemFrom(event.data.item);
             if (!item) continue;
@@ -191,9 +192,10 @@ export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq:
     };
 }
 
-export type HpBandLabel = 'unhurt' | 'hurt' | 'badly hurt' | 'down' | 'fled' | 'yielded';
+export type HpBandLabel = 'unhurt' | 'hurt' | 'badly hurt' | 'down' | 'fled' | 'yielded' | 'escaped';
 
 export function hpBandLabel(c: Pick<Combatant, 'hp' | 'maxHp' | 'status'>): HpBandLabel {
+    if (c.status === 'escaped') return 'escaped';
     const band = hpBand(c);
     return band === 'badly_hurt' ? 'badly hurt' : band;
 }
@@ -287,6 +289,7 @@ export const NARRATED_EVENT_TYPES: readonly string[] = [
     'condition_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed',
     'teleported', 'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
     'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check', 'thrown', 'item_dropped', 'item_recovered',
+    'objective_progress', 'objective_met', 'objective_failed', 'reinforcements_warning', 'reinforcements_arrive',
 ];
 
 type ThrownPayload = { kind: string; name: string; willing?: boolean };
@@ -405,6 +408,104 @@ function abilityDamageHow(event: CombatEvent, state: CombatState): string {
     if (severity === 'hard') return 'is hit hard by the';
     if (severity === 'devastating') return 'takes a devastating blow from the';
     return 'takes the full';
+}
+
+function objectiveName(state: CombatState, pick: (o: NonNullable<CombatState['objective']>) => string | undefined, fallback: string): string {
+    const id = state.objective ? pick(state.objective) : undefined;
+    return (id && state.combatants[id]?.name) || fallback;
+}
+
+function clockLine(event: CombatEvent, state: CombatState): string {
+    const left = num(event.data.left);
+    if (left === null || left > 2) return '';
+    if (left === 2) return 'Time is running short.';
+    if (event.data.clock === 'protect') return `This is the last round to keep ${objectiveName(state, wardIdOf, 'the ward')} alive.`;
+    if (event.data.clock === 'survive') return 'This is the last round to hold out.';
+    return 'This is the last round before time runs out.';
+}
+
+function progressLine(event: CombatEvent, state: CombatState): string {
+    const unit = nameIn(state, typeof event.data.unitId === 'string' ? event.data.unitId : event.targetId);
+    switch (event.data.kind) {
+        case 'rounds_left':
+            return clockLine(event, state);
+        case 'escaped':
+            return event.data.how === 'leader_exit' ? `${unit} slips away through the exit.` : `${unit} gets out through the exit.`;
+        case 'holding':
+            return `${unit} takes the marked ground.`;
+        case 'reached':
+            return `${unit} reaches the marked spot.`;
+        case 'hold_broken':
+            return `${unit} loses the hold on the marked ground.`;
+        default:
+            return '';
+    }
+}
+
+function metLine(event: CombatEvent, state: CombatState): string {
+    if (event.data.part === 'side') {
+        switch (event.data.kind) {
+            case 'within_rounds':
+                return 'The fight is won in good time.';
+            case 'no_one_falls':
+                return 'No one in the party fell.';
+            case 'save_bystander':
+                return `${objectiveName(state, bystanderIdOf, 'The bystander')} is safe.`;
+            case 'reach_tile':
+                return 'The party got to the marked spot.';
+            default:
+                return '';
+        }
+    }
+    switch (event.data.by) {
+        case 'defeat_leader':
+            return 'With their leader beaten, the fight goes out of the rest.';
+        case 'survive':
+            return 'The party has held out.';
+        case 'escape':
+            return 'The way out is taken and the party is clear.';
+        case 'protect':
+            return `${objectiveName(state, wardIdOf, 'The ward')} is safe.`;
+        case 'seize':
+            return 'The marked ground is held.';
+        default:
+            return '';
+    }
+}
+
+function failedLine(event: CombatEvent, state: CombatState): string {
+    if (event.data.part === 'side') {
+        switch (event.data.kind) {
+            case 'within_rounds':
+                return 'The fight dragged on too long.';
+            case 'no_one_falls':
+                return 'Someone in the party went down.';
+            case 'save_bystander':
+                return `${objectiveName(state, bystanderIdOf, 'The bystander')} was lost.`;
+            case 'reach_tile':
+                return 'The party never got to the marked spot.';
+            default:
+                return '';
+        }
+    }
+    switch (event.data.by) {
+        case 'ward_falls':
+            return `${objectiveName(state, wardIdOf, 'The ward')} is lost, and with them the party's aim.`;
+        case 'round_limit':
+            return 'Time has run out.';
+        case 'leader_escapes':
+            return `${objectiveName(state, leaderIdOf, 'The enemy leader')} has got away.`;
+        case 'survive':
+            return 'The party could not hold out.';
+        default:
+            return '';
+    }
+}
+
+function arrivalLine(event: CombatEvent): string {
+    const units = Array.isArray(event.data.units) ? event.data.units as Array<{ name?: unknown }> : [];
+    const names = units.map(u => (typeof u?.name === 'string' ? u.name : '')).filter(Boolean);
+    return names.length > 0 ? `Reinforcements arrive: ${names.join(', ')}.` : '';
 }
 
 export function narrationLine(event: CombatEvent, state: CombatState): string {
@@ -538,6 +639,16 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
         case 'stunt_check':
             if (event.data.success === true) return `${name(event.actorId)} pulls it off.`;
             return event.data.fumble === true ? `${name(event.actorId)}'s attempt goes badly wrong.` : `${name(event.actorId)}'s attempt does not come off.`;
+        case 'objective_progress':
+            return progressLine(event, state);
+        case 'objective_met':
+            return metLine(event, state);
+        case 'objective_failed':
+            return failedLine(event, state);
+        case 'reinforcements_warning':
+            return event.data.delayed === true ? 'The reinforcements are held up, but they are still coming.' : 'Reinforcements are coming.';
+        case 'reinforcements_arrive':
+            return arrivalLine(event);
         default:
             return '';
     }
@@ -575,7 +686,24 @@ export function turnLines(group: TurnGroup, state: CombatState, opts: { numbers:
     return turnLineEntries(group, state, opts).map(l => l.text);
 }
 
-export type MomentTag = 'first blood' | 'now badly hurt' | 'killing blow' | 'last one standing' | 'the player character falls';
+export type MomentTag =
+    | 'first blood' | 'now badly hurt' | 'killing blow' | 'last one standing' | 'the player character falls'
+    | 'a way out is taken' | 'the leader gets away' | 'the ground is taken' | 'the hold is broken' | 'the last round'
+    | 'the objective is achieved' | 'the objective is lost' | 'reinforcements are coming' | 'reinforcements have arrived';
+
+function objectiveTag(event: CombatEvent, state: CombatState): MomentTag | null {
+    let tag: MomentTag | null = null;
+    if (event.type === 'objective_progress') {
+        if (event.data.kind === 'escaped') tag = event.data.how === 'leader_exit' ? 'the leader gets away' : 'a way out is taken';
+        else if (event.data.kind === 'holding') tag = 'the ground is taken';
+        else if (event.data.kind === 'hold_broken') tag = 'the hold is broken';
+        else if (event.data.kind === 'rounds_left' && num(event.data.left) === 1) tag = 'the last round';
+    } else if (event.type === 'objective_met' && event.data.part === 'win') tag = 'the objective is achieved';
+    else if (event.type === 'objective_failed' && event.data.part === 'lose') tag = 'the objective is lost';
+    else if (event.type === 'reinforcements_warning') tag = 'reinforcements are coming';
+    else if (event.type === 'reinforcements_arrive') tag = 'reinforcements have arrived';
+    return tag && narrationLine(event, state) ? tag : null;
+}
 
 const DAMAGE_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'ability_damage', 'hazard', 'thrown']);
 
@@ -603,6 +731,8 @@ export function momentTags(state: CombatState, log: readonly CombatEvent[], thro
     let bled = false;
     let enemiesUp = upCount();
     for (const event of events) {
+        const objective = objectiveTag(event, state);
+        if (objective) tags.set(event.seq, objective);
         const target = event.targetId ? state.combatants[event.targetId] : undefined;
         const change = hpChange(event, target);
         if (change && target && change.after < change.before) {

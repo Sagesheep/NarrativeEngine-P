@@ -344,6 +344,7 @@ describe('enemy casters (D5, C6)', () => {
         return foe(id, pos, {
             tier, archetype: 'caster', range: 'ranged', kit: enemyKit(tier, 'caster', 'fire'),
             proficiency: 3, castingAbility: 'INT', abilityDamage: { ...TIER_TABLE[tier].damage },
+            attackBonus: 1, damage: { count: 1, sides: 4, bonus: 0, type: 'piercing' },
         });
     }
 
@@ -444,7 +445,7 @@ describe('a golden fight with abilities', () => {
         expect(a.state.outcome).not.toBeNull();
         const used = new Set(a.events.filter(e => e.type === 'ability').map(e => e.data.name));
         expect(used.has('Fire bolt') || used.has('Fireball')).toBe(true);
-        expect([...used].some(n => String(n).startsWith('Frost'))).toBe(true);
+        expect(a.events.some(e => (e.type === 'attack' || e.type === 'ability_damage') && e.data.damageType === 'frost')).toBe(true);
         expect(a.events.every(e => e.text.length > 0)).toBe(true);
     });
 });

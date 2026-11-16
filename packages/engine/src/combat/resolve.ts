@@ -2,7 +2,7 @@ import { abilityMod, proficiencyForLevel, TIER_LEVEL } from './abilities';
 import { createRng } from './rng';
 import { buildTierBlock, DEFAULT_JITTER_RANGE, TIER_TABLE } from './tiers';
 import {
-    distance, inBounds, isOccupied, pathCost, pathFromSearch, rangeOf, searchMoves, destinations, samePos, sameTeam, terrainOf, tileAt,
+    distance, inBounds, isOccupied, pathCost, pathFromSearch, searchMoves, destinations, samePos, terrainOf, tileAt,
 } from './grid';
 import { MAP_GENERATOR_VERSION, buildMapFromSeed, openArena, placeCombatants } from './mapBuilder';
 import { resolveMapSpec } from './mapSpec';
@@ -11,23 +11,28 @@ import {
     freshTurn, hasCondition, hazardStrike, isPlayerSide, openDraft, settleOutcome, SHIELDED, STUNNED,
 } from './core';
 import type { Draft } from './core';
-import { abilityReadiness, abilitySlot, checkAbility, resolveAbility, resolveStunt } from './glyphs/apply';
+import { abilitySlot, checkAbility, resolveAbility, resolveStunt } from './glyphs/apply';
 import { checkStunt } from './glyphs/stunt';
 import { normalizeThrowPayload, pickUpItems } from './glyphs/throw';
-import { BUILTIN_DASH_ID, BUILTIN_JUMP_ID, BUILTIN_SHOVE_ID, builtinAttack, builtinDefend, checkAttack, hostileAdjacent } from './glyphs/builtins';
+import { BUILTIN_JUMP_ID, BUILTIN_SHOVE_ID, builtinAttack, builtinDefend, checkAttack } from './glyphs/builtins';
 import type { AimResult } from './glyphs/targeting';
 import {
-    abandonFight, attemptFlee, buildMoraleBook, canAbandon, checkFlee, checkParley, concedeFight, isEdgeTile, isRetreating,
+    abandonFight, attemptFlee, buildMoraleBook, canAbandon, checkFlee, checkParley, concedeFight,
     PARLEY_INTENTS, PARLEY_RATINGS, resolveParley, rollMoraleIfDue,
 } from './party';
 
 const PARLEY_INTENT_SET: ReadonlySet<string> = new Set(PARLEY_INTENTS);
 const PARLEY_RATING_SET: ReadonlySet<string> = new Set(PARLEY_RATINGS);
-import { abilityTargets } from './glyphs/targeting';
 import { enemyKit } from './glyphs/kits';
+import { planTurn } from './ai/plan';
+import { normalizeTactic } from './ai/tactic';
 import { defaultCastingAbility } from './glyphs/numbers';
+import { objectiveRoundEnd, objectiveRoundStart, objectiveTurnBegins, objectiveTurnEnd } from './objectives/run';
+import { planReinforcements, validateObjective } from './objectives/validate';
+import { bystanderIdOf, leaderIdOf, wardIdOf } from './objectives/marks';
 import type {
-    AttackRange, CombatAction, CombatCondition, CombatEvent, CombatSpec, CombatState, Combatant, GlyphAbility, Pos, TurnState,
+    AttackRange, CombatAction, CombatCondition, CombatEvent, CombatObjective, CombatSpec, CombatState, Combatant, CombatantSpec, GlyphAbility, Grid,
+    ObjectiveReport, Pos, ReinforcementBook, ReinforcementWave, Rng, TurnState,
 } from './types';
 
 export { DEFEND_CONDITION, isHostile, canTarget, currentActorId, freshTurn, currentTurn, checkOutcome } from './core';
@@ -138,7 +143,14 @@ function advanceTurn(draft: Draft): void {
     const s = draft.state;
     if (s.order.length === 0) return;
     const outgoing = currentActorId(s);
-    if (outgoing && s.turn?.actorId === outgoing) endOfTurn(draft, outgoing);
+    if (outgoing && s.turn?.actorId === outgoing) {
+        endOfTurn(draft, outgoing);
+        if (s.objective) {
+            objectiveTurnEnd(draft, outgoing);
+            settleOutcome(draft);
+            if (s.outcome) return;
+        }
+    }
     const bound = s.order.length * 8;
     for (let step = 0; step < bound; step++) {
         s.turnIndex += 1;
@@ -147,11 +159,20 @@ function advanceTurn(draft: Draft): void {
             environmentStep(draft);
             settleOutcome(draft);
             if (s.outcome) return;
+            if (s.objective) {
+                objectiveRoundEnd(draft);
+                if (s.outcome) return;
+            }
             s.round += 1;
             emit(draft, { type: 'round', data: { round: s.round }, text: `Round ${s.round} begins.` });
+            if (s.objective) objectiveRoundStart(draft);
         }
         const next = s.combatants[s.order[s.turnIndex]];
         if (!next || next.status !== 'up') continue;
+        if (s.objective) {
+            objectiveTurnBegins(draft, next.id);
+            if (s.outcome) return;
+        }
         if (hasCondition(next, STUNNED)) {
             loseTurn(draft, next);
             settleOutcome(draft);
@@ -386,211 +407,14 @@ export function applyAction(state: CombatState, action: CombatAction, options: A
     return rejection(state, action, 'unknown action');
 }
 
-type Candidate = Pos & { cost: number; weight: number };
+const BONUS_BUILTINS: ReadonlySet<string> = new Set([BUILTIN_SHOVE_ID, BUILTIN_JUMP_ID]);
 
-function pickTarget(state: CombatState, targets: Combatant[], preferredIds: ReadonlySet<string>): { id: string; state: CombatState } {
-    const lowest = Math.min(...targets.map(t => t.hp));
-    let tied = targets.filter(t => t.hp === lowest).sort((a, b) => state.order.indexOf(a.id) - state.order.indexOf(b.id));
-    const preferred = tied.filter(t => preferredIds.has(t.id));
-    if (preferred.length > 0) tied = preferred;
-    if (tied.length === 1) return { id: tied[0].id, state };
-    const rng = createRng(state.rngSeed, state.rngCursor);
-    const pick = tied[rng.int(0, tied.length - 1)];
-    return { id: pick.id, state: { ...state, rngCursor: rng.cursor } };
+export function chooseEngineTurn(state: CombatState, actorId: string): { actions: CombatAction[]; state: CombatState } {
+    return { actions: planTurn(state, actorId).steps, state };
 }
 
-function byCost(a: Candidate, b: Candidate): number {
-    return (a.weight - b.weight) || (a.cost - b.cost) || (a.y - b.y) || (a.x - b.x);
-}
-
-function approach(state: CombatState, actor: Combatant, turn: TurnState, wants: (tile: Pos) => boolean): Pos | null {
-    const open = searchMoves(state, actor.id, { budget: Infinity, avoidHazards: true });
-    if (!open || !actor.position) return null;
-    let goal: Candidate | null = null;
-    for (const d of destinations(open)) {
-        if (!wants(d)) continue;
-        if (!goal || byCost(d, goal) < 0) goal = d;
-    }
-    if (!goal) return null;
-    const path = pathFromSearch(open, goal) ?? [];
-    let stop: Pos | null = null;
-    for (const p of path) {
-        if (open.cost[p.y * open.grid.width + p.x] > turn.moveLeft) break;
-        if (!isOccupied(state, p, actor.id)) stop = p;
-    }
-    return stop;
-}
-
-const BURST_NEIGHBOURS: readonly Pos[] = [
-    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
-    { x: 1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: -1, y: -1 },
-];
-
-function isDamaging(ability: GlyphAbility): boolean {
-    return ability.effects.some(e => e.id === 'damage' || e.id === 'drain');
-}
-
-function chooseKitAction(state: CombatState, actor: Combatant, turn: TurnState): { action: CombatAction; state: CombatState } | null {
-    const kit = (actor.kit ?? []).filter(a => isDamaging(a) && abilityReadiness(state, actor, a, turn) === null);
-    if (kit.length === 0) return null;
-    const hostiles = state.order.map(id => state.combatants[id]).filter(c => !!c && !!c.position && canTarget(actor, c));
-    if (hostiles.length === 0) return null;
-    for (const ability of kit.filter(a => a.form.id === 'burst')) {
-        let best: { aim: Pos; hits: number } | null = null;
-        const seen = new Set<string>();
-        for (const h of hostiles) {
-            for (const d of BURST_NEIGHBOURS) {
-                const aim = { x: (h.position as Pos).x + d.x, y: (h.position as Pos).y + d.y };
-                const key = `${aim.x},${aim.y}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                const res = abilityTargets(state, actor.id, ability, aim);
-                if (!res.ok) continue;
-                const caught = res.targetIds.map(id => state.combatants[id]);
-                const hits = caught.filter(c => canTarget(actor, c)).length;
-                const friendly = caught.some(c => c.id === actor.id || sameTeam(actor.side, c.side));
-                if (friendly || hits < 2) continue;
-                if (!best || hits > best.hits) best = { aim, hits };
-            }
-        }
-        if (best) return { action: { type: 'use_ability', actorId: actor.id, abilityId: ability.id, aim: best.aim }, state };
-    }
-    for (const ability of kit.filter(a => a.form.id === 'projectile' || a.form.id === 'touch' || a.form.id === 'dash')) {
-        const legal = hostiles.filter(h => abilityTargets(state, actor.id, ability, h.position as Pos).ok);
-        if (legal.length === 0) continue;
-        const choice = pickTarget(state, legal, new Set());
-        const aim = state.combatants[choice.id].position as Pos;
-        return { action: { type: 'use_ability', actorId: actor.id, abilityId: ability.id, aim: { ...aim } }, state: choice.state };
-    }
-    return null;
-}
-
-function weaponTurn(state: CombatState, actor: Combatant, turn: TurnState, targets: Combatant[]): { actions: CombatAction[]; state: CombatState } {
-    const actorId = actor.id;
-    const end: CombatAction = { type: 'end_turn', actorId };
-    if (!state.grid || !actor.position) {
-        const pick = pickTarget(state, targets, new Set());
-        return { actions: [{ type: 'attack', actorId, targetId: pick.id }, end], state: pick.state };
-    }
-
-    const here: Candidate = { ...actor.position, cost: 0, weight: 0 };
-    const search = searchMoves(state, actorId, { budget: turn.moveLeft, avoidHazards: true });
-    const tiles: Candidate[] = [here, ...(search ? destinations(search) : [])];
-    const shotsFrom = (p: Pos) => targets.filter(t => checkAttack(state, actorId, t.id, p).ok);
-    const isSafe = (p: Pos) => !hostileAdjacent(state, actor, p);
-    const atHere = new Set(shotsFrom(here).map(t => t.id));
-    const plan = (tile: Candidate, choice: { id: string; state: CombatState }) => {
-        const actions: CombatAction[] = [];
-        if (!samePos(tile, actor.position)) actions.push({ type: 'move', actorId, to: { x: tile.x, y: tile.y } });
-        actions.push({ type: 'attack', actorId, targetId: choice.id }, end);
-        return { actions, state: choice.state };
-    };
-
-    if (rangeOf(actor) !== 'ranged') {
-        const bestTile = new Map<string, Candidate>();
-        for (const tile of tiles) {
-            for (const t of shotsFrom(tile)) {
-                const prev = bestTile.get(t.id);
-                if (!prev || byCost(tile, prev) < 0) bestTile.set(t.id, tile);
-            }
-        }
-        const attackable = targets.filter(t => bestTile.has(t.id));
-        if (attackable.length > 0) {
-            const choice = pickTarget(state, attackable, atHere);
-            return plan(atHere.has(choice.id) ? here : bestTile.get(choice.id) as Candidate, choice);
-        }
-        const stop = approach(state, actor, turn, p => targets.some(t => checkAttack(state, actorId, t.id, p).ok));
-        return { actions: stop ? [{ type: 'move', actorId, to: stop }, end] : [end], state };
-    }
-
-    if (isSafe(here) && atHere.size > 0) {
-        return plan(here, pickTarget(state, targets.filter(t => atHere.has(t.id)), atHere));
-    }
-    const shooting = tiles.filter(t => !samePos(t, here) && shotsFrom(t).length > 0);
-    const safe = shooting.filter(isSafe).sort(byCost);
-    if (safe.length > 0) {
-        const tile = safe[0];
-        const from = new Set(shotsFrom(tile).map(t => t.id));
-        return plan(tile, pickTarget(state, targets.filter(t => from.has(t.id)), from));
-    }
-    if (atHere.size > 0) {
-        return plan(here, pickTarget(state, targets.filter(t => atHere.has(t.id)), atHere));
-    }
-    const fallback = shooting.sort(byCost)[0];
-    if (fallback) {
-        const from = new Set(shotsFrom(fallback).map(t => t.id));
-        return plan(fallback, pickTarget(state, targets.filter(t => from.has(t.id)), from));
-    }
-    const stop = approach(state, actor, turn, p => isSafe(p) && targets.some(t => checkAttack(state, actorId, t.id, p).ok));
-    return { actions: stop ? [{ type: 'move', actorId, to: stop }, end] : [end], state };
-}
-
-function retreatTurn(state: CombatState, actor: Combatant, turn: TurnState): { actions: CombatAction[]; state: CombatState } {
-    const actorId = actor.id;
-    const end: CombatAction = { type: 'end_turn', actorId };
-    const targets = state.order.map(id => state.combatants[id]).filter(c => !!c && canTarget(actor, c));
-    const grid = terrainOf(state);
-    if (!grid || !actor.position) {
-        if (!canAttackWith(turn) || targets.length === 0) return { actions: [end], state };
-        return weaponTurn(state, actor, turn, targets);
-    }
-    const standAndStrike = (): { actions: CombatAction[]; state: CombatState } => {
-        if (!canAttackWith(turn)) return { actions: [end], state };
-        const here = targets.filter(t => checkAttack(state, actorId, t.id).ok);
-        if (here.length === 0) return { actions: [end], state };
-        const pick = pickTarget(state, here, new Set());
-        return { actions: [{ type: 'attack', actorId, targetId: pick.id }, end], state: pick.state };
-    };
-    if (checkFlee(state, actorId, turn).ok) return { actions: [{ type: 'flee', actorId }, end], state };
-    if (isEdgeTile(grid, actor.position)) return standAndStrike();
-    const stop = turn.moveLeft > 0 ? approach(state, actor, turn, p => isEdgeTile(grid, p)) : null;
-    if (stop) return { actions: [{ type: 'move', actorId, to: stop }, end], state };
-    const open = searchMoves(state, actorId, { budget: Infinity, avoidHazards: true });
-    if (open && destinations(open).some(d => isEdgeTile(grid, d))) return standAndStrike();
-    if (!canAttackWith(turn) || targets.length === 0) return { actions: [end], state };
-    return weaponTurn(state, actor, turn, targets);
-}
-
-export const AI_DASH = false;
-
-function dashedTurn(state: CombatState, actor: Combatant, turn: TurnState): { actions: CombatAction[]; state: CombatState } {
-    const end: CombatAction = { type: 'end_turn', actorId: actor.id };
-    const targets = state.order.map(id => state.combatants[id]).filter(c => !!c && canTarget(actor, c));
-    if (targets.length === 0 || !state.grid || !actor.position || turn.moveLeft <= 0) return { actions: [end], state };
-    const plan = weaponTurn(state, actor, turn, targets);
-    const first = plan.actions[0];
-    return { actions: first?.type === 'move' ? [first, end] : [end], state: plan.state };
-}
-
-function withDash(
-    state: CombatState, actor: Combatant, turn: TurnState, targets: Combatant[], plan: { actions: CombatAction[]; state: CombatState },
-): { actions: CombatAction[]; state: CombatState } {
-    if (plan.actions.some(a => a.type === 'attack' || a.type === 'move')) return plan;
-    if (!checkAbility(state, actor.id, BUILTIN_DASH_ID).ok) return plan;
-    const stretched = weaponTurn(state, actor, { ...turn, moveLeft: turn.moveLeft + freshTurn(state, actor.id).moveLeft }, targets);
-    if (stretched.actions[0]?.type !== 'move') return plan;
-    return { actions: [{ type: 'use_ability', actorId: actor.id, abilityId: BUILTIN_DASH_ID, aim: null }, { type: 'end_turn', actorId: actor.id }], state: plan.state };
-}
-
-export function chooseEngineTurn(state: CombatState, actorId: string, options: { dash?: boolean } = {}): { actions: CombatAction[]; state: CombatState } {
-    const actor = state.combatants[actorId];
-    const end: CombatAction = { type: 'end_turn', actorId };
-    if (!actor || actor.status !== 'up') return { actions: [end], state };
-    const turn = currentActorId(state) === actorId ? currentTurn(state) as TurnState : freshTurn(state, actorId);
-    if (isRetreating(state, actor)) return retreatTurn(state, actor, turn);
-    if (!canAttackWith(turn)) return turn.dashed ? dashedTurn(state, actor, turn) : { actions: [end], state };
-    const targets = state.order.map(id => state.combatants[id]).filter(c => !!c && canTarget(actor, c));
-    if (targets.length === 0) return { actions: [end], state };
-    const weapon = weaponTurn(state, actor, turn, targets);
-    if (actor.kit && actor.kit.length > 0 && !turn.actionUsed && state.grid && actor.position) {
-        const first = weapon.actions[0];
-        const movingToAttack = first?.type === 'move' && weapon.actions.some(a => a.type === 'attack');
-        if (!movingToAttack) {
-            const kit = chooseKitAction(state, actor, turn);
-            if (kit) return { actions: [kit.action, end], state: kit.state };
-        }
-    }
-    return (options.dash ?? AI_DASH) ? withDash(state, actor, turn, targets, weapon) : weapon;
+function bonusFollows(steps: readonly CombatAction[]): boolean {
+    return steps.slice(1).some(s => s.type === 'use_ability' && BONUS_BUILTINS.has(s.abilityId));
 }
 
 export function stepEngine(state: CombatState): { state: CombatState; events: CombatEvent[] } | null {
@@ -604,10 +428,10 @@ export function stepEngine(state: CombatState): { state: CombatState; events: Co
         return closeDraft(draft);
     }
     if (actor.controller === 'player') return null;
-    const choice = chooseEngineTurn(state, actor.id);
-    const action = choice.actions[0] ?? { type: 'end_turn', actorId: actor.id };
-    const result = applyAction(choice.state, action);
-    if (result.events.some(e => e.type === 'rejected')) return applyAction(choice.state, { type: 'end_turn', actorId: actor.id });
+    const plan = planTurn(state, actor.id);
+    const action = plan.steps[0] ?? { type: 'end_turn', actorId: actor.id };
+    const result = applyAction(state, action, { driven: bonusFollows(plan.steps) });
+    if (result.events.some(e => e.type === 'rejected')) return applyAction(state, { type: 'end_turn', actorId: actor.id });
     return result;
 }
 
@@ -640,15 +464,7 @@ function casterKitFields(c: { side: Combatant['side']; tier: Combatant['tier']; 
     };
 }
 
-export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { state: CombatState; events: CombatEvent[] } {
-    const rng = createRng(seed, 0);
-    const jitter = spec.jitterRange ?? DEFAULT_JITTER_RANGE;
-    const combatants: Record<string, Combatant> = {};
-    const pcEntry: Combatant = { ...pc, status: 'up', conditions: [], initiative: 0 };
-    combatants[pcEntry.id] = pcEntry;
-    spec.combatants.forEach((c, index) => {
-        let id = c.id && !combatants[c.id] ? c.id : `c${index + 1}`;
-        while (combatants[id]) id = `${id}_`;
+function specCombatant(c: CombatantSpec, id: string, spec: CombatSpec, jitter: number, rng: Rng): Combatant {
         const block = buildTierBlock(c.tier, c.archetype, jitter, rng, c.look);
         const t = c.template;
         let maxHp = block.maxHp;
@@ -665,7 +481,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
             if (t.ac !== undefined) ac = Math.max(ac, t.ac);
         }
         const range: AttackRange = c.range ?? (c.archetype === 'caster' ? 'ranged' : 'close');
-        combatants[id] = {
+        return {
             id,
             name: c.name,
             side: c.side,
@@ -677,6 +493,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
             ...(c.look ? { look: c.look } : {}),
             ...(c.manner ? { manner: c.manner } : {}),
             ...(c.speech ? { speech: c.speech } : {}),
+            ...(normalizeTactic(c.tactic) ? { tactic: normalizeTactic(c.tactic) } : {}),
             abilities: block.abilities,
             maxHp: Math.max(1, Math.round(maxHp)),
             hp: Math.max(1, Math.round(maxHp)),
@@ -691,6 +508,62 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
             ...(t?.resistances && t.resistances.length > 0 ? { resistances: [...t.resistances] } : {}),
             ...casterKitFields(c, block.abilities, damage.type),
         };
+}
+
+function markUnits(combatants: Record<string, Combatant>, objective: CombatObjective): void {
+    const leaderId = leaderIdOf(objective);
+    const wardId = wardIdOf(objective);
+    const bystanderId = bystanderIdOf(objective);
+    if (leaderId && combatants[leaderId]) combatants[leaderId].mark = 'leader';
+    if (wardId && combatants[wardId]) combatants[wardId] = { ...combatants[wardId], mark: 'ward', tactic: 'coward' };
+    if (bystanderId && combatants[bystanderId]) combatants[bystanderId].mark = 'bystander';
+}
+
+function setUpObjective(
+    spec: CombatSpec, combatants: Record<string, Combatant>, grid: Grid, jitter: number, rng: Rng,
+): { objective: CombatObjective; book?: ReinforcementBook; report: ObjectiveReport } {
+    const setup = {
+        grid,
+        combatants: Object.values(combatants).map(c => ({
+            id: c.id, name: c.name, side: c.side, tier: c.tier, ...(c.position ? { position: c.position } : {}), ...(c.speed !== undefined ? { speed: c.speed } : {}),
+        })),
+    };
+    const checked = validateObjective(spec.objective ?? { win: 'rout' }, setup);
+    const planned = planReinforcements(spec.reinforcements, checked.objective, spec.combatants, setup);
+    const repairs = [...checked.repairs, ...planned.repairs];
+    markUnits(combatants, checked.objective);
+    let book: ReinforcementBook | undefined;
+    if (planned.plan) {
+        let n = 0;
+        const waves: ReinforcementWave[] = planned.plan.waves.map(w => ({
+            id: w.id,
+            trigger: w.trigger,
+            edge: w.edge,
+            units: w.combatants.map(cs => {
+                n += 1;
+                let id = `r${n}`;
+                while (combatants[id]) id = `${id}_`;
+                const unit = specCombatant(cs, id, spec, jitter, rng);
+                unit.initiative = rng.roll(20) + abilityMod(unit.abilities.DEX);
+                return unit;
+            }),
+        }));
+        book = { budget: planned.plan.budget, waves };
+    }
+    const report: ObjectiveReport = { objective: checked.objective, ...(book ? { reinforcements: book } : {}), repairs };
+    return { objective: checked.objective, ...(book ? { book } : {}), report };
+}
+
+export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { state: CombatState; events: CombatEvent[]; objective?: ObjectiveReport } {
+    const rng = createRng(seed, 0);
+    const jitter = spec.jitterRange ?? DEFAULT_JITTER_RANGE;
+    const combatants: Record<string, Combatant> = {};
+    const pcEntry: Combatant = { ...pc, status: 'up', conditions: [], initiative: 0 };
+    combatants[pcEntry.id] = pcEntry;
+    spec.combatants.forEach((c, index) => {
+        let id = c.id && !combatants[c.id] ? c.id : `c${index + 1}`;
+        while (combatants[id]) id = `${id}_`;
+        combatants[id] = specCombatant(c, id, spec, jitter, rng);
     });
 
     const tiebreak: Record<string, number> = {};
@@ -708,6 +581,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
     const positions = placeCombatants(grid, Object.values(combatants).map(c => ({ id: c.id, side: c.side })));
     for (const [id, pos] of Object.entries(positions)) combatants[id].position = pos;
     for (const c of Object.values(combatants)) c.startHp = c.hp;
+    const objective = spec.objective !== undefined || spec.reinforcements !== undefined ? setUpObjective(spec, combatants, grid, jitter, rng) : null;
 
     const state: CombatState = {
         id: spec.id,
@@ -726,10 +600,12 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
         ...(Number.isFinite(spec.maxSummons) ? { maxSummons: Math.max(0, Math.floor(spec.maxSummons as number)) } : {}),
         ...(spec.partyControl ? { partyControl: spec.partyControl } : {}),
         ...(spec.defeatMode ? { defeatMode: spec.defeatMode } : {}),
+        ...(objective ? { objective: objective.objective } : {}),
+        ...(objective?.book ? { reinforcements: objective.book } : {}),
     };
     state.morale = buildMoraleBook(state);
     const draft: Draft = { state, rng, events: [] };
-    const roster = order.map(id => combatants[id]);
+    const roster = order.map(id => state.combatants[id]);
     emit(draft, {
         type: 'combat_started',
         data: { combatants: roster.map(c => ({ id: c.id, name: c.name, side: c.side, tier: c.tier })) },
@@ -740,8 +616,10 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
         data: { order: roster.map(c => ({ id: c.id, initiative: c.initiative })) },
         text: `Initiative: ${roster.map(c => `${c.name} ${c.initiative}`).join(', ')}.`,
     });
+    if (state.objective) objectiveRoundStart(draft);
     startTurn(draft);
-    return closeDraft(draft);
+    const closed = closeDraft(draft);
+    return objective ? { ...closed, objective: objective.report } : closed;
 }
 
 export function concedeCombat(state: CombatState): { state: CombatState; events: CombatEvent[] } {
@@ -754,7 +632,7 @@ export function concedeCombat(state: CombatState): { state: CombatState; events:
 export type HpBand = 'unhurt' | 'hurt' | 'badly_hurt' | 'down' | 'fled' | 'yielded';
 
 export function hpBand(c: Pick<Combatant, 'hp' | 'maxHp' | 'status'>): HpBand {
-    if (c.status === 'fled') return 'fled';
+    if (c.status === 'fled' || c.status === 'escaped') return 'fled';
     if (c.status === 'surrendered') return 'yielded';
     if (c.status !== 'up' || c.hp <= 0) return 'down';
     if (c.hp >= c.maxHp) return 'unhurt';

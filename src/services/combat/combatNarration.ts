@@ -8,6 +8,7 @@ import { isEngineLogMessage } from '../payload/history';
 import { uid } from '../../utils/uid';
 import { groupEventsByTurn, hpBandLabel, isGroupComplete, isPresent, momentTags, positionPhrase, sideGroup, stateAtSeq, turnLineEntries } from './combatEvents';
 import type { TurnLine } from './combatEvents';
+import { objectiveStakes } from './objectiveStory';
 import { normalizeCombatConfig } from '../../types';
 import type {
     ChatMessage, CombatEvent, CombatFlourish, CombatNarrationCadence, CombatNarrationLength, CombatSession, CombatState, CombatTerrainLabels,
@@ -21,6 +22,7 @@ export type BeatDirectiveOptions = {
     setPiece?: boolean;
     flourish?: boolean;
     nonSpeakers?: boolean;
+    stakes?: string;
 };
 
 const LOCKED_RULE = 'Locked: every listed event happens, in the listed order, with the listed result. Add no other attacks, hits, misses, wounds that would matter, deaths, falls, escapes, surrenders, arrivals or changes of position. State no numbers. Settle nothing about what happens next.';
@@ -55,6 +57,7 @@ export function beatDirective(opts: BeatDirectiveOptions = {}): string {
         STAY_RULE,
         FREE_RULE,
         SHAPE_RULE,
+        opts.stakes ?? '',
         opts.nonSpeakers ? NON_SPEAKER_RULE : '',
         opts.flourish ? `${PC_RULE} ${FLOURISH_RULE}` : PC_RULE,
         FRESH_RULE,
@@ -315,16 +318,19 @@ export function rosterLines(state: CombatState, log: readonly CombatEvent[], ran
     const fledHere = new Set(rangeEvents(log, range)
         .filter(e => e.type === 'flee' && e.data.success === true && e.actorId)
         .map(e => e.actorId as string));
+    const escapedHere = new Set(rangeEvents(log, range)
+        .filter(e => e.type === 'objective_progress' && e.data.kind === 'escaped' && e.targetId)
+        .map(e => e.targetId as string));
     return atEnd.order
         .map(id => atEnd.combatants[id])
-        .filter(c => isPresent(c) && (c.status !== 'fled' || fledHere.has(c.id)))
+        .filter(c => isPresent(c) && (c.status !== 'fled' || fledHere.has(c.id)) && (c.status !== 'escaped' || escapedHere.has(c.id)))
         .map(c => {
             const role = c.side === 'player' ? 'player character' : c.side;
             const look = c.look ? ` — ${c.look.slice(0, 80)}` : '';
-            const where = c.status === 'fled' ? null : positionPhrase(atEnd, c);
+            const where = c.status === 'fled' || c.status === 'escaped' ? null : positionPhrase(atEnd, c);
             const before = atStart?.combatants[c.id];
             const band = hpBandLabel(c);
-            const was = before && isPresent(before) && band !== 'fled' && band !== 'yielded' ? hpBandLabel(before) : band;
+            const was = before && isPresent(before) && band !== 'fled' && band !== 'yielded' && band !== 'escaped' ? hpBandLabel(before) : band;
             return `- ${c.name} (${role})${look}: ${was !== band ? `${was} → ${band}` : band}${where ? `, ${where}` : ''}`;
         });
 }
@@ -376,6 +382,7 @@ export function buildCombatBlock(state: CombatState, log: readonly CombatEvent[]
 
 export function directiveForRange(session: CombatSession, range: BeatRange, cadence: CombatNarrationCadence, length: CombatNarrationLength): string {
     const events = rangeEvents(session.log, range);
+    const stakes = objectiveStakes(session.state);
     return beatDirective({
         length,
         opening: events.some(e => e.type === 'combat_started'),
@@ -383,6 +390,7 @@ export function directiveForRange(session: CombatSession, range: BeatRange, cade
         setPiece: cadence === 'end',
         flourish: flourishesIn(range, session.flourishes).length > 0,
         nonSpeakers: hasNonSpeaker(session.state, session.log, range),
+        ...(stakes ? { stakes } : {}),
     });
 }
 

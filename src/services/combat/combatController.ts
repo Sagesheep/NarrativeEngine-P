@@ -1,5 +1,5 @@
 import {
-    applyAction, buildPcCombatant, concedeCombat, createCombat, currentActorId, deriveMaxMp, stepEngine, validateAbility,
+    applyAction, buildPcCombatant, concedeCombat, createCombat, currentActorId, deriveMaxMp, planIntents, stepEngine, validateAbility,
 } from '@narrative/engine';
 import type { AbilityKey, AttackRange, CombatantSpec, GlyphAbility, PcCarriedInput, PcCombatantInput, WeaponQuality } from '@narrative/engine';
 import { useAppStore } from '../../store/useAppStore';
@@ -14,13 +14,15 @@ import { COMBAT_FLOURISH_MAX, normalizeCombatConfig, normalizeSpellbook } from '
 import type {
     CharacterProfile, ChatMessage, CombatAction, CombatFallen, CombatNarrationCadence, CombatEvent, CombatPartyControl,
     CombatProposal, CombatSession, CombatState, Combatant, FateRecord, GameContext, InventoryItem, NPCEntry, ParleyRecord,
-    ProposedCombatant, Speech,
+    PlanIntent, ProposedCombatant, Speech,
 } from '../../types';
 import { groupEventsByTurn, hpBandLabel, isGroupComplete, turnLines } from './combatEvents';
 import { compendiumFor, type CompendiumLookupState } from './compendiumLookup';
 import { resolveCombatMap } from './combatMap';
 import { queueCombatNarration, waitForCombatNarration } from './combatNarration';
 import { hasEnemy } from './combatProposal';
+import { objectiveSpecFields, reconcileObjective } from './combatObjective';
+import { objectiveLossLine, objectiveOutcomeLines, objectiveResultClause } from './objectiveStory';
 import { makeCombatNote, COMBAT_DECLINED_TEXT } from './combatTurnNotes';
 import { markProposedMessage } from './combatCommitHooks';
 import { commitCombatPatch, remirrorCombatSheet } from './combatSheet';
@@ -209,6 +211,11 @@ export async function runEngineTurnsStepped(): Promise<CombatEvent[]> {
     return collected;
 }
 
+export function engineIntents(state: CombatState | null | undefined = useAppStore.getState().combatSession?.state): Record<string, PlanIntent> {
+    if (!state || state.outcome) return {};
+    return planIntents(state);
+}
+
 export function isEngineStepping(): boolean {
     return stepping !== null;
 }
@@ -250,8 +257,9 @@ export function buildCombatantSpecs(
 ): CombatantSpec[] {
     return combatants.filter(c => isIncluded(c, partyControl)).map(c => {
         const range = rangeForAttack(c.attack);
-        const { overlay, speech: templateSpeech } = compendiumFor(c, lookup);
+        const { overlay, speech: templateSpeech, tactic: templateTactic } = compendiumFor(c, lookup);
         const speech: Speech | undefined = c.npcId ? 'speaks' : templateSpeech ?? c.speech;
+        const tactic = c.tactic ?? templateTactic;
         return {
             name: c.name,
             side: c.side,
@@ -262,6 +270,7 @@ export function buildCombatantSpecs(
             ...(c.look ? { look: c.look } : {}),
             ...(c.manner ? { manner: c.manner } : {}),
             ...(speech ? { speech } : {}),
+            ...(tactic ? { tactic } : {}),
             ...(range ? { range } : {}),
             ...(overlay ? { template: overlay } : {}),
         };
@@ -294,10 +303,13 @@ export async function startFromProposal(proposal: CombatProposal, seed?: number)
         const config = normalizeCombatConfig(store.context.combatConfig);
         const fightSeed = seed ?? Math.floor(Math.random() * 0xffffffff);
         const pc = buildPcCombatant(pcInput);
-        const map = resolveCombatMap(proposal, store);
+        const reconciled = reconcileObjective(proposal.combatants, proposal.objective);
+        const roster = reconciled.combatants;
+        const map = resolveCombatMap({ ...proposal, combatants: roster }, store);
         const created = createCombat({
             id: uid(),
-            combatants: buildCombatantSpecs(proposal.combatants, store, config.partyControl),
+            combatants: buildCombatantSpecs(roster, store, config.partyControl),
+            ...objectiveSpecFields(reconciled.objective),
             ...(config.mookJitterRange !== undefined ? { jitterRange: config.mookJitterRange } : {}),
             map,
             mapSeed: proposal.mapSeed ?? newMapSeed(),
@@ -305,7 +317,7 @@ export async function startFromProposal(proposal: CombatProposal, seed?: number)
             partyControl: config.partyControl,
             defeatMode: config.defeatMode,
         }, pc, fightSeed);
-        const excluded = excludedAllies(proposal.combatants, config.partyControl);
+        const excluded = excludedAllies(roster, config.partyControl);
         const session: CombatSession = {
             state: created.state,
             log: created.events,
@@ -417,7 +429,7 @@ function conditionFromHp(c: Combatant): NonNullable<NPCEntry['condition']> {
 
 export function conditionForCombatant(c: Combatant): NPCEntry['condition'] | null {
     if (c.status === 'fled') return null;
-    if (c.status === 'surrendered') return conditionFromHp(c);
+    if (c.status === 'surrendered' || c.status === 'escaped') return conditionFromHp(c);
     if (c.status !== 'up' || c.hp <= 0) return c.side === 'enemy' ? 'dead' : 'critical';
     return conditionFromHp(c);
 }
@@ -425,6 +437,7 @@ export function conditionForCombatant(c: Combatant): NPCEntry['condition'] | nul
 function describe(c: Combatant, fate?: FateRecord): string {
     if (fate?.dies && fate.pcId === c.id) return `${c.name} (dead)`;
     if (c.status === 'fled') return `${c.name} (fled)`;
+    if (c.status === 'escaped') return `${c.name} (escaped, ${hpBandLabel({ ...c, status: 'up' })})`;
     if (c.status === 'surrendered') return `${c.name} (yielded, ${hpBandLabel({ ...c, status: 'up' })})`;
     if (c.status !== 'up') return c.side === 'player' || c.side === 'ally' ? `${c.name} (unconscious)` : `${c.name} (down)`;
     return `${c.name} (${hpBandLabel(c)})`;
@@ -442,14 +455,17 @@ export function buildResultText(state: CombatState): string {
     const all = resultRoster(state);
     const down = all.filter(c => c.status === 'down');
     const fled = all.filter(c => c.status === 'fled');
+    const escaped = all.filter(c => c.status === 'escaped');
     const yielded = all.filter(c => c.status === 'surrendered');
     const hurt = all.filter(c => c.status === 'up' && c.hp < c.maxHp);
     const outcome = state.outcome ?? 'aborted';
     const dead = state.fate?.dies ? state.combatants[state.fate.pcId] : undefined;
     return [
         `Combat ended: ${outcome}.`,
+        objectiveResultClause(state),
         down.length > 0 ? `Down: ${names(down)}.` : 'No one is down.',
         fled.length > 0 ? `Fled: ${names(fled)}.` : '',
+        escaped.length > 0 ? `Left through the exit: ${names(escaped)}.` : '',
         yielded.length > 0 ? `Yielded: ${names(yielded)}.` : '',
         hurt.length > 0 ? `Hurt: ${hurt.map(c => `${c.name} (${hpBandLabel(c)})`).join(', ')}.` : '',
         dead ? `${dead.name} has died.` : '',
@@ -486,7 +502,7 @@ function outcomeLines(session: CombatSession, all: readonly Combatant[]): string
         if (fledParty.length > 0) lines.push(`${names(fledParty)} left the field during the fight and can rejoin the party.`);
     }
     if (state.outcome === 'defeat' && !(fate?.dies)) {
-        lines.push('The party is unconscious and at the victors\' mercy. What the victors do next is your decision as the story AI.');
+        lines.push(objectiveLossLine(state, party) ?? 'The party is unconscious and at the victors\' mercy. What the victors do next is your decision as the story AI.');
     }
     if (state.outcome === 'fled') {
         if (state.ending?.carried) {
@@ -494,7 +510,7 @@ function outcomeLines(session: CombatSession, all: readonly Combatant[]): string
         } else {
             if (state.ending?.abandoned) lines.push('The player chose to abandon the others and end the fight.');
             if (fledParty.length > 0) lines.push(`Got away: ${names(fledParty)}.`);
-            const left = party.filter(c => c.status !== 'fled');
+            const left = party.filter(c => c.status !== 'fled' && c.status !== 'escaped');
             if (left.length > 0) {
                 lines.push(`Left behind on the field: ${left.map(c => describe(c, fate)).join(', ')}. What becomes of them is your decision as the story AI.`);
             }
@@ -506,6 +522,7 @@ function outcomeLines(session: CombatSession, all: readonly Combatant[]): string
             lines.push(`The player offered these terms: "${quoteTerms(parley.words)}". This is the player's offer, not an accepted fact: decide what the enemies agreed to within it. Whatever was agreed, the story must honour it or show consequences for breaking it.`);
         }
     }
+    lines.push(...objectiveOutcomeLines(session, all));
     if (state.outcome === 'aborted') lines.push('The fight was broken off before it was decided.');
     if (state.ending?.conceded) lines.push('The player conceded the fight.');
     if (session.excluded && session.excluded.length > 0) lines.push(`Did not fight: ${session.excluded.join(', ')} stayed out of the fight.`);
@@ -523,8 +540,8 @@ function outcomeLines(session: CombatSession, all: readonly Combatant[]): string
 export function buildAftermathText(session: CombatSession): string {
     const state = session.state;
     const all = resultRoster(state);
-    const casualties = all.filter(c => c.status !== 'up' && c.status !== 'fled' && c.status !== 'surrendered');
-    const survivors = all.filter(c => c.status === 'up' || c.status === 'surrendered');
+    const casualties = all.filter(c => c.status !== 'up' && c.status !== 'fled' && c.status !== 'surrendered' && c.status !== 'escaped');
+    const survivors = all.filter(c => c.status === 'up' || c.status === 'surrendered' || c.status === 'escaped');
     const lines = [
         session.reason ? `Fight: ${session.reason}` : '',
         `Outcome: ${state.outcome ?? 'aborted'}.`,
@@ -540,7 +557,7 @@ function writeBackPc(store: Store, state: CombatState): void {
     const profile: CharacterProfile | undefined = store.context.characterProfileData;
     if (!pc || !profile) return;
     if (state.fate?.dies && state.fate.pcId === pc.id) return;
-    const current = pc.status === 'up' || pc.status === 'fled' ? Math.max(1, pc.hp) : 1;
+    const current = pc.status === 'up' || pc.status === 'fled' || pc.status === 'escaped' ? Math.max(1, pc.hp) : 1;
     const sheet = store.context.combatSheet;
     const maxMp = sheet ? deriveMaxMp(sheet) : (pc.maxMp ?? profile.mp?.max);
     const next: CharacterProfile = {

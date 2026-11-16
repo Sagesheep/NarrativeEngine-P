@@ -205,8 +205,8 @@ describe('a fight saved before 5B-1 (5B-1)', () => {
         let state = fixtureStart();
         let step = 0;
         for (; step < 3000 && !state.outcome && state.round < 3; step++) state = fixtureStep(state).state;
-        expect(step).toBe(21);
-        expect(fnv(JSON.stringify(state))).toBe('3a8b1edc');
+        expect(step).toBe(19);
+        expect(fnv(JSON.stringify(state))).toBe('d2070ee1');
         let loaded = JSON.parse(JSON.stringify(state)) as CombatState;
         const events: CombatEvent[] = [];
         for (let i = 0; i < 3000 && !loaded.outcome; i++) {
@@ -216,6 +216,6 @@ describe('a fight saved before 5B-1 (5B-1)', () => {
         }
         expect(events.some(e => e.type === 'defend')).toBe(true);
         expect(events.some(e => e.type === 'attack')).toBe(true);
-        expect(fnv(JSON.stringify(events) + JSON.stringify(loaded))).toBe('c25822bf');
+        expect(fnv(JSON.stringify(events) + JSON.stringify(loaded))).toBe('bb3bf982');
     });
 });

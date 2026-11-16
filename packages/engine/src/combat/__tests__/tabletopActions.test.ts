@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-    AI_DASH, allGlyphs, applyAction, availableAbilities, BUILTIN_DASH_ID, chooseEngineTurn, BUILTIN_EFFECT_IDS, BUILTIN_HELP_ID, BUILTIN_JUMP_ID, BUILTIN_SHOVE_ID,
+    allGlyphs, applyAction, availableAbilities, BUILTIN_DASH_ID, chooseEngineTurn, BUILTIN_EFFECT_IDS, BUILTIN_HELP_ID, BUILTIN_JUMP_ID, BUILTIN_SHOVE_ID,
     BUILTIN_THROW_ID, builtinDash, builtinHelp, builtinJump, builtinShove, builtinThrow, casterStats, checkAbility, currentActorId,
     describeAbility, EFFECT_IDS, isGlyphAbilityShape, leapRange, legalAims, THROWN_WEAPON_NAME, throwProfile, validateAbility,
 } from '../index';
@@ -410,11 +410,11 @@ describe('Help', () => {
 describe('engine Dash (A2)', () => {
     const hunter = (grid = openGrid(), x = 1) => arena([foe('e', at(x, 5)), caster([], at(14, 5), { id: 'pc' })], { grid });
 
-    function turnOf(state: CombatState, options: { dash?: boolean }) {
+    function turnOf(state: CombatState) {
         const log: string[] = [];
         let s = state;
         for (let i = 0; i < 8 && currentActorId(s) === 'e' && !s.outcome; i++) {
-            const choice = chooseEngineTurn(s, 'e', options);
+            const choice = chooseEngineTurn(s, 'e');
             const first = choice.actions[0];
             log.push(first.type === 'use_ability' ? first.abilityId : first.type);
             s = applyAction(choice.state, first).state;
@@ -422,24 +422,24 @@ describe('engine Dash (A2)', () => {
         return { log, state: s };
     }
 
-    it('moves, dashes and moves again when it would otherwise end its turn out of reach', () => {
-        const r = turnOf(hunter(), { dash: true });
-        expect(r.log).toEqual(['move', BUILTIN_DASH_ID, 'move']);
+    it('dashes, then moves, when the gap cannot be closed in two turns of walking', () => {
+        const far = arena([foe('e', at(1, 5)), caster([], at(28, 5), { id: 'pc' })], { grid: openGrid(30, 12) });
+        const r = turnOf(far);
+        expect(r.log.slice(0, 2)).toEqual([BUILTIN_DASH_ID, 'move']);
         expect(r.state.combatants.e.position?.x).toBe(13);
         expect(currentActorId(r.state)).toBe('pc');
     });
 
-    it('does nothing of the kind when dashing is not allowed', () => {
-        const r = turnOf(hunter(), { dash: false });
+    it('walks without dashing when two turns of walking will close the gap', () => {
+        const r = turnOf(hunter());
         expect(r.log).toEqual(['move', 'end_turn']);
         expect(r.state.combatants.e.position?.x).toBe(7);
-        expect(turnOf(hunter(), {}).log).toEqual(AI_DASH ? ['move', BUILTIN_DASH_ID, 'move'] : ['move', 'end_turn']);
     });
 
-    it('never dashes when it can attack this turn, or when the extra movement gets it nowhere', () => {
-        expect(turnOf(hunter(openGrid(), 8), { dash: true }).log).toEqual(['move', 'attack', 'end_turn']);
+    it('never dashes when it can attack this turn, or when no path leads there', () => {
+        expect(turnOf(hunter(openGrid(), 8)).log).toEqual(['move', 'attack', 'end_turn']);
         const walls = Array.from({ length: 12 }, (_, y) => at(7, y));
-        expect(turnOf(hunter(openGrid(16, 12, walls)), { dash: true }).log).toEqual(['end_turn']);
+        expect(turnOf(hunter(openGrid(16, 12, walls))).log).toEqual(['end_turn']);
     });
 });
 

@@ -50,7 +50,7 @@ export {
     BUILTIN_PREFIX, BUILTIN_ATTACK_ID, BUILTIN_DEFEND_ID, BUILTIN_DASH_ID, BUILTIN_SHOVE_ID, BUILTIN_JUMP_ID, BUILTIN_THROW_ID,
     BUILTIN_HELP_ID, BUILTIN_STUNT_ID, BUILTIN_EFFECT_IDS, THROWN_WEAPON_NAME, isBuiltinId, isBuiltinEffect, weaponReach, builtinAttack,
     builtinDefend, builtinDash, builtinShove, builtinJump, builtinThrow, builtinHelp, builtinAbilities, findBuiltin, availableAbilities,
-    leapRange, throwProfile, tooLargeToShove, recoverable, AI_DASH,
+    leapRange, throwProfile, tooLargeToShove, recoverable,
     enemyKit, ENEMY_BOLT_ID, ENEMY_BURST_ID, STARTER_ABILITIES,
     emptyChain, chainOf, allGlyphs, acceptedAugments, glyphsAccepting, augmentCapacity, glyphCost, chainCost, chainCount,
     socketGlyph, placeGlyph, removeGlyph, placementReason, chainColumns, socketKey, sameSocket, firstFreeSocket,
@@ -77,6 +77,14 @@ export {
     THROW_REASONS, throwWeight, throwRangeOf, normalizeThrowPayload, samePayload, standingAt, payloadInfo, nearestFree, previewThrow,
     payloadAt, payloadChoices, payloadTiles, legalLandings, throwReason, weaponFieldsOf, bareHands, applyWeaponFields, pickUpItems,
     SPEECH_VALUES, SOUNDS_KEYWORDS, SILENT_KEYWORDS, SPEAKS_KEYWORDS, normalizeSpeech, inferSpeech, speechOf, canSpeak,
+    planTurn, planIntents, termsFor, normalizeTactic, deriveTactic, tacticOf,
+    TACTICS, TARGET_TERMS, POSITION_TERMS, ACTION_TERMS, ALL_TERMS, AI_WEIGHTS, TIER_DEPTH, AUTOPILOT_DEPTH, TACTIC_PROFILES,
+    TACTIC_DERIVATION, DEFAULT_TACTIC, AI_LIMITS,
+    WIN_KINDS, LOSE_KINDS, SIDE_KINDS, REINFORCEMENT_LEVELS, OBJECTIVE_EVENT_TYPES, OBJECTIVE_LIMITS, OBJECTIVE_WEIGHTS, REINFORCEMENT_THREAT,
+    REINFORCEMENT_BUDGET, REINFORCEMENT_WAVES, REINFORCEMENT_KIND_SCALE, REINFORCEMENT_MIN_BUDGET,
+    objectiveMarks, objectiveClock, mainWin, wardIdOf, leaderIdOf, bystanderIdOf, exitsOf, leaderExitsOf, seizeTileOf, reachTileOf,
+    validateObjective, planReinforcements, normalizeObjectiveRequest, normalizeReinforcementRequest, reinforcementBudget,
+    undoObjectiveEvent, arrivalTiles, distanceField,
 } from './combat/index';
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget,
@@ -96,6 +104,11 @@ export type {
     PushKind, PushBlocker, PushBlockerKind, PushPreview, PushOptions, Speech,
     TerrainEdit, CarriedItem, FieldItem, WeaponFields, ThrowPayload, PcCarriedInput,
     ThrowWeight, TerrainChange, ThrowPlan, ThrowPreview, PayloadInfo, PayloadChoice,
+    Tactic, PlanIntent, PlanIntentKind, TurnPlan, TermId, TargetTerm, PositionTerm, ActionTerm, TacticProfile, TacticRule,
+    ObjectiveMark, WinKind, LoseKind, SideKind, PairedWin, WinCondition, LoseCondition, SideObjective, ObjectiveProgress, ObjectiveEndReason,
+    ObjectiveResult, CombatObjective, ObjectiveRequest, RepairCode, ObjectiveRepair, ReinforcementEdge, ReinforcementLevel, ReinforcementTrigger,
+    ReinforcementWaveRequest, ReinforcementRequest, ReinforcementWave, ReinforcementBook, ObjectiveReport,
+    ObjectiveMarks, ObjectiveClock, ObjectiveSetup, ObjectiveSetupUnit, WavePlan, ReinforcementPlan, ObjectiveSummary,
 } from './combat/index';
 
 export { resolveLootDrop } from './loot/lootEngine';

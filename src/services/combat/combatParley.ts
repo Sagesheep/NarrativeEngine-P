@@ -164,7 +164,7 @@ function enemyLines(state: CombatState): string[] {
                 c.look ? `looks: ${c.look.slice(0, 120)}` : '',
                 c.summonerId ? 'summoned creature' : '',
                 speechOf(c) === 'speaks' ? '' : 'cannot speak or be reasoned with; not rated',
-                c.status === 'up' ? '' : c.status === 'surrendered' ? 'has yielded' : c.status === 'fled' ? 'has fled' : 'down',
+                c.status === 'up' ? '' : c.status === 'surrendered' ? 'has yielded' : c.status === 'fled' ? 'has fled' : c.status === 'escaped' ? 'has left through the exit' : 'down',
             ].filter(Boolean);
             return `- ${c.name}: ${bits.join('; ')}`;
         });

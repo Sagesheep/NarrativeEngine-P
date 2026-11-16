@@ -350,6 +350,36 @@ export function pathCost(grid: Grid, path: readonly Pos[]): number {
     return path.reduce((sum, p) => sum + stepCost(tileAt(grid, p)), 0);
 }
 
+export function distanceField(grid: Grid, sources: readonly Pos[]): number[] {
+    const total = grid.width * grid.height;
+    const dist = new Array<number>(total).fill(Infinity);
+    const buckets: number[][] = [];
+    for (const s of sources) {
+        if (!isWalkable(grid, s)) continue;
+        const i = indexOf(grid, s);
+        if (dist[i] === 0) continue;
+        dist[i] = 0;
+        (buckets[0] ??= []).push(i);
+    }
+    for (let d = 0; d < buckets.length; d++) {
+        const bucket = buckets[d];
+        if (!bucket) continue;
+        for (const i of bucket) {
+            if (dist[i] !== d) continue;
+            const here = posOf(grid, i);
+            for (const next of neighbours(grid, here)) {
+                const j = indexOf(grid, next);
+                const nd = d + stepCost(tileAt(grid, next));
+                if (nd < dist[j]) {
+                    dist[j] = nd;
+                    (buckets[nd] ??= []).push(j);
+                }
+            }
+        }
+    }
+    return dist;
+}
+
 export function isOccupied(state: CombatState, p: Pos, exceptId?: string): boolean {
     return Object.values(state.combatants).some(c => c.id !== exceptId && c.status === 'up' && samePos(c.position, p));
 }

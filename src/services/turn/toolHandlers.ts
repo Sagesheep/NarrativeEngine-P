@@ -1,5 +1,6 @@
 import type { GameContext, LoreChunk, DiceSystemConfig, DieType, InventoryProposal, NPCEntry } from '../../types';
 import { parseCombatArgs, type ParsedCombatArgs } from '../combat/combatProposal';
+import { objectiveToolNotes } from '../combat/combatObjective';
 import { ABILITY_ONE_AT_A_TIME, PROPOSE_ABILITY_TOOL_RESULT, parseAbilityArgs, rejectionText } from '../combat/abilityProposalArgs';
 import { AUGMENT_IDS, EFFECT_IDS, FORM_IDS } from '@narrative/engine';
 import type { AbilityLimits, GlyphAbility } from '@narrative/engine';
@@ -173,6 +174,18 @@ const START_COMBAT_TOOL = {
                             manner: { type: 'string' as const, description: 'Optional, two or three words: how this one talks and carries itself in a fight, e.g. "sneering, overconfident".' },
                             speech: { type: 'string' as const, enum: ['speaks', 'sounds', 'silent'], description: 'Can this creature speak words? speaks: people and anything that talks. sounds: animals and beasts that only growl, bark or shriek. silent: mindless or mechanical things (constructs, oozes, drones). Default is guessed from the name.' },
                             attack: { type: 'string' as const, enum: ['melee', 'ranged'], description: 'Optional. How it fights: melee or ranged.' },
+                            tactic: {
+                                type: 'string' as const,
+                                enum: ['aggressive', 'skirmisher', 'guard', 'hunter', 'coward', 'berserker', 'support'],
+                                description: 'Optional. How it behaves in the fight; default is guessed from its style.\n' +
+                                    'aggressive: closes in and hits the most valuable target it can reach.\n' +
+                                    'skirmisher: keeps its distance, uses cover, strikes and moves away.\n' +
+                                    'guard: stays beside its leader and drives off whoever threatens it.\n' +
+                                    'hunter: goes for the weakest or most isolated foe.\n' +
+                                    'coward: fights from behind others and runs when hurt.\n' +
+                                    'berserker: ignores danger, always the hardest hit, never backs off.\n' +
+                                    'support: heals, shields and helps allies first, attacks when nothing needs doing.',
+                            },
                         },
                         required: ['name'],
                     },
@@ -204,6 +217,34 @@ const START_COMBAT_TOOL = {
                         },
                         place: { type: 'string' as const, description: 'Optional, a few words, e.g. "server room", "forest road".' },
                     },
+                },
+                objective: {
+                    type: 'object' as const,
+                    description: 'Optional. What the fight is about; default is a plain rout (beat everyone). The engine checks it, sets all positions and numbers, and may adjust it; the tool result says how. Never give coordinates.\n' +
+                        'win rout: plain fight to the finish. defeat_leader: a clear leader whose fall breaks the rest (name it in leader). ' +
+                        'survive: an ambush or siege the party cannot simply win; hold out for rounds (2 to 8). ' +
+                        'escape: the party must get away through an exit (a chase, a collapsing place, hopeless odds); everyone true needs the whole party out. ' +
+                        'protect: someone must be kept alive (name them in ward, as an ally); give rounds to hold out, or pair it with another win in with. ' +
+                        'seize: take and hold a marked position (a gate, a lever, a bridgehead).',
+                    properties: {
+                        win: { type: 'string' as const, enum: ['rout', 'defeat_leader', 'survive', 'escape', 'protect', 'seize'] },
+                        with: { type: 'string' as const, enum: ['rout', 'defeat_leader', 'survive', 'escape', 'seize'], description: 'protect only: the win that must also be met while the ward lives.' },
+                        leader: { type: 'string' as const, description: 'Name of the enemy leader, as in combatants.' },
+                        ward: { type: 'string' as const, description: 'Name of the ally to protect. If not in combatants, it is added as a weak ally.' },
+                        rounds: { type: 'integer' as const, description: 'survive or protect: rounds to hold out.' },
+                        everyone: { type: 'boolean' as const, description: 'escape: every party member must leave.' },
+                        lose: {
+                            type: 'array' as const,
+                            items: { type: 'string' as const, enum: ['pc_falls', 'round_limit', 'leader_escapes'] },
+                            description: 'Extra ways to lose. pc_falls: the player character going down ends the fight even if allies stand. round_limit: time runs out (give roundLimit). leader_escapes: the leader gets away (a chase).',
+                        },
+                        roundLimit: { type: 'integer' as const, description: 'Rounds before time runs out (3 to 15).' },
+                        side: { type: 'string' as const, enum: ['within_rounds', 'no_one_falls', 'save_bystander', 'reach_tile'], description: 'Optional bonus aim; it never changes win or lose. save_bystander needs bystander, a neutral unit. reach_tile marks a spot (a chest).' },
+                        sideRounds: { type: 'integer' as const, description: 'within_rounds: the round count.' },
+                        bystander: { type: 'string' as const, description: 'Name of a neutral to save. If not in combatants, it is added as a neutral.' },
+                        reinforcements: { type: 'string' as const, enum: ['none', 'some', 'many'], description: 'More enemies arriving mid-fight, warned a round ahead. Not for rout. Default none.' },
+                    },
+                    required: ['win'],
                 },
                 reason: { type: 'string' as const, description: 'One line shown to the player, e.g. "The bandits rush you from the treeline."' },
             },
@@ -406,7 +447,11 @@ export function handleStartCombatTool(toolArguments: string, npcLedger: readonly
     if (!parsed.ok) {
         return { toolResult: `start_combat was not accepted: ${parsed.error}. Fix the arguments and call it again, or continue the scene in narration.` };
     }
-    return { toolResult: START_COMBAT_TOOL_RESULT, proposal: parsed.value };
+    const notes = objectiveToolNotes(parsed.value.combatants, parsed.value.objective, parsed.value.map, parsed.notes);
+    const adjusted = notes.length > 0
+        ? `\n\nThe fight objective was adjusted; the fight will be played this way, so keep the scene consistent with it: ${notes.join(' ')}`
+        : '';
+    return { toolResult: `${START_COMBAT_TOOL_RESULT}${adjusted}`, proposal: parsed.value };
 }
 
 function parseAndRoll(expr: string): { total: number; breakdown: string; sides: number; count: number } {

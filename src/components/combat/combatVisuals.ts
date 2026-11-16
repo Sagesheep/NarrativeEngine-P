@@ -21,6 +21,7 @@ export const BAND_KEY = {
     down: 'combat.band.down',
     fled: 'combat.band.fled',
     yielded: 'combat.band.yielded',
+    escaped: 'combat.band.escaped',
 } as const;
 
 export function sideColor(side: Combatant['side']): string {

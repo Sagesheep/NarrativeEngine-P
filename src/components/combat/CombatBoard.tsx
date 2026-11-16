@@ -27,6 +27,8 @@ import type { AbilityAim } from './useAbilityAim';
 import { AimOverlay, BarrierLayer, ConditionBadges, FieldItemLayer, TempHpRing } from './abilityOverlays';
 import { combatantNotes } from './abilityNotes';
 import { ThrowChoices } from './ThrowChoices';
+import { ObjectiveBadge, ObjectiveTileMarks } from './ObjectiveLayer';
+import { markAt, roleLabel, tileMarks } from './objectiveText';
 import { describeThrowPlan, throwReasonKey } from './throwAim';
 
 const noop = (): void => undefined;
@@ -457,8 +459,10 @@ export function CombatBoard({
         const condition = isParty(c) ? t('combat.board.hpState', { hp: c.hp, max: c.maxHp }) : t(BAND_KEY[hpBandLabel(c)]);
         const side = t(`combat.side.${c.side}`);
         const from = viewer?.position;
-        if (!from || !c.position || c.id === viewer?.id) return t('combat.board.tokenSelf', { name: c.name, side, state: condition });
-        return t('combat.board.token', { name: c.name, side, state: condition, count: distance(from, c.position) });
+        const base = !from || !c.position || c.id === viewer?.id
+            ? t('combat.board.tokenSelf', { name: c.name, side, state: condition })
+            : t('combat.board.token', { name: c.name, side, state: condition, count: distance(from, c.position) });
+        return c.mark ? `${base}, ${roleLabel(c.mark, t)}` : base;
     }, [t, viewer]);
 
     const act = useCallback((p: CombatPos) => {
@@ -488,6 +492,7 @@ export function CombatBoard({
     const onTile = useCallback((p: CombatPos) => actRef.current(p), []);
 
     const names = useTerrainNames(grid);
+    const objectiveMarks = useMemo(() => tileMarks(state, t), [state, t]);
     const [tileArtOn, setTileArtOn] = useState<boolean>(() => initialTileArt());
     const [startSpots] = useState<ReadonlySet<string>>(() => new Set(Object.values(state.combatants).flatMap(c => (c.position ? [key(c.position)] : []))));
     const artReady = useTileArt(grid, session.map?.place, state.mapSeed ?? 0, startSpots);
@@ -556,8 +561,12 @@ export function CombatBoard({
         status = `${tileName}. ${t('combat.board.cannotReach')}`;
     } else if (turn) status = t('combat.board.yourMove', { count: turn.moveLeft });
 
+    const focusMark = focusToken ? undefined : markAt(objectiveMarks, focus?.pos);
+    if (focusMark) status = status ? `${focusMark.label} · ${status}` : focusMark.label;
+
+    const cursorMark = markAt(objectiveMarks, cursor);
     const cursorLabel = cursor
-        ? `${t('combat.board.cursor', { x: cursor.x + 1, y: cursor.y + 1, tile: names[tileAt(grid, cursor)] })}${tokenAt(state, cursor) ? `. ${describeToken(tokenAt(state, cursor) as Combatant)}` : ''}`
+        ? `${t('combat.board.cursor', { x: cursor.x + 1, y: cursor.y + 1, tile: names[tileAt(grid, cursor)] })}${tokenAt(state, cursor) ? `. ${describeToken(tokenAt(state, cursor) as Combatant)}` : ''}${cursorMark ? `. ${cursorMark.label}` : ''}`
         : undefined;
 
     const cycleTargets = (dir: 1 | -1): boolean => {
@@ -713,6 +722,7 @@ export function CombatBoard({
                     {c.name.trim().charAt(0).toUpperCase() || '?'}
                 </text>
                 <ConditionBadges c={c} x={x} y={y} r={r} />
+                {c.mark && c.status !== 'gone' && <ObjectiveBadge role={c.mark} x={x} y={y} r={r} />}
                 {c.status === 'surrendered' && (
                     <g data-testid="combat-yielded-mark" style={{ pointerEvents: 'none' }}>
                         <line x1={x + r * 0.5} y1={y - r - 2.4} x2={x + r * 0.5} y2={y - r + 0.6} style={{ stroke: 'var(--combat-token-text)', strokeWidth: 0.35 }} />
@@ -755,6 +765,7 @@ export function CombatBoard({
                         {tileLayer}
                         <BarrierLayer barriers={state.barriers} />
                         <FieldItemLayer items={state.fieldItems} />
+                        <ObjectiveTileMarks marks={objectiveMarks} width={grid.width} height={grid.height} />
                         <g data-testid="combat-overlay" style={{ pointerEvents: 'none' }}>
                             {aim && <AimOverlay aim={aim} preview={aimPreview} focus={focus?.pos ?? null} state={state} />}
                             {[...reach.keys()].map(k => {
