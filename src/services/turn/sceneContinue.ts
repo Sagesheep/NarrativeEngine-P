@@ -210,16 +210,13 @@ export function generateSceneContinuation(
                         return;
                     }
 
-                    // roll_dice handler is pure (dice + string). Continue has no lore/notebook
-                    // context — pass empty/undefined. diceSystem is not surfaced here (the spec
-                    // gates tools by diceFairnessActive only); the handler still returns a raw
-                    // result, just without tier mapping.
+                    // Use the same dice system for execution and for the offered tool.
                     try {
                         const dispatchResult = handler({
                             arguments: toolCall.arguments,
                             loreChunks: [],
                             notebook: [],
-                            diceSystem: undefined,
+                            diceSystem: opts.diceSystem,
                         });
 
                         // Accumulate the pre-tool-call text (mirrors orchestrator's append mode).
