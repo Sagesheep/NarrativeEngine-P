@@ -1,6 +1,6 @@
 import type {
     Archetype, AugmentId, CombatEvent, CombatState, CombatTier, EffectId, FormId, GlyphAbility, MapSpec, ObjectiveRequest, ParleyEffect,
-    ParleyIntent, ParleyRating, ReinforcementLevel, Speech, StuntDifficulty, StuntSpec, Tactic,
+    ParleyIntent, ParleyRating, ReinforcementLevel, SignatureSpec, Speech, StuntDifficulty, StuntSpec, Tactic,
 } from '@narrative/engine';
 import { isBuiltinId } from '@narrative/engine';
 
@@ -26,6 +26,7 @@ export type CombatNarrationCadence = 'action' | 'side' | 'round' | 'end';
 export type CombatMpRecovery = 'fight';
 export type CombatNarrationLength = 'brief' | 'standard' | 'rich';
 export type CombatTileStyle = 'auto' | 'painted';
+export type CombatDirectorMode = 'off' | 'on';
 
 export type CombatSettings = {
     partyControl: CombatPartyControl;
@@ -40,6 +41,7 @@ export type CombatSettings = {
     maxSummons: number;
     mpRecovery: CombatMpRecovery;
     tileStyle: CombatTileStyle;
+    combatDirector: CombatDirectorMode;
     mookJitterRange?: number;
     defaultWeaponDie?: number;
 };
@@ -60,6 +62,8 @@ export type ProposedCombatant = {
     tactic?: Tactic;
     attack?: ProposedAttackStyle;
     included?: boolean;
+    officer?: boolean;
+    signature?: SignatureSpec;
 };
 
 export type ProposedAttackStyle = 'melee' | 'ranged';
@@ -155,6 +159,36 @@ export type CombatTelemetry = {
     parleySources?: Partial<Record<ParleyRatingSource, number>>;
     stuntDifficulties?: Partial<Record<StuntDifficulty, number>>;
     stuntResults?: Partial<Record<StuntResultKind, number>>;
+    director?: DirectorTelemetry;
+};
+
+export type DirectorCallResult = 'ok' | 'failed' | 'unparsable' | 'cancelled' | 'stale';
+
+export type DirectorCallRecord = {
+    round: number;
+    result: DirectorCallResult;
+    latencyMs: number;
+    promptTokens?: number;
+    replyTokens?: number;
+    accepted: number;
+    rejected: number;
+    late: boolean;
+};
+
+export type DirectorTelemetry = {
+    sessionId: string;
+    calls: number;
+    failed: number;
+    latencyMsTotal: number;
+    latencyMsMax: number;
+    promptTokens: number;
+    replyTokens: number;
+    accepted: number;
+    rejected: number;
+    lateReplies: number;
+    waits: number;
+    waitedMs: number;
+    last: DirectorCallRecord[];
 };
 
 export type CombatFallen = {
@@ -180,6 +214,7 @@ export const COMBAT_NARRATION_CADENCES: readonly CombatNarrationCadence[] = ['ac
 export const COMBAT_NARRATION_LENGTHS: readonly CombatNarrationLength[] = ['brief', 'standard', 'rich'];
 
 export const COMBAT_TILE_STYLES: readonly CombatTileStyle[] = ['auto', 'painted'];
+export const COMBAT_DIRECTOR_MODES: readonly CombatDirectorMode[] = ['on', 'off'];
 
 export const COMBAT_RESOURCE_LABEL_MAX = 24;
 
@@ -196,6 +231,7 @@ export const DEFAULT_COMBAT_CONFIG: Readonly<CombatSettings> = Object.freeze({
     maxSummons: 2,
     mpRecovery: 'fight',
     tileStyle: 'auto',
+    combatDirector: 'on',
 });
 
 export const COMBAT_MP_RECOVERIES: readonly CombatMpRecovery[] = ['fight'];
@@ -313,6 +349,7 @@ export function normalizeCombatConfig(partial?: unknown): CombatSettings {
         maxSummons: pickCount(raw.maxSummons, d.maxSummons, 0),
         mpRecovery: pickEnum(raw.mpRecovery, COMBAT_MP_RECOVERIES, d.mpRecovery),
         tileStyle: pickEnum(raw.tileStyle, COMBAT_TILE_STYLES, d.tileStyle),
+        combatDirector: pickEnum(raw.combatDirector, COMBAT_DIRECTOR_MODES, d.combatDirector),
     };
     if (typeof raw.mookJitterRange === 'number' && Number.isFinite(raw.mookJitterRange)) out.mookJitterRange = raw.mookJitterRange;
     if (typeof raw.defaultWeaponDie === 'number' && Number.isFinite(raw.defaultWeaponDie)) out.defaultWeaponDie = raw.defaultWeaponDie;

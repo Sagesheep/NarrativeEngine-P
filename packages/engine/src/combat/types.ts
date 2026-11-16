@@ -166,6 +166,36 @@ export type PlanIntent = { kind: PlanIntentKind; targetId?: string; destination?
 
 export type TurnPlan = { actorId: string; tactic: Tactic; steps: CombatAction[]; intent: PlanIntent };
 
+export type OrderKind = 'focus' | 'protect' | 'hold' | 'fall_back' | 'press' | 'signature' | 'switch_tactic';
+
+export type CombatOrder = { kind: OrderKind; targetId?: string; tactic?: Tactic; round: number };
+
+export type Signature = { abilityId: string; usesLeft: number };
+
+export type SignatureEffectSpec = { id: EffectId; augments?: AugmentId[] };
+
+export type SignatureSpec = {
+    name: string;
+    damageType?: string;
+    form: FormId;
+    augments?: AugmentId[];
+    effects: SignatureEffectSpec[];
+};
+
+export type SignatureRepairCode =
+    | 'no_budget' | 'unknown_glyph' | 'unusable_effect' | 'trimmed' | 'invalid_dropped' | 'over_budget_dropped' | 'name_defaulted';
+
+export type SignatureRepair = { unitId: string; unitName: string; code: SignatureRepairCode; text: string; from?: unknown; to?: unknown };
+
+export type DirectorOrder = { unitId: string; kind: string; targetId?: string; tactic?: string; line?: string };
+
+export type OrderRejectReason =
+    | 'fight_over' | 'unknown_unit' | 'not_standing' | 'not_directed' | 'unknown_kind' | 'missing_target' | 'unknown_target'
+    | 'target_not_standing' | 'target_not_opponent' | 'target_not_ally' | 'target_is_self' | 'no_signature' | 'no_uses_left'
+    | 'unknown_tactic' | 'duplicate' | 'already_acted';
+
+export type OrderRejection = { unitId: string; kind: string; reason: OrderRejectReason; text: string };
+
 export type Combatant = {
     id: string;
     name: string;
@@ -211,6 +241,9 @@ export type Combatant = {
     moraleRolled?: boolean;
     routed?: boolean;
     mark?: ObjectiveMark;
+    directed?: boolean;
+    order?: CombatOrder;
+    signature?: Signature;
 };
 
 export type ObjectiveMark = 'leader' | 'ward' | 'bystander';
@@ -454,6 +487,8 @@ export type CombatantSpec = {
     tactic?: Tactic;
     range?: AttackRange;
     template?: TemplateOverlay;
+    directed?: boolean;
+    signature?: SignatureSpec;
 };
 
 export type TemplateOverlay = {

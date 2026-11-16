@@ -85,6 +85,32 @@ describe('CombatSettingsSection', () => {
         expect(useAppStore.getState().pcPanelOpen).toBe(true);
     });
 
+    it('offers the officer orders setting, on by default, and saves it', () => {
+        render(<Harness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Toggle combat' }));
+        const director = screen.getByLabelText('Officer orders');
+        expect(director).toHaveValue('on');
+        fireEvent.change(director, { target: { value: 'off' } });
+        expect(useAppStore.getState().context.combatConfig).toEqual({ ...DEFAULT_COMBAT_CONFIG, combatDirector: 'off' });
+    });
+
+    it('shows the last fight\'s director measurements in debug mode only', () => {
+        const director = {
+            sessionId: 's', calls: 3, failed: 1, latencyMsTotal: 3000, latencyMsMax: 1800, promptTokens: 2400, replyTokens: 120,
+            accepted: 4, rejected: 1, lateReplies: 1, waits: 2, waitedMs: 4000, last: [],
+        };
+        const context = useAppStore.getState().context;
+        useAppStore.setState({ context: { ...context, combatModeActive: true, combatTelemetry: { dangerousCommits: 0, dangerousWithoutProposal: 0, director } } });
+        const settings = useAppStore.getState().settings;
+        const { unmount } = render(<Harness />);
+        expect(screen.queryByTestId('combat-director-telemetry')).toBeNull();
+        unmount();
+        useAppStore.setState({ settings: { ...settings, debugMode: true } });
+        render(<Harness />);
+        expect(screen.getByTestId('combat-director-telemetry')).toHaveTextContent('3 calls (1 without orders), 1000 ms average, 1800 ms longest, tokens 2400 in / 120 out, orders 4 accepted / 1 rejected, 1 late, 2 waits');
+        useAppStore.setState({ settings });
+    });
+
     it('shows no allocation note once the points are distributed', () => {
         render(<Harness />);
         fireEvent.click(screen.getByRole('button', { name: 'Toggle combat' }));

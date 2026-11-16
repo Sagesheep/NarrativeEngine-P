@@ -9,7 +9,7 @@ import type { CombatAreaType, CombatMapDensity, CombatProposal, CombatResolvedMa
 import { combatMapTexts, resolveCombatMap } from '../../services/combat/combatMap';
 import { reconcileObjective } from '../../services/combat/combatObjective';
 import { CombatObjectiveForm } from './CombatObjectiveForm';
-import { dedupeCombatantNames, hasEnemy } from '../../services/combat/combatProposal';
+import { dedupeCombatantNames, hasEnemy, isOfficer } from '../../services/combat/combatProposal';
 import { isIncluded, newMapSeed } from '../../services/combat/combatController';
 import { compendiumFor } from '../../services/combat/compendiumLookup';
 import type { CompendiumSource } from '../../services/combat/compendiumLookup';
@@ -289,7 +289,21 @@ export function CombatProposalDialog({
                                             <X size={12} />
                                         </button>
                                     </div>
-                                    <div data-testid={`combat-source-${i}`} className="text-[10px] text-text-dim">{sourceLabel(sources[i])}</div>
+                                    <div className="flex items-center gap-2 text-[10px] text-text-dim">
+                                        <span data-testid={`combat-source-${i}`} className="flex-1 min-w-0">{sourceLabel(sources[i])}</span>
+                                        {c.side !== 'neutral' && (
+                                            <label className="flex items-center gap-1" title={t('combat.director.officerHelp')}>
+                                                <input
+                                                    type="checkbox"
+                                                    data-testid={`combat-officer-${i}`}
+                                                    aria-label={t('combat.director.officerFor', { name: c.name })}
+                                                    checked={isOfficer(c)}
+                                                    onChange={(e) => update(i, { officer: e.target.checked })}
+                                                />
+                                                {t('combat.director.officer')}
+                                            </label>
+                                        )}
+                                    </div>
                                     {partyControl === 'solo' && c.side === 'ally' && (
                                         <div data-testid={`combat-solo-${i}`} className="flex items-center gap-2 text-[10px] text-text-dim">
                                             {!isIncluded(c, partyControl) && <span>{t('combat.proposal.stayingOut', { name: c.name })}</span>}

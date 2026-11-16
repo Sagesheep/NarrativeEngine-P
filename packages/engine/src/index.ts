@@ -85,6 +85,10 @@ export {
     objectiveMarks, objectiveClock, mainWin, wardIdOf, leaderIdOf, bystanderIdOf, exitsOf, leaderExitsOf, seizeTileOf, reachTileOf,
     validateObjective, planReinforcements, normalizeObjectiveRequest, normalizeReinforcementRequest, reinforcementBudget,
     undoObjectiveEvent, arrivalTiles, distanceField,
+    ORDER_KINDS, ORDER_EVENT_TYPE, DIRECTED_TIERS, ORDER_PROFILES, ORDER_LIMITS, SIGNATURE_BUDGET, SIGNATURE_SURCHARGE, SIGNATURE_UNUSABLE_EFFECTS,
+    SIGNATURE_NAME_FALLBACK, SIGNATURE_ID_PREFIX,
+    isDirected, activeOrder, normalizeOrderKind, cleanLine, resolveUnit, hasActedThisTurn, yetToAct, ORDER_VERBS, orderText, applyOrders,
+    undoDirectorEvent, normalizeSignatureRequest, validateSignature, signatureReady, signatureCost, directorBrief, briefBand,
 } from './combat/index';
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget,
@@ -109,6 +113,9 @@ export type {
     ObjectiveResult, CombatObjective, ObjectiveRequest, RepairCode, ObjectiveRepair, ReinforcementEdge, ReinforcementLevel, ReinforcementTrigger,
     ReinforcementWaveRequest, ReinforcementRequest, ReinforcementWave, ReinforcementBook, ObjectiveReport,
     ObjectiveMarks, ObjectiveClock, ObjectiveSetup, ObjectiveSetupUnit, WavePlan, ReinforcementPlan, ObjectiveSummary,
+    OrderKind, CombatOrder, Signature, SignatureEffectSpec, SignatureSpec, SignatureRepairCode, SignatureRepair, DirectorOrder,
+    OrderRejectReason, OrderRejection, OrderProfile, SignatureBudget, ApplyOrdersOptions, ApplyOrdersResult, SignatureValidation,
+    BriefBand, BriefUnit, BriefFoe, BriefAlly, BriefDirected, BriefObjective, DirectorBrief,
 } from './combat/index';
 
 export { resolveLootDrop } from './loot/lootEngine';

@@ -2,7 +2,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { Toggle } from './Toggle';
 import {
-    COMBAT_DEFEAT_MODES, COMBAT_NARRATION_CADENCES, COMBAT_NARRATION_LENGTHS, COMBAT_PARTY_CONTROLS, COMBAT_TILE_STYLES, normalizeCombatConfig,
+    COMBAT_DEFEAT_MODES, COMBAT_DIRECTOR_MODES, COMBAT_NARRATION_CADENCES, COMBAT_NARRATION_LENGTHS, COMBAT_PARTY_CONTROLS, COMBAT_TILE_STYLES, normalizeCombatConfig,
 } from '../../types';
 import type { CombatSettings, GameContext } from '../../types';
 import { commitCombatPatch, ensureCombatSheet } from '../../services/combat/combatSheet';
@@ -82,6 +82,22 @@ export function CombatSettingsSection({ context, updateContext }: CombatSettings
                         })}
                     </p>
                 )}
+                {active && debugMode && telemetry?.director && (
+                    <p data-testid="combat-director-telemetry" className="text-[11px] text-text-dim font-mono">
+                        {t('combat.settings.directorTelemetry', {
+                            calls: telemetry.director.calls,
+                            failed: telemetry.director.failed,
+                            average: telemetry.director.calls > 0 ? Math.round(telemetry.director.latencyMsTotal / telemetry.director.calls) : 0,
+                            max: telemetry.director.latencyMsMax,
+                            prompt: telemetry.director.promptTokens,
+                            reply: telemetry.director.replyTokens,
+                            accepted: telemetry.director.accepted,
+                            rejected: telemetry.director.rejected,
+                            late: telemetry.director.lateReplies,
+                            waits: telemetry.director.waits,
+                        })}
+                    </p>
+                )}
                 {active && (
                     <div className="space-y-3">
                         <div>
@@ -154,6 +170,20 @@ export function CombatSettingsSection({ context, updateContext }: CombatSettings
                                     <option key={v} value={v}>{t(`combat.settings.tileStyle.${v}`)}</option>
                                 ))}
                             </select>
+                        </div>
+                        <div>
+                            <label className={labelClass} htmlFor="combat-director">{t('combat.settings.director.label')}</label>
+                            <select
+                                id="combat-director"
+                                className={selectClass}
+                                value={config.combatDirector}
+                                onChange={(e) => setConfig({ combatDirector: e.target.value as CombatSettings['combatDirector'] })}
+                            >
+                                {COMBAT_DIRECTOR_MODES.map((v) => (
+                                    <option key={v} value={v}>{t(`combat.settings.director.${v}`)}</option>
+                                ))}
+                            </select>
+                            <p className="mt-1 text-[11px] text-text-dim leading-relaxed">{t('combat.settings.director.help')}</p>
                         </div>
                         <label className="flex items-center gap-2 text-[12px] text-text-dim">
                             <input

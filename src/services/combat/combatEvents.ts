@@ -1,4 +1,4 @@
-import { bareHands, bystanderIdOf, coverBetween, distance, hasLineOfSight, hpBand, leaderIdOf, terrainOf, undoObjectiveEvent, wardIdOf } from '@narrative/engine';
+import { bareHands, bystanderIdOf, coverBetween, distance, hasLineOfSight, hpBand, leaderIdOf, terrainOf, undoDirectorEvent, undoObjectiveEvent, wardIdOf } from '@narrative/engine';
 import type { CarriedItem, FieldItem, WeaponFields } from '@narrative/engine';
 import type { CombatEvent, CombatPos, CombatSide, CombatState, Combatant } from '../../types';
 
@@ -117,6 +117,7 @@ export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq:
     for (const event of later) {
         if (event.type === 'stunt_check') continue;
         if (undoObjectiveEvent(combatants, event)) continue;
+        if (undoDirectorEvent(combatants, event)) continue;
         if (event.type === 'item_dropped') {
             const item = fieldItemFrom(event.data.item);
             if (!item) continue;
@@ -289,7 +290,7 @@ export const NARRATED_EVENT_TYPES: readonly string[] = [
     'condition_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed',
     'teleported', 'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
     'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check', 'thrown', 'item_dropped', 'item_recovered',
-    'objective_progress', 'objective_met', 'objective_failed', 'reinforcements_warning', 'reinforcements_arrive',
+    'objective_progress', 'objective_met', 'objective_failed', 'reinforcements_warning', 'reinforcements_arrive', 'order_given',
 ];
 
 type ThrownPayload = { kind: string; name: string; willing?: boolean };
@@ -508,6 +509,43 @@ function arrivalLine(event: CombatEvent): string {
     return names.length > 0 ? `Reinforcements arrive: ${names.join(', ')}.` : '';
 }
 
+export function spokenLine(event: CombatEvent): string {
+    const raw = typeof event.data.line === 'string' ? event.data.line : '';
+    return raw.replace(/[\r\n]+/g, ' ').replace(/["“”]/g, '\'').replace(/\s+/g, ' ').trim();
+}
+
+function orderIntent(event: CombatEvent, state: CombatState): string {
+    const actor = nameIn(state, event.actorId);
+    const target = nameIn(state, typeof event.data.targetId === 'string' ? event.data.targetId : event.targetId);
+    switch (event.data.kind) {
+        case 'focus':
+            return `${actor} marks ${target} as the one to bring down.`;
+        case 'protect':
+            return `${actor} means to keep ${target} safe.`;
+        case 'hold':
+            return `${actor} means to hold their ground.`;
+        case 'fall_back':
+            return `${actor} means to pull back.`;
+        case 'press':
+            return `${actor} throws caution aside to press the attack.`;
+        case 'signature': {
+            const move = typeof event.data.signatureName === 'string' && event.data.signatureName.trim() ? event.data.signatureName.trim() : 'a signature move';
+            return `${actor} readies ${move}.`;
+        }
+        case 'switch_tactic':
+            return `${actor} changes how they fight.`;
+        default:
+            return '';
+    }
+}
+
+function orderLine(event: CombatEvent, state: CombatState): string {
+    const intent = orderIntent(event, state);
+    if (!intent) return '';
+    const line = spokenLine(event);
+    return line ? `${intent} ${nameIn(state, event.actorId)} calls out: "${line}"` : intent;
+}
+
 export function narrationLine(event: CombatEvent, state: CombatState): string {
     const name = (id?: string) => nameIn(state, id);
     switch (event.type) {
@@ -649,6 +687,8 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
             return event.data.delayed === true ? 'The reinforcements are held up, but they are still coming.' : 'Reinforcements are coming.';
         case 'reinforcements_arrive':
             return arrivalLine(event);
+        case 'order_given':
+            return orderLine(event, state);
         default:
             return '';
     }
@@ -689,7 +729,8 @@ export function turnLines(group: TurnGroup, state: CombatState, opts: { numbers:
 export type MomentTag =
     | 'first blood' | 'now badly hurt' | 'killing blow' | 'last one standing' | 'the player character falls'
     | 'a way out is taken' | 'the leader gets away' | 'the ground is taken' | 'the hold is broken' | 'the last round'
-    | 'the objective is achieved' | 'the objective is lost' | 'reinforcements are coming' | 'reinforcements have arrived';
+    | 'the objective is achieved' | 'the objective is lost' | 'reinforcements are coming' | 'reinforcements have arrived'
+    | 'an officer gives an order';
 
 function objectiveTag(event: CombatEvent, state: CombatState): MomentTag | null {
     let tag: MomentTag | null = null;
@@ -702,6 +743,7 @@ function objectiveTag(event: CombatEvent, state: CombatState): MomentTag | null 
     else if (event.type === 'objective_failed' && event.data.part === 'lose') tag = 'the objective is lost';
     else if (event.type === 'reinforcements_warning') tag = 'reinforcements are coming';
     else if (event.type === 'reinforcements_arrive') tag = 'reinforcements have arrived';
+    else if (event.type === 'order_given') tag = 'an officer gives an order';
     return tag && narrationLine(event, state) ? tag : null;
 }
 

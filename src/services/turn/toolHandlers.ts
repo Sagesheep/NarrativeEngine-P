@@ -1,5 +1,5 @@
 import type { GameContext, LoreChunk, DiceSystemConfig, DieType, InventoryProposal, NPCEntry } from '../../types';
-import { parseCombatArgs, type ParsedCombatArgs } from '../combat/combatProposal';
+import { parseCombatArgs, signatureToolNotes, type ParsedCombatArgs } from '../combat/combatProposal';
 import { objectiveToolNotes } from '../combat/combatObjective';
 import { ABILITY_ONE_AT_A_TIME, PROPOSE_ABILITY_TOOL_RESULT, parseAbilityArgs, rejectionText } from '../combat/abilityProposalArgs';
 import { AUGMENT_IDS, EFFECT_IDS, FORM_IDS } from '@narrative/engine';
@@ -258,6 +258,23 @@ const START_COMBAT_TOOL = {
                                     'coward: fights from behind others and runs when hurt.\n' +
                                     'berserker: ignores danger, always the hardest hit, never backs off.\n' +
                                     'support: heals, shields and helps allies first, attacks when nothing needs doing.',
+                            },
+                            officer: {
+                                type: 'boolean' as const,
+                                description: 'Optional. true for a named leader, captain or veteran who fights like themselves: each round the story AI gives them an order and a spoken line. Elites, bosses and known NPCs are officers by default; false makes one a plain fighter.',
+                            },
+                            signature: {
+                                type: 'object' as const,
+                                description: 'Optional. One signature move for a grunt, elite, boss or legendary unit, built from glyphs; the engine prices it and trims it to the tier budget (an elite affords about two cost points, e.g. touch + damage + slow) and says how.\n' +
+                                    'form: touch, projectile, self, line, cone, burst or dash. effects: damage, heal, shield, push, pull, stun, slow, haste, drain or summon. augments: amplify, widen, extend, pierce, split or quicken. Example: {"name":"Iron Rain","form":"projectile","effects":["damage","slow"]}.',
+                                properties: {
+                                    name: { type: 'string' as const, description: 'Short name of the move.' },
+                                    form: { type: 'string' as const, enum: ['touch', 'projectile', 'self', 'line', 'cone', 'burst', 'dash'] },
+                                    augments: { type: 'array' as const, items: { type: 'string' as const, enum: ['amplify', 'widen', 'extend', 'pierce', 'split', 'quicken'] }, description: 'Optional augments on the form.' },
+                                    effects: { type: 'array' as const, items: { type: 'string' as const, enum: ['damage', 'heal', 'shield', 'push', 'pull', 'stun', 'slow', 'haste', 'drain', 'summon'] } },
+                                    damageType: { type: 'string' as const, description: 'Optional, e.g. "fire".' },
+                                },
+                                required: ['name', 'form', 'effects'],
                             },
                         },
                         required: ['name'],
@@ -524,7 +541,11 @@ export function handleStartCombatTool(toolArguments: string, npcLedger: readonly
     const adjusted = notes.length > 0
         ? `\n\nThe fight objective was adjusted; the fight will be played this way, so keep the scene consistent with it: ${notes.join(' ')}`
         : '';
-    return { toolResult: `${START_COMBAT_TOOL_RESULT}${adjusted}`, proposal: parsed.value };
+    const signatures = signatureToolNotes(parsed.value.combatants);
+    const reworked = signatures.length > 0
+        ? `\n\nSignature moves were adjusted; the fight will use them this way: ${signatures.join(' ')}`
+        : '';
+    return { toolResult: `${START_COMBAT_TOOL_RESULT}${adjusted}${reworked}`, proposal: parsed.value };
 }
 
 function parseAndRoll(expr: string): { total: number; breakdown: string; sides: number; count: number } {

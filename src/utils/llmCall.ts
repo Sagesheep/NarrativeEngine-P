@@ -34,6 +34,7 @@ export async function llmCall(
         trackingLabel?: string;
         /** Soft deadline in ms. On expiry, rejects with UtilityTimeoutError. Caller should fall back. */
         timeoutMs?: number;
+        onResponse?: (data: unknown) => void;
     }
 ): Promise<string> {
     if (!opts?.trackingLabel || !opts?.timeoutMs) {
@@ -87,6 +88,7 @@ async function runInner(
         priority?: LLMCallPriority;
         thinkingEffort?: ThinkingEffort;
         trackingLabel?: string;
+        onResponse?: (data: unknown) => void;
     },
     call?: UtilityCallHandle,
 ): Promise<string> {
@@ -136,6 +138,7 @@ async function runInner(
                 throw new Error(`LLM API error ${res.status}: ${errBody} (max_tokens=${opts?.maxTokens ?? 'default'}, thinkingEffort=${resolvedEffort ?? 'default'})`);
             }
             const data = await res.json();
+            opts?.onResponse?.(data);
             if (opts?.trackingLabel) {
                 recordCacheUsage(opts.trackingLabel, (data as { usage?: LLMUsage }).usage);
             }

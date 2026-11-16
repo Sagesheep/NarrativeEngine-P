@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react';
 import { X } from 'lucide-react';
-import { canTarget, checkAttack, coverBetween, currentActorId, currentTurn, distance, inBounds, pathTo, reachable, SHOVE_NO_ROOM, surfaceOf, terrainOf, tileAt } from '@narrative/engine';
+import { canTarget, checkAttack, coverBetween, currentActorId, currentTurn, distance, inBounds, isDirected, pathTo, reachable, SHOVE_NO_ROOM, surfaceOf, terrainOf, tileAt } from '@narrative/engine';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useAppStore } from '../../store/useAppStore';
 import { normalizeCombatConfig } from '../../types';
@@ -28,6 +28,8 @@ import { AimOverlay, BarrierLayer, ConditionBadges, FieldItemLayer, TempHpRing }
 import { combatantNotes } from './abilityNotes';
 import { ThrowChoices } from './ThrowChoices';
 import { ObjectiveBadge, ObjectiveTileMarks } from './ObjectiveLayer';
+import { OfficerBadge, OrderBubbles } from './DirectorLayer';
+import { orderBubbles } from './directorBubbles';
 import { markAt, roleLabel, tileMarks } from './objectiveText';
 import { describeThrowPlan, throwReasonKey } from './throwAim';
 
@@ -474,7 +476,8 @@ export function CombatBoard({
         const base = !from || !c.position || c.id === viewer?.id
             ? t('combat.board.tokenSelf', { name: c.name, side, state: condition })
             : t('combat.board.token', { name: c.name, side, state: condition, count: distance(from, c.position) });
-        return c.mark ? `${base}, ${roleLabel(c.mark, t)}` : base;
+        const marked = c.mark ? `${base}, ${roleLabel(c.mark, t)}` : base;
+        return isDirected(c) ? `${marked}, ${t('combat.director.badge')}` : marked;
     }, [t, viewer]);
 
     const act = useCallback((p: CombatPos) => {
@@ -505,6 +508,7 @@ export function CombatBoard({
 
     const names = useTerrainNames(grid);
     const objectiveMarks = useMemo(() => tileMarks(state, t), [state, t]);
+    const bubbles = useMemo(() => orderBubbles(session), [session]);
     const [tileArtOn, setTileArtOn] = useState<boolean>(() => initialTileArt());
     const [startSpots] = useState<ReadonlySet<string>>(() => new Set(Object.values(state.combatants).flatMap(c => (c.position ? [key(c.position)] : []))));
     const artReady = useTileArt(grid, session.map?.place, state.mapSeed ?? 0, startSpots);
@@ -736,6 +740,7 @@ export function CombatBoard({
                 </text>
                 <ConditionBadges c={c} x={x} y={y} r={r} />
                 {c.mark && c.status !== 'gone' && <ObjectiveBadge role={c.mark} x={x} y={y} r={r} />}
+                {isDirected(c) && <OfficerBadge x={x} y={y} r={r} label={t('combat.director.badge')} />}
                 {c.status === 'surrendered' && (
                     <g data-testid="combat-yielded-mark" style={{ pointerEvents: 'none' }}>
                         <line x1={x + r * 0.5} y1={y - r - 2.4} x2={x + r * 0.5} y2={y - r + 0.6} style={{ stroke: 'var(--combat-token-text)', strokeWidth: 0.35 }} />
@@ -894,6 +899,13 @@ export function CombatBoard({
                                 {state.order.map(id => renderToken(id))}
                             </g>
                         )}
+                        <OrderBubbles
+                            bubbles={bubbles}
+                            width={grid.width}
+                            height={grid.height}
+                            animate={effects !== 'off'}
+                            label={b => t('combat.director.bubble', { name: b.name, line: b.line })}
+                        />
                         {cursor && (
                             <rect
                                 data-testid="combat-cursor"

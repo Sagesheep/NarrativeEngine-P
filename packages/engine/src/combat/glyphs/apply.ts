@@ -63,6 +63,7 @@ export function abilityReadiness(state: CombatState, actor: Combatant, ability: 
         return null;
     }
     const cost = abilityCost(ability);
+    if (actor.signature && actor.signature.abilityId === ability.id && actor.signature.usesLeft <= 0) return 'the signature move has no uses left';
     if (validateAbility(ability, { maxChainLength: Number.MAX_SAFE_INTEGER, maxSummons: state.maxSummons ?? 2 }).length > 0) return 'the ability is not valid';
     if (!turn || turn.actorId !== actor.id) return 'not this combatant\'s turn';
     const slot = abilitySlot(ability);
@@ -632,6 +633,7 @@ export function resolveAbility(draft: Draft, actorId: string, ability: GlyphAbil
         s.turn = slot === 'bonus' ? { ...turn, bonusUsed: true } : { ...turn, actionUsed: true };
         if (usesMp(user)) user.mp = Math.max(0, (user.mp ?? 0) - cost);
         else user.cooldowns = { ...(user.cooldowns ?? {}), [ability.id]: s.round + N.enemyCooldownRounds };
+        if (user.signature && user.signature.abilityId === ability.id) user.signature = { ...user.signature, usesLeft: Math.max(0, user.signature.usesLeft - 1) };
     }
     if (ability.builtin?.kind === 'throw') {
         if (aim.throw) resolveThrow(draft, actorId, ability, aim.throw.payload, aim.throw.landing);
@@ -700,6 +702,7 @@ function applyChain(draft: Draft, actorId: string, ability: GlyphAbility, aim: A
                 abilityId: ability.id, name: ability.name, damageType: type, form: ability.form.id,
                 effects: ability.effects.map(e => e.id), cost, slot, targets: targetIds,
                 ...(usesMp(user) ? { mpAfter: user.mp } : {}),
+                ...(user.signature && user.signature.abilityId === ability.id ? { signature: true, usesLeft: user.signature.usesLeft } : {}),
             },
             text: `${user.name} uses ${ability.name}${usesMp(user) && !ability.builtin ? ` (${cost} MP)` : ''}.`,
         });

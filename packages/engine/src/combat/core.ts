@@ -3,6 +3,7 @@ import { speedOf } from './grid';
 import { DEFAULT_HAZARD_TYPE } from './mapBuilder';
 import { finalizeObjective, settleObjective } from './objectives/run';
 import { OBJECTIVE_EVENT_TYPES } from './objectives/tables';
+import { ORDER_EVENT_TYPE } from './director/tables';
 import type { CombatCondition, CombatEvent, CombatOutcome, CombatState, Combatant, FieldItem, Rng, Side, TurnState } from './types';
 
 export const DEFEND_CONDITION = 'defending';
@@ -294,5 +295,5 @@ export const COMBAT_EVENT_TYPES: readonly string[] = [
     'combat_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed', 'teleported',
     'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
     'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check', 'thrown', 'item_dropped', 'item_recovered',
-    ...OBJECTIVE_EVENT_TYPES,
+    ...OBJECTIVE_EVENT_TYPES, ORDER_EVENT_TYPE,
 ];

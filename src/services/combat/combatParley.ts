@@ -15,7 +15,7 @@ import type {
 } from '../../types';
 import type { OpenAIMessage } from '../chatEngine';
 import {
-    cadence, finishCombat, isEngineStepping, isEngineTurn, playerActorId, postPendingLog, runEngineTurnsStepped,
+    cadence, cancelRoundHook, finishCombat, isEngineStepping, isEngineTurn, playerActorId, postPendingLog, runEngineTurnsStepped,
 } from './combatController';
 import {
     beatHistory, onCombatNarrationAbort, queueCombatNarration, queueParleyReply, rewriteCombatBeat, rosterLines,
@@ -404,6 +404,7 @@ export async function submitParley(words: string, deps: ParleyDeps = defaultParl
     if (!text || !campaignId || !session || isEngineStepping() || !canParley(session, store.combatBusy)) return false;
     running = true;
     store.setCombatBusy(true);
+    cancelRoundHook('parley');
     try {
         queueCombatNarration(session, cadence(), true);
         await waitForCombatNarration();

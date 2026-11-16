@@ -9,8 +9,13 @@ describe('normalizeCombatConfig', () => {
         expect(DEFAULT_COMBAT_CONFIG).toEqual({
             partyControl: 'engine', defeatMode: 'knockout', narrationCadence: 'side', narrationLength: 'standard',
             confirmStart: true, offerOnDangerous: true, resourceLabel: 'MP',
-            maxChainLength: 6, maxEquippedAbilities: 6, maxSummons: 2, mpRecovery: 'fight', tileStyle: 'auto',
+            maxChainLength: 6, maxEquippedAbilities: 6, maxSummons: 2, mpRecovery: 'fight', tileStyle: 'auto', combatDirector: 'on',
         });
+    });
+
+    it('keeps the director setting and falls back to on for anything else', () => {
+        expect(normalizeCombatConfig({ combatDirector: 'off' }).combatDirector).toBe('off');
+        expect(normalizeCombatConfig({ combatDirector: 'sometimes' }).combatDirector).toBe('on');
     });
 
     it('keeps valid values', () => {
@@ -23,7 +28,7 @@ describe('normalizeCombatConfig', () => {
         expect(cfg).toEqual({
             partyControl: 'solo', defeatMode: 'ironman', narrationCadence: 'end', narrationLength: 'rich',
             confirmStart: false, offerOnDangerous: false, resourceLabel: 'RAM',
-            maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0, mpRecovery: 'fight', tileStyle: 'painted',
+            maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0, mpRecovery: 'fight', tileStyle: 'painted', combatDirector: 'on',
             mookJitterRange: 2, defaultWeaponDie: 8,
         });
     });

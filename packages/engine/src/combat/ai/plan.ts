@@ -22,7 +22,7 @@ import { previewPush } from '../glyphs/push';
 import { payloadChoices, previewThrow, throwRangeOf } from '../glyphs/throw';
 import { abilityCost } from '../glyphs/validate';
 import type {
-    CombatAction, CombatState, Combatant, GlyphAbility, Grid, PlanIntent, Pos, Tactic, ThrowPayload, TurnPlan, TurnState,
+    CombatAction, CombatState, Combatant, GlyphAbility, Grid, OrderKind, PlanIntent, Pos, Tactic, ThrowPayload, TurnPlan, TurnState,
 } from '../types';
 import {
     atLeast, averageOf, betterSaveModifier, critChance, damageFactor, effectiveHp, hasAreaKit, hitChance, kitDice, saveFails, shootsFar,
@@ -34,8 +34,18 @@ import type { TacticProfile, TermId } from './tables';
 import { tacticOf } from './tactic';
 import { hasLose, leaderExitsOf, leaderIdOf, mainWin, objectiveClock, wardIdOf } from '../objectives/marks';
 import { OBJECTIVE_WEIGHTS } from '../objectives/tables';
+import { activeOrder } from '../director/orders';
+import { ORDER_LIMITS, ORDER_PROFILES } from '../director/tables';
+import type { OrderProfile } from '../director/tables';
 
 type Weights = Record<TermId, number>;
+
+type OrdCtx = {
+    kind: OrderKind;
+    profile: OrderProfile;
+    target?: Combatant;
+    sigId?: string;
+};
 
 type Ctx = {
     state: CombatState;
@@ -72,6 +82,7 @@ type Ctx = {
     weaponCache: Map<string, number>;
     allowThrow: boolean;
     obj?: ObjCtx;
+    ord?: OrdCtx;
 };
 
 type ObjCtx = {
@@ -220,10 +231,43 @@ function objectiveBonus(ctx: Ctx, t: Combatant): number {
     return b;
 }
 
+function orderBonus(ctx: Ctx, t: Combatant): number {
+    const o = ctx.ord;
+    return o && o.kind === 'focus' && o.target?.id === t.id ? o.profile.focusBonus ?? 0 : 0;
+}
+
+function orderWeights(base: Weights, profile: OrderProfile): Weights {
+    const w = { ...base };
+    for (const t of profile.on) if (w[t] <= 0) w[t] = AI_WEIGHTS[t];
+    for (const t of profile.off) w[t] = 0;
+    for (const [t, k] of Object.entries(profile.scale)) w[t as TermId] *= k as number;
+    return w;
+}
+
+function orderCtx(state: CombatState, actor: Combatant, opponents: Combatant[], allies: Combatant[]): OrdCtx | undefined {
+    const order = activeOrder(state, actor);
+    if (!order) return undefined;
+    const profile = ORDER_PROFILES[order.kind];
+    const target = order.targetId ? state.combatants[order.targetId] : undefined;
+    if (order.kind === 'focus') {
+        if (!target || !opponents.some(o => o.id === target.id)) return undefined;
+        return { kind: order.kind, profile, target };
+    }
+    if (order.kind === 'protect') {
+        if (!target || target.status !== 'up' || !target.position || !allies.some(a => a.id === target.id)) return undefined;
+        return { kind: order.kind, profile, target };
+    }
+    if (order.kind === 'signature') {
+        if (!actor.signature || actor.signature.usesLeft <= 0) return undefined;
+        return { kind: order.kind, profile, sigId: actor.signature.abilityId };
+    }
+    return { kind: order.kind, profile };
+}
+
 function appeal(ctx: Ctx, t: Combatant): number {
     const w = ctx.w;
     const th = ctx.threat.get(t.id) ?? 0;
-    return 1 + objectiveBonus(ctx, t) + w.threat * th / 2 + w.finish * (1 - t.hp / Math.max(1, t.maxHp)) * 2 + w.hunt * huntScore(ctx, t)
+    return 1 + objectiveBonus(ctx, t) + orderBonus(ctx, t) + w.threat * th / 2 + w.finish * (1 - t.hp / Math.max(1, t.maxHp)) * 2 + w.hunt * huntScore(ctx, t)
         + (nearProtectee(ctx, t) ? w.protect * th : 0) + (t.hp < t.maxHp ? w.focus : 0);
 }
 
@@ -242,6 +286,7 @@ function targetValue(ctx: Ctx, t: Combatant, expected: number, kill: number): nu
     if (w.protect > 0 && nearProtectee(ctx, t)) v += w.protect * th / 2;
     if (w.steal > 0 && stealable(ctx, t)) v -= w.steal;
     if (ctx.obj) v += objectiveBonus(ctx, t);
+    if (ctx.ord) v += orderBonus(ctx, t);
     return v;
 }
 
@@ -351,6 +396,17 @@ function positionScore(ctx: Ctx, p: Pos): number {
         }
         if (o.screen?.position) s -= OBJECTIVE_WEIGHTS.screen * Math.max(0, distance(p, o.screen.position) - AI_LIMITS.guardRadius);
     }
+    const ord = ctx.ord;
+    if (ord) {
+        const pr = ord.profile;
+        if (pr.holdPenalty) s -= pr.holdPenalty * distance(p, ctx.ref);
+        if (pr.awayPull && Number.isFinite(nearestAny)) s += pr.awayPull * Math.min(ORDER_LIMITS.awayCap, nearestAny);
+        if (pr.allyPull && ctx.allies.length > 0) {
+            let nearestAlly = Infinity;
+            for (const a of ctx.allies) nearestAlly = Math.min(nearestAlly, distance(at(a), p));
+            s -= pr.allyPull * Math.min(ORDER_LIMITS.allyCap, Math.max(0, nearestAlly - 1));
+        }
+    }
     ctx.posCache.set(idx, s);
     return s;
 }
@@ -410,6 +466,7 @@ function abilityUse(ctx: Ctx, p: Pos, ability: GlyphAbility, targets: Combatant[
     }
     let value = 0;
     let hostileHit = false;
+    let hurtsFriend = false;
     let primary: Combatant | null = null;
     let primaryKind: PlanIntent['kind'] = 'attack';
     let best = -Infinity;
@@ -437,6 +494,7 @@ function abilityUse(ctx: Ctx, p: Pos, ability: GlyphAbility, targets: Combatant[
                     const expected = key ? avg * (pFail + (1 - pFail) / 2) : pHit * avg;
                     if (friendly) {
                         mine -= w.friendlyFire * expected * (t.side === 'player' ? 2 : 1);
+                        hurtsFriend = true;
                     } else {
                         const need = Math.ceil(effectiveHp(t) / factor);
                         const kill = key ? pFail * atLeast(dice, need) + (1 - pFail) * atLeast(dice, need * 2) : pHit * atLeast(dice, need);
@@ -502,6 +560,7 @@ function abilityUse(ctx: Ctx, p: Pos, ability: GlyphAbility, targets: Combatant[
     if (ability.effects.some(e => e.id === 'summon')) value += w.support * AI_LIMITS.summonValue;
     const cost = usesMp(actor) ? abilityCost(ability) : 2;
     value -= w.economy * cost * (ctx.winning ? 2 : 1);
+    if (ctx.ord?.sigId === ability.id && !hurtsFriend && (hostileHit || value > 0)) value += ctx.ord.profile.signatureBonus ?? 0;
     const step: CombatAction = { type: 'use_ability', actorId: ctx.id, abilityId: ability.id, aim: aim ? { x: aim.x, y: aim.y } : null };
     const intent: PlanIntent = primary ? { kind: primaryKind, targetId: primary.id } : { kind: 'support' };
     const result = { steps: [step], value, intent, hostile: hostileHit };
@@ -717,7 +776,7 @@ function helpOptions(ctx: Ctx, p: Pos, out: Option[]): void {
 function defendOption(ctx: Ctx, p: Pos, out: Option[]): void {
     const w = ctx.w;
     if (w.defend <= 0 || !canAttackWith(ctx.turn)) return;
-    const guarding = ctx.tactic === 'guard' && !!ctx.protectee;
+    const guarding = (ctx.tactic === 'guard' || ctx.ord?.profile.guarding === true) && !!ctx.protectee;
     if (!ctx.weak && !guarding) return;
     const value = w.defend * incoming(ctx, p) * 0.5 + (guarding ? w.defend : 0);
     if (value <= 0) return;
@@ -1119,11 +1178,13 @@ function buildCtx(state: CombatState, actor: Combatant, turn: TurnState): Ctx | 
     const profile = TACTIC_PROFILES[tactic];
     const terrain = terrainOf(state) as Grid;
     const objective = objectiveCtx(state, actor, weightsFor(actor, profile), terrain);
-    const w = objective?.w ?? weightsFor(actor, profile);
+    let w = objective?.w ?? weightsFor(actor, profile);
     const living = state.order.map(id => state.combatants[id]).filter((c): c is Combatant => !!c);
     const placed = !!terrain && !!actor.position;
     const opponents = living.filter(c => (!placed || !!c.position) && canTarget(actor, c) && !(c.mark === 'bystander' && isPlayerSide(actor.side)));
     const allies = living.filter(c => c.id !== actor.id && c.status === 'up' && !!c.position && sameTeam(actor.side, c.side));
+    const ord = orderCtx(state, actor, opponents, allies);
+    if (ord) w = orderWeights(w, ord.profile);
     const fallen = living.filter(c => c.status === 'down' && !!c.position && sameTeam(actor.side, c.side) && recoverable(state, c));
     const pcBonus = w.threat > 0 ? 2 : 0;
     const threat = new Map<string, number>();
@@ -1151,8 +1212,10 @@ function buildCtx(state: CombatState, actor: Combatant, turn: TurnState): Ctx | 
         weaponCache: new Map(),
         allowThrow: false,
         ...(objective ? { obj: objective.obj } : {}),
+        ...(ord ? { ord } : {}),
     };
     if (w.post > 0 || w.protect > 0) ctx.protectee = protecteeOf(state, actor, objective?.obj.wardId);
+    if (ord?.kind === 'protect' && ord.target) ctx.protectee = ord.target;
     if (!placed) {
         const flat = { ...w };
         for (const t of ['proximity', 'hunt', 'protect', 'focus', 'steal'] as const) flat[t] = 0;
@@ -1175,7 +1238,10 @@ function buildCtx(state: CombatState, actor: Combatant, turn: TurnState): Ctx | 
         const v = appeal(ctx, o) - 0.5 * distance(ctx.ref, at(o));
         if (!goal || v > goal.v) goal = { c: o, v };
     }
-    if (goal) {
+    if (ord?.kind === 'focus' && ord.target) {
+        ctx.goal = ord.target;
+        ctx.goalField = fieldFrom(terrain, at(ord.target));
+    } else if (goal) {
         ctx.goal = goal.c;
         ctx.goalField = fieldFrom(terrain, at(goal.c));
     }
@@ -1195,7 +1261,7 @@ export function planTurn(state: CombatState, actorId: string): TurnPlan {
     const built = buildCtx(state, actor, turn);
     if ('gridless' in built) return gridless(built.ctx);
     const ctx = built;
-    const coward = ctx.profile.retreatBelow !== undefined && actor.hp <= actor.maxHp * ctx.profile.retreatBelow && actor.mark !== 'ward';
+    const coward = ctx.profile.retreatBelow !== undefined && actor.hp <= actor.maxHp * ctx.profile.retreatBelow && actor.mark !== 'ward' && ctx.ord?.profile.overridesRetreat !== true;
     if (isRetreating(state, actor) || (coward && ctx.opponents.length > 0)) {
         const plan = retreatTurn(ctx);
         if (plan) return plan;

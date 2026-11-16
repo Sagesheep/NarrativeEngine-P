@@ -6,7 +6,7 @@ import { sanitizePayloadForApi } from '../lib/payloadSanitizer';
 import { extractAndStripSceneStakes } from '../turn/sceneStakesTag';
 import { isEngineLogMessage } from '../payload/history';
 import { uid } from '../../utils/uid';
-import { groupEventsByTurn, hpBandLabel, isGroupComplete, isPresent, momentTags, positionPhrase, sideGroup, stateAtSeq, turnLineEntries } from './combatEvents';
+import { groupEventsByTurn, hpBandLabel, isGroupComplete, isPresent, momentTags, positionPhrase, sideGroup, spokenLine, stateAtSeq, turnLineEntries } from './combatEvents';
 import type { TurnLine } from './combatEvents';
 import { objectiveStakes } from './objectiveStory';
 import { normalizeCombatConfig } from '../../types';
@@ -23,6 +23,7 @@ export type BeatDirectiveOptions = {
     flourish?: boolean;
     nonSpeakers?: boolean;
     stakes?: string;
+    spoken?: boolean;
 };
 
 const LOCKED_RULE = 'Locked: every listed event happens, in the listed order, with the listed result. Add no other attacks, hits, misses, wounds that would matter, deaths, falls, escapes, surrenders, arrivals or changes of position. State no numbers. Settle nothing about what happens next.';
@@ -33,7 +34,8 @@ const PC_RULE ='The player character: describe what they do. Do not invent speec
 const FLOURISH_RULE = 'Where the player gave their own description under an event, honour its manner and quote any speech in it, but the listed result stands even if the description claims otherwise.';
 const STAY_RULE = 'This reply is a combat beat: no one leaves this place, and you add no hidden comment or movement tag of any kind.';
 const FRESH_RULE ='Freshness: do not reuse an opening, image or insult from the earlier beats of this fight.';
-const TAG_RULE = 'A note in square brackets after an event marks a moment to give weight to; do not repeat the note itself.';
+const SPOKEN_RULE = 'Lines under Spoken were said aloud in this stretch of the fight: quote them word for word where they fit; you may cut a line short but never change its meaning or put it in another mouth.';
+const TAG_RULE ='A note in square brackets after an event marks a moment to give weight to; do not repeat the note itself.';
 const OPENING_RULE = 'This is the opening of the fight: set the scene, show the sides sizing each other up, and let the first words be thrown.';
 const ENDING_RULE = 'This is the end of the fight: give the moment after, the breath, the silence or the noise, and what the survivors do with their hands, without deciding what happens next in the story.';
 
@@ -60,6 +62,7 @@ export function beatDirective(opts: BeatDirectiveOptions = {}): string {
         opts.stakes ?? '',
         opts.nonSpeakers ? NON_SPEAKER_RULE : '',
         opts.flourish ? `${PC_RULE} ${FLOURISH_RULE}` : PC_RULE,
+        opts.spoken ? SPOKEN_RULE : '',
         FRESH_RULE,
         TAG_RULE,
         opts.opening ? OPENING_RULE : '',
@@ -189,7 +192,7 @@ export function mannerOf(state: CombatState, c: Combatant): string {
     return cleanLine(c.manner) || fallbackManner(state, c.id);
 }
 
-function ledgerVoice(npc: NPCEntry | undefined): string {
+export function ledgerVoice(npc: NPCEntry | undefined): string {
     if (!npc) return '';
     const voice = cleanLine(npc.voice);
     const personality = cleanLine(npc.personality);
@@ -356,9 +359,16 @@ function flourishesIn(range: BeatRange, flourishes: readonly CombatFlourish[] | 
     return (flourishes ?? []).filter(f => f.seq >= range.fromSeq && f.seq <= range.toSeq && neutraliseFlourish(f.text));
 }
 
+export function spokenLines(state: CombatState, log: readonly CombatEvent[], range: BeatRange): string[] {
+    return rangeEvents(log, range)
+        .filter(e => e.type === 'order_given' && spokenLine(e))
+        .map(e => `- ${state.combatants[e.actorId ?? '']?.name ?? 'Someone'}: "${spokenLine(e)}"`);
+}
+
 export function buildCombatBlock(state: CombatState, log: readonly CombatEvent[], range: BeatRange, extras: BeatBlockExtras = {}): string {
     const roster = rosterLines(state, log, range, { bandChange: true });
     const voices = voiceLines(state, log, range, extras.npcLedger);
+    const spoken = spokenLines(state, log, range);
     const entries = beatLineEntries(state, log, range, { tags: true });
     const notes = new Map<number, string[]>();
     for (const f of flourishesIn(range, extras.flourishes)) {
@@ -375,6 +385,7 @@ export function buildCombatBlock(state: CombatState, log: readonly CombatEvent[]
         'Combatants:',
         ...roster,
         ...(voices.length > 0 ? ['Voices:', ...voices] : []),
+        ...(spoken.length > 0 ? ['Spoken:', ...spoken] : []),
         'Events, in order:',
         ...lines,
     ].join('\n');
@@ -390,6 +401,7 @@ export function directiveForRange(session: CombatSession, range: BeatRange, cade
         setPiece: cadence === 'end',
         flourish: flourishesIn(range, session.flourishes).length > 0,
         nonSpeakers: hasNonSpeaker(session.state, session.log, range),
+        spoken: spokenLines(session.state, session.log, range).length > 0,
         ...(stakes ? { stakes } : {}),
     });
 }

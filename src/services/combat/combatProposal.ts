@@ -1,4 +1,5 @@
-import { normalizeMapSpec, normalizeSpeech, normalizeTactic } from '@narrative/engine';
+import { DIRECTED_TIERS, normalizeMapSpec, normalizeSignatureRequest, normalizeSpeech, normalizeTactic, validateSignature } from '@narrative/engine';
+import type { SignatureSpec } from '@narrative/engine';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import {
     COMBAT_ARCHETYPES, COMBAT_MANNER_MAX, COMBAT_TIERS, MAX_PROPOSED_COMBATANTS, PROPOSED_ATTACK_STYLES, PROPOSED_COMBATANT_SIDES,
@@ -68,6 +69,21 @@ export function dedupeCombatantNames(names: string[]): string[] {
     });
 }
 
+export function parseOfficer(raw: unknown): boolean | undefined {
+    if (typeof raw === 'boolean') return raw;
+    if (typeof raw !== 'string') return undefined;
+    const v = raw.trim().toLowerCase();
+    if (v === 'true' || v === 'yes') return true;
+    if (v === 'false' || v === 'no') return false;
+    return undefined;
+}
+
+export function parseSignature(raw: unknown): SignatureSpec | undefined {
+    const value = parseMaybeJson(raw);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    return normalizeSignatureRequest(value) ?? undefined;
+}
+
 function resolveNpcId(name: string | undefined, ledger: readonly NPCEntry[]): string | undefined {
     if (!name) return undefined;
     const target = name.trim().toLowerCase();
@@ -113,6 +129,8 @@ export function parseCombatArgs(
         const attack = typeof e.attack === 'string' && (PROPOSED_ATTACK_STYLES as readonly string[]).includes(e.attack.trim().toLowerCase())
             ? e.attack.trim().toLowerCase() as ProposedAttackStyle
             : undefined;
+        const officer = parseOfficer(e.officer);
+        const signature = parseSignature(e.signature);
         return {
             name: names[i],
             side: pick<ProposedCombatantSide>(e.side, PROPOSED_COMBATANT_SIDES, 'enemy'),
@@ -126,6 +144,8 @@ export function parseCombatArgs(
             ...(speech ? { speech } : {}),
             ...(tactic ? { tactic } : {}),
             ...(attack ? { attack } : {}),
+            ...(officer !== undefined ? { officer } : {}),
+            ...(signature ? { signature } : {}),
         };
     });
     const map = parseMap(args.map);
@@ -166,6 +186,22 @@ export function isCombatToolAllowed(
         && context.combatSheet?.needsAllocation === false
         && !session
         && !proposal;
+}
+
+export function signatureToolNotes(combatants: readonly ProposedCombatant[]): string[] {
+    return combatants.flatMap((c, i) => (c.signature
+        ? validateSignature({ id: `c${i}`, name: c.name, tier: c.tier }, c.signature).repairs.map(r => r.text)
+        : []));
+}
+
+export function officerFlag(c: Pick<ProposedCombatant, 'officer' | 'npcId'>): boolean | undefined {
+    if (c.officer !== undefined) return c.officer;
+    return c.npcId ? true : undefined;
+}
+
+export function isOfficer(c: Pick<ProposedCombatant, 'officer' | 'npcId' | 'side' | 'tier'>): boolean {
+    if (c.side === 'neutral') return false;
+    return officerFlag(c) ?? DIRECTED_TIERS.has(c.tier);
 }
 
 export function hasEnemy(combatants: readonly ProposedCombatant[]): boolean {

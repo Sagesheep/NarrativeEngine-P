@@ -20,12 +20,13 @@ import { groupEventsByTurn, hpBandLabel, isGroupComplete, turnLines } from './co
 import { compendiumFor, type CompendiumLookupState } from './compendiumLookup';
 import { resolveCombatMap } from './combatMap';
 import { queueCombatNarration, waitForCombatNarration } from './combatNarration';
-import { hasEnemy } from './combatProposal';
+import { hasEnemy, officerFlag } from './combatProposal';
 import { objectiveSpecFields, reconcileObjective } from './combatObjective';
 import { objectiveLossLine, objectiveOutcomeLines, objectiveResultClause } from './objectiveStory';
 import { makeCombatNote, COMBAT_DECLINED_TEXT } from './combatTurnNotes';
 import { markProposedMessage } from './combatCommitHooks';
 import { commitCombatPatch, remirrorCombatSheet } from './combatSheet';
+import { directorOutcomeLines, translateOrderEvents } from './directorStory';
 
 export const COMBAT_LOG_NAME = 'combat-log';
 export const COMBAT_RESULT_NAME = 'combat-result';
@@ -40,6 +41,23 @@ let starting = false;
 let stepping: Promise<void> | null = null;
 let stepDelayMs = 150;
 let skipSteps = false;
+
+export type CombatRoundHook = {
+    onCommit: (session: CombatSession) => void;
+    hold: (state: CombatState) => Promise<void> | null;
+    cancel: (reason: string) => void;
+    resume: (session: CombatSession) => void;
+};
+
+let roundHook: CombatRoundHook | null = null;
+
+export function setCombatRoundHook(hook: CombatRoundHook | null): void {
+    roundHook = hook;
+}
+
+export function cancelRoundHook(reason: string): void {
+    roundHook?.cancel(reason);
+}
 
 export function equippedWeapon(items: readonly InventoryItem[] | undefined): InventoryItem | undefined {
     return (items ?? []).find(i => i.equipped && i.category === 'weapon');
@@ -126,7 +144,7 @@ export function postPendingLog(session: CombatSession): CombatSession {
     let posted = 0;
     for (const group of groupEventsByTurn(pending)) {
         if (!isGroupComplete(group, session.state)) break;
-        const lines = turnLines(group, session.state, { numbers: true });
+        const lines = turnLines({ ...group, events: translateOrderEvents(group.events, session.state) }, session.state, { numbers: true });
         postedThrough = Math.max(postedThrough, ...group.events.map(e => e.seq));
         if (lines.length === 0) continue;
         postMessage(COMBAT_LOG_NAME, lines.join('\n'));
@@ -148,6 +166,7 @@ export function commitSession(session: CombatSession): CombatSession {
     const posted = postPendingLog(session);
     storeSession(posted);
     queueCombatNarration(posted, cadence(), posted.state.outcome !== null);
+    roundHook?.onCommit(posted);
     return posted;
 }
 
@@ -178,6 +197,11 @@ async function driveEngineTurns(sessionId: string, campaignId: string, collected
             if (live.activeCampaignId !== campaignId) return;
             const session = live.combatSession;
             if (!session || session.state.id !== sessionId || !isEngineTurn(session.state)) return;
+            const hold = roundHook?.hold(session.state);
+            if (hold) {
+                await hold;
+                continue;
+            }
             const step = stepEngine(session.state);
             if (!step) return;
             collected.push(...step.events);
@@ -260,6 +284,7 @@ export function buildCombatantSpecs(
         const { overlay, speech: templateSpeech, tactic: templateTactic } = compendiumFor(c, lookup);
         const speech: Speech | undefined = c.npcId ? 'speaks' : templateSpeech ?? c.speech;
         const tactic = c.tactic ?? templateTactic;
+        const directed = officerFlag(c);
         return {
             name: c.name,
             side: c.side,
@@ -273,6 +298,8 @@ export function buildCombatantSpecs(
             ...(tactic ? { tactic } : {}),
             ...(range ? { range } : {}),
             ...(overlay ? { template: overlay } : {}),
+            ...(directed !== undefined ? { directed } : {}),
+            ...(c.signature ? { signature: c.signature } : {}),
         };
     });
 }
@@ -317,6 +344,7 @@ export async function startFromProposal(proposal: CombatProposal, seed?: number)
             partyControl: config.partyControl,
             defeatMode: config.defeatMode,
         }, pc, fightSeed);
+        for (const repair of created.signatureRepairs ?? []) console.info(`[combat] signature adjusted at start: ${repair.text}`);
         const excluded = excludedAllies(roster, config.partyControl);
         const session: CombatSession = {
             state: created.state,
@@ -380,6 +408,7 @@ export async function playerAction(action: CombatAction, flourish?: string): Pro
         return [];
     }
     if (playerActorId(session.state) !== action.actorId) return [];
+    if (action.type === 'flee') roundHook?.cancel('flee');
     const applied = applyAction(session.state, action, { driven: true });
     if (applied.events.some(e => e.type === 'rejected')) return [];
     const withFlourish = attachFlourish(session, action, applied.events, flourish);
@@ -400,6 +429,7 @@ export function isHardMode(state: CombatState): boolean {
 export async function abortCombat(): Promise<void> {
     const stored = useAppStore.getState().combatSession;
     if (!stored || finishing || stored.parley) return;
+    roundHook?.cancel('ended');
     const session: CombatSession = stored.stunt ? { ...stored, stunt: undefined } : stored;
     if (session !== stored) storeSession(session);
     if (!session.state.outcome && isHardMode(session.state)) {
@@ -523,6 +553,7 @@ function outcomeLines(session: CombatSession, all: readonly Combatant[]): string
         }
     }
     lines.push(...objectiveOutcomeLines(session, all));
+    lines.push(...directorOutcomeLines(session));
     if (state.outcome === 'aborted') lines.push('The fight was broken off before it was decided.');
     if (state.ending?.conceded) lines.push('The player conceded the fight.');
     if (session.excluded && session.excluded.length > 0) lines.push(`Did not fight: ${session.excluded.join(', ')} stayed out of the fight.`);
@@ -634,6 +665,7 @@ async function runFinish(): Promise<void> {
     const initial = useAppStore.getState();
     const campaignId = initial.activeCampaignId;
     if (!initial.combatSession || !campaignId) return;
+    roundHook?.cancel('ended');
     initial.setCombatBusy(true);
     try {
         const pending = initial.combatSession;
@@ -673,5 +705,6 @@ export function resumeStoredSession(): void {
         void finishCombat();
         return;
     }
+    roundHook?.resume(session);
     if (isEngineTurn(session.state)) void runEngineTurnsStepped();
 }

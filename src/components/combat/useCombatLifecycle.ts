@@ -6,6 +6,7 @@ import { isEngineTurn, resumeStoredSession, startFromProposal } from '../../serv
 import { wasMessageProposed } from '../../services/combat/combatCommitHooks';
 import { resumeParley } from '../../services/combat/combatParley';
 import { resumeStunt } from '../../services/combat/combatStunt';
+import { installCombatDirector } from '../../services/combat/combatDirector';
 
 export function proposalIsOrphaned(proposal: CombatProposal | null, messages: readonly ChatMessage[]): boolean {
     if (!proposal || !proposal.messageId) return false;
@@ -46,6 +47,10 @@ export function useCombatLifecycle(isStreaming: boolean) {
     const pipelinePhase = useAppStore(s => s.pipelinePhase);
     const [dismissedKey, setDismissedKey] = useState<string | null>(null);
     const offerKey = useMemo(() => stakesOfferKey(messages), [messages]);
+
+    useEffect(() => {
+        installCombatDirector();
+    }, []);
 
     useEffect(() => {
         if (proposalIsOrphaned(proposal, messages)) useAppStore.getState().setCombatProposal(null);

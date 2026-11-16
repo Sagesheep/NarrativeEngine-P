@@ -32,8 +32,9 @@ import { planReinforcements, validateObjective } from './objectives/validate';
 import { bystanderIdOf, leaderIdOf, wardIdOf } from './objectives/marks';
 import type {
     AttackRange, CombatAction, CombatCondition, CombatEvent, CombatObjective, CombatSpec, CombatState, Combatant, CombatantSpec, GlyphAbility, Grid,
-    ObjectiveReport, Pos, ReinforcementBook, ReinforcementWave, Rng, TurnState,
+    ObjectiveReport, Pos, ReinforcementBook, ReinforcementWave, Rng, SignatureRepair, TurnState,
 } from './types';
+import { validateSignature } from './director/signature';
 
 export { DEFEND_CONDITION, isHostile, canTarget, currentActorId, freshTurn, currentTurn, checkOutcome } from './core';
 export { checkAttack } from './glyphs/builtins';
@@ -464,7 +465,7 @@ function casterKitFields(c: { side: Combatant['side']; tier: Combatant['tier']; 
     };
 }
 
-function specCombatant(c: CombatantSpec, id: string, spec: CombatSpec, jitter: number, rng: Rng): Combatant {
+function specCombatant(c: CombatantSpec, id: string, spec: CombatSpec, jitter: number, rng: Rng, repairs?: SignatureRepair[]): Combatant {
         const block = buildTierBlock(c.tier, c.archetype, jitter, rng, c.look);
         const t = c.template;
         let maxHp = block.maxHp;
@@ -481,7 +482,7 @@ function specCombatant(c: CombatantSpec, id: string, spec: CombatSpec, jitter: n
             if (t.ac !== undefined) ac = Math.max(ac, t.ac);
         }
         const range: AttackRange = c.range ?? (c.archetype === 'caster' ? 'ranged' : 'close');
-        return {
+        const unit: Combatant = {
             id,
             name: c.name,
             side: c.side,
@@ -494,6 +495,7 @@ function specCombatant(c: CombatantSpec, id: string, spec: CombatSpec, jitter: n
             ...(c.manner ? { manner: c.manner } : {}),
             ...(c.speech ? { speech: c.speech } : {}),
             ...(normalizeTactic(c.tactic) ? { tactic: normalizeTactic(c.tactic) } : {}),
+            ...(typeof c.directed === 'boolean' ? { directed: c.directed } : {}),
             abilities: block.abilities,
             maxHp: Math.max(1, Math.round(maxHp)),
             hp: Math.max(1, Math.round(maxHp)),
@@ -508,6 +510,19 @@ function specCombatant(c: CombatantSpec, id: string, spec: CombatSpec, jitter: n
             ...(t?.resistances && t.resistances.length > 0 ? { resistances: [...t.resistances] } : {}),
             ...casterKitFields(c, block.abilities, damage.type),
         };
+        if (c.signature) {
+            const checked = validateSignature({ id, name: c.name, tier: c.tier }, c.signature, { maxSummons: spec.maxSummons });
+            repairs?.push(...checked.repairs);
+            if (checked.ability && checked.signature) {
+                const row = TIER_TABLE[c.tier] ?? TIER_TABLE.grunt;
+                unit.kit = [...(unit.kit ?? []), checked.ability];
+                unit.signature = checked.signature;
+                unit.proficiency ??= proficiencyForLevel(TIER_LEVEL[c.tier] ?? 3);
+                unit.castingAbility ??= defaultCastingAbility(block.abilities);
+                unit.abilityDamage ??= { ...row.damage };
+            }
+        }
+        return unit;
 }
 
 function markUnits(combatants: Record<string, Combatant>, objective: CombatObjective): void {
@@ -520,7 +535,7 @@ function markUnits(combatants: Record<string, Combatant>, objective: CombatObjec
 }
 
 function setUpObjective(
-    spec: CombatSpec, combatants: Record<string, Combatant>, grid: Grid, jitter: number, rng: Rng,
+    spec: CombatSpec, combatants: Record<string, Combatant>, grid: Grid, jitter: number, rng: Rng, sigRepairs: SignatureRepair[],
 ): { objective: CombatObjective; book?: ReinforcementBook; report: ObjectiveReport } {
     const setup = {
         grid,
@@ -543,7 +558,7 @@ function setUpObjective(
                 n += 1;
                 let id = `r${n}`;
                 while (combatants[id]) id = `${id}_`;
-                const unit = specCombatant(cs, id, spec, jitter, rng);
+                const unit = specCombatant(cs, id, spec, jitter, rng, sigRepairs);
                 unit.initiative = rng.roll(20) + abilityMod(unit.abilities.DEX);
                 return unit;
             }),
@@ -554,8 +569,11 @@ function setUpObjective(
     return { objective: checked.objective, ...(book ? { book } : {}), report };
 }
 
-export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { state: CombatState; events: CombatEvent[]; objective?: ObjectiveReport } {
+export function createCombat(
+    spec: CombatSpec, pc: Combatant, seed: number,
+): { state: CombatState; events: CombatEvent[]; objective?: ObjectiveReport; signatureRepairs?: SignatureRepair[] } {
     const rng = createRng(seed, 0);
+    const signatureRepairs: SignatureRepair[] = [];
     const jitter = spec.jitterRange ?? DEFAULT_JITTER_RANGE;
     const combatants: Record<string, Combatant> = {};
     const pcEntry: Combatant = { ...pc, status: 'up', conditions: [], initiative: 0 };
@@ -563,7 +581,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
     spec.combatants.forEach((c, index) => {
         let id = c.id && !combatants[c.id] ? c.id : `c${index + 1}`;
         while (combatants[id]) id = `${id}_`;
-        combatants[id] = specCombatant(c, id, spec, jitter, rng);
+        combatants[id] = specCombatant(c, id, spec, jitter, rng, signatureRepairs);
     });
 
     const tiebreak: Record<string, number> = {};
@@ -581,7 +599,7 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
     const positions = placeCombatants(grid, Object.values(combatants).map(c => ({ id: c.id, side: c.side })));
     for (const [id, pos] of Object.entries(positions)) combatants[id].position = pos;
     for (const c of Object.values(combatants)) c.startHp = c.hp;
-    const objective = spec.objective !== undefined || spec.reinforcements !== undefined ? setUpObjective(spec, combatants, grid, jitter, rng) : null;
+    const objective = spec.objective !== undefined || spec.reinforcements !== undefined ? setUpObjective(spec, combatants, grid, jitter, rng, signatureRepairs) : null;
 
     const state: CombatState = {
         id: spec.id,
@@ -619,7 +637,11 @@ export function createCombat(spec: CombatSpec, pc: Combatant, seed: number): { s
     if (state.objective) objectiveRoundStart(draft);
     startTurn(draft);
     const closed = closeDraft(draft);
-    return objective ? { ...closed, objective: objective.report } : closed;
+    return {
+        ...closed,
+        ...(objective ? { objective: objective.report } : {}),
+        ...(signatureRepairs.length > 0 ? { signatureRepairs } : {}),
+    };
 }
 
 export function concedeCombat(state: CombatState): { state: CombatState; events: CombatEvent[] } {

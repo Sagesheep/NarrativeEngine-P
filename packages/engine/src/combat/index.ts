@@ -90,4 +90,22 @@ export type { ObjectiveSetup, ObjectiveSetupUnit, WavePlan, ReinforcementPlan } 
 export { undoObjectiveEvent, arrivalTiles } from './objectives/run';
 export type { ObjectiveSummary } from './objectives/run';
 export { distanceField } from './grid';
+export type {
+    OrderKind, CombatOrder, Signature, SignatureEffectSpec, SignatureSpec, SignatureRepairCode, SignatureRepair, DirectorOrder,
+    OrderRejectReason, OrderRejection,
+} from './types';
+export {
+    ORDER_KINDS, ORDER_EVENT_TYPE, DIRECTED_TIERS, ORDER_PROFILES, ORDER_LIMITS, SIGNATURE_BUDGET, SIGNATURE_SURCHARGE, SIGNATURE_UNUSABLE_EFFECTS,
+    SIGNATURE_NAME_FALLBACK, SIGNATURE_ID_PREFIX,
+} from './director/tables';
+export type { OrderProfile, SignatureBudget } from './director/tables';
+export {
+    isDirected, activeOrder, normalizeOrderKind, cleanLine, resolveUnit, hasActedThisTurn, yetToAct, ORDER_VERBS, orderText, applyOrders,
+    undoDirectorEvent,
+} from './director/orders';
+export type { ApplyOrdersOptions, ApplyOrdersResult } from './director/orders';
+export { normalizeSignatureRequest, validateSignature, signatureReady, signatureCost } from './director/signature';
+export type { SignatureValidation } from './director/signature';
+export { directorBrief, briefBand } from './director/brief';
+export type { BriefBand, BriefUnit, BriefFoe, BriefAlly, BriefDirected, BriefObjective, DirectorBrief } from './director/brief';
 export type { SimulationResult, SimulationOptions } from './simulate';
