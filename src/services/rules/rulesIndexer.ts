@@ -62,6 +62,10 @@ function extractBoldKeywords(content: string): string[] {
     return Array.from(keywords);
 }
 
+function defaultActivationMode(chunk: LoreChunk): NonNullable<LoreChunk['ragMode']> {
+    return chunk.ragMode ?? (chunk.alwaysInclude || chunk.priority >= 9 ? 'always' : 'vector');
+}
+
 function deriveDefaultMeta(chunk: LoreChunk, existingMeta?: RuleChunkMeta): RuleChunkMeta {
     const headerKws = extractHeaderKeywords(chunk.header);
     const boldKws = extractBoldKeywords(chunk.content);
@@ -70,20 +74,14 @@ function deriveDefaultMeta(chunk: LoreChunk, existingMeta?: RuleChunkMeta): Rule
     );
     const merged = [...new Set([...hintTriggers, ...headerKws, ...boldKws])].slice(0, 15);
 
-    let defaultModes: ('vector' | 'keyword' | 'always')[];
-    if (chunk.ragMode) {
-        defaultModes = [chunk.ragMode];
-    } else {
-        const isAlwaysCategory = chunk.alwaysInclude || chunk.priority >= 9;
-        defaultModes = isAlwaysCategory ? ['always'] : ['vector'];
-    }
+    const defaultModes = [defaultActivationMode(chunk)];
 
     if (existingMeta) {
         return {
             ...existingMeta,
             activationModes: existingMeta.activationModesUserEdited
                 ? existingMeta.activationModes
-                : (chunk.ragMode ? [chunk.ragMode] : defaultModes),
+                : defaultModes,
             triggerKeywords: existingMeta.keywordsUserEdited
                 ? existingMeta.triggerKeywords
                 : merged,
@@ -101,6 +99,7 @@ function deriveDefaultMeta(chunk: LoreChunk, existingMeta?: RuleChunkMeta): Rule
         priority: chunk.priority,
         keywordsUserEdited: false,
         activationModesUserEdited: false,
+        indexedRagMode: chunk.ragMode ?? null,
     };
 }
 
@@ -166,16 +165,22 @@ export async function indexRules(
         if (!meta) {
             meta = deriveDefaultMeta(chunk);
             chunkMeta[chunk.id] = meta;
-        } else if (
-            chunk.ragMode
-            && !meta.activationModesUserEdited
-            && !(meta.activationModes.length === 1 && meta.activationModes[0] === chunk.ragMode)
-        ) {
-            // The `<!-- rag: ... -->` hint on this section changed since it was last
-            // indexed (say, `vector` became `always`). The hint is the author's
-            // instruction, so it replaces the mode derived last time; a mode the user
-            // set by hand in the Rules tab (activationModesUserEdited) still wins.
-            chunkMeta[chunk.id] = { ...meta, activationModes: [chunk.ragMode] };
+        } else {
+            const indexedRagMode = chunk.ragMode ?? null;
+            if (meta.indexedRagMode === indexedRagMode) continue;
+
+            const defaultMode = defaultActivationMode(chunk);
+            const matchesDefault = meta.activationModes.length === 1 && meta.activationModes[0] === defaultMode;
+            // Old versions did not record manual edits or the original hint. Preserve
+            // a legacy mode that differs from the current default as an override.
+            const legacyOverride = meta.indexedRagMode === undefined && !matchesDefault;
+            const activationModesUserEdited = meta.activationModesUserEdited || legacyOverride;
+            chunkMeta[chunk.id] = {
+                ...meta,
+                indexedRagMode,
+                activationModesUserEdited,
+                activationModes: activationModesUserEdited ? meta.activationModes : [defaultMode],
+            };
         }
     }
 

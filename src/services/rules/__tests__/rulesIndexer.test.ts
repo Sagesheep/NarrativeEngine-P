@@ -38,15 +38,16 @@ describe('indexRules — re-indexing with changed rag hints', () => {
     it('adopts a changed hint for metadata the user never edited, keeps a hand-set mode, and derives missing metadata', async () => {
         const existing: Record<string, RuleChunkMeta> = {
             // Indexed when the hint still said `vector`; the file now says `always`.
-            'perception-limits': { id: 'perception-limits', activationModes: ['vector'], triggerKeywords: ['see'], hasEmbedding: true, activationModesUserEdited: false },
+            'perception-limits': { id: 'perception-limits', activationModes: ['vector'], triggerKeywords: ['see'], hasEmbedding: true, indexedRagMode: 'vector' },
             // The user forced this one to always-on in the Rules tab; the hint says `vector`.
-            'turn-discipline': { id: 'turn-discipline', activationModes: ['always'], triggerKeywords: ['wait'], hasEmbedding: true, activationModesUserEdited: true },
+            'turn-discipline': { id: 'turn-discipline', activationModes: ['always'], triggerKeywords: ['wait'], hasEmbedding: true, activationModesUserEdited: true, indexedRagMode: 'always' },
         };
 
         const result = await indexRules('camp-1', RULES, existing, undefined, false);
 
         expect(result.chunks.map(c => c.id)).toEqual(['engine-tags', 'perception-limits', 'turn-discipline']);
         expect(result.chunkMeta['perception-limits'].activationModes).toEqual(['always']);
+        expect(result.chunkMeta['perception-limits'].indexedRagMode).toBe('always');
         expect(result.chunkMeta['perception-limits'].hasEmbedding).toBe(true);
         expect(result.chunkMeta['perception-limits'].triggerKeywords).toEqual(['see']);
         expect(result.chunkMeta['turn-discipline'].activationModes).toEqual(['always']);
@@ -65,12 +66,38 @@ describe('indexRules — re-indexing with changed rag hints', () => {
     it('leaves metadata alone when the hint has not changed', async () => {
         upsertEmbedding.mockClear();
         const existing: Record<string, RuleChunkMeta> = {
-            'engine-tags': { id: 'engine-tags', activationModes: ['always'], hasEmbedding: true },
-            'perception-limits': { id: 'perception-limits', activationModes: ['always'], hasEmbedding: true },
-            'turn-discipline': { id: 'turn-discipline', activationModes: ['vector'], hasEmbedding: true },
+            'engine-tags': { id: 'engine-tags', activationModes: ['always'], hasEmbedding: true, indexedRagMode: 'always' },
+            'perception-limits': { id: 'perception-limits', activationModes: ['always'], hasEmbedding: true, indexedRagMode: 'always' },
+            'turn-discipline': { id: 'turn-discipline', activationModes: ['vector'], hasEmbedding: true, indexedRagMode: 'vector' },
         };
         const result = await indexRules('camp-1', RULES, existing, undefined, false);
         expect(result.chunkMeta).toEqual(existing);
         expect(upsertEmbedding).not.toHaveBeenCalled();
+    });
+
+    it('keeps legacy manual settings and records a baseline for rules still on the default', async () => {
+        const rules = RULES.replace('rag: vector, triggers: wait', 'rag: keyword, triggers: wait');
+        const existing: Record<string, RuleChunkMeta> = {
+            'engine-tags': { id: 'engine-tags', activationModes: ['always', 'keyword'], hasEmbedding: true },
+            'perception-limits': { id: 'perception-limits', activationModes: [], hasEmbedding: true },
+            'turn-discipline': { id: 'turn-discipline', activationModes: ['vector'], hasEmbedding: true },
+        };
+
+        const first = await indexRules('camp-1', RULES, existing, undefined, false);
+        expect(first.chunkMeta['perception-limits']).toMatchObject({
+            activationModes: [], activationModesUserEdited: true, indexedRagMode: 'always',
+        });
+        expect(first.chunkMeta['engine-tags']).toMatchObject({
+            activationModes: ['always', 'keyword'], activationModesUserEdited: true,
+        });
+        expect(first.chunkMeta['turn-discipline']).toMatchObject({
+            activationModes: ['vector'], activationModesUserEdited: false, indexedRagMode: 'vector',
+        });
+
+        const revised = rules.replaceAll('rag: always', 'rag: keyword');
+        const second = await indexRules('camp-1', revised, first.chunkMeta, undefined, false);
+        expect(second.chunkMeta['turn-discipline'].activationModes).toEqual(['keyword']);
+        expect(second.chunkMeta['perception-limits'].activationModes).toEqual([]);
+        expect(second.chunkMeta['engine-tags'].activationModes).toEqual(['always', 'keyword']);
     });
 });
