@@ -48,8 +48,8 @@ export function OneShotInjectorButton() {
                 disabled={isStreaming}
                 title={
                     armedOneShot
-                        ? `Event armed (${armedType?.label ?? armedOneShot}) — click to change or disarm`
-                        : 'Inject a one-shot event — fires on your next message'
+                        ? `Event ready (${armedType?.label ?? armedOneShot}) — happens in your next message. Click to change or cancel.`
+                        : 'Make something dramatic happen in your next message (an ambush, an arrival, etc.). It only happens once.'
                 }
                 className={`shrink-0 flex items-center gap-1.5 bg-void border text-[10px] sm:text-[11px] uppercase tracking-wider px-3 h-[32px] rounded-sm transition-all disabled:cursor-not-allowed whitespace-nowrap ${
                     armedOneShot
@@ -59,7 +59,7 @@ export function OneShotInjectorButton() {
             >
                 <Zap size={13} />
                 <span className="hidden xs:inline">
-                    {armedOneShot ? `ARMED — ${armedType?.label ?? armedOneShot}` : 'INJECT EVENT'}
+                    {armedOneShot ? `ARMED — ${armedType?.label ?? armedOneShot}` : 'CREATE EVENT'}
                 </span>
                 <span className="inline xs:hidden">
                     {armedOneShot ? `ARMED` : 'EVENT'}
@@ -132,7 +132,7 @@ function OneShotModal({
             >
                 <div className="flex items-center justify-between p-4 border-b border-border">
                     <h2 className="text-violet-400 text-sm font-bold tracking-[0.2em] uppercase flex items-center gap-2">
-                        <Zap size={14} /> Inject Event
+                        <Zap size={14} /> Create Event
                     </h2>
                     <button
                         onClick={onClose}

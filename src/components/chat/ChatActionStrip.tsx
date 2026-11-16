@@ -207,7 +207,7 @@ function renderComposerBuiltin(id: string, deps: {
                     onClick={deps.onTrim}
                     disabled={deps.isStreaming || deps.combatActive || deps.messagesCount < 6}
                     className="flex-shrink-0 flex items-center gap-1.5 bg-void border border-terminal/30 hover:border-terminal text-terminal text-[10px] sm:text-[11px] uppercase tracking-wider px-3 h-[32px] rounded-sm transition-all hover:bg-terminal/5 disabled:opacity-30 disabled:cursor-not-allowed whitespace-nowrap"
-                    title="Trim history"
+                    title="Summarize older messages to free up space. Nothing is deleted; it stays searchable in memory. Needs 6+ messages."
                 >
                     <Zap size={13} />
                     Trim
