@@ -262,8 +262,13 @@ describe('World Map renderer — pan does not invalidate tiles (§11)', () => {
         });
         rightClick();
         expect(root.querySelector('[data-worldmap-context-menu]').textContent).toContain('Cell 505, 500');
-        expect(root.querySelector('[data-context-action="current"]').style.display).toBe('none');
+        // Teleport is a play action, offered outside Edit world too.
+        const teleport = root.querySelector('[data-context-action="current"]');
+        expect(teleport.style.display).toBe('block');
+        expect(teleport.textContent).toBe('Teleport here');
+        expect(teleport.disabled).toBe(false);
         expect(root.querySelector('[data-worldmap-move-place]').style.display).toBe('none');
+        expect(root.querySelector('[data-worldmap-brush]').style.display).toBe('none');
         cleanupRenderer();
         root.replaceChildren();
 

@@ -20,6 +20,7 @@ import {
     deserializeHardened,
     hardenCell,
     serializeHardened,
+    BIOME_IDS,
 } from './field.js';
 
 const DEFAULT_CLIMATE_GRADIENT = 0.65;
@@ -1772,13 +1773,45 @@ async function startPartyAt(ctx, campaignId, cell) {
     await settlePartyAt(ctx, campaignId, placeId);
 }
 
-// Edit world: put the party on an exact cell that has no place near it.
-async function correctPositionAt(ctx, campaignId, cell) {
+// Teleport: put the party on a cell at once. A place on the cell is reused;
+// otherwise the bare cell becomes the party's position. No time passes.
+async function teleportPartyTo(ctx, campaignId, cell) {
     const fresh = await freshCampaignContext(ctx);
     if (!fresh || fresh.data.campaignId !== campaignId || !reportsByCampaign.get(campaignId)) return;
     if (!validCell(cell)) { mapNotice(campaignId, 'outside-world', 'Choose a cell inside the map'); return; }
-    await settlePartyAt(ctx, campaignId, await claimEmptyCell(ctx, campaignId, cell));
+    if (fresh.data.location.travel) { mapNotice(campaignId, 'teleport-journey', 'Abandon the journey before teleporting'); return; }
+    const ledger = fresh.data.location.ledger ?? [];
+    const placeId = ledgerAnchorAt(campaignId, ledger, cell, hasKnownPosition)?.locationId
+        ?? await claimEmptyCell(ctx, campaignId, cell);
+    await settlePartyAt(ctx, campaignId, placeId);
 }
+
+// Edit world: the terrain brush. Painted cells are stored as hardened cells,
+// which every terrain read (render, pathing, solver) already treats as fixed.
+// A null biome erases the override, so the cell returns to the generated field.
+// Painted cells are marked generated so they draw even outside explored land.
+const MAX_BRUSH_CELLS = 4096;
+async function paintTerrain(ctx, campaignId, payload) {
+    const fresh = await freshCampaignContext(ctx);
+    if (!fresh || fresh.data.campaignId !== campaignId) return;
+    const biome = payload?.biome == null ? null : String(payload.biome);
+    if (biome !== null && !BIOME_IDS.includes(biome)) return;
+    const cells = (Array.isArray(payload?.cells) ? payload.cells : [])
+        .map(cell => ({ x: Number(cell?.x), y: Number(cell?.y) }))
+        .filter(validCell).slice(0, MAX_BRUSH_CELLS);
+    if (cells.length === 0) return;
+    const hardened = new Map(hardenedByCampaign.get(campaignId) ?? await readHardened(fresh));
+    const generated = new Set(generatedByCampaign.get(campaignId) ?? []);
+    for (const cell of cells) {
+        const key = `${cell.x}␟${cell.y}`;
+        if (biome) hardened.set(key, biome); else hardened.delete(key);
+        generated.add(`${cell.x},${cell.y}`);
+    }
+    await fresh.table.write('exploration', serializeExploration(explorationByCampaign.get(campaignId) ?? new Set(), generated));
+    generatedByCampaign.set(campaignId, generated);
+    await writeHardened(fresh, hardened);
+}
+
 
 // Edit world: move a ledger place onto a cell. Refused rather than stacked
 // on another place, and never under a journey whose route assumes the old map.
@@ -2093,6 +2126,28 @@ function mountMap(node, ctx) {
             void queuePlacing(ctx, () => startPartyAt(ctx, campaignId, cell));
             return;
         }
+        if (action === 'teleport') {
+            const preview = routePreviewByCampaign.get(currentCampaignId);
+            if (!preview?._clickCell) return;
+            // A route to a place teleports onto that place; otherwise onto the cell.
+            // (An open-ground route ends on a synthetic point that is not in the ledger.)
+            const placeId = preview.toAnchor?.locationId;
+            if (placeId && placeId !== liveCtx.data?.location?.currentPlaceId
+                && (liveCtx.data?.location?.ledger ?? []).some(entry => entry.id === placeId)) {
+                handleContextAction('current', { locationId: placeId });
+                return;
+            }
+            const campaignId = currentCampaignId;
+            const cell = { x: preview._clickCell.x, y: preview._clickCell.y };
+            void queuePlacing(ctx, () => teleportPartyTo(ctx, campaignId, cell));
+            return;
+        }
+        if (action === 'paintTerrain') {
+            if (!worldEditing) return;
+            const campaignId = currentCampaignId;
+            void queuePlacing(ctx, () => paintTerrain(ctx, campaignId, payload));
+            return;
+        }
         if (action === 'setMode' || action === 'setPreference') {
             if (action === 'setMode') currentTravelMode = String(payload || 'foot');
             else routePreferenceByCampaign.set(currentCampaignId, payload === 'shortest' ? 'shortest' : 'fastest');
@@ -2171,7 +2226,11 @@ function mountMap(node, ctx) {
             handleClickCell(payload.x, payload.y);
             return;
         }
-        if (action === 'current' && locationId && worldEditing) {
+        if (action === 'current' && locationId) {
+            // Teleport onto the place the menu snapped to.
+            if (liveCtx.data?.location?.travel) { mapNotice(currentCampaignId, 'teleport-journey', 'Abandon the journey before teleporting'); return; }
+            routePreviewByCampaign.delete(currentCampaignId);
+            refreshPreview();
             if (liveCtx.write?.updateContext) {
                 liveCtx.write.updateContext({ currentPlaceId: locationId, currentFeature: null, travel: null });
             } else {
@@ -2181,9 +2240,9 @@ function mountMap(node, ctx) {
         }
         const campaignId = currentCampaignId;
         const cell = { x: payload.x, y: payload.y };
-        if (action === 'current' && worldEditing) {
-            // No place within reach of the cell: the party stands on the cell itself.
-            void queuePlacing(ctx, () => correctPositionAt(ctx, campaignId, cell));
+        if (action === 'current') {
+            // Teleport here: onto the place at the cell, or the bare cell itself.
+            void queuePlacing(ctx, () => teleportPartyTo(ctx, campaignId, cell));
             return;
         }
         if (action === 'move' && worldEditing) {

@@ -52,6 +52,7 @@ import { siteLabel } from './discoveries.js';
 
 import {
     BIOME_COLORS,
+    BIOME_IDS,
     FIELD_SEA_LEVEL,
     FIELD_WORLD_SIZE,
 } from './field.js';
@@ -997,6 +998,13 @@ function refreshTokenCache(root) {
  *   getMovablePlaces?: () => Array<{ id: string, name: string }>,
  * }} options
  */
+// Edit world: the terrain brush. Kept at module level because every repaint
+// remounts the renderer, and the chosen biome and size should survive that.
+// `active` is cleared whenever world editing ends.
+const brushState = { active: false, biome: 'forest', size: 1 };
+const BRUSH_ERASE = '__erase__';
+const BRUSH_SIZES = [1, 3, 5, 9];
+
 export function mountMapRenderer(root, options) {
     const {
         getSnapshot, log = () => undefined,
@@ -1128,6 +1136,8 @@ export function mountMapRenderer(root, options) {
         editWorldButton.setAttribute('aria-pressed', String(worldEditing));
         settingPanel.style.display = worldEditing ? '' : 'none';
         roadPanel.style.display = worldEditing ? '' : 'none';
+        brushPanel.style.display = worldEditing ? 'flex' : 'none';
+        if (!worldEditing) setBrushActive(false);
         contextMenu.style.display = 'none';
         onRouteAction?.('worldEditing', worldEditing);
         scheduleRender();
@@ -1190,6 +1200,45 @@ export function mountMapRenderer(root, options) {
     settingPanel.style.display = worldEditing ? '' : 'none';
     settingPanel.title = 'Editing world facts. Changes here are not character actions.';
     settingLabel.append(settingSelect); settingPanel.append(settingLabel, unitLabel);
+
+    // Terrain brush. While "Paint" is on, dragging on the map paints cells
+    // instead of panning; the stroke is sent as one write on release.
+    const brushPanel = panelClass(makeElement('div', undefined, {
+        padding: '6px 8px', display: worldEditing ? 'flex' : 'none', gap: '6px', alignItems: 'center', flexWrap: 'wrap',
+    }));
+    brushPanel.dataset.worldmapBrush = 'true';
+    brushPanel.title = 'Paint terrain. Painted cells keep their terrain for travel and future map solves.';
+    const brushToggle = makeElement('button', 'Paint', { cursor: 'pointer', font: 'inherit' });
+    brushToggle.type = 'button';
+    const brushBiome = document.createElement('select');
+    brushBiome.setAttribute('aria-label', 'Brush terrain');
+    for (const id of BIOME_IDS) {
+        const option = document.createElement('option'); option.value = id;
+        option.textContent = id.charAt(0).toUpperCase() + id.slice(1); brushBiome.append(option);
+    }
+    const eraseOption = document.createElement('option'); eraseOption.value = BRUSH_ERASE;
+    eraseOption.textContent = 'Erase (back to generated)'; brushBiome.append(eraseOption);
+    brushBiome.value = brushState.biome;
+    brushBiome.addEventListener('change', () => { brushState.biome = brushBiome.value; });
+    const brushSize = document.createElement('select');
+    brushSize.setAttribute('aria-label', 'Brush size');
+    for (const size of BRUSH_SIZES) {
+        const option = document.createElement('option'); option.value = String(size);
+        option.textContent = `${size}×${size}`; brushSize.append(option);
+    }
+    brushSize.value = String(brushState.size);
+    brushSize.addEventListener('change', () => { brushState.size = Number(brushSize.value) || 1; });
+    function setBrushActive(active) {
+        brushState.active = Boolean(active);
+        brushToggle.setAttribute('aria-pressed', String(brushState.active));
+        brushToggle.textContent = brushState.active ? 'Painting (drag)' : 'Paint';
+        brushToggle.title = brushState.active ? 'Stop painting; dragging pans the map again' : 'Drag on the map to paint terrain';
+        root.style.cursor = brushState.active ? 'crosshair' : 'grab';
+    }
+    brushToggle.addEventListener('click', () => setBrushActive(!brushState.active));
+    brushPanel.append(brushToggle, brushBiome, brushSize);
+    leftDock.appendChild(brushPanel);
+    setBrushActive(worldEditing && brushState.active);
 
     const roadPanel = panelClass(document.createElement('details'), 'wm-scroll');
     roadPanel.dataset.worldmapRoads = 'true';
@@ -1265,7 +1314,7 @@ export function mountMapRenderer(root, options) {
     contextMenu.appendChild(contextTitle);
     for (const [action, label] of [
         ['travel', 'Travel here'],
-        ['current', 'Correct player position here'],
+        ['current', 'Teleport here'],
         ['details', 'Place details'],
     ]) {
         const button = makeElement('button', label, {
@@ -1277,7 +1326,7 @@ export function mountMapRenderer(root, options) {
         button.className = 'wm-menu-item';
         button.dataset.contextAction = action;
         button.addEventListener('click', () => {
-            if (!contextMenu._contextPayload || (action === 'current' && !worldEditing)) return;
+            if (!contextMenu._contextPayload) return;
             const payload = contextMenu._contextPayload;
             contextMenu.style.display = 'none';
             if (onContextAction) onContextAction(action, payload);
@@ -1610,7 +1659,18 @@ export function mountMapRenderer(root, options) {
     routeStartButton.type = 'button';
     routeStartButton.title = 'Put the party on this cell. No time passes.';
     routeStartButton.addEventListener('click', () => onRouteAction?.('startHere'));
-    routeActionRow.append(routeStartButton, routeTravelButton, routeCancelButton);
+    // Teleport: arrive at the previewed cell at once, without travelling.
+    const routeTeleportButton = makeElement('button', 'Teleport here', {
+        padding: '3px 8px', border: '1px solid var(--color-border, rgba(255,255,255,0.22))',
+        borderRadius: '3px', background: 'transparent', color: 'inherit',
+        cursor: 'pointer', display: 'none',
+    });
+    routeTeleportButton.type = 'button';
+    routeTeleportButton.className = 'wm-secondary';
+    routeTeleportButton.title = 'Move the party here instantly. No time passes.';
+    routeTeleportButton.dataset.routeAction = 'teleport';
+    routeTeleportButton.addEventListener('click', () => onRouteAction?.('teleport'));
+    routeActionRow.append(routeStartButton, routeTravelButton, routeTeleportButton, routeCancelButton);
     routePanel.appendChild(routeActionRow);
 
     const view = { cx: FIELD_WORLD_SIZE / 2, cy: FIELD_WORLD_SIZE / 2, cellPixels: ZOOM_LEVELS[1].cellPixels };
@@ -1848,9 +1908,9 @@ export function mountMapRenderer(root, options) {
         const buttons = contextMenu.querySelectorAll('[data-context-action]');
         for (const button of buttons) {
             const action = button.dataset.contextAction;
-            button.style.display = action === 'current' && !worldEditing ? 'none' : 'block';
-            // Without a place nearby, correcting the position puts the party on the cell itself.
-            const enabled = action === 'travel' || (action === 'current' && worldEditing) || Boolean(anchor);
+            button.style.display = 'block';
+            // Without a place nearby, teleporting puts the party on the cell itself.
+            const enabled = action === 'travel' || action === 'current' || Boolean(anchor);
             button.disabled = !enabled;
             button.style.opacity = enabled ? '1' : '0.45';
             button.style.cursor = enabled ? 'pointer' : 'not-allowed';
@@ -1971,6 +2031,7 @@ export function mountMapRenderer(root, options) {
         // off-screen. `drawAnchors` sets `partyOnScreen` / `partyScreen`.
         drawPartyIndicator(width, height, cell);
         drawHud(snapshot, cell);
+        drawBrushStroke(cell);
         updateRoutePanel(snapshot);
         updateDiscoveryPanel(snapshot);
         updateEncounterPanel(snapshot);
@@ -2885,6 +2946,7 @@ export function mountMapRenderer(root, options) {
         // N days has N - 1 camps.
         const travel = snapshot?.travel ?? null;
         routeStartButton.style.display = 'none';
+        routeTeleportButton.style.display = 'none';
         if (travel) {
             panelMode = 'journey';
             routePanel.style.display = 'flex';
@@ -2968,6 +3030,8 @@ export function mountMapRenderer(root, options) {
             routeCancelButton.textContent = 'Dismiss';
             routeTravelButton.style.display = 'none';
             routeStartButton.style.display = startable ? 'inline-block' : 'none';
+            // Any refusal that still names a cell can be skipped by teleporting there.
+            routeTeleportButton.style.display = !startable && !preview.notice ? 'inline-block' : 'none';
             // WO 6.3 §1 — the no-road refusal is an offer, not a dead end.
             // Show the band selector (defaulted to the straight-line band
             // the mod pre-computed) and the "Create and travel" button. The
@@ -2995,6 +3059,7 @@ export function mountMapRenderer(root, options) {
             routeReadout.style.color = 'var(--color-text-primary, inherit)';
             routeCancelButton.textContent = 'Cancel route';
             routeTravelButton.style.display = 'inline-block';
+            routeTeleportButton.style.display = 'inline-block';
             offerRow.style.display = 'none';
         }
     }
@@ -3040,7 +3105,7 @@ export function mountMapRenderer(root, options) {
         const py = event.clientY - rect.top;
         updateHover(px, py);
         const hover = hitTestAnchor(px, py);
-        root.style.cursor = hover ? 'pointer' : 'grab';
+        root.style.cursor = worldEditing && brushState.active ? 'crosshair' : hover ? 'pointer' : 'grab';
     }
 
     function onCanvasPointerLeave() {
@@ -3126,6 +3191,46 @@ export function mountMapRenderer(root, options) {
         window.removeEventListener('pointerup', onWindowPointerUp);
     }
 
+    // ── Terrain brush stroke ────────────────────────────────────────────
+    // Cells collect locally while the pointer is down and draw as a preview;
+    // release sends them in one write. The write repaints (and remounts) the
+    // map, which replaces the preview with the real terrain.
+    let brushStroke = null;
+    function brushCellsAt(px, py) {
+        const world = screenToCell(px, py);
+        if (!Number.isFinite(world.x) || !Number.isFinite(world.y)) return;
+        const cx = Math.floor(world.x), cy = Math.floor(world.y);
+        const half = Math.floor(brushState.size / 2);
+        for (let y = cy - half; y <= cy + half; y++) for (let x = cx - half; x <= cx + half; x++) {
+            if (x < 0 || y < 0 || x >= FIELD_WORLD_SIZE || y >= FIELD_WORLD_SIZE) continue;
+            brushStroke.cells.set(`${x},${y}`, { x, y });
+        }
+        scheduleRender();
+    }
+    function drawBrushStroke(cell) {
+        if (!brushStroke || brushStroke.cells.size === 0) return;
+        ctx.save();
+        ctx.globalAlpha = 0.75;
+        ctx.fillStyle = brushStroke.biome ? (BIOME_COLORS[brushStroke.biome] || '#888') : 'rgba(0,0,0,0.5)';
+        for (const { x, y } of brushStroke.cells.values()) {
+            const screen = cellToScreen(x, y);
+            ctx.fillRect(screen.x, screen.y, Math.ceil(cell), Math.ceil(cell));
+        }
+        ctx.restore();
+    }
+    function onBrushPointerMove(event) {
+        if (!brushStroke || !cachedRect) return;
+        brushCellsAt(event.clientX - cachedRect.left, event.clientY - cachedRect.top);
+    }
+    function onBrushPointerUp() {
+        window.removeEventListener('pointermove', onBrushPointerMove);
+        window.removeEventListener('pointerup', onBrushPointerUp);
+        if (!brushStroke || brushStroke.sent) return;
+        brushStroke.sent = true;
+        const cells = [...brushStroke.cells.values()];
+        if (cells.length) onRouteAction?.('paintTerrain', { cells, biome: brushStroke.biome });
+    }
+
     function onPointerDown(event) {
         if (event.button !== undefined && event.button !== 0) return;
         canvas.focus();
@@ -3134,6 +3239,14 @@ export function mountMapRenderer(root, options) {
         const rect = cachedRect;
         const px = event.clientX - rect.left;
         const py = event.clientY - rect.top;
+        if (worldEditing && brushState.active) {
+            hideHover();
+            brushStroke = { cells: new Map(), biome: brushState.biome === BRUSH_ERASE ? null : brushState.biome, sent: false };
+            brushCellsAt(px, py);
+            window.addEventListener('pointermove', onBrushPointerMove);
+            window.addEventListener('pointerup', onBrushPointerUp);
+            return;
+        }
         // WO 4.4 — drag always pans. A pointer-down on an anchor is the same
         // gesture as a pointer-down on terrain: a potential pan, or a click
         // if it stays inside the dead zone. A click on a place routes to it
@@ -3291,6 +3404,8 @@ export function mountMapRenderer(root, options) {
         if (pulseInterval) { clearInterval(pulseInterval); pulseInterval = 0; }
         fontSet?.removeEventListener?.('loadingdone', onFontsLoaded);
         detachWindowListeners();
+        window.removeEventListener('pointermove', onBrushPointerMove);
+        window.removeEventListener('pointerup', onBrushPointerUp);
         canvas.removeEventListener('pointerdown', onPointerDown);
         canvas.removeEventListener('pointermove', onCanvasPointerMove);
         canvas.removeEventListener('pointerleave', onCanvasPointerLeave);

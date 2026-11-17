@@ -225,13 +225,8 @@ describe('world map — Correct player position and Move a place here (Edit worl
         document.body.replaceChildren();
     });
 
-    it('Correct player position on an empty cell puts the party on that exact cell', async () => {
+    it('Teleport here on an empty cell puts the party on that exact cell, without Edit world', async () => {
         await boot({ currentPlaceId: 'a' });
-        rendererOptions.onContextAction('current', { x: 450, y: 450, locationId: null });
-        await settle();
-        expect(fixture.ctx.data.location.currentPlaceId).toBe('a');
-
-        rendererOptions.onRouteAction('worldEditing', true);
         rendererOptions.onContextAction('current', { x: 450, y: 450, locationId: null });
         await vi.waitFor(() => expect(fixture.ctx.data.location.currentPlaceId).toMatch(/^point-/));
         const id = fixture.ctx.data.location.currentPlaceId;
@@ -254,12 +249,49 @@ describe('world map — Correct player position and Move a place here (Edit worl
         expect(fixture.ctx.data.location.currentPlaceId).toBe('a');
     });
 
-    it('Correct player position near a place keeps choosing that place', async () => {
+    it('Teleport here near a place keeps choosing that place', async () => {
         await boot({ currentPlaceId: 'a' });
-        rendererOptions.onRouteAction('worldEditing', true);
         rendererOptions.onContextAction('current', { x: 421, y: 401, locationId: 'b' });
         expect(fixture.ctx.data.location.currentPlaceId).toBe('b');
         expect(ledgerOf(fixture)).toHaveLength(2);
+    });
+
+    it('Teleport here is refused during a journey', async () => {
+        await boot({ currentPlaceId: 'a', travel: { fromId: 'a', toId: 'b', leg: 1, totalLegs: 3 } });
+        rendererOptions.onContextAction('current', { x: 421, y: 401, locationId: 'b' });
+        expect(fixture.ctx.data.location.currentPlaceId).toBe('a');
+        expect(rendererOptions.getRoutePreview()).toMatchObject({ reason: 'teleport-journey' });
+    });
+
+    it('the route panel Teleport button moves the party to the previewed cell', async () => {
+        await boot({ currentPlaceId: 'a' });
+        rendererOptions.onClickCell(450, 450);
+        rendererOptions.onRouteAction('teleport');
+        await vi.waitFor(() => expect(fixture.ctx.data.location.currentPlaceId).toMatch(/^point-/));
+        expect(entry(fixture, fixture.ctx.data.location.currentPlaceId)).toMatchObject({ coordinates: { x: 450, y: 450 } });
+        expect(fixture.ctx.data.location.worldDay).toBe(5);
+        expect(rendererOptions.getRoutePreview()).toBeNull();
+    });
+
+    it('the terrain brush paints and erases cells, only in Edit world', async () => {
+        await boot({ currentPlaceId: 'a' });
+        const cells = [{ x: 300, y: 300 }, { x: 301, y: 300 }];
+        rendererOptions.onRouteAction('paintTerrain', { cells, biome: 'desert' });
+        await settle();
+        expect((fixture.tables.visited ?? []).some(row => row.x === 300 && row.y === 300)).toBe(false);
+
+        rendererOptions.onRouteAction('worldEditing', true);
+        rendererOptions.onRouteAction('paintTerrain', { cells, biome: 'desert' });
+        await vi.waitFor(() => expect(mapSnapshot(fixture.ctx).chunkStore.getCell(301, 300).biome).toBe('desert'));
+        expect(fixture.tables.visited).toEqual(expect.arrayContaining([{ x: 300, y: 300, biome: 'desert' }]));
+        expect(fixture.tables.exploration.generatedCells).toEqual(expect.arrayContaining(['300,300', '301,300']));
+
+        rendererOptions.onRouteAction('paintTerrain', { cells: [{ x: 300, y: 300 }], biome: 'lava' });
+        await settle();
+        expect(mapSnapshot(fixture.ctx).chunkStore.getCell(300, 300).biome).toBe('desert');
+
+        rendererOptions.onRouteAction('paintTerrain', { cells: [{ x: 300, y: 300 }], biome: null });
+        await vi.waitFor(() => expect(fixture.tables.visited.some(row => row.x === 300 && row.y === 300)).toBe(false));
     });
 
     it('lists only authored places, by name, as movable', () => {
