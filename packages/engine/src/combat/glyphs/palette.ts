@@ -1,12 +1,16 @@
-import type { AugmentId, EffectId, FormId, GlyphAbility } from '../types';
-import { AUGMENT_COSTS, AUGMENT_IDS, EFFECT_IDS, EFFECTS, FORM_IDS, FORMS, GLYPH_NUMBERS as N } from './registry';
+import type { AugmentId, EffectId, ElementId, ElementPresetId, FormId, GlyphAbility, GlyphTier } from '../types';
+import { checkElement, elementCost, normalizePreset } from '../elements/rules';
 import {
-    barrierRounds, blinkRange, burstRadius, burstRange, coneLength, count, damageDice, dashLength, drainDice, healDice, hasteTurns,
-    lineLength, lineWidth, projectileRange, pushDistance, saveDc, shieldAmount, shieldTurns, slowTurns, stunTurns, summonRounds,
-    summonTier,
+    AUGMENT_COSTS, AUGMENT_IDS, AUGMENT_TIERS, DAMPENED_COST_FLOOR, DELAY_REFUSED_EFFECTS, EFFECT_IDS, EFFECTS, FORM_IDS, FORMS, GLYPH_NUMBERS as N, TELEPORT_EFFECTS,
+} from './registry';
+import {
+    barrierRounds, blinkRange, burstRadius, burstRange, chainJumps, chainRange, coneLength, count, damageDice, dashLength, decayDice, drainDice,
+    fearTurns, gravitySquares, healDice, hasteTurns, leapGlyphRange, lineLength, lineWidth, mantleRadius, mantleRounds, projectileRange,
+    pushDistance, saveDc, shieldAmount, shieldTurns, sigilRange, sigilRounds, slowTurns, snareTurns, stunTurns, summonRounds, summonTier,
+    wallLength, wallRange, wallRounds,
 } from './numbers';
 import type { CasterStats } from './numbers';
-import { effectClause, formClause } from './validate';
+import { dampenedCost, effectClause, formClause } from './validate';
 import type { AbilityLimits } from './validate';
 
 export type GlyphRef =
@@ -19,7 +23,13 @@ export type GlyphKind = GlyphRef['kind'];
 export type ChainDraft = {
     form: { id: FormId | null; augments: AugmentId[] };
     effects: { id: EffectId; augments: AugmentId[] }[];
+    element?: ElementId;
 };
+
+export type ElementPlacementReason =
+    | { code: 'unknown-element' }
+    | { code: 'outside-preset'; preset: ElementPresetId }
+    | { code: 'chain-full'; limit: number };
 
 export type SocketOwner = 'form' | number;
 
@@ -62,7 +72,21 @@ export function chainOf(ability: GlyphAbility): ChainDraft {
     return {
         form: { id: ability.form.id, augments: [...ability.form.augments] },
         effects: ability.effects.map(e => ({ id: e.id, augments: [...e.augments] })),
+        ...(ability.element ? { element: ability.element } : {}),
     };
+}
+
+export function placeElement(chain: ChainDraft, element: ElementId | null): ChainDraft {
+    const next: ChainDraft = { ...chain };
+    delete next.element;
+    return element ? { ...next, element } : next;
+}
+
+export function elementPlacementReason(chain: ChainDraft, element: string, limits: AbilityLimits): ElementPlacementReason | null {
+    const checked = checkElement(limits.elementPreset, element);
+    if (!checked.ok) return checked.reason === 'unknown' ? { code: 'unknown-element' } : { code: 'outside-preset', preset: normalizePreset(limits.elementPreset) };
+    const count = chainCount(chain.element ? placeElement(chain, null) : chain) + 1;
+    return count > limits.maxChainLength ? { code: 'chain-full', limit: limits.maxChainLength } : null;
 }
 
 export function allGlyphs(kind: GlyphKind): GlyphRef[] {
@@ -98,11 +122,43 @@ export function chainCost(chain: ChainDraft): number {
     const form = chain.form.id ? FORMS[chain.form.id].cost : 0;
     const formAug = chain.form.augments.reduce((sum, a) => sum + AUGMENT_COSTS[a], 0);
     const effects = chain.effects.reduce((sum, e) => sum + EFFECTS[e.id].cost + e.augments.reduce((s, a) => s + AUGMENT_COSTS[a], 0), 0);
-    return form + formAug + effects;
+    return dampenedCost(form + formAug + effects + elementCost(chain.element), chain.effects);
+}
+
+export function glyphTier(glyph: GlyphRef): GlyphTier {
+    if (glyph.kind === 'form') return FORMS[glyph.id].tier;
+    if (glyph.kind === 'effect') return EFFECTS[glyph.id].tier;
+    return AUGMENT_TIERS[glyph.id];
+}
+
+function comboReason(formId: FormId, formAugments: readonly AugmentId[], effects: readonly { id: EffectId; augments: readonly AugmentId[] }[], placed: GlyphRef): PlacementReason | null {
+    if (count(formAugments, 'delay') > 0) {
+        const bad = effects.find(e => DELAY_REFUSED_EFFECTS.has(e.id));
+        if (bad) return { code: 'not-accepted', by: placed.kind === 'effect' && placed.id === bad.id ? { kind: 'augment', id: 'delay' } : { kind: 'effect', id: bad.id } };
+    }
+    for (const e of effects) {
+        if (count(e.augments, 'dampen') > 0 && count(e.augments, 'amplify') > 0) {
+            return { code: 'not-accepted', by: placed.kind === 'augment' && placed.id === 'amplify' ? { kind: 'augment', id: 'dampen' } : { kind: 'augment', id: 'amplify' } };
+        }
+    }
+    const teleports = effects.filter(e => TELEPORT_EFFECTS.has(e.id));
+    if (teleports.length > 1) {
+        const other = teleports.find(e => !(placed.kind === 'effect' && placed.id === e.id)) ?? teleports[0];
+        return { code: 'not-accepted', by: { kind: 'effect', id: other.id } };
+    }
+    if (FORMS[formId].placed) {
+        const hostile = effects.find(e => EFFECTS[e.id].hostile);
+        const helpful = effects.find(e => EFFECTS[e.id].helpful);
+        if (hostile && helpful) {
+            const other = placed.kind === 'effect' && placed.id === hostile.id ? helpful : hostile;
+            return { code: 'not-accepted', by: { kind: 'effect', id: other.id } };
+        }
+    }
+    return null;
 }
 
 export function chainCount(chain: ChainDraft): number {
-    return (chain.form.id ? 1 : 0) + chain.form.augments.length + chain.effects.reduce((sum, e) => sum + 1 + e.augments.length, 0);
+    return (chain.element ? 1 : 0) + (chain.form.id ? 1 : 0) + chain.form.augments.length + chain.effects.reduce((sum, e) => sum + 1 + e.augments.length, 0);
 }
 
 function ownerGlyph(chain: ChainDraft, owner: SocketOwner): GlyphRef | null {
@@ -158,7 +214,8 @@ export function placementReason(chain: ChainDraft, socket: Socket, glyph: GlyphR
     const next = placeGlyph(chain, socket, glyph);
     const chainFull: PlacementReason = { code: 'chain-full', limit: limits.maxChainLength };
     const tooLong = chainCount(next) > limits.maxChainLength;
-    if (socket.kind === 'form') return tooLong ? chainFull : null;
+    const combo = next.form.id ? comboReason(next.form.id, next.form.augments, next.effects, glyph) : null;
+    if (socket.kind === 'form') return combo ?? (tooLong ? chainFull : null);
     if (socket.kind === 'effect' && glyph.kind === 'effect') {
         const id = glyph.id;
         const formId = chain.form.id;
@@ -175,7 +232,7 @@ export function placementReason(chain: ChainDraft, socket: Socket, glyph: GlyphR
         if (id === 'swap' && (count(chain.form.augments, 'split') > 0 || count(chain.form.augments, 'pierce') > 0)) return { code: 'swap-conflict' };
         if (id === 'barrier' && count(chain.form.augments, 'widen') > 0) return { code: 'barrier-widen' };
         if (socket.index >= chain.effects.length && chain.effects.length >= N.maxEffects) return { code: 'effects-full', max: N.maxEffects };
-        return tooLong ? chainFull : null;
+        return combo ?? (tooLong ? chainFull : null);
     }
     if (socket.kind === 'augment' && glyph.kind === 'augment') {
         const id = glyph.id;
@@ -189,7 +246,7 @@ export function placementReason(chain: ChainDraft, socket: Socket, glyph: GlyphR
             if ((id === 'split' || id === 'pierce') && effectIds.includes('swap')) return { code: 'swap-conflict' };
             if (id === 'widen' && effectIds.includes('barrier')) return { code: 'barrier-widen' };
         }
-        return tooLong ? chainFull : null;
+        return combo ?? (tooLong ? chainFull : null);
     }
     return null;
 }
@@ -271,6 +328,8 @@ function augmentLines(id: AugmentId, stats: CasterStats): string[] {
                 step('Push, Pull', pushDistance([]), pushDistance(a), ' squares'),
                 step('Drain', drainDice(stats, []), drainDice(stats, a), 'd6'),
                 step('Summon', summonTier([]), summonTier(a)),
+                step('Gravity', gravitySquares([]), gravitySquares(a), ' squares'),
+                step('Decay', decayDice(stats, []), decayDice(stats, a), `d${N.decaySides}`),
             ];
         case 'extend':
             return [
@@ -286,6 +345,10 @@ function augmentLines(id: AugmentId, stats: CasterStats): string[] {
                 step('Haste', hasteTurns([]), hasteTurns(a), ' turns'),
                 step('Barrier', barrierRounds([]), barrierRounds(a), ' rounds'),
                 step('Summon', summonRounds([]), summonRounds(a), ' rounds'),
+                step('Sigil range', sigilRange(probe('sigil')), sigilRange(probe('sigil', a)), ' squares'),
+                step('Chain range', chainRange(probe('chain')), chainRange(probe('chain', a)), ' squares'),
+                step('Wall range', wallRange(probe('wall')), wallRange(probe('wall', a)), ' squares'),
+                step('Leap range', leapGlyphRange([]), leapGlyphRange(a), ' squares'),
             ];
         case 'widen': {
             const side = (ability: GlyphAbility) => burstRadius(ability) * 2 + 1;
@@ -293,8 +356,30 @@ function augmentLines(id: AugmentId, stats: CasterStats): string[] {
                 step('Burst', `${side(probe('burst'))}×${side(probe('burst'))}`, `${side(probe('burst', a))}×${side(probe('burst', a))}`),
                 step('Cone length', coneLength(probe('cone')), coneLength(probe('cone', a)), ' squares'),
                 step('Line width', lineWidth(probe('line')), lineWidth(probe('line', a)), ' squares'),
+                step('Mantle', `${mantleRadius(probe('mantle')) * 2 + 1}×${mantleRadius(probe('mantle')) * 2 + 1}`, `${mantleRadius(probe('mantle', a)) * 2 + 1}×${mantleRadius(probe('mantle', a)) * 2 + 1}`),
+                step('Chain jumps', chainJumps(probe('chain')), chainJumps(probe('chain', a))),
+                step('Wall length', wallLength(probe('wall')), wallLength(probe('wall', a)), ' squares'),
             ];
         }
+        case 'dampen':
+            return [
+                step('Damage', damageDice(stats, []), damageDice(stats, a), 'd6'),
+                step('Heal', healDice(stats, []), healDice(stats, a), 'd4'),
+                step('Shield', shieldAmount(stats, []), shieldAmount(stats, a), ' HP'),
+                step('Push, Pull', pushDistance([]), pushDistance(a), ' squares'),
+                step('Drain', drainDice(stats, []), drainDice(stats, a), 'd6'),
+                `Costs ${-AUGMENT_COSTS.dampen} MP less (an ability never costs less than ${DAMPENED_COST_FLOOR} MP).`,
+            ];
+        case 'sustain':
+            return [
+                step('Sigil', sigilRounds(probe('sigil')), sigilRounds(probe('sigil', a)), ' rounds'),
+                step('Mantle', mantleRounds(probe('mantle')), mantleRounds(probe('mantle', a)), ' rounds'),
+                step('Wall', wallRounds(probe('wall')), wallRounds(probe('wall', a)), ' rounds'),
+                step('Snare', snareTurns([]), snareTurns(a), ' turns'),
+                step('Fear', fearTurns([]), fearTurns(a), ' turns'),
+            ];
+        case 'delay':
+            return [`Goes off at the start of the user's next turn on whoever is then in the squares aimed at, with ${N.delayBoost} more die of damage or healing.`];
         case 'pierce':
             return ['Projectile: passes through combatants and cover, not walls, and hits every combatant on its path.'];
         case 'split':

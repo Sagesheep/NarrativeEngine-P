@@ -1,4 +1,5 @@
-import { normalizeSpeech, normalizeTactic, parseDiceExpr } from '@narrative/engine';
+import { elementOfWord, normalizeSpeech, normalizeTactic, parseDiceExpr } from '@narrative/engine';
+import type { ElementId } from '@narrative/engine';
 import { isModEnabled } from '../mods/modEnablement';
 import type { ProposedCombatant, Speech, Tactic, TemplateOverlay } from '../../types';
 
@@ -16,6 +17,12 @@ export type CompendiumTemplate = {
     stats?: CompendiumStat[];
     weaknesses?: string[];
     resistances?: string[];
+    immunities?: string[];
+    immune?: string[];
+    tags?: string[];
+    passiveTraits?: string[];
+    mindless?: boolean;
+    element?: string;
     speech?: string;
     tactic?: string;
 };
@@ -124,17 +131,46 @@ export function templateOverlay(
     return { overlay, fields, unique };
 }
 
+export type CompendiumElements = { immune?: ElementId[]; mindless?: boolean; element?: ElementId };
+
+const IMMUNE_LEAD = /^\s*(?:immune|immunity|immunities)\b(?:\s+to\b)?\s*[:-]?\s*/i;
+
+function splitWords(text: string): string[] {
+    return text.split(/[,;/]|\s+and\s+/i).map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+export function templateElements(template: CompendiumTemplate): CompendiumElements {
+    const immune: ElementId[] = [];
+    const add = (word: string) => {
+        const element = elementOfWord(word);
+        if (element && !immune.includes(element)) immune.push(element);
+    };
+    for (const line of [...stringList(template.immunities), ...stringList(template.immune)]) splitWords(line).forEach(add);
+    for (const line of stringList(template.resistances)) {
+        if (IMMUNE_LEAD.test(line)) splitWords(line.replace(IMMUNE_LEAD, '')).forEach(add);
+    }
+    const flags = [...stringList(template.tags), ...stringList(template.passiveTraits)].map(s => s.toLowerCase());
+    const mindless = typeof template.mindless === 'boolean' ? template.mindless : flags.some(s => /\bmindless\b/.test(s)) ? true : undefined;
+    const element = elementOfWord(template.element);
+    return {
+        ...(immune.length > 0 ? { immune } : {}),
+        ...(mindless !== undefined ? { mindless } : {}),
+        ...(element ? { element } : {}),
+    };
+}
+
 export function compendiumFor(
     combatant: Pick<ProposedCombatant, 'name' | 'npcId' | 'species'>,
     state: CompendiumLookupState,
-): { overlay?: TemplateOverlay; source: CompendiumSource; speech?: Speech; tactic?: Tactic } {
+): { overlay?: TemplateOverlay; source: CompendiumSource; speech?: Speech; tactic?: Tactic; elements?: CompendiumElements } {
     const template = findCompendiumTemplate(combatant.species, state);
     if (!template) return { source: { kind: 'tier' } };
     const { overlay, fields, unique } = templateOverlay(template, combatant);
     const hasLists = !!overlay.weaknesses || !!overlay.resistances;
     const speech = normalizeSpeech(template.speech);
     const tactic = normalizeTactic(template.tactic);
-    const extra = { ...(speech ? { speech } : {}), ...(tactic ? { tactic } : {}) };
+    const elements = templateElements(template);
+    const extra = { ...(speech ? { speech } : {}), ...(tactic ? { tactic } : {}), ...(Object.keys(elements).length > 0 ? { elements } : {}) };
     if (fields.length === 0 && !hasLists) return { source: { kind: 'tier' }, ...extra };
     return {
         ...extra,

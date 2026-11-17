@@ -1,4 +1,4 @@
-import { AUGMENT_IDS, EFFECT_IDS, FORM_IDS, cleanAbilityName, validateAbility } from '@narrative/engine';
+import { AUGMENT_IDS, EFFECT_IDS, FORM_IDS, cleanAbilityName, elementOfWord, elementsFor, validateAbility } from '@narrative/engine';
 import type { AbilityLimits } from '@narrative/engine';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import type { AbilityProposal, AugmentId, CombatSession, EffectId, FormId, GameContext, GlyphAbility } from '../../types';
@@ -89,6 +89,9 @@ export function parseAbilityArgs(raw: string | Record<string, unknown>, limits: 
             effects.push({ id: effectWord as EffectId, augments: augmentList(rec?.augments, reasons, `effects[${i}].augments`) });
         });
     }
+    const elementWord = word(args.element);
+    const element = elementWord ? elementOfWord(elementWord) : null;
+    if (elementWord && !element) reasons.push(`\`element\` must be one of ${elementsFor(limits.elementPreset).join(', ')}`);
     if (reasons.length > 0) return { ok: false, reasons };
     const description = cleanText(args.description, 400);
     const damageType = cleanText(args.damageType, 24);
@@ -99,6 +102,7 @@ export function parseAbilityArgs(raw: string | Record<string, unknown>, limits: 
         ...(damageType ? { damageType } : {}),
         form: { id: formWord as FormId, augments: formAugments },
         effects,
+        ...(element ? { element } : {}),
         source: 'ai',
     };
     const invalid = validateAbility(ability, limits);
@@ -118,5 +122,6 @@ export function isAbilityToolAllowed(
 }
 
 export function abilityLimitsOf(context: Pick<GameContext, 'combatConfig'>): AbilityLimits {
-    return limitsOf(configOf(context));
+    const config = configOf(context);
+    return { ...limitsOf(config), elementPreset: config.combatElements };
 }

@@ -3,6 +3,9 @@ import type { AbilityLimits, CasterStats } from '@narrative/engine';
 import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { GlyphAbility } from '../../types';
+import { elementOutsidePreset } from '../../services/combat/spellbook';
+import { elementName } from '../combat/elementText';
+import { useElementPreset } from './useElementPreset';
 
 export function ChainSummary({ ability, hasForm, cost, count, stats, limits, maxMp, label }: {
     ability: GlyphAbility;
@@ -15,6 +18,8 @@ export function ChainSummary({ ability, hasForm, cost, count, stats, limits, max
     label: string;
 }) {
     const { t } = useTranslation();
+    const preset = useElementPreset();
+    const outside = elementOutsidePreset(ability, preset);
     const reasons = validateAbility(ability, limits);
     const over = maxMp > 0 && cost > maxMp;
     const pct = maxMp > 0 ? Math.min(100, Math.round((cost / maxMp) * 100)) : 0;
@@ -45,6 +50,11 @@ export function ChainSummary({ ability, hasForm, cost, count, stats, limits, max
                 </div>
                 {over && <p className="text-xs text-danger leading-relaxed">{t('spellbook.meter.over', { max: maxMp, label })}</p>}
             </div>
+            {outside && ability.element && (
+                <p data-testid="builder-element-outside" role="note" className="text-xs leading-relaxed" style={{ color: 'var(--combat-hp-warn)' }}>
+                    {t('spellbook.element.outsideNote', { name: elementName(ability.element, t), preset: t(`combat.settings.elements.${preset}`) })}
+                </p>
+            )}
             {reasons.length > 0 && (
                 <div data-testid="builder-reasons" role="alert" className="rounded-lg border border-danger/40 bg-danger/5 p-3 flex flex-col gap-1.5">
                     <p className="flex items-center gap-1.5 text-xs font-bold text-danger"><AlertTriangle size={14} aria-hidden="true" />{t('combat.builder.invalid')}</p>

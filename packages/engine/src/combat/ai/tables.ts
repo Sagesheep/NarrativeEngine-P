@@ -120,3 +120,44 @@ export const AI_LIMITS = {
     winningMargin: 0.25,
     shootingRange: 8,
 } as const;
+
+export type GlyphAiEntry = { glyph: { kind: 'form' | 'effect' | 'augment'; id: string }; plan: boolean; reason: string };
+
+export const GLYPH_AI: readonly GlyphAiEntry[] = [
+    { glyph: { kind: 'form', id: 'sigil' }, plan: false, reason: 'A trap pays only if a foe walks onto it later; choosing the square needs a guess at foe paths over several turns, which the one-turn planner does not make.' },
+    { glyph: { kind: 'form', id: 'mantle' }, plan: true, reason: 'Valued as one application of its effects to the units now within its radius of the square the caster ends on; not recast while one is active.' },
+    { glyph: { kind: 'form', id: 'chain' }, plan: true, reason: 'Targets come from the resolver; each target is valued at its share of the strength.' },
+    { glyph: { kind: 'form', id: 'wall' }, plan: false, reason: 'Where a wall helps (cutting a path, shielding a shooter) depends on later movement; the planner has no term for blocking routes.' },
+    { glyph: { kind: 'effect', id: 'snare' }, plan: true, reason: 'Control value: the target cannot close in; worth little against a shooter.' },
+    { glyph: { kind: 'effect', id: 'dispel' }, plan: true, reason: 'Support value for harmful conditions on a friend, control value for helpful ones on a foe.' },
+    { glyph: { kind: 'effect', id: 'leap' }, plan: false, reason: 'A movement glyph: valuing it needs a second tile search from every landing square, the same reason blink is left to players.' },
+    { glyph: { kind: 'effect', id: 'gravity' }, plan: true, reason: 'Valued like a pull toward the centre: hazards crossed, plus a small control value.' },
+    { glyph: { kind: 'effect', id: 'fear' }, plan: true, reason: 'Control value scaled by the target\'s threat.' },
+    { glyph: { kind: 'effect', id: 'decay' }, plan: true, reason: 'Valued as damage that cannot be healed.' },
+    { glyph: { kind: 'effect', id: 'vanish' }, plan: true, reason: 'Support value when foes can reach the caster.' },
+    { glyph: { kind: 'effect', id: 'rewind' }, plan: true, reason: 'Support value equal to the HP it would give back.' },
+    { glyph: { kind: 'augment', id: 'dampen' }, plan: true, reason: 'Changes the numbers only.' },
+    { glyph: { kind: 'augment', id: 'sustain' }, plan: true, reason: 'Changes the numbers only.' },
+    { glyph: { kind: 'augment', id: 'delay' }, plan: true, reason: 'Valued with the stronger payload, times the chance the target is still there (certain if it cannot move).' },
+    { glyph: { kind: 'effect', id: 'blink' }, plan: false, reason: 'A movement glyph (unchanged from before).' },
+    { glyph: { kind: 'effect', id: 'barrier' }, plan: false, reason: 'Blocks squares; the planner has no term for routes (unchanged from before).' },
+    { glyph: { kind: 'effect', id: 'swap' }, plan: false, reason: 'Moves two units; valuing it needs a position search for both (unchanged from before).' },
+];
+
+export const AI_SKIP_EFFECTS: ReadonlySet<string> = new Set(GLYPH_AI.filter(g => !g.plan && g.glyph.kind === 'effect').map(g => g.glyph.id));
+
+export const AI_SKIP_FORMS: ReadonlySet<string> = new Set(GLYPH_AI.filter(g => !g.plan && g.glyph.kind === 'form').map(g => g.glyph.id));
+
+export const GLYPH_AI_VALUES = {
+    snare: 0.5,
+    snareShooter: 0.15,
+    fear: 0.6,
+    gravity: 0.2,
+    delayStay: 0.5,
+    vanish: 0.8,
+    dispelStun: 4,
+    dispelOther: 1,
+    dispelHaste: 3,
+    zoneShare: 0.6,
+    fearPull: 2,
+} as const;

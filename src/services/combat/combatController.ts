@@ -20,13 +20,14 @@ import { groupEventsByTurn, hpBandLabel, isGroupComplete, turnLines } from './co
 import { compendiumFor, type CompendiumLookupState } from './compendiumLookup';
 import { resolveCombatMap } from './combatMap';
 import { queueCombatNarration, waitForCombatNarration } from './combatNarration';
-import { hasEnemy, officerFlag } from './combatProposal';
+import { elementSpecFields, hasEnemy, officerFlag } from './combatProposal';
 import { objectiveSpecFields, reconcileObjective } from './combatObjective';
 import { objectiveLossLine, objectiveOutcomeLines, objectiveResultClause } from './objectiveStory';
 import { makeCombatNote, COMBAT_DECLINED_TEXT } from './combatTurnNotes';
 import { markProposedMessage } from './combatCommitHooks';
 import { commitCombatPatch, remirrorCombatSheet } from './combatSheet';
 import { directorOutcomeLines, translateOrderEvents } from './directorStory';
+import { translateElementEvents } from './elementStory';
 
 export const COMBAT_LOG_NAME = 'combat-log';
 export const COMBAT_RESULT_NAME = 'combat-result';
@@ -144,7 +145,7 @@ export function postPendingLog(session: CombatSession): CombatSession {
     let posted = 0;
     for (const group of groupEventsByTurn(pending)) {
         if (!isGroupComplete(group, session.state)) break;
-        const lines = turnLines({ ...group, events: translateOrderEvents(group.events, session.state) }, session.state, { numbers: true });
+        const lines = turnLines({ ...group, events: translateOrderEvents(translateElementEvents(group.events, session.state), session.state) }, session.state, { numbers: true });
         postedThrough = Math.max(postedThrough, ...group.events.map(e => e.seq));
         if (lines.length === 0) continue;
         postMessage(COMBAT_LOG_NAME, lines.join('\n'));
@@ -281,10 +282,11 @@ export function buildCombatantSpecs(
 ): CombatantSpec[] {
     return combatants.filter(c => isIncluded(c, partyControl)).map(c => {
         const range = rangeForAttack(c.attack);
-        const { overlay, speech: templateSpeech, tactic: templateTactic } = compendiumFor(c, lookup);
+        const { overlay, speech: templateSpeech, tactic: templateTactic, elements: templateElements } = compendiumFor(c, lookup);
         const speech: Speech | undefined = c.npcId ? 'speaks' : templateSpeech ?? c.speech;
         const tactic = c.tactic ?? templateTactic;
         const directed = officerFlag(c);
+        const elements = elementSpecFields({ ...templateElements, ...elementSpecFields(c) });
         return {
             name: c.name,
             side: c.side,
@@ -300,6 +302,7 @@ export function buildCombatantSpecs(
             ...(overlay ? { template: overlay } : {}),
             ...(directed !== undefined ? { directed } : {}),
             ...(c.signature ? { signature: c.signature } : {}),
+            ...elements,
         };
     });
 }
@@ -343,8 +346,10 @@ export async function startFromProposal(proposal: CombatProposal, seed?: number)
             maxSummons: config.maxSummons,
             partyControl: config.partyControl,
             defeatMode: config.defeatMode,
+            ...(config.combatElements !== 'all' ? { elementPreset: config.combatElements } : {}),
         }, pc, fightSeed);
         for (const repair of created.signatureRepairs ?? []) console.info(`[combat] signature adjusted at start: ${repair.text}`);
+        for (const drop of created.elementDrops ?? []) console.info(`[combat] element dropped at start: ${drop.unitName} ${drop.field} ${drop.value} (${drop.reason})`);
         const excluded = excludedAllies(roster, config.partyControl);
         const session: CombatSession = {
             state: created.state,

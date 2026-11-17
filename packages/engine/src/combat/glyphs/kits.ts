@@ -1,4 +1,4 @@
-import type { Archetype, CombatTier, GlyphAbility } from '../types';
+import type { Archetype, CombatTier, ElementId, GlyphAbility } from '../types';
 
 export const ENEMY_BOLT_ID = 'kit-bolt';
 export const ENEMY_BURST_ID = 'kit-burst';
@@ -10,13 +10,14 @@ function titleCase(word: string): string {
     return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : 'Arcane';
 }
 
-export function enemyKit(tier: CombatTier, archetype: Archetype | undefined, damageType: string): GlyphAbility[] {
+export function enemyKit(tier: CombatTier, archetype: Archetype | undefined, damageType: string, element?: ElementId): GlyphAbility[] {
     if (archetype !== 'caster') return [];
-    const type = damageType.trim() || 'arcane';
+    const type = element ?? (damageType.trim() || 'arcane');
     const kit: GlyphAbility[] = [{
         id: ENEMY_BOLT_ID,
         name: `${titleCase(type)} bolt`,
         damageType: type,
+        ...(element ? { element } : {}),
         form: { id: 'projectile', augments: [] },
         effects: [{ id: 'damage', augments: [] }],
         source: 'preset',
@@ -26,6 +27,7 @@ export function enemyKit(tier: CombatTier, archetype: Archetype | undefined, dam
             id: ENEMY_BURST_ID,
             name: `${titleCase(type)} burst`,
             damageType: type,
+            ...(element ? { element } : {}),
             form: { id: 'burst', augments: [] },
             effects: [{ id: 'damage', augments: [] }],
             source: 'preset',

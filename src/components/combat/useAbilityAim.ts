@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { abilityTargets, findUsableAbility, legalAims, payloadAt, payloadChoices, previewAbilityPushes, sameTeam } from '@narrative/engine';
+import { abilityTargets, findUsableAbility, legalAims, needsAim as engineNeedsAim, payloadAt, payloadChoices, previewAbilityPushes, sameTeam } from '@narrative/engine';
 import type { PayloadChoice, PushPreview, ThrowPayload, ThrowPlan } from '@narrative/engine';
 import type { CombatAction, CombatPos, CombatState, GlyphAbility } from '../../types';
 import { posKey } from './combatVisuals';
@@ -38,7 +38,7 @@ export type AbilityAim = {
 };
 
 export function needsAim(ability: GlyphAbility): boolean {
-    return ability.form.id !== 'self' || ability.effects.some(e => e.id === 'blink' || e.id === 'leap');
+    return engineNeedsAim(ability);
 }
 
 export function isThrow(ability: GlyphAbility): boolean {

@@ -7,14 +7,19 @@ import {
 import { MAP_GENERATOR_VERSION, buildMapFromSeed, openArena, placeCombatants } from './mapBuilder';
 import { resolveMapSpec } from './mapSpec';
 import {
-    canAttackWith, canTarget, closeDraft, currentActorId, currentTurn, DEFEND_CONDITION, dismissSummon, emit,
-    freshTurn, hasCondition, hazardStrike, isPlayerSide, openDraft, settleOutcome, SHIELDED, STUNNED,
+    canAttackWith, canTarget, closeDraft, currentActorId, currentTurn, DEFEND_CONDITION, dismissSummon, emit, FEARED,
+    freshTurn, hasCondition, hazardStrike, isPlayerSide, openDraft, settleOutcome, SHIELDED, STUNNED, VANISHED,
 } from './core';
 import type { Draft } from './core';
-import { abilitySlot, checkAbility, resolveAbility, resolveStunt } from './glyphs/apply';
+import { abilitySlot, checkAbility, findUsableAbility, resolveAbility, resolveStunt } from './glyphs/apply';
 import { checkStunt } from './glyphs/stunt';
 import { normalizeThrowPayload, pickUpItems } from './glyphs/throw';
-import { BUILTIN_JUMP_ID, BUILTIN_SHOVE_ID, builtinAttack, builtinDefend, checkAttack } from './glyphs/builtins';
+import { BUILTIN_DASH_ID, BUILTIN_JUMP_ID, BUILTIN_SHOVE_ID, builtinAttack, builtinDefend, checkAttack } from './glyphs/builtins';
+import { burnTick, consumeCondition } from './glyphs/riders';
+import { enteredTile, turnStartPlaced } from './glyphs/apply';
+import { expirePlaced, sigilTriggersOn } from './glyphs/placed';
+import { slideAt, walkMarks } from './glyphs/marks';
+import { CONFUSED } from './elements/tables';
 import type { AimResult } from './glyphs/targeting';
 import {
     abandonFight, attemptFlee, buildMoraleBook, canAbandon, checkFlee, checkParley, concedeFight,
@@ -30,9 +35,10 @@ import { defaultCastingAbility } from './glyphs/numbers';
 import { objectiveRoundEnd, objectiveRoundStart, objectiveTurnBegins, objectiveTurnEnd } from './objectives/run';
 import { planReinforcements, validateObjective } from './objectives/validate';
 import { bystanderIdOf, leaderIdOf, wardIdOf } from './objectives/marks';
+import { checkElement, filterElements, normalizePreset } from './elements/rules';
 import type {
-    AttackRange, CombatAction, CombatCondition, CombatEvent, CombatObjective, CombatSpec, CombatState, Combatant, CombatantSpec, GlyphAbility, Grid,
-    ObjectiveReport, Pos, ReinforcementBook, ReinforcementWave, Rng, SignatureRepair, TurnState,
+    AttackRange, CombatAction, CombatCondition, CombatEvent, CombatObjective, CombatSpec, CombatState, Combatant, CombatantSpec, ElementDrop, ElementId,
+    ElementPresetId, GlyphAbility, Grid, ObjectiveReport, Pos, ReinforcementBook, ReinforcementWave, Rng, SignatureRepair, TurnState,
 } from './types';
 import { validateSignature } from './director/signature';
 
@@ -55,7 +61,29 @@ function startTurn(draft: Draft): void {
     if (actor.position) draft.state.turnStart = { actorId: id, pos: { ...actor.position } };
     else delete draft.state.turnStart;
     actor.conditions = actor.conditions.filter(c => c.id !== DEFEND_CONDITION);
+    glyphTurnStart(draft, actor);
+    burnTick(draft, actor);
+    if (actor.status !== 'up') return;
+    turnStartPlaced(draft, actor);
+    if (actor.status !== 'up') return;
     rollMoraleIfDue(draft, actor);
+}
+
+function hasRewind(c: Combatant): boolean {
+    return !!c.kit && c.kit.some(a => a.effects.some(e => e.id === 'rewind'));
+}
+
+function glyphTurnStart(draft: Draft, c: Combatant): void {
+    if (c.conditions.length > 0 && hasCondition(c, VANISHED)) consumeCondition(draft, c, VANISHED, 'turn_start');
+    if (!hasRewind(c)) return;
+    if (c.rewindNext) c.rewind = c.rewindNext;
+    c.rewindNext = {
+        ...(c.position ? { pos: { ...c.position } } : {}),
+        hp: c.hp,
+        ...(c.tempHp ? { tempHp: c.tempHp } : {}),
+        conditions: c.conditions.map(x => ({ ...x })),
+        turn: draft.state.turnCount ?? 0,
+    };
 }
 
 function endedText(c: Combatant, condition: string): string {
@@ -87,6 +115,9 @@ function loseTurn(draft: Draft, c: Combatant): void {
     s.turn = { actorId: c.id, moveLeft: 0, actionUsed: true };
     c.conditions = c.conditions.filter(x => x.id !== DEFEND_CONDITION);
     emit(draft, { type: 'turn_lost', actorId: c.id, data: { condition: STUNNED }, text: `${c.name} is stunned and loses the turn.` });
+    glyphTurnStart(draft, c);
+    burnTick(draft, c);
+    if (c.status === 'up') turnStartPlaced(draft, c);
     tickTurnConditions(draft, c);
     c.stunGuard = true;
 }
@@ -131,6 +162,30 @@ function environmentStep(draft: Draft): void {
             });
         }
     }
+    expirePlaced(draft, nextRound);
+}
+
+function pathStop(state: CombatState, actor: Combatant, path: readonly Pos[]): { index: number; by: 'sigil' | 'slick' } | null {
+    if (!state.placed || state.placed.length === 0) return null;
+    const index = path.findIndex(p => !!sigilTriggersOn(state, p, actor) || slideAt(state, p) > 0);
+    if (index < 0) return null;
+    return { index, by: sigilTriggersOn(state, path[index], actor) ? 'sigil' : 'slick' };
+}
+
+function fearSource(state: CombatState, actor: Combatant): Combatant | null {
+    if (actor.conditions.length === 0) return null;
+    const cond = actor.conditions.find(c => c.id === FEARED);
+    const source = cond?.sourceId ? state.combatants[cond.sourceId] : undefined;
+    return source && source.status === 'up' && source.position ? source : null;
+}
+
+function fearRefusal(state: CombatState, actor: Combatant, action: CombatAction, aim?: AimResult): string | null {
+    const source = fearSource(state, actor);
+    if (!source || !actor.position) return null;
+    const here = distance(actor.position, source.position as Pos);
+    if (action.type === 'move' && action.to && distance(action.to, source.position as Pos) < here) return 'too frightened to approach';
+    if (aim?.destination && distance(aim.destination, source.position as Pos) < here) return 'too frightened to approach';
+    return null;
 }
 
 function endOfTurn(draft: Draft, actorId: string): void {
@@ -181,6 +236,11 @@ function advanceTurn(draft: Draft): void {
             continue;
         }
         startTurn(draft);
+        if (next.status !== 'up') {
+            settleOutcome(draft);
+            if (s.outcome) return;
+            continue;
+        }
         return;
     }
 }
@@ -294,6 +354,24 @@ function runAbility(state: CombatState, actorId: string, ability: GlyphAbility, 
     return closeDraft(draft);
 }
 
+function runConfused(
+    state: CombatState, actor: Combatant, ability: GlyphAbility, aim: AimResult, driven: boolean, target: Combatant, intendedId?: string,
+): { state: CombatState; events: CombatEvent[] } {
+    const draft = openDraft(state);
+    emit(draft, {
+        type: 'confused',
+        actorId: actor.id,
+        targetId: target.id,
+        data: { ...(intendedId ? { intendedId } : {}), ability: ability.name },
+        text: `${actor.name} is confused and turns on ${target.name}.`,
+    });
+    consumeCondition(draft, draft.state.combatants[actor.id], CONFUSED, 'action');
+    resolveAbility(draft, actor.id, ability, aim);
+    settleOutcome(draft);
+    maybeAutoEnd(draft, actor.id, driven);
+    return closeDraft(draft);
+}
+
 export function applyAction(state: CombatState, action: CombatAction, options: ActionOptions = {}): { state: CombatState; events: CombatEvent[] } {
     const driven = options.driven === true;
     if (state.outcome) return rejection(state, action, 'the fight is over');
@@ -305,9 +383,12 @@ export function applyAction(state: CombatState, action: CombatAction, options: A
 
     if (action.type === 'attack') {
         if (!canAttackWith(turn)) return rejection(state, action, 'the action is already used');
-        const target = state.combatants[action.targetId];
-        if (!target || !canTarget(actor, target)) return rejection(state, action, 'invalid target');
-        const check = checkAttack(state, actor.id, target.id);
+        const forced = hasCondition(actor, CONFUSED) ? nearestUnit(state, actor) : null;
+        const target = forced ?? state.combatants[action.targetId];
+        if (!target || (!forced && !canTarget(actor, target))) return rejection(state, action, 'invalid target');
+        const afraid = forced ? null : fearRefusal(state, actor, action);
+        if (afraid) return rejection(state, action, afraid);
+        const check = checkAttack(state, actor.id, target.id, undefined, !!forced);
         if (!check.ok) return rejection(state, action, check.reason === 'no_line_of_sight' ? 'no line of sight' : 'out of range');
         const aim: AimResult = {
             ok: true,
@@ -315,6 +396,7 @@ export function applyAction(state: CombatState, action: CombatAction, options: A
             targetIds: [target.id],
             ...(actor.position ? { origin: { ...actor.position } } : {}),
         };
+        if (forced) return runConfused(state, actor, builtinAttack(actor), aim, driven, forced, action.targetId);
         return runAbility(state, actor.id, builtinAttack(actor), aim, driven);
     }
     if (action.type === 'defend') {
@@ -330,29 +412,54 @@ export function applyAction(state: CombatState, action: CombatAction, options: A
     if (action.type === 'move') {
         const to = action.to;
         if (!state.grid || !actor.position || !to || typeof to.x !== 'number' || typeof to.y !== 'number') return rejection(state, action, 'cannot move here');
-        const route = pathTo(state, actor.id, { x: to.x, y: to.y });
-        if (!route || route.cost > turn.moveLeft) return rejection(state, action, 'that square cannot be reached');
+        const found = pathTo(state, actor.id, { x: to.x, y: to.y });
+        if (!found || found.cost > turn.moveLeft) return rejection(state, action, 'that square cannot be reached');
+        const feared = fearRefusal(state, actor, action);
+        if (feared) return rejection(state, action, feared);
+        const trap = pathStop(state, actor, found.path);
+        const route = trap ? { path: found.path.slice(0, trap.index + 1), cost: pathCost(terrainOf(state) as Grid, found.path.slice(0, trap.index + 1)) } : found;
         const draft = openDraft(state);
         const self = draft.state.combatants[actor.id];
         const from = { ...actor.position };
-        const dest = { x: to.x, y: to.y };
+        const dest = { ...route.path[route.path.length - 1] };
         const rel = moveData(state, actor, from, dest);
         self.position = dest;
         draft.state.turn = { ...turn, moveLeft: turn.moveLeft - route.cost };
         emit(draft, {
             type: 'moved',
             actorId: actor.id,
-            data: { from, to: dest, path: route.path, cost: route.cost, squares: route.path.length, ...rel },
+            data: { from, to: dest, path: route.path, cost: route.cost, squares: route.path.length, ...rel, ...(trap ? { stoppedBy: trap.by } : {}) },
             text: moveText(state, actor, route.path.length, rel),
         });
         pickUpItems(draft, self, route.path);
+        if (state.placed && state.placed.length > 0) {
+            walkMarks(draft, self, route.path);
+            enteredTile(draft, self, route.path.length > 1 ? route.path[route.path.length - 2] : from);
+            settleOutcome(draft);
+            if (!draft.state.outcome && self.status !== 'up') {
+                advanceTurn(draft);
+                return closeDraft(draft);
+            }
+        }
         maybeAutoEnd(draft, actor.id, driven);
         return closeDraft(draft);
     }
     if (action.type === 'use_ability') {
-        const aim = action.aim && typeof action.aim.x === 'number' && typeof action.aim.y === 'number' ? { x: action.aim.x, y: action.aim.y } : null;
+        let aim = action.aim && typeof action.aim.x === 'number' && typeof action.aim.y === 'number' ? { x: action.aim.x, y: action.aim.y } : null;
+        let forced: Combatant | null = null;
+        if (hasCondition(actor, CONFUSED) && !CONFUSED_ALLOWED.has(action.abilityId)) {
+            const chosen = findUsableAbility(actor, action.abilityId);
+            if (chosen && chosen.form.id !== 'self') {
+                forced = nearestUnit(state, actor);
+                if (!forced?.position) return rejection(state, action, 'too confused to aim');
+                aim = { x: forced.position.x, y: forced.position.y };
+            }
+        }
         const check = checkAbility(state, actor.id, action.abilityId, aim, normalizeThrowPayload(action.payload));
-        if (!check.ok || !check.ability || !check.aim) return rejection(state, action, check.reason ?? 'the ability cannot be used');
+        if (!check.ok || !check.ability || !check.aim) return rejection(state, action, forced ? 'too confused to aim' : check.reason ?? 'the ability cannot be used');
+        if (forced) return runConfused(state, actor, check.ability, check.aim, driven, forced);
+        const afraid = fearRefusal(state, actor, action, check.aim);
+        if (afraid) return rejection(state, action, afraid);
         return runAbility(state, actor.id, check.ability, check.aim, driven);
     }
     if (action.type === 'flee') {
@@ -389,6 +496,7 @@ export function applyAction(state: CombatState, action: CombatAction, options: A
         return closeDraft(draft);
     }
     if (action.type === 'stunt') {
+        if (hasCondition(actor, CONFUSED)) return rejection(state, action, 'too confused to aim');
         const check = checkStunt(state, actor.id, action.spec);
         if (!check.ok) return rejection(state, action, `cannot attempt the stunt: ${check.reason}`);
         const draft = openDraft(state);
@@ -400,7 +508,7 @@ export function applyAction(state: CombatState, action: CombatAction, options: A
     if (action.type === 'end_turn') {
         const draft = openDraft(state);
         const fresh = freshTurn(state, actor.id);
-        const acted = turn.actionUsed || !!turn.bonusUsed || turn.moveLeft < fresh.moveLeft || (turn.extraActions ?? 0) < (fresh.extraActions ?? 0);
+        const acted = turn.actionUsed || (!!turn.bonusUsed && !fresh.bonusUsed) || turn.moveLeft < fresh.moveLeft || (turn.extraActions ?? 0) < (fresh.extraActions ?? 0);
         emit(draft, { type: 'end_turn', actorId: actor.id, data: { acted }, text: acted ? `${actor.name} ends the turn.` : `${actor.name} holds.` });
         advanceTurn(draft);
         return closeDraft(draft);
@@ -409,6 +517,45 @@ export function applyAction(state: CombatState, action: CombatAction, options: A
 }
 
 const BONUS_BUILTINS: ReadonlySet<string> = new Set([BUILTIN_SHOVE_ID, BUILTIN_JUMP_ID]);
+
+const CONFUSED_ALLOWED: ReadonlySet<string> = new Set([BUILTIN_DASH_ID, BUILTIN_JUMP_ID]);
+
+export function nearestUnit(state: CombatState, actor: Combatant): Combatant | null {
+    let best: Combatant | null = null;
+    let bestDistance = Infinity;
+    for (const id of state.order) {
+        const c = state.combatants[id];
+        if (!c || c.id === actor.id || c.status !== 'up') continue;
+        const d = actor.position && c.position ? distance(actor.position, c.position) : 1;
+        if (d < bestDistance) {
+            best = c;
+            bestDistance = d;
+        }
+    }
+    return best;
+}
+
+function confusedStep(state: CombatState, actor: Combatant): CombatAction {
+    const end: CombatAction = { type: 'end_turn', actorId: actor.id };
+    const nearest = nearestUnit(state, actor);
+    const turn = currentTurn(state);
+    if (!nearest || !turn || !canAttackWith(turn)) return end;
+    if (checkAttack(state, actor.id, nearest.id, undefined, true).ok) return { type: 'attack', actorId: actor.id, targetId: nearest.id };
+    if (!actor.position || !nearest.position || turn.moveLeft <= 0) return end;
+    const here = distance(actor.position, nearest.position);
+    let best: (Pos & { cost: number }) | null = null;
+    let bestDistance = here;
+    for (const tile of reachable(state, actor.id)) {
+        const d = distance(tile, nearest.position);
+        const better = d < bestDistance
+            || (best !== null && d === bestDistance && (tile.cost < best.cost || (tile.cost === best.cost && (tile.y < best.y || (tile.y === best.y && tile.x < best.x)))));
+        if (better) {
+            best = tile;
+            bestDistance = d;
+        }
+    }
+    return best ? { type: 'move', actorId: actor.id, to: { x: best.x, y: best.y } } : end;
+}
 
 export function chooseEngineTurn(state: CombatState, actorId: string): { actions: CombatAction[]; state: CombatState } {
     return { actions: planTurn(state, actorId).steps, state };
@@ -429,6 +576,11 @@ export function stepEngine(state: CombatState): { state: CombatState; events: Co
         return closeDraft(draft);
     }
     if (actor.controller === 'player') return null;
+    if (hasCondition(actor, CONFUSED)) {
+        const forced = applyAction(state, confusedStep(state, actor));
+        if (forced.events.some(e => e.type === 'rejected')) return applyAction(state, { type: 'end_turn', actorId: actor.id });
+        return forced;
+    }
     const plan = planTurn(state, actor.id);
     const action = plan.steps[0] ?? { type: 'end_turn', actorId: actor.id };
     const result = applyAction(state, action, { driven: bonusFollows(plan.steps) });
@@ -452,9 +604,29 @@ export function deriveMapSeed(seed: number): number {
     return (Math.imul((seed >>> 0) ^ MAP_SEED_SALT, 2654435761) >>> 0);
 }
 
-function casterKitFields(c: { side: Combatant['side']; tier: Combatant['tier']; archetype?: Combatant['archetype'] }, abilities: Combatant['abilities'], damageType: string): Partial<Combatant> {
+type ElementFields = { weak?: ElementId[]; resist?: ElementId[]; immune?: ElementId[]; mindless?: boolean; element?: ElementId };
+
+function elementFieldsOf(c: CombatantSpec, id: string, preset: ElementPresetId | undefined, drops: ElementDrop[]): ElementFields {
+    const out: ElementFields = {};
+    for (const field of ['weak', 'resist', 'immune'] as const) {
+        const raw = c[field];
+        if (!raw || raw.length === 0) continue;
+        const filtered = filterElements(preset, raw);
+        for (const d of filtered.dropped) drops.push({ unitId: id, unitName: c.name, field, value: d.value, reason: d.reason });
+        if (filtered.kept.length > 0) out[field] = filtered.kept;
+    }
+    if (typeof c.mindless === 'boolean') out.mindless = c.mindless;
+    if (typeof c.element === 'string' && c.element.trim()) {
+        const checked = checkElement(preset, c.element);
+        if (checked.ok) out.element = checked.element;
+        else drops.push({ unitId: id, unitName: c.name, field: 'element', value: c.element.trim(), reason: checked.reason });
+    }
+    return out;
+}
+
+function casterKitFields(c: { side: Combatant['side']; tier: Combatant['tier']; archetype?: Combatant['archetype'] }, abilities: Combatant['abilities'], damageType: string, element?: ElementId): Partial<Combatant> {
     if (c.side === 'neutral') return {};
-    const kit = enemyKit(c.tier, c.archetype, damageType);
+    const kit = enemyKit(c.tier, c.archetype, damageType, element);
     if (kit.length === 0) return {};
     const row = TIER_TABLE[c.tier] ?? TIER_TABLE.grunt;
     return {
@@ -465,7 +637,8 @@ function casterKitFields(c: { side: Combatant['side']; tier: Combatant['tier']; 
     };
 }
 
-function specCombatant(c: CombatantSpec, id: string, spec: CombatSpec, jitter: number, rng: Rng, repairs?: SignatureRepair[]): Combatant {
+function specCombatant(c: CombatantSpec, id: string, spec: CombatSpec, jitter: number, rng: Rng, repairs?: SignatureRepair[], drops: ElementDrop[] = []): Combatant {
+        const found = elementFieldsOf(c, id, spec.elementPreset, drops);
         const block = buildTierBlock(c.tier, c.archetype, jitter, rng, c.look);
         const t = c.template;
         let maxHp = block.maxHp;
@@ -508,7 +681,11 @@ function specCombatant(c: CombatantSpec, id: string, spec: CombatSpec, jitter: n
             range,
             ...(t?.weaknesses && t.weaknesses.length > 0 ? { weaknesses: [...t.weaknesses] } : {}),
             ...(t?.resistances && t.resistances.length > 0 ? { resistances: [...t.resistances] } : {}),
-            ...casterKitFields(c, block.abilities, damage.type),
+            ...(found.weak ? { weak: found.weak } : {}),
+            ...(found.resist ? { resist: found.resist } : {}),
+            ...(found.immune ? { immune: found.immune } : {}),
+            ...(found.mindless !== undefined ? { mindless: found.mindless } : {}),
+            ...casterKitFields(c, block.abilities, damage.type, found.element),
         };
         if (c.signature) {
             const checked = validateSignature({ id, name: c.name, tier: c.tier }, c.signature, { maxSummons: spec.maxSummons });
@@ -535,7 +712,7 @@ function markUnits(combatants: Record<string, Combatant>, objective: CombatObjec
 }
 
 function setUpObjective(
-    spec: CombatSpec, combatants: Record<string, Combatant>, grid: Grid, jitter: number, rng: Rng, sigRepairs: SignatureRepair[],
+    spec: CombatSpec, combatants: Record<string, Combatant>, grid: Grid, jitter: number, rng: Rng, sigRepairs: SignatureRepair[], drops: ElementDrop[],
 ): { objective: CombatObjective; book?: ReinforcementBook; report: ObjectiveReport } {
     const setup = {
         grid,
@@ -558,7 +735,7 @@ function setUpObjective(
                 n += 1;
                 let id = `r${n}`;
                 while (combatants[id]) id = `${id}_`;
-                const unit = specCombatant(cs, id, spec, jitter, rng, sigRepairs);
+                const unit = specCombatant(cs, id, spec, jitter, rng, sigRepairs, drops);
                 unit.initiative = rng.roll(20) + abilityMod(unit.abilities.DEX);
                 return unit;
             }),
@@ -571,9 +748,10 @@ function setUpObjective(
 
 export function createCombat(
     spec: CombatSpec, pc: Combatant, seed: number,
-): { state: CombatState; events: CombatEvent[]; objective?: ObjectiveReport; signatureRepairs?: SignatureRepair[] } {
+): { state: CombatState; events: CombatEvent[]; objective?: ObjectiveReport; signatureRepairs?: SignatureRepair[]; elementDrops?: ElementDrop[] } {
     const rng = createRng(seed, 0);
     const signatureRepairs: SignatureRepair[] = [];
+    const elementDrops: ElementDrop[] = [];
     const jitter = spec.jitterRange ?? DEFAULT_JITTER_RANGE;
     const combatants: Record<string, Combatant> = {};
     const pcEntry: Combatant = { ...pc, status: 'up', conditions: [], initiative: 0 };
@@ -581,7 +759,7 @@ export function createCombat(
     spec.combatants.forEach((c, index) => {
         let id = c.id && !combatants[c.id] ? c.id : `c${index + 1}`;
         while (combatants[id]) id = `${id}_`;
-        combatants[id] = specCombatant(c, id, spec, jitter, rng, signatureRepairs);
+        combatants[id] = specCombatant(c, id, spec, jitter, rng, signatureRepairs, elementDrops);
     });
 
     const tiebreak: Record<string, number> = {};
@@ -599,7 +777,7 @@ export function createCombat(
     const positions = placeCombatants(grid, Object.values(combatants).map(c => ({ id: c.id, side: c.side })));
     for (const [id, pos] of Object.entries(positions)) combatants[id].position = pos;
     for (const c of Object.values(combatants)) c.startHp = c.hp;
-    const objective = spec.objective !== undefined || spec.reinforcements !== undefined ? setUpObjective(spec, combatants, grid, jitter, rng, signatureRepairs) : null;
+    const objective = spec.objective !== undefined || spec.reinforcements !== undefined ? setUpObjective(spec, combatants, grid, jitter, rng, signatureRepairs, elementDrops) : null;
 
     const state: CombatState = {
         id: spec.id,
@@ -618,6 +796,7 @@ export function createCombat(
         ...(Number.isFinite(spec.maxSummons) ? { maxSummons: Math.max(0, Math.floor(spec.maxSummons as number)) } : {}),
         ...(spec.partyControl ? { partyControl: spec.partyControl } : {}),
         ...(spec.defeatMode ? { defeatMode: spec.defeatMode } : {}),
+        ...(spec.elementPreset ? { elementPreset: normalizePreset(spec.elementPreset) } : {}),
         ...(objective ? { objective: objective.objective } : {}),
         ...(objective?.book ? { reinforcements: objective.book } : {}),
     };
@@ -641,6 +820,7 @@ export function createCombat(
         ...closed,
         ...(objective ? { objective: objective.report } : {}),
         ...(signatureRepairs.length > 0 ? { signatureRepairs } : {}),
+        ...(elementDrops.length > 0 ? { elementDrops } : {}),
     };
 }
 

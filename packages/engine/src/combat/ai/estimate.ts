@@ -4,6 +4,9 @@ import { EFFECTS } from '../glyphs/registry';
 import { rangeOf } from '../grid';
 import { abilityCost } from '../glyphs/validate';
 import type { CombatState, Combatant, GlyphAbility } from '../types';
+import { abilityElement, elementMultiplier, isImmune } from '../elements/rules';
+import { CONDITION_RIDERS, ELEMENT_NUMBERS, ELEMENTS, RIDER_VALUE } from '../elements/tables';
+import type { ConditionRiderId } from '../elements/tables';
 import { AI_LIMITS } from './tables';
 
 export type Dice = { count: number; sides: number; bonus: number };
@@ -68,9 +71,34 @@ export function damageFactor(target: Pick<Combatant, 'weaknesses' | 'resistances
     return 1;
 }
 
+export function abilityFactor(target: Combatant, ability: GlyphAbility, type: string): number {
+    const element = abilityElement(ability);
+    return element ? elementMultiplier(target, element).factor : damageFactor(target, type);
+}
+
+export function riderValue(
+    target: Combatant, ability: GlyphAbility, opts: { land: number; expected: number; arcTargets: number; control: number; damage: number },
+): number {
+    const element = abilityElement(ability);
+    if (!element || opts.land <= 0) return 0;
+    const row = ELEMENTS[element];
+    if (isImmune(target, element)) return 0;
+    let v = 0;
+    for (const rider of row.riders) {
+        if (rider === 'arc') {
+            if (opts.arcTargets > 0) v += opts.damage * opts.expected * ELEMENT_NUMBERS.arcShare;
+            continue;
+        }
+        const spec = rider in CONDITION_RIDERS ? CONDITION_RIDERS[rider as ConditionRiderId] : null;
+        if (spec && target.conditions.some(c => c.id === spec.condition)) continue;
+        v += opts.control * RIDER_VALUE[rider];
+    }
+    return v * opts.land;
+}
+
 export function kitDice(user: Combatant, ability: GlyphAbility, augments: readonly string[]): Dice {
-    const amplify = augments.filter(a => a === 'amplify').length;
-    if (user.abilityDamage) return { count: user.abilityDamage.count + amplify, sides: user.abilityDamage.sides, bonus: user.abilityDamage.bonus };
+    const amplify = augments.filter(a => a === 'amplify').length - augments.filter(a => a === 'dampen').length;
+    if (user.abilityDamage) return { count: Math.max(1, user.abilityDamage.count + amplify), sides: user.abilityDamage.sides, bonus: user.abilityDamage.bonus };
     return { count: damageDice(casterStats(user), ability.effects.find(e => e.id === 'damage')?.augments ?? []), sides: 6, bonus: 0 };
 }
 
@@ -105,7 +133,7 @@ export function isHealer(c: Pick<Combatant, 'kit'>): boolean {
 }
 
 export function isController(c: Pick<Combatant, 'kit'>): boolean {
-    return (c.kit ?? []).some(a => a.effects.some(e => e.id === 'stun' || e.id === 'slow' || e.id === 'push' || e.id === 'pull'));
+    return (c.kit ?? []).some(a => a.effects.some(e => e.id === 'stun' || e.id === 'slow' || e.id === 'push' || e.id === 'pull' || e.id === 'snare' || e.id === 'fear'));
 }
 
 export function hasAreaKit(c: Pick<Combatant, 'kit'>): boolean {

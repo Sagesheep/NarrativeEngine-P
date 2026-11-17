@@ -361,11 +361,13 @@ function hostileBeside(state: CombatState, user: Combatant, exceptId: string | u
     return Object.values(state.combatants).some(o => o.id !== user.id && o.id !== exceptId && canTarget(user, o) && !!o.position && distance(o.position, at) <= 1);
 }
 
-export function resolveThrow(draft: Draft, actorId: string, ability: GlyphAbility, payload: ThrowPayload, landing: Pos): void {
+export type ThrownCreature = { creatureId: string; from: Pos };
+
+export function resolveThrow(draft: Draft, actorId: string, ability: GlyphAbility, payload: ThrowPayload, landing: Pos): ThrownCreature | null {
     const s = draft.state;
     const user = s.combatants[actorId];
     const preview = previewThrow(s, actorId, payload, landing);
-    if (!preview.ok) return;
+    if (!preview.ok) return null;
     const plan = preview.plan;
     const creature = plan.creatureId ? s.combatants[plan.creatureId] : undefined;
     const struck = plan.struckId ? s.combatants[plan.struckId] : undefined;
@@ -391,7 +393,7 @@ export function resolveThrow(draft: Draft, actorId: string, ability: GlyphAbilit
                 ? `${creature.name} succeeds on a ${plan.save.key} save (${total} against DC ${plan.save.dc}) and wrenches free.`
                 : `${creature.name} fails a ${plan.save.key} save (${total} against DC ${plan.save.dc}) and is lifted.`,
         });
-        if (success) return;
+        if (success) return null;
     }
     let roll: { natural: number; total: number; ac: number; disadvantage: boolean; defending: boolean; crit: boolean; hit: boolean } | null = null;
     if (struck) {
@@ -416,9 +418,12 @@ export function resolveThrow(draft: Draft, actorId: string, ability: GlyphAbilit
         };
     }
     const moves: Array<{ id: string; from: Pos; to: Pos }> = [];
+    let carried: ThrownCreature | null = null;
     if (creature && plan.endsAt) {
-        moves.push({ id: creature.id, from: { ...(creature.position as Pos) }, to: { ...plan.endsAt } });
+        const origin = { ...(creature.position as Pos) };
+        moves.push({ id: creature.id, from: origin, to: { ...plan.endsAt } });
         creature.position = { ...plan.endsAt };
+        carried = { creatureId: creature.id, from: origin };
     }
     if (plan.terrain.length > 0) s.terrainEdits = [...(s.terrainEdits ?? []), ...plan.terrain.map(c => ({ pos: { ...c.pos }, tile: c.to }))];
     emit(draft, {
@@ -464,6 +469,7 @@ export function resolveThrow(draft: Draft, actorId: string, ability: GlyphAbilit
     }
     if (creature && plan.hazard && creature.status === 'up') hazardStrike(draft, creature);
     if (plan.item) dropItem(draft, user, plan);
+    return carried;
 }
 
 function thrownText(user: Combatant, plan: ThrowPlan, struck: Combatant | undefined, hit: boolean, damage: number): string {

@@ -1,6 +1,10 @@
-import { bareHands, bystanderIdOf, coverBetween, distance, hasLineOfSight, hpBand, leaderIdOf, terrainOf, undoDirectorEvent, undoObjectiveEvent, wardIdOf } from '@narrative/engine';
+import {
+    bareHands, bystanderIdOf, coverBetween, distance, hasLineOfSight, hpBand, leaderIdOf, terrainOf, undoDirectorEvent, undoElementEvent, undoGlyphEvent,
+    undoObjectiveEvent, undoPlacedEvent, wardIdOf,
+} from '@narrative/engine';
 import type { CarriedItem, FieldItem, WeaponFields } from '@narrative/engine';
 import type { CombatEvent, CombatPos, CombatSide, CombatState, Combatant } from '../../types';
+import { ELEMENT_CONDITION_WORDS, elementDamageLine, elementNarrationLine, elementPushLine, eventElement } from './elementNarration';
 
 export const ACTION_EVENT_TYPES: ReadonlySet<string> = new Set(['attack', 'defend', 'end_turn', 'ability', 'turn_lost', 'flee', 'parley', 'stunt_check']);
 export const TURN_ACTION_TYPES: ReadonlySet<string> = new Set(['moved', 'attack', 'defend', 'end_turn', 'ability', 'turn_lost', 'flee', 'parley', 'stunt_check']);
@@ -113,11 +117,19 @@ export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq:
     let barriers = (state.barriers ?? []).map(b => ({ ...b, pos: { ...b.pos } }));
     let terrainEdits = (state.terrainEdits ?? []).map(e => ({ ...e, pos: { ...e.pos } }));
     let fieldItems = (state.fieldItems ?? []).map(i => ({ ...i, pos: { ...i.pos } }));
+    let placed = (state.placed ?? []).map(p => ({ ...p, tiles: p.tiles.map(t => ({ ...t })) }));
     const later = log.filter(e => e.seq > seq).sort((a, b) => b.seq - a.seq);
     for (const event of later) {
         if (event.type === 'stunt_check') continue;
         if (undoObjectiveEvent(combatants, event)) continue;
         if (undoDirectorEvent(combatants, event)) continue;
+        if (undoElementEvent(combatants, event)) continue;
+        const unplaced = undoPlacedEvent(placed, event);
+        if (unplaced) {
+            placed = unplaced;
+            continue;
+        }
+        if (undoGlyphEvent(combatants, event)) continue;
         if (event.type === 'item_dropped') {
             const item = fieldItemFrom(event.data.item);
             if (!item) continue;
@@ -190,6 +202,7 @@ export function stateAtSeq(state: CombatState, log: readonly CombatEvent[], seq:
         ...(state.barriers || barriers.length > 0 ? { barriers } : {}),
         ...(state.terrainEdits || terrainEdits.length > 0 ? { terrainEdits } : {}),
         ...(state.fieldItems || fieldItems.length > 0 ? { fieldItems } : {}),
+        ...(state.placed || placed.length > 0 ? { placed } : {}),
     };
 }
 
@@ -258,7 +271,8 @@ const CONDITION_WORDS: Readonly<Record<string, string>> = {
 };
 
 function conditionWord(raw: unknown): string {
-    return typeof raw === 'string' && CONDITION_WORDS[raw] ? CONDITION_WORDS[raw] : 'affected';
+    if (typeof raw !== 'string') return 'affected';
+    return CONDITION_WORDS[raw] ?? ELEMENT_CONDITION_WORDS[raw] ?? 'affected';
 }
 
 const LEAP_ORDER = ['hazard', 'difficult', 'cover'] as const;
@@ -291,6 +305,9 @@ export const NARRATED_EVENT_TYPES: readonly string[] = [
     'teleported', 'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
     'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check', 'thrown', 'item_dropped', 'item_recovered',
     'objective_progress', 'objective_met', 'objective_failed', 'reinforcements_warning', 'reinforcements_arrive', 'order_given',
+    'element_rider', 'burn', 'confused',
+    'placed', 'placed_triggered', 'placed_ended', 'dispelled', 'decayed', 'rewound', 'gravity',
+    'mark_harm', 'reaction',
 ];
 
 type ThrownPayload = { kind: string; name: string; willing?: boolean };
@@ -548,6 +565,8 @@ function orderLine(event: CombatEvent, state: CombatState): string {
 
 export function narrationLine(event: CombatEvent, state: CombatState): string {
     const name = (id?: string) => nameIn(state, id);
+    const elemental = elementNarrationLine(event, name);
+    if (elemental !== null) return elemental;
     switch (event.type) {
         case 'attack':
             return attackLine(event, state);
@@ -610,6 +629,8 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
             if (event.data.kind === 'landing' && builtinKind(event) === 'throw') return '';
             const type = typeof event.data.damageType === 'string' && event.data.damageType.trim() ? event.data.damageType.trim() : '';
             const how = abilityDamageHow(event, state);
+            const elementLine = elementDamageLine(event, name, how);
+            if (elementLine !== null) return elementLine;
             const what = type ? `${type}` : 'blast';
             const extra = event.data.weakness === true ? ', which it is weak to' : event.data.resisted === true ? ', which it resists' : '';
             const soak = typeof event.data.absorbed === 'number' && event.data.absorbed > 0 ? ' A shield takes some of it.' : '';
@@ -624,6 +645,8 @@ export function narrationLine(event: CombatEvent, state: CombatState): string {
                 ? `${name(event.targetId)} keeps the stronger shield it already has.`
                 : `A shield settles over ${name(event.targetId)}.`;
         case 'pushed': {
+            const elementPush = elementPushLine(event, name);
+            if (elementPush !== null) return elementPush;
             const moved = Number(event.data.squares) > 0;
             const target = name(event.targetId);
             if (builtinKind(event) === 'stunt' && !moved) return `${target} is pinned in place and does not move.`;
@@ -730,7 +753,24 @@ export type MomentTag =
     | 'first blood' | 'now badly hurt' | 'killing blow' | 'last one standing' | 'the player character falls'
     | 'a way out is taken' | 'the leader gets away' | 'the ground is taken' | 'the hold is broken' | 'the last round'
     | 'the objective is achieved' | 'the objective is lost' | 'reinforcements are coming' | 'reinforcements have arrived'
-    | 'an officer gives an order';
+    | 'an officer gives an order'
+    | 'a weak spot is struck' | 'the blow is resisted' | 'the blow does nothing' | 'the elements react' | 'a trap is sprung'
+    | 'a delayed spell goes off' | 'confusion takes hold' | 'a moment is undone' | 'someone vanishes';
+
+function elementTag(event: CombatEvent, state: CombatState): MomentTag | null {
+    let tag: MomentTag | null = null;
+    if (event.type === 'ability_damage' && eventElement(event)) {
+        if (event.data.immune === true) tag = 'the blow does nothing';
+        else if (event.data.weakness === true) tag = 'a weak spot is struck';
+        else if (event.data.resisted === true) tag = 'the blow is resisted';
+    } else if (event.type === 'reaction') tag = 'the elements react';
+    else if (event.type === 'placed_triggered' && event.data.kind === 'sigil') tag = 'a trap is sprung';
+    else if (event.type === 'placed_triggered' && event.data.kind === 'delay' && event.data.missed !== true) tag = 'a delayed spell goes off';
+    else if (event.type === 'confused') tag = 'confusion takes hold';
+    else if (event.type === 'rewound') tag = 'a moment is undone';
+    else if (event.type === 'condition_added' && event.data.glyph === true && event.data.condition === 'vanished') tag = 'someone vanishes';
+    return tag && narrationLine(event, state) ? tag : null;
+}
 
 function objectiveTag(event: CombatEvent, state: CombatState): MomentTag | null {
     let tag: MomentTag | null = null;
@@ -791,6 +831,10 @@ export function momentTags(state: CombatState, log: readonly CombatEvent[], thro
             if (!tag && !bled) tag = 'first blood';
             bled = true;
             if (tag) tags.set(event.seq, tag);
+        }
+        if (!tags.has(event.seq)) {
+            const elemental = elementTag(event, state);
+            if (elemental) tags.set(event.seq, elemental);
         }
         if (event.type === 'down' && event.targetId) status.set(event.targetId, 'down');
         else if (event.type === 'surrendered' && event.targetId) status.set(event.targetId, 'surrendered');

@@ -9,6 +9,7 @@ import type { CombatAreaType, CombatMapDensity, CombatProposal, CombatResolvedMa
 import { combatMapTexts, resolveCombatMap } from '../../services/combat/combatMap';
 import { reconcileObjective } from '../../services/combat/combatObjective';
 import { CombatObjectiveForm } from './CombatObjectiveForm';
+import { CombatElementFields } from './CombatElementFields';
 import { dedupeCombatantNames, hasEnemy, isOfficer } from '../../services/combat/combatProposal';
 import { isIncluded, newMapSeed } from '../../services/combat/combatController';
 import { compendiumFor } from '../../services/combat/compendiumLookup';
@@ -100,6 +101,7 @@ export function CombatProposalDialog({
     const modTables = useAppStore(s => s.modTables);
     const moduleEnabled = useAppStore(s => s.settings?.moduleEnabled);
     const partyControl = useAppStore(s => normalizeCombatConfig(s.context?.combatConfig).partyControl);
+    const elementPreset = useAppStore(s => normalizeCombatConfig(s.context?.combatConfig).combatElements);
     const [roster, setRoster] = useState<ProposedCombatant[]>(proposal.combatants);
     const [objective, setObjective] = useState<ProposedObjective | undefined>(proposal.objective);
     const [draftName, setDraftName] = useState('');
@@ -304,6 +306,7 @@ export function CombatProposalDialog({
                                             </label>
                                         )}
                                     </div>
+                                    <CombatElementFields combatant={c} index={i} preset={elementPreset} onChange={(patch) => update(i, patch)} />
                                     {partyControl === 'solo' && c.side === 'ally' && (
                                         <div data-testid={`combat-solo-${i}`} className="flex items-center gap-2 text-[10px] text-text-dim">
                                             {!isIncluded(c, partyControl) && <span>{t('combat.proposal.stayingOut', { name: c.name })}</span>}

@@ -31,6 +31,8 @@ import { ObjectiveBadge, ObjectiveTileMarks } from './ObjectiveLayer';
 import { OfficerBadge, OrderBubbles } from './DirectorLayer';
 import { orderBubbles } from './directorBubbles';
 import { markAt, roleLabel, tileMarks } from './objectiveText';
+import { PlacedLayer } from './PlacedLayer';
+import { placedLabelAt, placedViews } from './placedView';
 import { describeThrowPlan, throwReasonKey } from './throwAim';
 
 const noop = (): void => undefined;
@@ -508,6 +510,7 @@ export function CombatBoard({
 
     const names = useTerrainNames(grid);
     const objectiveMarks = useMemo(() => tileMarks(state, t), [state, t]);
+    const placedList = useMemo(() => placedViews(state, t), [state, t]);
     const bubbles = useMemo(() => orderBubbles(session), [session]);
     const [tileArtOn, setTileArtOn] = useState<boolean>(() => initialTileArt());
     const [startSpots] = useState<ReadonlySet<string>>(() => new Set(Object.values(state.combatants).flatMap(c => (c.position ? [key(c.position)] : []))));
@@ -579,10 +582,13 @@ export function CombatBoard({
 
     const focusMark = focusToken ? undefined : markAt(objectiveMarks, focus?.pos);
     if (focusMark) status = status ? `${focusMark.label} · ${status}` : focusMark.label;
+    const focusPlaced = focusToken ? null : placedLabelAt(placedList, focus?.pos);
+    if (focusPlaced) status = status ? `${focusPlaced} · ${status}` : focusPlaced;
 
     const cursorMark = markAt(objectiveMarks, cursor);
+    const cursorPlaced = placedLabelAt(placedList, cursor);
     const cursorLabel = cursor
-        ? `${t('combat.board.cursor', { x: cursor.x + 1, y: cursor.y + 1, tile: names[tileAt(grid, cursor)] })}${tokenAt(state, cursor) ? `. ${describeToken(tokenAt(state, cursor) as Combatant)}` : ''}${cursorMark ? `. ${cursorMark.label}` : ''}`
+        ? `${t('combat.board.cursor', { x: cursor.x + 1, y: cursor.y + 1, tile: names[tileAt(grid, cursor)] })}${tokenAt(state, cursor) ? `. ${describeToken(tokenAt(state, cursor) as Combatant)}` : ''}${cursorMark ? `. ${cursorMark.label}` : ''}${cursorPlaced ? `. ${cursorPlaced}` : ''}`
         : undefined;
 
     const cycleTargets = (dir: 1 | -1): boolean => {
@@ -828,6 +834,7 @@ export function CombatBoard({
                         </g>}
                         {effects !== 'off' && <rect data-testid="combat-ambient-effects" x={0} y={0} width={w} height={h} fill={`url(#${effectsId}-ambient)`} pointerEvents="none" />}
                         <BarrierLayer barriers={state.barriers} />
+                        <PlacedLayer views={placedList} width={grid.width} height={grid.height} effects={effects} />
                         <FieldItemLayer items={state.fieldItems} />
                         <ObjectiveTileMarks marks={objectiveMarks} width={grid.width} height={grid.height} />
                         <g data-testid="combat-overlay" style={{ pointerEvents: 'none' }}>

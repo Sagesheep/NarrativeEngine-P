@@ -101,24 +101,88 @@ export function blinkRange(augments: readonly AugmentId[]): number {
     return N.blinkRange + N.blinkExtend * count(augments, 'extend');
 }
 
+export function power(augments: readonly AugmentId[]): number {
+    return count(augments, 'amplify') - count(augments, 'dampen');
+}
+
 export function damageDice(stats: CasterStats, augments: readonly AugmentId[]): number {
-    return stats.proficiency + count(augments, 'amplify');
+    return Math.max(1, stats.proficiency + power(augments));
 }
 
 export function drainDice(stats: CasterStats, augments: readonly AugmentId[]): number {
-    return Math.max(1, stats.proficiency - 1) + count(augments, 'amplify');
+    return Math.max(1, Math.max(1, stats.proficiency - 1) + power(augments));
 }
 
 export function healDice(stats: CasterStats, augments: readonly AugmentId[]): number {
-    return stats.proficiency + count(augments, 'amplify');
+    return Math.max(1, stats.proficiency + power(augments));
 }
 
 export function shieldAmount(stats: CasterStats, augments: readonly AugmentId[]): number {
-    return Math.max(1, 2 * stats.proficiency + stats.castingMod + stats.proficiency * count(augments, 'amplify'));
+    return Math.max(1, 2 * stats.proficiency + stats.castingMod + stats.proficiency * power(augments));
 }
 
 export function pushDistance(augments: readonly AugmentId[]): number {
-    return N.pushDistance + count(augments, 'amplify');
+    return Math.max(1, N.pushDistance + power(augments));
+}
+
+export function leapGlyphRange(augments: readonly AugmentId[]): number {
+    return N.leapGlyphRange + N.leapExtend * count(augments, 'extend');
+}
+
+export function gravitySquares(augments: readonly AugmentId[]): number {
+    return Math.max(1, N.gravitySquares + power(augments));
+}
+
+export function decayDice(stats: CasterStats, augments: readonly AugmentId[]): number {
+    return Math.max(1, stats.proficiency - N.decayDrop + power(augments));
+}
+
+export function snareTurns(augments: readonly AugmentId[]): number {
+    return N.snareTurns + count(augments, 'sustain');
+}
+
+export function fearTurns(augments: readonly AugmentId[]): number {
+    return N.fearTurns + count(augments, 'sustain');
+}
+
+export function sigilRange(ability: GlyphAbility): number {
+    return extended(N.sigilRange, count(formAugments(ability), 'extend'));
+}
+
+export function sigilRounds(ability: GlyphAbility): number {
+    return N.sigilRounds + N.sigilSustain * count(formAugments(ability), 'sustain');
+}
+
+export function mantleRadius(ability: GlyphAbility): number {
+    return N.mantleRadius + count(formAugments(ability), 'widen');
+}
+
+export function mantleRounds(ability: GlyphAbility): number {
+    return N.mantleRounds + count(formAugments(ability), 'sustain');
+}
+
+export function chainRange(ability: GlyphAbility): number {
+    return extended(N.chainRange, count(formAugments(ability), 'extend'));
+}
+
+export function chainJumps(ability: GlyphAbility): number {
+    return N.chainJumps + count(formAugments(ability), 'widen');
+}
+
+export function wallRange(ability: GlyphAbility): number {
+    return extended(N.wallRange, count(formAugments(ability), 'extend'));
+}
+
+export function wallLength(ability: GlyphAbility): number {
+    return N.wallLength + 2 * count(formAugments(ability), 'widen');
+}
+
+export function wallRounds(ability: GlyphAbility): number {
+    return N.wallRounds + count(formAugments(ability), 'sustain');
+}
+
+export function isDelayed(ability: GlyphAbility): boolean {
+    return count(formAugments(ability), 'delay') > 0;
 }
 
 export function stunTurns(augments: readonly AugmentId[]): number {

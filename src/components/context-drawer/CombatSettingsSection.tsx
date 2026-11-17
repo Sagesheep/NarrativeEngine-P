@@ -2,7 +2,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { Toggle } from './Toggle';
 import {
-    COMBAT_DEFEAT_MODES, COMBAT_DIRECTOR_MODES, COMBAT_NARRATION_CADENCES, COMBAT_NARRATION_LENGTHS, COMBAT_PARTY_CONTROLS, COMBAT_TILE_STYLES, normalizeCombatConfig,
+    COMBAT_DEFEAT_MODES, COMBAT_DIRECTOR_MODES, COMBAT_ELEMENT_MODES, COMBAT_NARRATION_CADENCES, COMBAT_NARRATION_LENGTHS, COMBAT_PARTY_CONTROLS, COMBAT_TILE_STYLES, normalizeCombatConfig,
 } from '../../types';
 import type { CombatSettings, GameContext } from '../../types';
 import { commitCombatPatch, ensureCombatSheet } from '../../services/combat/combatSheet';
@@ -184,6 +184,20 @@ export function CombatSettingsSection({ context, updateContext }: CombatSettings
                                 ))}
                             </select>
                             <p className="mt-1 text-[11px] text-text-dim leading-relaxed">{t('combat.settings.director.help')}</p>
+                        </div>
+                        <div>
+                            <label className={labelClass} htmlFor="combat-elements">{t('combat.settings.elements.label')}</label>
+                            <select
+                                id="combat-elements"
+                                className={selectClass}
+                                value={config.combatElements}
+                                onChange={(e) => setConfig({ combatElements: e.target.value as CombatSettings['combatElements'] })}
+                            >
+                                {COMBAT_ELEMENT_MODES.map((v) => (
+                                    <option key={v} value={v}>{t(`combat.settings.elements.${v}`)}</option>
+                                ))}
+                            </select>
+                            <p className="mt-1 text-[11px] text-text-dim leading-relaxed">{t('combat.settings.elements.help')}</p>
                         </div>
                         <label className="flex items-center gap-2 text-[12px] text-text-dim">
                             <input

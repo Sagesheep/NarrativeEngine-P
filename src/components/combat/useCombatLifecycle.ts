@@ -7,6 +7,7 @@ import { wasMessageProposed } from '../../services/combat/combatCommitHooks';
 import { resumeParley } from '../../services/combat/combatParley';
 import { resumeStunt } from '../../services/combat/combatStunt';
 import { installCombatDirector } from '../../services/combat/combatDirector';
+import { installElementPresetSource } from '../../services/combat/elementSetting';
 
 export function proposalIsOrphaned(proposal: CombatProposal | null, messages: readonly ChatMessage[]): boolean {
     if (!proposal || !proposal.messageId) return false;
@@ -50,6 +51,7 @@ export function useCombatLifecycle(isStreaming: boolean) {
 
     useEffect(() => {
         installCombatDirector();
+        installElementPresetSource();
     }, []);
 
     useEffect(() => {

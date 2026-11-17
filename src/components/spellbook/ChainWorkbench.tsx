@@ -11,13 +11,14 @@ import type { AbilityDraft } from './draft';
 
 const inputClass = 'w-full bg-void border border-border rounded px-3 py-2 text-sm text-text-primary outline-none focus:border-terminal';
 
-export function ChainWorkbench({ draft, onChange, selected, onSelect, onRemove, onDropGlyph, status, stats, limits, maxMp, label }: {
+export function ChainWorkbench({ draft, onChange, selected, onSelect, onRemove, onDropGlyph, onRemoveElement, status, stats, limits, maxMp, label }: {
     draft: AbilityDraft;
     onChange: (patch: Partial<AbilityDraft>) => void;
     selected: Socket | null;
     onSelect: (socket: Socket) => void;
     onRemove: (socket: Socket) => void;
     onDropGlyph: (socket: Socket, glyph: GlyphRef) => void;
+    onRemoveElement?: () => void;
     status: string;
     stats: CasterStats;
     limits: AbilityLimits;
@@ -46,7 +47,7 @@ export function ChainWorkbench({ draft, onChange, selected, onSelect, onRemove, 
             </div>
             <section className="flex flex-col gap-2" aria-labelledby="spellbook-chain-heading">
                 <h3 id="spellbook-chain-heading" className="text-xs font-mono uppercase tracking-wider text-text-dim">{t('spellbook.chain')}</h3>
-                <ChainRow chain={draft.chain} selected={selected} label={label} onSelect={onSelect} onRemove={onRemove} onDropGlyph={onDropGlyph} />
+                <ChainRow chain={draft.chain} selected={selected} label={label} onSelect={onSelect} onRemove={onRemove} onDropGlyph={onDropGlyph} onRemoveElement={onRemoveElement} />
                 <p data-testid="spellbook-status" role="status" aria-live="polite" className="text-xs text-text-dim leading-relaxed min-h-[1.25rem]">
                     {status || t('spellbook.chain.help')}
                 </p>

@@ -9,18 +9,19 @@ import { glyph } from './glyphFixtures';
 describe('glyph registry costs (D4)', () => {
     it('prices every form', () => {
         expect(Object.fromEntries(FORM_IDS.map(f => [f, FORMS[f].cost]))).toEqual({
-            touch: 0, self: 0, projectile: 1, dash: 1, line: 2, cone: 2, burst: 3,
+            touch: 0, self: 0, projectile: 1, dash: 1, line: 2, cone: 2, burst: 3, sigil: 2, mantle: 3, chain: 2, wall: 3,
         });
     });
 
     it('prices every effect', () => {
         expect(Object.fromEntries(EFFECT_IDS.map(e => [e, EFFECTS[e].cost]))).toEqual({
             damage: 1, heal: 2, shield: 1, push: 1, pull: 1, stun: 3, slow: 1, haste: 4, blink: 2, swap: 2, barrier: 2, drain: 2, summon: 4,
+            snare: 2, dispel: 2, leap: 2, gravity: 2, fear: 3, decay: 2, vanish: 3, rewind: 3,
         });
     });
 
     it('prices every augment', () => {
-        expect(AUGMENT_COSTS).toEqual({ amplify: 2, widen: 2, extend: 1, pierce: 1, split: 2, quicken: 3 });
+        expect(AUGMENT_COSTS).toEqual({ amplify: 2, widen: 2, extend: 1, pierce: 1, split: 2, quicken: 3, dampen: -1, sustain: 1, delay: 1 });
     });
 
     it('sums the glyphs of an ability', () => {
@@ -137,7 +138,7 @@ describe('enemy kits (D5)', () => {
     });
 
     it('lists form ids for the editor', () => {
-        const forms: FormId[] = ['touch', 'projectile', 'self', 'line', 'cone', 'burst', 'dash'];
+        const forms: FormId[] = ['touch', 'projectile', 'self', 'line', 'cone', 'burst', 'dash', 'sigil', 'mantle', 'chain', 'wall'];
         expect(FORM_IDS).toEqual(forms);
     });
 });

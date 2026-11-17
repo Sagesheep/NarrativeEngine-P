@@ -94,6 +94,16 @@ describe('CombatSettingsSection', () => {
         expect(useAppStore.getState().context.combatConfig).toEqual({ ...DEFAULT_COMBAT_CONFIG, combatDirector: 'off' });
     });
 
+    it('offers the elements setting with exactly three choices, all by default, and saves it', () => {
+        render(<Harness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Toggle combat' }));
+        const elements = screen.getByLabelText('Elements') as HTMLSelectElement;
+        expect(elements).toHaveValue('all');
+        expect([...elements.options].map(o => [o.value, o.textContent])).toEqual([['all', 'All'], ['fantasy', 'Fantasy'], ['modern', 'Modern']]);
+        fireEvent.change(elements, { target: { value: 'fantasy' } });
+        expect(useAppStore.getState().context.combatConfig).toEqual({ ...DEFAULT_COMBAT_CONFIG, combatElements: 'fantasy' });
+    });
+
     it('shows the last fight\'s director measurements in debug mode only', () => {
         const director = {
             sessionId: 's', calls: 3, failed: 1, latencyMsTotal: 3000, latencyMsMax: 1800, promptTokens: 2400, replyTokens: 120,

@@ -2,7 +2,7 @@ import { distance, sameTeam } from '../grid';
 import { buildPcCombatant } from '../pc';
 import type { CombatSheet, CombatState, Combatant, GlyphAbility, Grid, Pos, Side } from '../types';
 import { EFFECTS } from './registry';
-import { abilityTargets, legalAims } from './targeting';
+import { abilityTargets, legalAims, needsAim } from './targeting';
 import type { AimResult } from './targeting';
 
 export const PREVIEW_SIZE = 10;
@@ -61,7 +61,7 @@ function helpfulOnly(ability: GlyphAbility): boolean {
 }
 
 function usesTile(ability: GlyphAbility): boolean {
-    return ability.effects.some(e => EFFECTS[e.id]?.tile === true || e.id === 'blink');
+    return ability.form.id === 'sigil' || ability.form.id === 'wall' || ability.effects.some(e => EFFECTS[e.id]?.tile === true || e.id === 'blink' || e.id === 'leap');
 }
 
 function score(state: CombatState, ability: GlyphAbility, aim: Pos | null, result: AimResult): number {
@@ -79,9 +79,7 @@ function score(state: CombatState, ability: GlyphAbility, aim: Pos | null, resul
 export function previewAbility(ability: GlyphAbility): AbilityPreview {
     const state = previewState();
     const units = LAYOUT.map(e => ({ id: e.id, side: e.side, position: { ...e.position } }));
-    const aims: Array<Pos | null> = ability.form.id === 'self' && !ability.effects.some(e => e.id === 'blink')
-        ? [null]
-        : legalAims(state, PREVIEW_USER_ID, ability);
+    const aims: Array<Pos | null> = !needsAim(ability) ? [null] : legalAims(state, PREVIEW_USER_ID, ability);
     let best: { aim: Pos | null; result: AimResult; score: number } | null = null;
     for (const aim of aims) {
         const result = abilityTargets(state, PREVIEW_USER_ID, ability, aim);

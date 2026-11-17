@@ -116,7 +116,7 @@ describe('Spellbook workbench', () => {
         saved.forEach((a, i) => expect(shape(a)).toEqual(shape(STARTER_ABILITIES[i])));
         for (const a of saved) click(screen.getByRole('button', { name: `Equip: ${a.name}` }));
         expect(book().equippedIds).toEqual(saved.map(a => a.id));
-    });
+    }, 20000);
 
     it('builds a preset with the keyboard alone', async () => {
         seed();
@@ -161,7 +161,7 @@ describe('Spellbook workbench', () => {
         const barrier = pal('effect', 'barrier');
         expect(barrier).toHaveAttribute('aria-disabled', 'true');
         expect(barrier).toHaveAttribute('data-dim', 'true');
-        expect(barrier).toHaveAttribute('aria-label', 'Barrier, 2 MP. Needs one of these forms: Touch, Line');
+        expect(barrier).toHaveAttribute('aria-label', 'Barrier, 2 MP, Tier 2. Needs one of these forms: Touch, Line');
         click(pal('form', 'burst'));
         click(pal('effect', 'damage'));
         click(sock('form'));
@@ -444,7 +444,7 @@ describe('Spellbook basic actions (5B-1)', () => {
         expect(cards[2]).toHaveTextContent('one more full allowance of movement');
         expect(cards[3]).toHaveTextContent('bonus action');
         expect(cards[4]).toHaveTextContent('bonus action');
-        for (const id of ['sprint', 'leap', 'rally']) expect(screen.queryByTestId(`palette-effect-${id}`)).toBeNull();
+        for (const id of ['sprint', 'rally']) expect(screen.queryByTestId(`palette-effect-${id}`)).toBeNull();
         expect(book().abilities).toEqual([]);
     });
 

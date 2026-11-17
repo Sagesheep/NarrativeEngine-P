@@ -1,18 +1,31 @@
 import { abilityMod } from '../abilities';
 import { buildTierBlock } from '../tiers';
+import { abilityDamageType, abilityElement, blindPenalty, elementMultiplier, isImmune, revealedCover } from '../elements/rules';
+import { COATED, ELEMENT_NUMBERS, ELEMENTS } from '../elements/tables';
+import type { ConditionRiderId } from '../elements/tables';
+import { addConditionRider, arcRider, consumeCondition, impactRider, pushRider } from './riders';
+import type { RiderUnit } from './riders';
 import { coverBetween, distance, samePos, sameTeam, speedOf, terrainOf, tileAt, traceLine } from '../grid';
 import {
-    applyDamage, canAttackWith, canTarget, currentActorId, currentTurn, DEFEND_CONDITION, dismissSummon, emit, freshTurn, hasCondition,
-    HASTED, hazardStrike, isPlayerSide, markDown, rollDamage, setCondition, SHIELDED, SLOWED, spendAttackAction, STUNNED,
+    applyDamage, canAttackWith, canTarget, currentActorId, currentTurn, DEFEND_CONDITION, dismissSummon, emit, FEARED, freshTurn, hasCondition,
+    HASTED, hazardStrike, isPlayerSide, markDown, rollDamage, setCondition, SHIELDED, SLOWED, SNARED, spendAttackAction, STUNNED, VANISHED,
 } from '../core';
 import type { Draft } from '../core';
-import type { AbilityKey, AttackRange, CombatState, Combatant, DamageSpec, EffectId, GlyphAbility, Pos, ThrowPayload, TurnState } from '../types';
+import type {
+    AbilityKey, AttackRange, CombatCondition, CombatState, Combatant, DamageSpec, EffectId, ElementId, GlyphAbility, PlacedEffect, Pos, ThrowPayload,
+    TurnState,
+} from '../types';
 import { abilityRoll, builtinStats, checkAttack, findBuiltin, recoverable } from './builtins';
-import { EFFECTS, GLYPH_NUMBERS as N, UNSTUNNABLE_TIERS } from './registry';
+import { DISPEL_HARMFUL, DISPEL_HELPFUL, EFFECTS, FORMS, GLYPH_NUMBERS as N, UNSTUNNABLE_TIERS } from './registry';
 import {
-    barrierRounds, casterStats, damageDice, drainDice, hasteTurns, healDice, isQuickened, proficiencyOf, pushDistance, saveDc, saveModifier,
-    shieldAmount, shieldTurns, slowTurns, stunTurns, summonRounds, summonTier,
+    barrierRounds, casterStats, damageDice, decayDice, drainDice, fearTurns, gravitySquares, hasteTurns, healDice, isDelayed, isQuickened,
+    mantleRadius, mantleRounds, power, proficiencyOf, pushDistance, saveDc, saveModifier, shieldAmount, shieldTurns, sigilRounds, slowTurns,
+    snareTurns, stunTurns, summonRounds, summonTier, wallRounds,
 } from './numbers';
+import { addPlaced, endPlaced, mantleOf, placedCovers, placedOf, sigilTriggersOn, sweepOwnerless, touchesUnit } from './placed';
+import {
+    announceConduct, conductRow, dimBonus, leaveMarks, markedTiles, reactExtend, reactTiles, slideUnit, strikeStanding,
+} from './marks';
 import type { CasterStats } from './numbers';
 import { abilityCost, validateAbility } from './validate';
 import { abilityTargets, hasPinnedShoveTarget, isEmptyTile, legalAims } from './targeting';
@@ -122,7 +135,26 @@ type Ctx = {
     saves: Map<string, boolean>;
     rolls: Map<string, WeaponRoll>;
     maximise: boolean;
+    element?: ElementId;
+    track: Track;
+    coat: number;
+    fire?: PlacedEffect;
 };
+
+function scaleOf(ctx: Ctx, target: Combatant): number {
+    return ctx.aim.scales?.[target.id] ?? 1;
+}
+
+function scaled(ctx: Ctx, target: Combatant, amount: number): number {
+    const k = scaleOf(ctx, target);
+    return k === 1 ? amount : Math.max(1, Math.floor(amount * k));
+}
+
+type Track = { hurt: Set<string>; failed: Set<string>; base: Map<string, number> };
+
+function newTrack(): Track {
+    return { hurt: new Set(), failed: new Set(), base: new Map() };
+}
 
 function isStunt(ability: GlyphAbility): boolean {
     return ability.builtin?.kind === 'stunt';
@@ -151,11 +183,12 @@ function rollSave(ctx: Ctx, target: Combatant, key: AbilityKey): boolean {
     const cacheKey = `${target.id}:${key}`;
     const cached = ctx.saves.get(cacheKey);
     if (cached !== undefined) return cached;
-    const dc = saveDc(ctx.stats);
+    const dc = saveDc(ctx.stats) + (ctx.element ? ELEMENTS[ctx.element].dcBonus ?? 0 : 0);
     const natural = ctx.draft.rng.roll(20);
     const total = natural + saveModifier(target, key);
     const success = total >= dc;
     ctx.saves.set(cacheKey, success);
+    if (!success) ctx.track.failed.add(target.id);
     emit(ctx.draft, {
         type: 'save',
         actorId: ctx.user.id,
@@ -172,7 +205,9 @@ function needsSave(ctx: Ctx, effect: EffectId, target: Combatant): AbilityKey | 
     if (abilityRoll(ctx.ability) !== 'save') return null;
     if (ctx.ability.builtin?.kind === 'shove') return betterSave(target);
     if (isStunt(ctx.ability) && effect === 'weapon') return 'DEX';
-    return EFFECTS[effect].save ?? null;
+    const base = EFFECTS[effect].save ?? null;
+    if (base && ctx.element && ELEMENTS[ctx.element].saveAgainst) return ELEMENTS[ctx.element].saveAgainst ?? base;
+    return base;
 }
 
 function damageMultiplier(target: Combatant, type: string): { factor: number; weak: boolean; resist: boolean } {
@@ -186,20 +221,38 @@ function damageMultiplier(target: Combatant, type: string): { factor: number; we
 
 function dealDamage(ctx: Ctx, target: Combatant, dice: { count: number; sides: number; bonus: number }, crit: boolean, saveKey: AbilityKey | null, kind: 'damage' | 'drain'): number {
     const saved = saveKey ? rollSave(ctx, target, saveKey) : false;
-    const rolled = ctx.maximise
+    const rolled = scaled(ctx, target, ctx.maximise
         ? Math.max(1, dice.count * dice.sides + dice.bonus)
-        : rollDamage(ctx.draft.rng, crit ? dice.count * 2 : dice.count, dice.sides, dice.bonus);
-    const halved = saved ? Math.floor(rolled / 2) : rolled;
-    const mult = damageMultiplier(target, ctx.type);
+        : rollDamage(ctx.draft.rng, crit ? dice.count * 2 : dice.count, dice.sides, dice.bonus));
+    const weakened = ctx.coat > 0 ? Math.max(1, rolled - ctx.coat) : rolled;
+    const halved = saved ? Math.floor(weakened / 2) : weakened;
+    const found = ctx.element ? elementMultiplier(target, ctx.element) : null;
+    const mult = found ?? damageMultiplier(target, ctx.type);
     const amount = Math.floor(halved * mult.factor);
-    if (amount <= 0) return 0;
+    if (amount <= 0) {
+        if (found?.immune) {
+            emit(ctx.draft, {
+                type: 'ability_damage',
+                actorId: ctx.user.id,
+                targetId: target.id,
+                data: {
+                    ability: ctx.ability.name, kind, damage: 0, damageType: ctx.type, element: ctx.element, saved, crit, weakness: false, resisted: false,
+                    immune: true, absorbed: 0, hpBefore: target.hp, tempBefore: target.tempHp ?? 0, hpAfter: target.hp,
+                },
+                text: `${target.name} is immune to ${ctx.type}.`,
+            });
+        }
+        return 0;
+    }
     const result = applyDamage(target, amount);
+    ctx.track.hurt.add(target.id);
+    ctx.track.base.set(target.id, Math.max(ctx.track.base.get(target.id) ?? 0, halved));
     emit(ctx.draft, {
         type: 'ability_damage',
         actorId: ctx.user.id,
         targetId: target.id,
         data: {
-            ability: ctx.ability.name, kind, damage: amount, damageType: ctx.type, saved, crit,
+            ability: ctx.ability.name, kind, damage: amount, damageType: ctx.type, ...(ctx.element ? { element: ctx.element } : {}), saved, crit,
             weakness: mult.factor > 1, resisted: mult.factor < 1, absorbed: result.absorbed,
             hpBefore: result.hpBefore, tempBefore: result.tempBefore, hpAfter: target.hp,
         },
@@ -275,6 +328,7 @@ function moveBy(ctx: Ctx, target: Combatant, kind: 'push' | 'pull', squares: num
     if (shoved) {
         for (let i = 0; i < plan.hazards.length && target.status === 'up'; i++) hazardStrike(ctx.draft, target);
     }
+    enteredTile(ctx.draft, target, plan.from);
 }
 
 export function previewAbilityPushes(state: CombatState, userId: string, ability: GlyphAbility, aim: AimResult): PushPreview[] {
@@ -317,6 +371,20 @@ function teleport(ctx: Ctx, to: Pos, kind: 'blink' | 'dash' | 'leap', towardId?:
         },
         text,
     });
+    enteredTile(ctx.draft, ctx.user);
+}
+
+function leapGlyphTo(ctx: Ctx, to: Pos): void {
+    const s = ctx.draft.state;
+    const from = ctx.user.position as Pos;
+    const grid = terrainOf(s);
+    const crossed = new Set<string>();
+    if (grid) {
+        for (const step of traceLine(from, to).slice(1, -1)) {
+            for (const p of step) crossed.add(tileAt(grid, p));
+        }
+    }
+    teleport(ctx, to, 'leap', undefined, [...LEAP_TERRAIN, 'wall'].filter(k => crossed.has(k)));
 }
 
 const LEAP_TERRAIN: readonly string[] = ['hazard', 'difficult', 'cover'];
@@ -383,6 +451,8 @@ function swap(ctx: Ctx, target: Combatant): void {
         data: { ability: ctx.ability.name, moves: [{ id: ctx.user.id, from: { ...a }, to: { ...b } }, { id: target.id, from: { ...b }, to: { ...a } }] },
         text: `${ctx.user.name} and ${target.name} swap places.`,
     });
+    enteredTile(ctx.draft, ctx.user);
+    enteredTile(ctx.draft, target);
 }
 
 function applyShield(ctx: Ctx, target: Combatant, amount: number, turns: number): void {
@@ -518,6 +588,247 @@ function summon(ctx: Ctx, augments: GlyphAbility['effects'][number]['augments'])
     });
 }
 
+function addGlyphCondition(ctx: Ctx, target: Combatant, id: string, turns: number, effect: EffectId): void {
+    const s = ctx.draft.state;
+    const own = currentActorId(s) === target.id && s.turn?.actorId === target.id;
+    const found = target.conditions.find(c => c.id === id);
+    const before: CombatCondition | null = found ? { ...found } : null;
+    setCondition(target, { id, turns, sourceId: ctx.user.id, ...(own ? { appliedTurn: s.turnCount ?? 0 } : {}) });
+    emit(ctx.draft, {
+        type: 'condition_added',
+        actorId: ctx.user.id,
+        targetId: target.id,
+        data: { condition: id, turns, ability: ctx.ability.name, effect, glyph: true, before },
+        text: id === VANISHED ? `${target.name} vanishes from sight.` : `${target.name} is ${id} for ${turns} ${turns === 1 ? 'turn' : 'turns'}.`,
+    });
+    if (id === SNARED && own && s.turn) s.turn = { ...s.turn, moveLeft: 0 };
+}
+
+function dispel(ctx: Ctx, target: Combatant, saveKey: AbilityKey | null): void {
+    const friend = isWilling(ctx, target);
+    const strip = friend ? DISPEL_HARMFUL : DISPEL_HELPFUL;
+    const removed = target.conditions.filter(c => strip.includes(c.id));
+    if (removed.length === 0) return;
+    if (!friend && saveKey && rollSave(ctx, target, saveKey)) return;
+    const before = target.conditions.map(c => ({ ...c }));
+    const tempBefore = target.tempHp ?? 0;
+    target.conditions = target.conditions.filter(c => !strip.includes(c.id));
+    if (!friend && removed.some(c => c.id === SHIELDED)) delete target.tempHp;
+    emit(ctx.draft, {
+        type: 'dispelled',
+        actorId: ctx.user.id,
+        targetId: target.id,
+        data: { ability: ctx.ability.name, removed: removed.map(c => c.id), before, tempBefore, friend },
+        text: `${target.name} is stripped of ${removed.map(c => c.id).join(', ')}.`,
+    });
+}
+
+function decay(ctx: Ctx, target: Combatant, augments: readonly GlyphAbility['effects'][number]['augments'][number][], saveKey: AbilityKey | null): void {
+    if (saveKey && rollSave(ctx, target, saveKey)) return;
+    const original = target.maxHp + (target.decayed ?? 0);
+    const floor = Math.ceil(original * N.decayFloor);
+    const rolled = scaled(ctx, target, rollDamage(ctx.draft.rng, decayDice(ctx.stats, augments), N.decaySides, 0));
+    const amount = Math.min(rolled, target.maxHp - floor);
+    if (amount <= 0) return;
+    const maxBefore = target.maxHp;
+    const hpBefore = target.hp;
+    const tempBefore = target.tempHp ?? 0;
+    const decayedBefore = target.decayed ?? 0;
+    target.maxHp -= amount;
+    target.hp = Math.max(0, Math.min(target.maxHp, target.hp - amount));
+    target.decayed = decayedBefore + amount;
+    ctx.track.hurt.add(target.id);
+    emit(ctx.draft, {
+        type: 'decayed',
+        actorId: ctx.user.id,
+        targetId: target.id,
+        data: { ability: ctx.ability.name, amount, maxBefore, maxAfter: target.maxHp, hpBefore, tempBefore, hpAfter: target.hp, decayedBefore },
+        text: `${target.name} withers, losing ${amount} maximum HP.`,
+    });
+    if (target.hp <= 0) markDown(ctx.draft, target, { actorId: ctx.user.id });
+}
+
+function rewind(ctx: Ctx, target: Combatant): void {
+    const point = target.rewind;
+    if (!point || target.status !== 'up') return;
+    const s = ctx.draft.state;
+    const terrain = terrainOf(s);
+    const from = target.position ? { ...target.position } : undefined;
+    const free = !!point.pos && !!terrain && (samePos(point.pos, from) || isEmptyTile(s, terrain, point.pos));
+    const before = { hp: target.hp, tempHp: target.tempHp ?? 0, conditions: target.conditions.map(c => ({ ...c })), ...(from ? { pos: from } : {}) };
+    if (free && point.pos) target.position = { ...point.pos };
+    target.hp = Math.max(1, Math.min(target.maxHp, point.hp));
+    if (point.tempHp && point.tempHp > 0) target.tempHp = point.tempHp;
+    else delete target.tempHp;
+    target.conditions = point.conditions.map(c => ({ ...c }));
+    const moved = free && !!from && !!point.pos && !samePos(from, point.pos);
+    emit(ctx.draft, {
+        type: 'rewound',
+        actorId: ctx.user.id,
+        targetId: target.id,
+        data: {
+            ability: ctx.ability.name, before, hpBefore: before.hp, tempBefore: before.tempHp, hpAfter: target.hp, turn: point.turn,
+            ...(moved ? { moves: [{ id: target.id, from, to: { ...(point.pos as Pos) } }] } : {}),
+        },
+        text: `${target.name} slips back to where they stood a turn ago.`,
+    });
+    if (moved) enteredTile(ctx.draft, target);
+}
+
+function gravityPull(ctx: Ctx, targets: readonly Combatant[], augments: GlyphAbility['effects'][number]['augments']): void {
+    const s = ctx.draft.state;
+    const centre = ctx.aim.origin;
+    if (!centre) return;
+    const pulled = targets
+        .filter(t => t.status === 'up' && !!t.position && !samePos(t.position, centre))
+        .sort((a, b) => (distance(a.position as Pos, centre) - distance(b.position as Pos, centre)) || (s.order.indexOf(a.id) - s.order.indexOf(b.id)));
+    if (pulled.length === 0) return;
+    emit(ctx.draft, { type: 'gravity', actorId: ctx.user.id, data: { ability: ctx.ability.name, centre: { ...centre }, targets: pulled.map(t => t.id) }, text: `${ctx.ability.name} drags everything toward its centre.` });
+    for (const t of pulled) {
+        if (t.status !== 'up' || !t.position) continue;
+        const key = needsSave(ctx, 'gravity', t);
+        if (key && rollSave(ctx, t, key)) continue;
+        const squares = Math.min(gravitySquares(augments), distance(t.position, centre));
+        const plan = previewPush(s, ctx.user.id, t.id, 'pull', squares, { origin: centre });
+        if (!plan || plan.squares === 0) continue;
+        t.position = { ...plan.landing };
+        emit(ctx.draft, {
+            type: 'pushed',
+            actorId: ctx.user.id,
+            targetId: t.id,
+            data: { kind: 'pull', squares: plan.squares, ability: ctx.ability.name, gravity: true, moves: [{ id: t.id, from: { ...plan.from }, to: { ...plan.landing } }] },
+            text: `${t.name} is dragged ${plan.squares} ${plan.squares === 1 ? 'square' : 'squares'}.`,
+        });
+        enteredTile(ctx.draft, t, plan.from);
+    }
+}
+
+export function delayedPayload(ability: GlyphAbility): GlyphAbility {
+    const boost = new Array<'amplify'>(N.delayBoost).fill('amplify');
+    return {
+        ...ability,
+        form: { id: ability.form.id, augments: ability.form.augments.filter(a => a !== 'delay') },
+        effects: ability.effects.map(e => (DELAY_BOOSTED.has(e.id) ? { id: e.id, augments: [...e.augments, ...boost] } : { id: e.id, augments: [...e.augments] })),
+    };
+}
+
+const DELAY_BOOSTED: ReadonlySet<EffectId> = new Set<EffectId>(['damage', 'drain', 'heal', 'decay', 'shield']);
+
+function castPlaced(ctx: Ctx): void {
+    const s = ctx.draft.state;
+    const ability = ctx.ability;
+    const user = ctx.user;
+    const base = { ownerId: user.id, side: user.side, name: ability.name, placedRound: s.round, ...(ctx.element ? { element: ctx.element } : {}) };
+    if (isDelayed(ability)) {
+        addPlaced(ctx.draft, {
+            ...base, kind: 'delay', trigger: 'owner_turn_start', tiles: ctx.aim.tiles.map(p => ({ ...p })), payload: delayedPayload(ability),
+            ...(ctx.aim.origin ? { origin: { ...ctx.aim.origin } } : {}), targetIds: [...ctx.aim.targetIds], expiresRound: s.round + 2,
+        });
+        return;
+    }
+    const payload: GlyphAbility = { ...ability, form: { id: ability.form.id, augments: [] }, effects: ability.effects.map(e => ({ id: e.id, augments: [...e.augments] })) };
+    if (ability.form.id === 'sigil') {
+        const mine = placedOf(s).filter(p => p.kind === 'sigil' && p.ownerId === user.id);
+        if (mine.length >= N.maxSigils) endPlaced(ctx.draft, mine[0], 'replaced');
+        addPlaced(ctx.draft, { ...base, kind: 'sigil', trigger: 'enter', tiles: [{ ...ctx.aim.tiles[0] }], payload, expiresRound: s.round + sigilRounds(ability) });
+        return;
+    }
+    if (ability.form.id === 'mantle') {
+        const old = mantleOf(s, user.id);
+        if (old) endPlaced(ctx.draft, old, 'replaced');
+        addPlaced(ctx.draft, { ...base, kind: 'mantle', trigger: 'turn_start', tiles: [], radius: mantleRadius(ability), payload, expiresRound: s.round + mantleRounds(ability) });
+        return;
+    }
+    const rounds = wallRounds(ability);
+    raiseBarrier(ctx, rounds);
+    addPlaced(ctx.draft, { ...base, kind: 'wall', trigger: 'turn_start', tiles: (ctx.aim.barrierTiles ?? []).map(p => ({ ...p })), payload, expiresRound: s.round + rounds });
+}
+
+export function firePlaced(draft: Draft, placed: PlacedEffect, targets: readonly Combatant[], origin?: Pos): void {
+    const owner = draft.state.combatants[placed.ownerId];
+    if (!owner || !placed.payload) return;
+    const live = targets.filter(t => t.status === 'up');
+    if (live.length === 0) return;
+    const aim: AimResult = {
+        ok: true,
+        tiles: live.filter(t => !!t.position).map(t => ({ ...(t.position as Pos) })),
+        targetIds: live.map(t => t.id),
+        ...(origin ? { origin: { ...origin } } : {}),
+    };
+    applyChain(draft, owner.id, placed.payload, aim, false, placed);
+}
+
+function fireDelay(draft: Draft, placed: PlacedEffect): void {
+    const s = draft.state;
+    const owner = s.combatants[placed.ownerId];
+    if (!owner || !placed.payload) return;
+    const includeOwner = placed.payload.form.id === 'burst';
+    const targets = s.order
+        .map(id => s.combatants[id])
+        .filter((c): c is Combatant => !!c && c.status === 'up' && !!c.position && (includeOwner || c.id !== owner.id) && placed.tiles.some(t => samePos(t, c.position)));
+    if (targets.length === 0) {
+        emit(draft, {
+            type: 'placed_triggered',
+            actorId: owner.id,
+            data: { placedId: placed.id, kind: placed.kind, ability: placed.name, targets: [], missed: true },
+            text: `${placed.name} goes off, but nobody is there.`,
+        });
+        return;
+    }
+    firePlaced(draft, placed, targets, placed.origin);
+}
+
+export function enteredTile(draft: Draft, unit: Combatant, from?: Pos): void {
+    const s = draft.state;
+    if (!s.placed || s.placed.length === 0 || !unit.position || unit.status !== 'up') return;
+    strikeStanding(draft, unit, 'enter');
+    if (unit.status !== 'up' || !unit.position) return;
+    const at = { ...unit.position };
+    const sigil = sigilTriggersOn(s, at, unit);
+    if (sigil) {
+        endPlaced(draft, sigil, 'spent');
+        const owner = s.combatants[sigil.ownerId];
+        const origin = owner?.status === 'up' && owner.position && !samePos(owner.position, at) ? owner.position : sigil.tiles[0];
+        firePlaced(draft, sigil, [unit], origin);
+    }
+    if (!from || unit.status !== 'up' || !samePos(unit.position, at)) return;
+    if (slideUnit(draft, unit, from)) enteredTile(draft, unit);
+}
+
+function nearestTile(tiles: readonly Pos[], p: Pos): Pos | undefined {
+    let best: Pos | undefined;
+    for (const t of tiles) if (!best || distance(t, p) < distance(best, p)) best = t;
+    return best;
+}
+
+export function turnStartPlaced(draft: Draft, unit: Combatant): void {
+    const s = draft.state;
+    if (!s.placed || s.placed.length === 0) return;
+    sweepOwnerless(draft);
+    strikeStanding(draft, unit, 'turn_start');
+    if (unit.status !== 'up') return;
+    for (const p of [...placedOf(s)]) {
+        if (p.kind !== 'delay' || p.ownerId !== unit.id || unit.status !== 'up') continue;
+        endPlaced(draft, p, 'spent');
+        fireDelay(draft, p);
+    }
+    for (const p of [...placedOf(s)]) {
+        if (unit.status !== 'up' || !unit.position) return;
+        if (p.trigger !== 'turn_start' || !placedOf(s).some(q => q.id === p.id)) continue;
+        if (!touchesUnit(p, unit) || !placedCovers(s, p, unit.position)) continue;
+        const origin = p.kind === 'mantle' ? s.combatants[p.ownerId]?.position : nearestTile(p.tiles, unit.position);
+        firePlaced(draft, p, [unit], origin);
+    }
+}
+
+function placedTriggerText(placed: PlacedEffect, target: Combatant | undefined): string {
+    const who = target?.name ?? 'someone';
+    if (placed.kind === 'sigil') return `The sigil (${placed.name}) goes off under ${who}.`;
+    if (placed.kind === 'mantle') return `The mantle (${placed.name}) touches ${who}.`;
+    if (placed.kind === 'wall') return `The wall (${placed.name}) lashes ${who}.`;
+    return `${placed.name} goes off on ${who}.`;
+}
+
 function usesWeapon(ability: GlyphAbility): boolean {
     return ability.effects.some(e => e.id === 'weapon');
 }
@@ -531,12 +842,12 @@ function wieldOf(ctx: Ctx): Wield {
 function weaponRoll(ctx: Ctx, target: Combatant): { hit: boolean; crit: boolean } {
     const user = ctx.user;
     const wield = wieldOf(ctx);
-    const check = checkAttack(ctx.draft.state, user.id, target.id);
+    const check = checkAttack(ctx.draft.state, user.id, target.id, undefined, !canTarget(user, target));
     const defending = hasCondition(target, DEFEND_CONDITION);
     const disadvantage = defending || check.disadvantage || hasCondition(user, SLOWED);
     const first = ctx.draft.rng.roll(20);
     const natural = disadvantage ? Math.min(first, ctx.draft.rng.roll(20)) : first;
-    const total = natural + wield.attackBonus;
+    const total = natural + wield.attackBonus - blindPenalty(user);
     const ac = target.ac + check.cover;
     const crit = natural === 20;
     const hit = crit || (natural !== 1 && total >= ac);
@@ -563,7 +874,8 @@ function weaponHit(ctx: Ctx, target: Combatant, crit: boolean): void {
     const spec = wieldOf(ctx).damage;
     const dmgType = spec.type;
     const count = crit ? spec.count * 2 : spec.count;
-    const damage = rollDamage(ctx.draft.rng, count, spec.sides, spec.bonus);
+    const rolledDamage = rollDamage(ctx.draft.rng, count, spec.sides, spec.bonus);
+    const damage = ctx.coat > 0 ? Math.max(1, rolledDamage - ctx.coat) : rolledDamage;
     const result = applyDamage(target, damage);
     const shielded = result.absorbed > 0 ? { absorbed: result.absorbed, hpBefore: result.hpBefore, tempBefore: result.tempBefore } : {};
     emit(ctx.draft, {
@@ -586,14 +898,21 @@ function guard(ctx: Ctx, target: Combatant): void {
 function attackRoll(ctx: Ctx, target: Combatant): { hit: boolean; crit: boolean } {
     if (usesWeapon(ctx.ability)) return weaponRoll(ctx, target);
     if (isWilling(ctx, target)) return { hit: true, crit: false };
+    const mentalSave = ctx.element ? ELEMENTS[ctx.element].saveAgainst : undefined;
+    if (mentalSave && ctx.element) {
+        if (isImmune(target, ctx.element)) return { hit: true, crit: false };
+        return { hit: !rollSave(ctx, target, mentalSave), crit: false };
+    }
     const s = ctx.draft.state;
     const terrain = terrainOf(s);
     const from = ctx.user.position;
     const pierce = ctx.ability.form.augments.includes('pierce');
     const helpfulOnly = ctx.ability.effects.every(e => EFFECTS[e.id].helpful);
-    const cover = ctx.ability.form.id === 'projectile' && !pierce && !helpfulOnly && terrain && from && target.position
-        ? coverBetween(terrain, from, target.position)
+    const terrainCover = ctx.ability.form.id === 'projectile' && !pierce && !helpfulOnly && terrain && from && target.position
+        ? revealedCover(target, coverBetween(terrain, from, target.position))
         : 0;
+    const cover = terrainCover + (helpfulOnly ? 0 : dimBonus(s, from, target.position));
+    const armourIgnored = ctx.element ? ELEMENTS[ctx.element].ignoresArmour ?? 0 : 0;
     const adjacentShot = ctx.ability.form.id === 'projectile' && !!from && Object.values(s.combatants)
         .some(o => o.id !== ctx.user.id && canTarget(ctx.user, o) && !!o.position && distance(o.position, from) <= 1);
     const defending = hasCondition(target, DEFEND_CONDITION);
@@ -601,8 +920,8 @@ function attackRoll(ctx: Ctx, target: Combatant): { hit: boolean; crit: boolean 
     const disadvantage = defending || adjacentShot || slowed;
     const first = ctx.draft.rng.roll(20);
     const natural = disadvantage ? Math.min(first, ctx.draft.rng.roll(20)) : first;
-    const total = natural + ctx.stats.proficiency + ctx.stats.castingMod;
-    const ac = target.ac + cover;
+    const total = natural + ctx.stats.proficiency + ctx.stats.castingMod - blindPenalty(ctx.user);
+    const ac = target.ac + cover - armourIgnored;
     const crit = natural === 20;
     const hit = crit || (natural !== 1 && total >= ac);
     emit(ctx.draft, {
@@ -636,7 +955,11 @@ export function resolveAbility(draft: Draft, actorId: string, ability: GlyphAbil
         if (user.signature && user.signature.abilityId === ability.id) user.signature = { ...user.signature, usesLeft: Math.max(0, user.signature.usesLeft - 1) };
     }
     if (ability.builtin?.kind === 'throw') {
-        if (aim.throw) resolveThrow(draft, actorId, ability, aim.throw.payload, aim.throw.landing);
+        if (aim.throw) {
+            const thrown = resolveThrow(draft, actorId, ability, aim.throw.payload, aim.throw.landing);
+            const creature = thrown ? s.combatants[thrown.creatureId] : undefined;
+            if (creature) enteredTile(draft, creature, thrown?.from);
+        }
         return;
     }
     applyChain(draft, actorId, ability, aim, false);
@@ -675,7 +998,7 @@ export function resolveStunt(draft: Draft, actorId: string, plan: StuntPlan): bo
     });
     if (natural === 1 && plan.steps[0]) {
         const first = plan.steps[0];
-        const ctx: Ctx = { draft, user, ability: first.ability, stats: statsFor(user, first.ability), aim: first.aim, type: N.defaultDamageType, saves: new Map(), rolls: new Map(), maximise: false };
+        const ctx: Ctx = { draft, user, ability: first.ability, stats: statsFor(user, first.ability), aim: first.aim, type: N.defaultDamageType, saves: new Map(), rolls: new Map(), maximise: false, track: newTrack(), coat: 0 };
         addCondition(ctx, user, SLOWED, N.stuntSlowTurns);
     }
     if (!success) return false;
@@ -687,19 +1010,75 @@ export function resolveStunt(draft: Draft, actorId: string, plan: StuntPlan): bo
     return true;
 }
 
-function applyChain(draft: Draft, actorId: string, ability: GlyphAbility, aim: AimResult, maximise: boolean): void {
+const HOSTILE_EFFECTS: ReadonlySet<EffectId> = new Set<EffectId>(['damage', 'drain', 'push', 'pull', 'stun', 'slow', 'swap', 'snare', 'fear', 'decay', 'gravity']);
+
+const DAMAGING_EFFECTS: ReadonlySet<EffectId> = new Set<EffectId>(['damage', 'drain', 'weapon']);
+
+function runRiders(ctx: Ctx, targets: readonly Combatant[], roll: string): void {
+    const element = ctx.element;
+    if (!element) return;
+    const row = ELEMENTS[element];
+    const effects = ctx.ability.effects;
+    if (row.riders.length === 0 || !effects.some(e => HOSTILE_EFFECTS.has(e.id))) return;
+    const dealsDamage = effects.some(e => e.id === 'damage' || e.id === 'drain');
+    const unit: RiderUnit = { draft: ctx.draft, user: ctx.user, abilityName: ctx.ability.name, element, ...(ctx.aim.origin ? { origin: ctx.aim.origin } : {}) };
+    const inArea = new Set(targets.map(t => t.id));
+    for (const target of targets) {
+        if (target.status !== 'up' || isImmune(target, element)) continue;
+        const landed = ctx.track.hurt.has(target.id) || ctx.track.failed.has(target.id) || (roll === 'attack' && !dealsDamage && !isWilling(ctx, target));
+        if (!landed) continue;
+        for (const rider of row.riders) {
+            if (target.status !== 'up') break;
+            const origin = target.position ? { ...target.position } : undefined;
+            switch (rider) {
+                case 'shove':
+                    if (pushRider(unit, target, ELEMENT_NUMBERS.shoveSquares).moved > 0) enteredTile(ctx.draft, target, origin);
+                    break;
+                case 'kinetic': {
+                    const shoved = pushRider(unit, target, ELEMENT_NUMBERS.kineticSquares);
+                    if (shoved.blocked && target.status === 'up') impactRider(unit, target);
+                    if (shoved.moved > 0) enteredTile(ctx.draft, target, origin);
+                    break;
+                }
+                case 'arc': {
+                    const conduct = conductRow(target, element);
+                    arcRider(
+                        unit, target, ctx.track.base.get(target.id) ?? 0, inArea,
+                        conduct ? () => announceConduct(ctx.draft, ctx.user, target, element, ctx.ability.name, conduct) : undefined,
+                    );
+                    break;
+                }
+                default:
+                    addConditionRider(unit, target, rider as ConditionRiderId);
+                    break;
+            }
+        }
+        if (target.status === 'up') reactExtend(ctx.draft, ctx.user, target, element, ctx.ability.name);
+    }
+}
+
+function applyChain(draft: Draft, actorId: string, ability: GlyphAbility, aim: AimResult, maximise: boolean, fire?: PlacedEffect): void {
     const s = draft.state;
     const user = s.combatants[actorId];
     const slot = abilitySlot(ability);
     const cost = abilityCost(ability);
-    const type = ability.damageType?.trim() || N.defaultDamageType;
+    const element = abilityElement(ability);
+    const type = abilityDamageType(ability);
     const targetIds = aim.targetIds.filter(id => s.combatants[id]);
-    if (ability.builtin?.events !== 'compact') {
+    if (fire) {
+        emit(draft, {
+            type: 'placed_triggered',
+            actorId,
+            ...(targetIds[0] ? { targetId: targetIds[0] } : {}),
+            data: { placedId: fire.id, kind: fire.kind, ability: fire.name, targets: targetIds, form: ability.form.id, effects: ability.effects.map(e => e.id), ...(element ? { element } : {}) },
+            text: placedTriggerText(fire, targetIds[0] ? s.combatants[targetIds[0]] : undefined),
+        });
+    } else if (ability.builtin?.events !== 'compact') {
         emit(draft, {
             type: 'ability',
             actorId,
             data: {
-                abilityId: ability.id, name: ability.name, damageType: type, form: ability.form.id,
+                abilityId: ability.id, name: ability.name, damageType: type, ...(element ? { element } : {}), form: ability.form.id,
                 effects: ability.effects.map(e => e.id), cost, slot, targets: targetIds,
                 ...(usesMp(user) ? { mpAfter: user.mp } : {}),
                 ...(user.signature && user.signature.abilityId === ability.id ? { signature: true, usesLeft: user.signature.usesLeft } : {}),
@@ -707,10 +1086,27 @@ function applyChain(draft: Draft, actorId: string, ability: GlyphAbility, aim: A
             text: `${user.name} uses ${ability.name}${usesMp(user) && !ability.builtin ? ` (${cost} MP)` : ''}.`,
         });
     }
-    const ctx: Ctx = { draft, user, ability, stats: statsFor(user, ability), aim, type, saves: new Map(), rolls: new Map(), maximise };
+    const ctx: Ctx = {
+        draft, user, ability, stats: statsFor(user, ability), aim, type, saves: new Map(), rolls: new Map(), maximise,
+        ...(element ? { element } : {}), track: newTrack(), coat: 0, ...(fire ? { fire } : {}),
+    };
+    if (!fire && (FORMS[ability.form.id]?.placed || isDelayed(ability))) {
+        castPlaced(ctx);
+        return;
+    }
+    if (!fire && hasCondition(user, COATED) && ability.effects.some(e => DAMAGING_EFFECTS.has(e.id))) {
+        if (consumeCondition(draft, user, COATED, 'attack')) ctx.coat = ELEMENT_NUMBERS.coatPenalty;
+    }
+    const marking = element && ability.effects.some(e => HOSTILE_EFFECTS.has(e.id))
+        ? { draft, user, element, abilityName: ability.name, tiles: markedTiles(s, user, ability, aim, fire) }
+        : null;
+    if (marking && marking.tiles.length > 0) reactTiles(marking);
     if (ability.form.id === 'dash' && aim.destination) teleport(ctx, aim.destination, 'dash', targetIds[0]);
     if (ability.effects.some(e => e.id === 'blink') && aim.destination) teleport(ctx, aim.destination, 'blink');
-    if (ability.effects.some(e => e.id === 'leap') && aim.destination) leapTo(ctx, aim.destination);
+    if (ability.effects.some(e => e.id === 'leap') && aim.destination) {
+        if (ability.builtin?.kind === 'jump') leapTo(ctx, aim.destination);
+        else leapGlyphTo(ctx, aim.destination);
+    }
     const roll = abilityRoll(ability);
     const crits = new Map<string, boolean>();
     let targets = targetIds.map(id => s.combatants[id]).filter(c => c.status === 'up' || ability.builtin?.kind === 'help');
@@ -733,6 +1129,10 @@ function applyChain(draft: Draft, actorId: string, ability: GlyphAbility, aim: A
             continue;
         }
         if (effect.id === 'blink' || effect.id === 'leap') continue;
+        if (effect.id === 'gravity') {
+            gravityPull(ctx, targets, a);
+            continue;
+        }
         let drained = 0;
         for (const target of targets) {
             if (target.status !== 'up' && effect.id !== 'rally') continue;
@@ -741,7 +1141,7 @@ function applyChain(draft: Draft, actorId: string, ability: GlyphAbility, aim: A
             switch (effect.id) {
                 case 'damage': {
                     const dice = user.abilityDamage
-                        ? { count: user.abilityDamage.count + a.filter(x => x === 'amplify').length, sides: user.abilityDamage.sides, bonus: user.abilityDamage.bonus }
+                        ? { count: Math.max(1, user.abilityDamage.count + power(a)), sides: user.abilityDamage.sides, bonus: user.abilityDamage.bonus }
                         : { count: damageDice(ctx.stats, a), sides: 6, bonus: 0 };
                     dealDamage(ctx, target, dice, crit, saveKey, 'damage');
                     break;
@@ -750,10 +1150,30 @@ function applyChain(draft: Draft, actorId: string, ability: GlyphAbility, aim: A
                     drained += dealDamage(ctx, target, { count: drainDice(ctx.stats, a), sides: 6, bonus: 0 }, crit, saveKey, 'drain');
                     break;
                 case 'heal':
-                    heal(ctx, target, rollDamage(draft.rng, healDice(ctx.stats, a), 4, ctx.stats.castingMod), 'heal');
+                    heal(ctx, target, scaled(ctx, target, rollDamage(draft.rng, healDice(ctx.stats, a), 4, ctx.stats.castingMod)), 'heal');
                     break;
                 case 'shield':
-                    applyShield(ctx, target, shieldAmount(ctx.stats, a), shieldTurns(a));
+                    applyShield(ctx, target, scaled(ctx, target, shieldAmount(ctx.stats, a)), shieldTurns(a));
+                    break;
+                case 'snare':
+                    if (saveKey && rollSave(ctx, target, saveKey)) break;
+                    addGlyphCondition(ctx, target, SNARED, snareTurns(a), 'snare');
+                    break;
+                case 'fear':
+                    if (saveKey && rollSave(ctx, target, saveKey)) break;
+                    addGlyphCondition(ctx, target, FEARED, fearTurns(a), 'fear');
+                    break;
+                case 'dispel':
+                    dispel(ctx, target, saveKey);
+                    break;
+                case 'decay':
+                    decay(ctx, target, a, saveKey);
+                    break;
+                case 'vanish':
+                    addGlyphCondition(ctx, target, VANISHED, 1, 'vanish');
+                    break;
+                case 'rewind':
+                    rewind(ctx, target);
                     break;
                 case 'haste':
                     applyHaste(ctx, target, hasteTurns(a));
@@ -798,4 +1218,6 @@ function applyChain(draft: Draft, actorId: string, ability: GlyphAbility, aim: A
         }
         if (effect.id === 'drain' && Math.floor(drained / 2) > 0 && user.status === 'up') heal(ctx, user, Math.floor(drained / 2), 'drain');
     }
+    if (element) runRiders(ctx, targets, roll);
+    if (marking && marking.tiles.length > 0) leaveMarks(marking);
 }

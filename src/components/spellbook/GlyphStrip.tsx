@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { isElementId } from '@narrative/engine';
+import { ElementChip } from './ElementChip';
 import { useTranslation } from '../../i18n/useTranslation';
 import { glyphLabelKey } from '../character/tabs/glyphLabels';
 import type { GlyphAbility } from '../../types';
@@ -22,5 +24,6 @@ export function GlyphStrip({ ability, size = 'sm', className = '' }: { ability: 
         push('effect', e.id, `effect-${i}`);
         e.augments.forEach((a, j) => push('augment', a, `effect-${i}-aug-${j}`));
     });
+    if (isElementId(ability.element)) items.push(<ElementChip key="element" element={ability.element} size={size} />);
     return <span data-testid="glyph-strip" className={`inline-flex items-center flex-wrap gap-1 ${className}`}>{items}</span>;
 }

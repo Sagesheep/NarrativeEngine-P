@@ -1,7 +1,8 @@
 import {
     ArrowLeftRight, ArrowRightToLine, ArrowUpFromLine, BrickWall, ChevronsRight, ChevronsUp, Cone, Crosshair, Droplet, Expand,
     FastForward, Flame, Ghost, Hand, HandHelping, Heart, Magnet, MoveRight, Rabbit, Ruler, Shield, ShieldHalf, Snail, Sparkle, Split,
-    Swords, UnfoldHorizontal, User, Wind, Zap, ArrowBigUpDash, Rocket,
+    Swords, UnfoldHorizontal, User, Wind, Zap, ArrowBigUpDash, Rocket, Stamp, CircleDot, Link, Fence, Anchor, Eraser, Atom, Skull, HeartCrack,
+    EyeOff, Rewind, ChevronsDown, Hourglass, Timer,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AugmentId, EffectId, FormId } from '../../types';
@@ -16,6 +17,10 @@ export const FORM_ICONS: Readonly<Record<FormId, LucideIcon>> = {
     cone: Cone,
     burst: Expand,
     dash: ChevronsRight,
+    sigil: Stamp,
+    mantle: CircleDot,
+    chain: Link,
+    wall: Fence,
 };
 
 export const EFFECT_ICONS: Readonly<Record<EffectId, LucideIcon>> = {
@@ -38,6 +43,13 @@ export const EFFECT_ICONS: Readonly<Record<EffectId, LucideIcon>> = {
     leap: ArrowBigUpDash,
     rally: HandHelping,
     hurl: Rocket,
+    snare: Anchor,
+    dispel: Eraser,
+    gravity: Atom,
+    fear: Skull,
+    decay: HeartCrack,
+    vanish: EyeOff,
+    rewind: Rewind,
 };
 
 export const AUGMENT_ICONS: Readonly<Record<AugmentId, LucideIcon>> = {
@@ -47,6 +59,9 @@ export const AUGMENT_ICONS: Readonly<Record<AugmentId, LucideIcon>> = {
     pierce: ArrowRightToLine,
     split: Split,
     quicken: FastForward,
+    dampen: ChevronsDown,
+    sustain: Hourglass,
+    delay: Timer,
 };
 
 export function iconFor(kind: GlyphKind, id: string): LucideIcon {

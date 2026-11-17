@@ -89,7 +89,22 @@ export {
     SIGNATURE_NAME_FALLBACK, SIGNATURE_ID_PREFIX,
     isDirected, activeOrder, normalizeOrderKind, cleanLine, resolveUnit, hasActedThisTurn, yetToAct, ORDER_VERBS, orderText, applyOrders,
     undoDirectorEvent, normalizeSignatureRequest, validateSignature, signatureReady, signatureCost, directorBrief, briefBand,
+    ELEMENT_IDS, ELEMENTS, ELEMENT_NUMBERS, ELEMENT_PRESETS, ELEMENT_PRESET_IDS, DEFAULT_ELEMENT_PRESET, ELEMENT_WORDS, MINDLESS_KINDS,
+    SOAKED_WEAK_TO, CONDITION_RIDERS, RIDER_VALUE, ELEMENT_EVENT_TYPES, ELEMENT_CONDITIONS,
+    BURNING, SOAKED, STAGGERED, REVEALED, BLINDED, COATED, DAZED, CONFUSED,
+    isElementId, elementOfWord, normalizePreset, elementsFor, inPreset, checkElement, filterElements, abilityElement, abilityDamageType,
+    stripElement, setElement, elementCost, isSoaked, weakSet, resistSet, isMindless, isImmune, elementMultiplier, blindPenalty, revealedCover,
+    scaleDamage, describeElement, undoElementEvent, nearestUnit, burnTick, placeElement, elementPlacementReason,
+    TILE_MARK_IDS, TILE_MARKS, MARK_FORMS, MARK_EVENT_TYPES, REACTIONS, markRow, tileReactions, conditionReactions,
+    markRecordAt, markIdAt, marksOf, harmAt, slideAt, dimBonus, expectedMarkHarm, markedTiles, slideStep,
+    SNARED, FEARED, VANISHED, GLYPH_EVENT_TYPES, GLYPH_AI, AI_SKIP_EFFECTS, AI_SKIP_FORMS, GLYPH_AI_VALUES, SIGNATURE_UNUSABLE_FORMS,
+    AUGMENT_TIERS, DAMPENED_COST_FLOOR, DELAY_REFUSED_EFFECTS, TELEPORT_EFFECTS, DISPEL_HARMFUL, DISPEL_HELPFUL,
+    power, leapGlyphRange, gravitySquares, decayDice, snareTurns, fearTurns, sigilRange, sigilRounds, mantleRadius, mantleRounds, chainRange,
+    chainJumps, wallRange, wallLength, wallRounds, isDelayed, dampenedCost, needsAim, hiddenFrom, wallTilesFor, delayedPayload, glyphTier,
+    PLACED_KINDS, PLACED_WORDS, placedOf, copyPlaced, hostilePayload, touchesUnit, sigilAt, sigilTriggersOn, sigilVisibleTo, seenSigils, mantleOf,
+    placedCovers, zonesAgainst, undoPlacedEvent, undoGlyphEvent,
 } from './combat/index';
+export type { GlyphTier, PlacedKind, PlacedTrigger, PlacedEndReason, PlacedEffect, RewindPoint, GlyphAiEntry } from './combat/index';
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget,
     CombatSheet, DerivedSheet, Rng, PointBuyConfig, PointBuyAllocation,
@@ -116,6 +131,8 @@ export type {
     OrderKind, CombatOrder, Signature, SignatureEffectSpec, SignatureSpec, SignatureRepairCode, SignatureRepair, DirectorOrder,
     OrderRejectReason, OrderRejection, OrderProfile, SignatureBudget, ApplyOrdersOptions, ApplyOrdersResult, SignatureValidation,
     BriefBand, BriefUnit, BriefFoe, BriefAlly, BriefDirected, BriefObjective, DirectorBrief,
+    ElementId, ElementPresetId, TileMarkId, ElementDrop, ElementRow, ElementRiderId, ConditionRiderId, ConditionRiderSpec, ElementFactor,
+    ElementDropReason, ElementFilter, ElementPlacementReason, MarkRow, MarkHarm, ReactionRow, ReactionEffect, ReactionTrigger,
 } from './combat/index';
 
 export { resolveLootDrop } from './loot/lootEngine';

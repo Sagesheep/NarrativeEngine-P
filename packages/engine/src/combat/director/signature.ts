@@ -5,7 +5,9 @@ import type {
     AugmentId, CombatState, CombatTier, Combatant, EffectId, FormId, GlyphAbility, Signature, SignatureEffectSpec, SignatureRepair,
     SignatureRepairCode, SignatureSpec,
 } from '../types';
-import { SIGNATURE_BUDGET, SIGNATURE_ID_PREFIX, SIGNATURE_NAME_FALLBACK, SIGNATURE_SURCHARGE, SIGNATURE_UNUSABLE_EFFECTS } from './tables';
+import {
+    SIGNATURE_BUDGET, SIGNATURE_ID_PREFIX, SIGNATURE_NAME_FALLBACK, SIGNATURE_SURCHARGE, SIGNATURE_UNUSABLE_EFFECTS, SIGNATURE_UNUSABLE_FORMS,
+} from './tables';
 import type { SignatureBudget } from './tables';
 
 const FORM_SET: ReadonlySet<string> = new Set(FORM_IDS);
@@ -118,6 +120,7 @@ export function validateSignature(
     if (!cleaned) note('name_defaulted', `${unit.name}'s signature had no name and is called "${SIGNATURE_NAME_FALLBACK}".`, spec?.name, SIGNATURE_NAME_FALLBACK);
     const formId = key(spec?.form);
     if (!FORM_SET.has(formId)) return dropped('invalid_dropped', `${unit.name}'s signature "${name}" has no valid form (${formId || 'none'}), so it was dropped.`);
+    if (SIGNATURE_UNUSABLE_FORMS.has(formId)) return dropped('invalid_dropped', `The engine's planner cannot use the ${formId} form, so ${unit.name}'s signature "${name}" was dropped.`);
     const form = FORMS[formId as FormId];
     const w: Working = { form: formId as FormId, augments: [], effects: [] };
     for (const raw of Array.isArray(spec.augments) ? spec.augments : []) {

@@ -2,6 +2,7 @@ import type { Barrier, FieldItem, PushPreview, ThrowPlan } from '@narrative/engi
 import { useTranslation } from '../../i18n/useTranslation';
 import type { CombatPos, CombatState, Combatant } from '../../types';
 import { TILE_SIZE, posKey, tileCenter } from './combatVisuals';
+import { elementColor } from './elementText';
 import type { AbilityAim, AimPreview } from './useAbilityAim';
 
 export function FieldItemLayer({ items }: { items: readonly FieldItem[] | undefined }) {
@@ -199,8 +200,9 @@ function PushTrail({ push }: { push: PushPreview }) {
 
 export function AimOverlay({ aim, preview, focus, state }: { aim: AbilityAim; preview: AimPreview | null; focus: CombatPos | null; state: CombatState }) {
     const legalFocus = !!focus && aim.legal.has(posKey(focus)) && !!preview?.ok;
+    const tint = elementColor(aim.ability.element);
     return (
-        <g data-testid="combat-aim">
+        <g data-testid="combat-aim" data-element={tint ? aim.ability.element : undefined}>
             {aim.legalList.map(p => (
                 <rect
                     key={`a${p.x},${p.y}`}
@@ -224,7 +226,7 @@ export function AimOverlay({ aim, preview, focus, state }: { aim: AbilityAim; pr
                     y={p.y * TILE_SIZE}
                     width={TILE_SIZE}
                     height={TILE_SIZE}
-                    style={{ fill: 'var(--combat-target)' }}
+                    style={tint ? { fill: tint, fillOpacity: 0.32, stroke: tint, strokeWidth: 0.3 } : { fill: 'var(--combat-target)' }}
                 />
             ))}
             {legalFocus && preview?.plan && <ThrowTrail plan={preview.plan} />}

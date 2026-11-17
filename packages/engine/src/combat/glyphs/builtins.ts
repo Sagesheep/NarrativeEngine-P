@@ -2,6 +2,8 @@ import { abilityMod } from '../abilities';
 import { canTarget } from '../core';
 import { coverBetween, distance, hasLineOfSight, rangeOf, RANGED_DISTANCE, REACH_DISTANCE, terrainOf } from '../grid';
 import type { AttackRange, CombatState, Combatant, DamageSpec, EffectId, GlyphAbility, Pos } from '../types';
+import { revealedCover } from '../elements/rules';
+import { dimBonus } from './marks';
 import { proficiencyOf } from './numbers';
 import type { CasterStats } from './numbers';
 import { FORMS, GLYPH_NUMBERS as N, UNSTUNNABLE_TIERS } from './registry';
@@ -16,7 +18,7 @@ export const BUILTIN_JUMP_ID = 'builtin:jump';
 export const BUILTIN_THROW_ID = 'builtin:throw';
 export const BUILTIN_HELP_ID = 'builtin:help';
 export const BUILTIN_STUNT_ID = 'builtin:stunt';
-export const BUILTIN_EFFECT_IDS: readonly EffectId[] = ['weapon', 'guard', 'sprint', 'leap', 'rally', 'hurl'];
+export const BUILTIN_EFFECT_IDS: readonly EffectId[] = ['weapon', 'guard', 'sprint', 'rally', 'hurl'];
 export const THROWN_WEAPON_NAME = 'something snatched up';
 
 export type AttackCheck = {
@@ -40,29 +42,31 @@ export function hostileAdjacent(state: CombatState, actor: Combatant, at: Pos): 
     return Object.values(state.combatants).some(o => o.id !== actor.id && canTarget(actor, o) && !!o.position && distance(o.position, at) <= 1);
 }
 
-export function checkAttack(state: CombatState, actorId: string, targetId: string, from?: Pos): AttackCheck {
+export function checkAttack(state: CombatState, actorId: string, targetId: string, from?: Pos, anyTarget = false): AttackCheck {
     const actor = state.combatants[actorId];
     const target = state.combatants[targetId];
     const range = actor ? rangeOf(actor) : 'close';
-    if (!actor || !target || !canTarget(actor, target)) return { ok: false, reason: 'invalid_target', range, distance: 0, cover: 0, disadvantage: false };
+    const valid = !!actor && !!target && (canTarget(actor, target) || (anyTarget && actor.id !== target.id && target.status === 'up'));
+    if (!actor || !target || !valid) return { ok: false, reason: 'invalid_target', range, distance: 0, cover: 0, disadvantage: false };
     const grid = terrainOf(state);
     const at = from ?? actor.position;
     if (!grid || !at || !target.position) return { ok: true, range, distance: 1, cover: 0, disadvantage: false };
     const dist = distance(at, target.position);
+    const dim = dimBonus(state, at, target.position);
     if (range === 'close') {
         return dist <= 1
-            ? { ok: true, range, distance: dist, cover: 0, disadvantage: false }
+            ? { ok: true, range, distance: dist, cover: dim, disadvantage: false }
             : { ok: false, reason: 'out_of_range', range, distance: dist, cover: 0, disadvantage: false };
     }
     const limit = range === 'reach' ? REACH_DISTANCE : RANGED_DISTANCE;
     if (dist > limit) return { ok: false, reason: 'out_of_range', range, distance: dist, cover: 0, disadvantage: false };
     if (!hasLineOfSight(grid, at, target.position)) return { ok: false, reason: 'no_line_of_sight', range, distance: dist, cover: 0, disadvantage: false };
-    if (range === 'reach') return { ok: true, range, distance: dist, cover: 0, disadvantage: false };
+    if (range === 'reach') return { ok: true, range, distance: dist, cover: dim, disadvantage: false };
     return {
         ok: true,
         range,
         distance: dist,
-        cover: coverBetween(grid, at, target.position),
+        cover: revealedCover(target, coverBetween(grid, at, target.position)) + dim,
         disadvantage: hostileAdjacent(state, actor, at),
     };
 }

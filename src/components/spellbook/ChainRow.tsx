@@ -1,20 +1,23 @@
 import { useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent } from 'react';
 import { ChevronRight, Plus, X } from 'lucide-react';
-import { chainColumns, glyphCost, sameSocket, socketKey } from '@narrative/engine';
+import { ELEMENTS, chainColumns, glyphCost, sameSocket, socketKey } from '@narrative/engine';
 import type { ChainColumn, ChainDraft, GlyphRef, Socket } from '@narrative/engine';
 import { useTranslation } from '../../i18n/useTranslation';
 import { glyphLabelKey } from '../character/tabs/glyphLabels';
+import { elementName } from '../combat/elementText';
+import { ElementChip } from './ElementChip';
 import { GLYPH_MIME, SOCKET_MIME, carries, parseGlyph, readTransfer } from './dnd';
 import { GlyphShape } from './GlyphShape';
 
-export function ChainRow({ chain, selected, label, onSelect, onRemove, onDropGlyph }: {
+export function ChainRow({ chain, selected, label, onSelect, onRemove, onDropGlyph, onRemoveElement }: {
     chain: ChainDraft;
     selected: Socket | null;
     label: string;
     onSelect: (socket: Socket) => void;
     onRemove: (socket: Socket) => void;
     onDropGlyph: (socket: Socket, glyph: GlyphRef) => void;
+    onRemoveElement?: () => void;
 }) {
     const { t } = useTranslation();
     const columns = chainColumns(chain);
@@ -147,6 +150,26 @@ export function ChainRow({ chain, selected, label, onSelect, onRemove, onDropGly
                     </div>
                 </div>
             ))}
+            {chain.element && (
+                <div className="flex items-start gap-1">
+                    <span aria-hidden="true" className="text-text-dim mt-8 shrink-0 text-xs font-mono">+</span>
+                    <div data-testid="socket-element" className="relative flex flex-col items-center gap-1 w-24 p-1">
+                        <ElementChip element={chain.element} size="sm" />
+                        <span className="text-xs text-center leading-tight text-text-primary">{elementName(chain.element, t)}</span>
+                        <span className="text-xs font-mono text-text-dim">{t('combat.spellbook.cost', { cost: ELEMENTS[chain.element].cost, label })}</span>
+                        {onRemoveElement && (
+                            <button
+                                type="button"
+                                aria-label={t('spellbook.socket.remove', { name: elementName(chain.element, t) })}
+                                onClick={onRemoveElement}
+                                className="absolute top-0 right-0 p-0.5 rounded-full bg-surface border border-border text-text-dim hover:text-danger"
+                            >
+                                <X size={12} aria-hidden="true" />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -10,7 +10,15 @@ describe('normalizeCombatConfig', () => {
             partyControl: 'engine', defeatMode: 'knockout', narrationCadence: 'side', narrationLength: 'standard',
             confirmStart: true, offerOnDangerous: true, resourceLabel: 'MP',
             maxChainLength: 6, maxEquippedAbilities: 6, maxSummons: 2, mpRecovery: 'fight', tileStyle: 'auto', combatDirector: 'on',
+            combatElements: 'all',
         });
+    });
+
+    it('keeps the element setting and falls back to all for anything else', () => {
+        expect(normalizeCombatConfig({ combatElements: 'fantasy' }).combatElements).toBe('fantasy');
+        expect(normalizeCombatConfig({ combatElements: 'modern' }).combatElements).toBe('modern');
+        expect(normalizeCombatConfig({ combatElements: 'steampunk' }).combatElements).toBe('all');
+        expect(normalizeCombatConfig({ combatElements: 'Fantasy' }).combatElements).toBe('all');
     });
 
     it('keeps the director setting and falls back to on for anything else', () => {
@@ -29,7 +37,7 @@ describe('normalizeCombatConfig', () => {
             partyControl: 'solo', defeatMode: 'ironman', narrationCadence: 'end', narrationLength: 'rich',
             confirmStart: false, offerOnDangerous: false, resourceLabel: 'RAM',
             maxChainLength: 4, maxEquippedAbilities: 3, maxSummons: 0, mpRecovery: 'fight', tileStyle: 'painted', combatDirector: 'on',
-            mookJitterRange: 2, defaultWeaponDie: 8,
+            combatElements: 'all', mookJitterRange: 2, defaultWeaponDie: 8,
         });
     });
 

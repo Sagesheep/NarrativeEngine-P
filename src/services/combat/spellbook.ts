@@ -1,5 +1,5 @@
-import { abilityCost, casterStats, castingAbilityOf, cleanAbilityName, deriveMaxMp, deriveSheet, validateAbility } from '@narrative/engine';
-import type { AbilityLimits, CasterStats } from '@narrative/engine';
+import { abilityCost, casterStats, castingAbilityOf, cleanAbilityName, deriveMaxMp, deriveSheet, inPreset, isElementId, validateAbility } from '@narrative/engine';
+import type { AbilityLimits, CasterStats, ElementPresetId } from '@narrative/engine';
 import { normalizeCombatConfig, normalizeSpellbook } from '../../types';
 import type { CombatSettings, CombatSheet, GameContext, GlyphAbility, Spellbook } from '../../types';
 import { uid } from '../../utils/uid';
@@ -34,8 +34,13 @@ export function cleanAbility(ability: GlyphAbility, source?: GlyphAbility['sourc
         ...(damageType ? { damageType } : {}),
         form: { id: ability.form.id, augments: [...ability.form.augments] },
         effects: ability.effects.map(e => ({ id: e.id, augments: [...e.augments] })),
+        ...(isElementId(ability.element) ? { element: ability.element } : {}),
         source: source ?? ability.source,
     };
+}
+
+export function elementOutsidePreset(ability: Pick<GlyphAbility, 'element'>, preset: ElementPresetId): boolean {
+    return isElementId(ability.element) && !inPreset(preset, ability.element);
 }
 
 export function upsertAbility(book: Spellbook, ability: GlyphAbility): Spellbook {

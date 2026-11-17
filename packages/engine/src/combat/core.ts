@@ -4,6 +4,8 @@ import { DEFAULT_HAZARD_TYPE } from './mapBuilder';
 import { finalizeObjective, settleObjective } from './objectives/run';
 import { OBJECTIVE_EVENT_TYPES } from './objectives/tables';
 import { ORDER_EVENT_TYPE } from './director/tables';
+import { DAZED, ELEMENT_EVENT_TYPES, ELEMENT_NUMBERS, STAGGERED } from './elements/tables';
+import { MARK_EVENT_TYPES } from './elements/marks';
 import type { CombatCondition, CombatEvent, CombatOutcome, CombatState, Combatant, FieldItem, Rng, Side, TurnState } from './types';
 
 export const DEFEND_CONDITION = 'defending';
@@ -11,6 +13,11 @@ export const STUNNED = 'stunned';
 export const SLOWED = 'slowed';
 export const HASTED = 'hasted';
 export const SHIELDED = 'shielded';
+export const SNARED = 'snared';
+export const FEARED = 'feared';
+export const VANISHED = 'vanished';
+
+export const GLYPH_EVENT_TYPES: readonly string[] = ['placed', 'placed_triggered', 'placed_ended', 'dispelled', 'decayed', 'rewound', 'gravity'];
 
 export type Draft = {
     state: CombatState;
@@ -36,6 +43,7 @@ export function cloneState(state: CombatState): CombatState {
         combatants,
         ...(state.turn ? { turn: { ...state.turn } } : {}),
         ...(state.barriers ? { barriers: state.barriers.map(b => ({ ...b, pos: { ...b.pos } })) } : {}),
+        ...(state.placed ? { placed: state.placed.map(p => ({ ...p, tiles: p.tiles.map(t => ({ ...t })) })) } : {}),
     };
 }
 
@@ -65,6 +73,7 @@ export function isHostile(a: Side, b: Side): boolean {
 
 export function canTarget(actor: Combatant, target: Combatant): boolean {
     if (actor.id === target.id || target.status !== 'up') return false;
+    if (target.conditions.length > 0 && hasCondition(target, VANISHED)) return false;
     if (target.mark === 'bystander' && actor.side === 'enemy') return true;
     if (actor.controller === 'player') return target.side === 'enemy' || target.side === 'neutral';
     return isHostile(actor.side, target.side);
@@ -84,7 +93,10 @@ export function freshTurn(state: CombatState, actorId: string): TurnState {
     const hasted = !!actor && hasCondition(actor, HASTED);
     if (actor && hasted) speed *= 2;
     if (actor && hasCondition(actor, SLOWED)) speed = Math.floor(speed / 2);
-    return { actorId, moveLeft: speed, actionUsed: false, ...(hasted ? { extraActions: 1 } : {}) };
+    if (actor && hasCondition(actor, STAGGERED)) speed = Math.max(0, speed - ELEMENT_NUMBERS.staggerLoss);
+    if (actor && hasCondition(actor, SNARED)) speed = 0;
+    const dazed = !!actor && hasCondition(actor, DAZED);
+    return { actorId, moveLeft: speed, actionUsed: false, ...(dazed ? { bonusUsed: true } : {}), ...(hasted ? { extraActions: 1 } : {}) };
 }
 
 export function currentTurn(state: CombatState): TurnState | null {
@@ -295,5 +307,5 @@ export const COMBAT_EVENT_TYPES: readonly string[] = [
     'combat_ended', 'rejected', 'ability', 'ability_attack', 'save', 'ability_damage', 'heal', 'shield', 'pushed', 'teleported',
     'swapped', 'summoned', 'dismissed', 'barrier', 'barrier_ended', 'condition_added', 'turn_lost', 'unaffected',
     'flee', 'morale', 'parley', 'surrendered', 'fate', 'rallied', 'stunt_check', 'thrown', 'item_dropped', 'item_recovered',
-    ...OBJECTIVE_EVENT_TYPES, ORDER_EVENT_TYPE,
+    ...OBJECTIVE_EVENT_TYPES, ORDER_EVENT_TYPE, ...ELEMENT_EVENT_TYPES, ...GLYPH_EVENT_TYPES, ...MARK_EVENT_TYPES,
 ];

@@ -58,8 +58,11 @@ describe('built-in actions are chains through the one pipeline (5B-2)', () => {
         for (const a of [builtinDash(), builtinShove(), builtinJump(), builtinThrow(), builtinHelp()]) expect(a.builtin?.events).toBeUndefined();
     });
 
-    it('keeps sprint, leap and rally out of the palette, the shape check and player chains', () => {
-        for (const id of ['sprint', 'leap', 'rally'] as const) {
+    it('keeps sprint and rally out of the palette, the shape check and player chains', () => {
+        expect(BUILTIN_EFFECT_IDS).not.toContain('leap');
+        expect(EFFECT_IDS).toContain('leap');
+        expect(validateAbility(glyph('self', ['leap']))).toEqual([]);
+        for (const id of ['sprint', 'rally'] as const) {
             expect(BUILTIN_EFFECT_IDS).toContain(id);
             expect(EFFECT_IDS).not.toContain(id);
             expect(allGlyphs('effect').map(g => g.id)).not.toContain(id);

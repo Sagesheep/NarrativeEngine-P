@@ -39,8 +39,25 @@ export type { StarterPresetId } from './kits';
 export {
     emptyChain, chainOf, allGlyphs, acceptedAugments, glyphsAccepting, augmentCapacity, glyphCost, chainCost, chainCount,
     socketGlyph, placeGlyph, removeGlyph, placementReason, chainColumns, socketKey, sameSocket, firstFreeSocket,
-    autoPlacementReason, describeGlyph,
+    autoPlacementReason, describeGlyph, placeElement, elementPlacementReason,
 } from './palette';
-export type { GlyphRef, GlyphKind, ChainDraft, SocketOwner, Socket, PlacementReason, ChainColumn } from './palette';
+export type { GlyphRef, GlyphKind, ChainDraft, SocketOwner, Socket, PlacementReason, ChainColumn, ElementPlacementReason } from './palette';
 export { previewAbility, previewState, PREVIEW_SIZE, PREVIEW_USER_ID } from './preview';
+export { AUGMENT_TIERS, DAMPENED_COST_FLOOR, DELAY_REFUSED_EFFECTS, TELEPORT_EFFECTS, DISPEL_HARMFUL, DISPEL_HELPFUL } from './registry';
+export {
+    power, leapGlyphRange, gravitySquares, decayDice, snareTurns, fearTurns, sigilRange, sigilRounds, mantleRadius, mantleRounds, chainRange,
+    chainJumps, wallRange, wallLength, wallRounds, isDelayed,
+} from './numbers';
+export { dampenedCost } from './validate';
+export { needsAim, hiddenFrom, wallTilesFor } from './targeting';
+export { delayedPayload } from './apply';
+export { glyphTier } from './palette';
+export {
+    PLACED_KINDS, PLACED_WORDS, placedOf, copyPlaced, hostilePayload, touchesUnit, sigilAt, sigilTriggersOn, sigilVisibleTo, seenSigils, mantleOf,
+    placedCovers, zonesAgainst, undoPlacedEvent,
+} from './placed';
+export { undoGlyphEvent } from './undo';
+export {
+    markRecordAt, markIdAt, marksOf, harmAt, slideAt, dimBonus, expectedMarkHarm, markedTiles, slideStep,
+} from './marks';
 export type { AbilityPreview, PreviewUnit } from './preview';

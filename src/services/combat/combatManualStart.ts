@@ -3,14 +3,16 @@ import { llmCall } from '../../utils/llmCall';
 import { uid } from '../../utils/uid';
 import { commitPendingTurn } from '../turn/pendingCommit';
 import { isEngineLogMessage } from '../payload/history';
-import { parseCombatArgs } from './combatProposal';
+import { elementListLine, parseCombatArgs } from './combatProposal';
 import { stageProposal } from './combatController';
+import { normalizeCombatConfig } from '../../types';
+import type { ElementPresetId } from '@narrative/engine';
 import type { ChatMessage, CombatProposal, EndpointConfig, ProviderConfig } from '../../types';
 
 export const MANUAL_START_TRACKING_LABEL = 'combat-manual-start';
 const RECENT_MESSAGES = 6;
 
-export function buildManualStartPrompt(messages: readonly ChatMessage[], pcName: string): string {
+export function buildManualStartPrompt(messages: readonly ChatMessage[], pcName: string, preset: ElementPresetId = 'all'): string {
     const recent = messages
         .filter(m => (m.role === 'user' || m.role === 'assistant') && !isEngineLogMessage(m))
         .slice(-RECENT_MESSAGES)
@@ -30,6 +32,7 @@ export function buildManualStartPrompt(messages: readonly ChatMessage[], pcName:
         '- coward: fights from behind others and runs when hurt.',
         '- berserker: ignores danger, always the hardest hit, never backs off.',
         '- support: heals, shields and helps allies first, attacks when nothing needs doing.',
+        `weak, resist and immune are optional lists of elements it is weak to, resists, or cannot be hurt by; mindless is optional, true for constructs, undead and machines; element is optional, the one element a caster's spells carry. ${elementListLine(preset)}`,
         'objective is optional, what the fight is about; leave it out for a plain fight to the finish. Shape: {"win":"escape","everyone":false,"lose":["round_limit"],"roundLimit":8,"side":"within_rounds","sideRounds":6,"reinforcements":"some"}. Never give coordinates; the engine picks every position. win is one of:',
         '- rout: beat every enemy (the default).',
         '- defeat_leader: a clear leader whose fall breaks the rest; add "leader":"Name" as listed above.',
@@ -71,9 +74,11 @@ export async function requestManualCombat(
     let proposal = empty;
     if (provider) {
         try {
-            const raw = await call(provider, buildManualStartPrompt(store.messages, store.context.characterProfileData?.name ?? ''));
-            const parsed = parseCombatArgs(raw, store.npcLedger);
+            const preset = normalizeCombatConfig(store.context.combatConfig).combatElements;
+            const raw = await call(provider, buildManualStartPrompt(store.messages, store.context.characterProfileData?.name ?? '', preset));
+            const parsed = parseCombatArgs(raw, store.npcLedger, preset);
             if (parsed.ok) proposal = { ...empty, ...parsed.value };
+            if (parsed.ok) for (const drop of parsed.drops) console.info(`[combat] element dropped from manual start: ${drop.name} ${drop.field} ${drop.value} (${drop.reason})`);
         } catch (e) {
             console.warn('[combat] manual start extraction failed:', e);
         }

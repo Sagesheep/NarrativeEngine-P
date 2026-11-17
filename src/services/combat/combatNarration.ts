@@ -9,6 +9,7 @@ import { uid } from '../../utils/uid';
 import { groupEventsByTurn, hpBandLabel, isGroupComplete, isPresent, momentTags, positionPhrase, sideGroup, spokenLine, stateAtSeq, turnLineEntries } from './combatEvents';
 import type { TurnLine } from './combatEvents';
 import { objectiveStakes } from './objectiveStory';
+import { elementStakes, elementsInEvents } from './elementNarration';
 import { normalizeCombatConfig } from '../../types';
 import type {
     ChatMessage, CombatEvent, CombatFlourish, CombatNarrationCadence, CombatNarrationLength, CombatSession, CombatState, CombatTerrainLabels,
@@ -24,6 +25,7 @@ export type BeatDirectiveOptions = {
     nonSpeakers?: boolean;
     stakes?: string;
     spoken?: boolean;
+    elements?: string;
 };
 
 const LOCKED_RULE = 'Locked: every listed event happens, in the listed order, with the listed result. Add no other attacks, hits, misses, wounds that would matter, deaths, falls, escapes, surrenders, arrivals or changes of position. State no numbers. Settle nothing about what happens next.';
@@ -60,6 +62,7 @@ export function beatDirective(opts: BeatDirectiveOptions = {}): string {
         FREE_RULE,
         SHAPE_RULE,
         opts.stakes ?? '',
+        opts.elements ?? '',
         opts.nonSpeakers ? NON_SPEAKER_RULE : '',
         opts.flourish ? `${PC_RULE} ${FLOURISH_RULE}` : PC_RULE,
         opts.spoken ? SPOKEN_RULE : '',
@@ -394,6 +397,7 @@ export function buildCombatBlock(state: CombatState, log: readonly CombatEvent[]
 export function directiveForRange(session: CombatSession, range: BeatRange, cadence: CombatNarrationCadence, length: CombatNarrationLength): string {
     const events = rangeEvents(session.log, range);
     const stakes = objectiveStakes(session.state);
+    const elements = elementStakes(elementsInEvents(events));
     return beatDirective({
         length,
         opening: events.some(e => e.type === 'combat_started'),
@@ -403,6 +407,7 @@ export function directiveForRange(session: CombatSession, range: BeatRange, cade
         nonSpeakers: hasNonSpeaker(session.state, session.log, range),
         spoken: spokenLines(session.state, session.log, range).length > 0,
         ...(stakes ? { stakes } : {}),
+        ...(elements ? { elements } : {}),
     });
 }
 

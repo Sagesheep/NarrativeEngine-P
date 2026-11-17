@@ -98,9 +98,10 @@ describe('propose_ability tool (T6)', () => {
         const offered = def.function.parameters.properties.effects.items.properties.effect.enum;
         expect(offered).not.toContain('weapon');
         expect(offered).not.toContain('guard');
-        for (const effect of ['sprint', 'leap', 'rally']) expect(offered).not.toContain(effect);
-        for (const effect of ['weapon', 'guard', 'sprint', 'leap', 'rally']) {
-            const parsed = parseAbilityArgs({ name: 'Cheat', form: effect === 'guard' || effect === 'sprint' || effect === 'leap' ? 'self' : 'touch', effects: [{ effect }] }, limits);
+        for (const effect of ['sprint', 'rally', 'hurl']) expect(offered).not.toContain(effect);
+        expect(offered).toContain('leap');
+        for (const effect of ['weapon', 'guard', 'sprint', 'rally']) {
+            const parsed = parseAbilityArgs({ name: 'Cheat', form: effect === 'guard' || effect === 'sprint' ? 'self' : 'touch', effects: [{ effect }] }, limits);
             expect(parsed.ok).toBe(false);
             expect((parsed as { reasons: string[] }).reasons.join(' ')).toContain(`"${effect}" is not an effect`);
             const result = handleProposeAbilityTool(JSON.stringify({ name: 'Cheat', form: 'touch', effects: [{ effect }] }), limits);

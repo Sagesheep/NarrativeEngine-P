@@ -61,6 +61,7 @@ export type Grid = {
     hazardType?: string;
     area?: AreaType;
     labels?: TerrainLabels;
+    extraCost?: number[];
 };
 
 export type Pos = { x: number; y: number };
@@ -87,12 +88,41 @@ export type ResolvedMapSpec = {
 
 export type TurnState = { actorId: string; moveLeft: number; actionUsed: boolean; bonusUsed?: boolean; extraActions?: number; dashed?: boolean };
 
-export type FormId = 'touch' | 'projectile' | 'self' | 'line' | 'cone' | 'burst' | 'dash';
+export type FormId = 'touch' | 'projectile' | 'self' | 'line' | 'cone' | 'burst' | 'dash' | 'sigil' | 'mantle' | 'chain' | 'wall';
 
 export type EffectId = 'damage' | 'heal' | 'shield' | 'push' | 'pull' | 'stun' | 'slow'
-    | 'haste' | 'blink' | 'swap' | 'barrier' | 'drain' | 'summon' | 'weapon' | 'guard' | 'sprint' | 'leap' | 'rally' | 'hurl';
+    | 'haste' | 'blink' | 'swap' | 'barrier' | 'drain' | 'summon' | 'weapon' | 'guard' | 'sprint' | 'leap' | 'rally' | 'hurl'
+    | 'snare' | 'dispel' | 'gravity' | 'fear' | 'decay' | 'vanish' | 'rewind';
 
-export type AugmentId = 'amplify' | 'widen' | 'extend' | 'pierce' | 'split' | 'quicken';
+export type AugmentId = 'amplify' | 'widen' | 'extend' | 'pierce' | 'split' | 'quicken' | 'dampen' | 'sustain' | 'delay';
+
+export type GlyphTier = 1 | 2 | 3;
+
+export type PlacedKind = 'sigil' | 'mantle' | 'wall' | 'delay' | 'mark';
+
+export type PlacedTrigger = 'enter' | 'turn_start' | 'owner_turn_start';
+
+export type PlacedEndReason = 'expired' | 'spent' | 'owner_gone' | 'replaced' | 'cleared';
+
+export type PlacedEffect = {
+    id: string;
+    kind: PlacedKind;
+    ownerId: string;
+    side: Side;
+    name: string;
+    trigger: PlacedTrigger;
+    tiles: Pos[];
+    radius?: number;
+    payload?: GlyphAbility;
+    origin?: Pos;
+    targetIds?: string[];
+    element?: ElementId;
+    mark?: TileMarkId;
+    placedRound: number;
+    expiresRound: number;
+};
+
+export type RewindPoint = { pos?: Pos; hp: number; tempHp?: number; conditions: CombatCondition[]; turn: number };
 
 export type BuiltinKind = 'attack' | 'defend' | 'dash' | 'shove' | 'jump' | 'throw' | 'help' | 'stunt';
 
@@ -121,11 +151,20 @@ export type StuntPart = {
 
 export type StuntSpec = { ability: AbilityKey; parts: StuntPart[] };
 
+export type ElementId =
+    | 'fire' | 'water' | 'earth' | 'kinetic' | 'lightning' | 'ice' | 'steel' | 'light' | 'darkness' | 'slime' | 'mental'
+    | 'lava' | 'madness' | 'almighty';
+
+export type ElementPresetId = 'all' | 'fantasy' | 'modern';
+
+export type TileMarkId = 'flames' | 'rubble' | 'slick' | 'sticky' | 'molten' | 'dim';
+
 export type GlyphAbility = {
     id: string;
     name: string;
     description?: string;
     damageType?: string;
+    element?: ElementId;
     form: { id: FormId; augments: AugmentId[] };
     effects: { id: EffectId; augments: AugmentId[] }[];
     source: 'player' | 'ai' | 'preset';
@@ -138,6 +177,7 @@ export type CombatCondition = {
     turns?: number;
     appliedTurn?: number;
     sourceId?: string;
+    element?: ElementId;
 };
 
 export type Barrier = { pos: Pos; expiresRound: number; sourceId: string };
@@ -224,6 +264,10 @@ export type Combatant = {
     speed?: number;
     weaknesses?: string[];
     resistances?: string[];
+    weak?: ElementId[];
+    resist?: ElementId[];
+    immune?: ElementId[];
+    mindless?: boolean;
     kit?: GlyphAbility[];
     mp?: number;
     maxMp?: number;
@@ -244,6 +288,9 @@ export type Combatant = {
     directed?: boolean;
     order?: CombatOrder;
     signature?: Signature;
+    decayed?: number;
+    rewind?: RewindPoint;
+    rewindNext?: RewindPoint;
 };
 
 export type ObjectiveMark = 'leader' | 'ward' | 'bystander';
@@ -441,6 +488,9 @@ export type CombatState = {
     ending?: CombatEnding;
     objective?: CombatObjective;
     reinforcements?: ReinforcementBook;
+    elementPreset?: ElementPresetId;
+    placed?: PlacedEffect[];
+    nextPlaced?: number;
 };
 
 export type CombatAction =
@@ -489,6 +539,11 @@ export type CombatantSpec = {
     template?: TemplateOverlay;
     directed?: boolean;
     signature?: SignatureSpec;
+    weak?: string[];
+    resist?: string[];
+    immune?: string[];
+    mindless?: boolean;
+    element?: string;
 };
 
 export type TemplateOverlay = {
@@ -513,7 +568,10 @@ export type CombatSpec = {
     defeatMode?: DefeatMode;
     objective?: ObjectiveRequest;
     reinforcements?: ReinforcementRequest;
+    elementPreset?: ElementPresetId;
 };
+
+export type ElementDrop = { unitId: string; unitName: string; field: 'weak' | 'resist' | 'immune' | 'element'; value: string; reason: 'unknown' | 'outside_preset' };
 
 export type WeaponQuality = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 

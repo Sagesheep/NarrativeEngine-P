@@ -1,8 +1,8 @@
 import type {
-    Archetype, AugmentId, CombatEvent, CombatState, CombatTier, EffectId, FormId, GlyphAbility, MapSpec, ObjectiveRequest, ParleyEffect,
-    ParleyIntent, ParleyRating, ReinforcementLevel, SignatureSpec, Speech, StuntDifficulty, StuntSpec, Tactic,
+    Archetype, AugmentId, CombatEvent, CombatState, CombatTier, EffectId, ElementId, ElementPresetId, FormId, GlyphAbility, MapSpec, ObjectiveRequest,
+    ParleyEffect, ParleyIntent, ParleyRating, ReinforcementLevel, SignatureSpec, Speech, StuntDifficulty, StuntSpec, Tactic,
 } from '@narrative/engine';
-import { isBuiltinId } from '@narrative/engine';
+import { AUGMENT_IDS, EFFECT_IDS, ELEMENT_PRESET_IDS, FORM_IDS, isBuiltinId, isElementId } from '@narrative/engine';
 
 export type {
     AbilityKey, AbilityScores, CombatTier, Archetype, PointBudget, CombatSheet, DerivedSheet,
@@ -27,6 +27,7 @@ export type CombatMpRecovery = 'fight';
 export type CombatNarrationLength = 'brief' | 'standard' | 'rich';
 export type CombatTileStyle = 'auto' | 'painted';
 export type CombatDirectorMode = 'off' | 'on';
+export type CombatElementsMode = ElementPresetId;
 
 export type CombatSettings = {
     partyControl: CombatPartyControl;
@@ -42,6 +43,7 @@ export type CombatSettings = {
     mpRecovery: CombatMpRecovery;
     tileStyle: CombatTileStyle;
     combatDirector: CombatDirectorMode;
+    combatElements: CombatElementsMode;
     mookJitterRange?: number;
     defaultWeaponDie?: number;
 };
@@ -64,6 +66,11 @@ export type ProposedCombatant = {
     included?: boolean;
     officer?: boolean;
     signature?: SignatureSpec;
+    weak?: ElementId[];
+    resist?: ElementId[];
+    immune?: ElementId[];
+    mindless?: boolean;
+    element?: ElementId;
 };
 
 export type ProposedAttackStyle = 'melee' | 'ranged';
@@ -215,6 +222,7 @@ export const COMBAT_NARRATION_LENGTHS: readonly CombatNarrationLength[] = ['brie
 
 export const COMBAT_TILE_STYLES: readonly CombatTileStyle[] = ['auto', 'painted'];
 export const COMBAT_DIRECTOR_MODES: readonly CombatDirectorMode[] = ['on', 'off'];
+export const COMBAT_ELEMENT_MODES: readonly CombatElementsMode[] = ELEMENT_PRESET_IDS;
 
 export const COMBAT_RESOURCE_LABEL_MAX = 24;
 
@@ -232,6 +240,7 @@ export const DEFAULT_COMBAT_CONFIG: Readonly<CombatSettings> = Object.freeze({
     mpRecovery: 'fight',
     tileStyle: 'auto',
     combatDirector: 'on',
+    combatElements: 'all',
 });
 
 export const COMBAT_MP_RECOVERIES: readonly CombatMpRecovery[] = ['fight'];
@@ -250,9 +259,9 @@ export type AbilityProposal = {
 
 export const SPELLBOOK_MAX_ABILITIES = 200;
 
-const FORM_KEYS: readonly FormId[] = ['touch', 'projectile', 'self', 'line', 'cone', 'burst', 'dash'];
-const EFFECT_KEYS: readonly EffectId[] = ['damage', 'heal', 'shield', 'push', 'pull', 'stun', 'slow', 'haste', 'blink', 'swap', 'barrier', 'drain', 'summon'];
-const AUGMENT_KEYS: readonly AugmentId[] = ['amplify', 'widen', 'extend', 'pierce', 'split', 'quicken'];
+const FORM_KEYS: readonly FormId[] = FORM_IDS;
+const EFFECT_KEYS: readonly EffectId[] = EFFECT_IDS;
+const AUGMENT_KEYS: readonly AugmentId[] = AUGMENT_IDS;
 const ABILITY_SOURCES: readonly GlyphAbility['source'][] = ['player', 'ai', 'preset'];
 
 function cleanAugments(raw: unknown): AugmentId[] {
@@ -280,6 +289,7 @@ export function normalizeGlyphAbility(raw: unknown): GlyphAbility | null {
     const description = cleanString(r.description, 400);
     const damageType = cleanString(r.damageType, 24);
     const source = typeof r.source === 'string' && (ABILITY_SOURCES as readonly string[]).includes(r.source) ? r.source as GlyphAbility['source'] : 'player';
+    const element = isElementId(r.element) ? r.element : undefined;
     return {
         id,
         name,
@@ -287,6 +297,7 @@ export function normalizeGlyphAbility(raw: unknown): GlyphAbility | null {
         ...(damageType ? { damageType } : {}),
         form: { id: form.id as FormId, augments: cleanAugments(form.augments) },
         effects,
+        ...(element ? { element } : {}),
         source,
     };
 }
@@ -350,6 +361,7 @@ export function normalizeCombatConfig(partial?: unknown): CombatSettings {
         mpRecovery: pickEnum(raw.mpRecovery, COMBAT_MP_RECOVERIES, d.mpRecovery),
         tileStyle: pickEnum(raw.tileStyle, COMBAT_TILE_STYLES, d.tileStyle),
         combatDirector: pickEnum(raw.combatDirector, COMBAT_DIRECTOR_MODES, d.combatDirector),
+        combatElements: pickEnum(raw.combatElements, COMBAT_ELEMENT_MODES, d.combatElements),
     };
     if (typeof raw.mookJitterRange === 'number' && Number.isFinite(raw.mookJitterRange)) out.mookJitterRange = raw.mookJitterRange;
     if (typeof raw.defaultWeaponDie === 'number' && Number.isFinite(raw.defaultWeaponDie)) out.defaultWeaponDie = raw.defaultWeaponDie;

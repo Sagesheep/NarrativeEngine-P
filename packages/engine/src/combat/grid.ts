@@ -1,4 +1,6 @@
 import type { AttackRange, Combatant, CombatState, Grid, Pos, Side, Tile } from './types';
+import { GLYPH_NUMBERS as N } from './glyphs/registry';
+import { TILE_MARKS } from './elements/marks';
 
 export const TILE_KINDS: readonly Tile[] = ['floor', 'wall', 'cover', 'difficult', 'hazard'];
 export const DEFAULT_SPEED = 6;
@@ -31,7 +33,7 @@ export function surfaceOf(state: Pick<CombatState, 'grid' | 'terrainEdits'>): Gr
     return surface;
 }
 
-export function terrainOf(state: Pick<CombatState, 'grid' | 'barriers' | 'terrainEdits'>): Grid | undefined {
+function wallsOf(state: Pick<CombatState, 'grid' | 'barriers' | 'terrainEdits'>): Grid | undefined {
     const grid = surfaceOf(state);
     const barriers = state.barriers;
     if (!grid || !barriers || barriers.length === 0) return grid;
@@ -43,6 +45,26 @@ export function terrainOf(state: Pick<CombatState, 'grid' | 'barriers' | 'terrai
     }
     const terrain: Grid = { ...grid, tiles };
     terrainCache.set(barriers, { grid, terrain });
+    return terrain;
+}
+
+const markedCache = new WeakMap<readonly unknown[], { base: Grid; terrain: Grid }>();
+
+export function terrainOf(state: Pick<CombatState, 'grid' | 'barriers' | 'terrainEdits' | 'placed'>): Grid | undefined {
+    const base = wallsOf(state);
+    const placed = state.placed;
+    if (!base || !placed || placed.length === 0) return base;
+    const hit = markedCache.get(placed);
+    if (hit && hit.base === base) return hit.terrain;
+    let extra: number[] | null = null;
+    for (const p of placed) {
+        const cost = p.kind === 'mark' && p.mark ? TILE_MARKS[p.mark]?.extraCost ?? 0 : 0;
+        if (cost <= 0) continue;
+        extra ??= new Array<number>(base.width * base.height).fill(0);
+        for (const t of p.tiles) if (inBounds(base, t)) extra[t.y * base.width + t.x] += cost;
+    }
+    const terrain: Grid = extra ? { ...base, extraCost: extra } : base;
+    markedCache.set(placed, { base, terrain });
     return terrain;
 }
 
@@ -69,6 +91,11 @@ function squeezes(tile: Tile): boolean {
 
 export function stepCost(tile: Tile): number {
     return tile === 'difficult' ? 2 : 1;
+}
+
+export function stepCostAt(grid: Grid, p: Pos): number {
+    const base = stepCost(tileAt(grid, p));
+    return grid.extraCost && inBounds(grid, p) ? base + (grid.extraCost[p.y * grid.width + p.x] ?? 0) : base;
 }
 
 export function distance(a: Pos, b: Pos): number {
@@ -261,10 +288,38 @@ export type MoveSearch = {
 
 export type SearchOptions = { budget: number; avoidHazards: boolean };
 
+function watchedSigils(state: CombatState, actor: Combatant, grid: Grid): Set<number> | null {
+    const placed = state.placed;
+    if (!placed || placed.length === 0 || !actor.position) return null;
+    let out: Set<number> | null = null;
+    for (const p of placed) {
+        const t = p.tiles[0];
+        if (p.kind !== 'sigil' || !t || sameTeam(p.side, actor.side)) continue;
+        if (distance(actor.position, t) > N.sigilSight || !hasLineOfSight(grid, actor.position, t)) continue;
+        (out ??= new Set<number>()).add(indexOf(grid, t));
+    }
+    return out;
+}
+
+function avoidedMarks(state: CombatState, grid: Grid): Map<number, number> | null {
+    const placed = state.placed;
+    if (!placed || placed.length === 0) return null;
+    let out: Map<number, number> | null = null;
+    for (const p of placed) {
+        const avoid = p.kind === 'mark' && p.mark ? TILE_MARKS[p.mark]?.avoid ?? 0 : 0;
+        if (avoid <= 0) continue;
+        out ??= new Map<number, number>();
+        for (const t of p.tiles) if (inBounds(grid, t)) out.set(indexOf(grid, t), Math.max(out.get(indexOf(grid, t)) ?? 0, avoid));
+    }
+    return out;
+}
+
 export function searchMoves(state: CombatState, actorId: string, opts: SearchOptions): MoveSearch | null {
     const grid = terrainOf(state);
     const actor = state.combatants[actorId];
     if (!grid || !actor || !actor.position || !inBounds(grid, actor.position)) return null;
+    const watched = opts.avoidHazards ? watchedSigils(state, actor, grid) : null;
+    const marked = opts.avoidHazards ? avoidedMarks(state, grid) : null;
     const total = grid.width * grid.height;
     const cost = new Array<number>(total).fill(Infinity);
     const weight = new Array<number>(total).fill(Infinity);
@@ -290,9 +345,10 @@ export function searchMoves(state: CombatState, actorId: string, opts: SearchOpt
             const ni = indexOf(grid, next);
             if (blocked.has(ni)) continue;
             const tile = tileAt(grid, next);
-            const nc = item.cost + stepCost(tile);
+            const step = stepCostAt(grid, next);
+            const nc = item.cost + step;
             if (nc > opts.budget) continue;
-            const nw = item.weight + stepCost(tile) + (opts.avoidHazards && tile === 'hazard' ? HAZARD_AVOID_PENALTY : 0);
+            const nw = item.weight + step + (opts.avoidHazards && tile === 'hazard' ? HAZARD_AVOID_PENALTY : 0) + (watched?.has(ni) ? HAZARD_AVOID_PENALTY : 0) + (marked?.get(ni) ?? 0);
             if (nw < weight[ni] || (nw === weight[ni] && nc < cost[ni])) {
                 weight[ni] = nw;
                 cost[ni] = nc;
@@ -347,7 +403,7 @@ export function isOccupiedIn(search: MoveSearch, p: Pos): boolean {
 }
 
 export function pathCost(grid: Grid, path: readonly Pos[]): number {
-    return path.reduce((sum, p) => sum + stepCost(tileAt(grid, p)), 0);
+    return path.reduce((sum, p) => sum + stepCostAt(grid, p), 0);
 }
 
 export function distanceField(grid: Grid, sources: readonly Pos[]): number[] {
@@ -369,7 +425,7 @@ export function distanceField(grid: Grid, sources: readonly Pos[]): number[] {
             const here = posOf(grid, i);
             for (const next of neighbours(grid, here)) {
                 const j = indexOf(grid, next);
-                const nd = d + stepCost(tileAt(grid, next));
+                const nd = d + stepCostAt(grid, next);
                 if (nd < dist[j]) {
                     dist[j] = nd;
                     (buckets[nd] ??= []).push(j);

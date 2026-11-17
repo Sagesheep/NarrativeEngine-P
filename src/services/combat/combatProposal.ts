@@ -1,5 +1,7 @@
-import { DIRECTED_TIERS, normalizeMapSpec, normalizeSignatureRequest, normalizeSpeech, normalizeTactic, validateSignature } from '@narrative/engine';
-import type { SignatureSpec } from '@narrative/engine';
+import {
+    DIRECTED_TIERS, checkElement, elementsFor, filterElements, normalizeMapSpec, normalizeSignatureRequest, normalizeSpeech, normalizeTactic, validateSignature,
+} from '@narrative/engine';
+import type { ElementDropReason, ElementId, ElementPresetId, SignatureSpec } from '@narrative/engine';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import {
     COMBAT_ARCHETYPES, COMBAT_MANNER_MAX, COMBAT_TIERS, MAX_PROPOSED_COMBATANTS, PROPOSED_ATTACK_STYLES, PROPOSED_COMBATANT_SIDES,
@@ -19,6 +21,70 @@ export type ParsedCombatArgs = {
     reason: string;
     objective?: ProposedObjective;
 };
+
+export type ElementField = 'weak' | 'resist' | 'immune' | 'element';
+
+export type ElementDropNote = { name: string; field: ElementField; value: string; reason: ElementDropReason };
+
+export type ElementFields = Pick<ProposedCombatant, 'weak' | 'resist' | 'immune' | 'mindless' | 'element'>;
+
+const ELEMENT_LIST_FIELDS = ['weak', 'resist', 'immune'] as const;
+
+function wordList(raw: unknown): string[] {
+    const value = typeof raw === 'string' && !raw.trim().startsWith('[') ? raw : parseMaybeJson(raw);
+    if (typeof value === 'string') return value.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    return Array.isArray(value) ? value.filter((s): s is string => typeof s === 'string').map(s => s.trim()).filter(Boolean) : [];
+}
+
+export function parseElementFields(
+    rec: Record<string, unknown>,
+    name: string,
+    preset: ElementPresetId | undefined,
+    drops: ElementDropNote[],
+): ElementFields {
+    const out: ElementFields = {};
+    for (const field of ELEMENT_LIST_FIELDS) {
+        const words = wordList(rec[field]);
+        if (words.length === 0) continue;
+        const filtered = filterElements(preset, words);
+        for (const d of filtered.dropped) drops.push({ name, field, value: d.value.slice(0, 24), reason: d.reason });
+        if (filtered.kept.length > 0) out[field] = filtered.kept;
+    }
+    const mindless = parseOfficer(rec.mindless);
+    if (mindless !== undefined) out.mindless = mindless;
+    const element = typeof rec.element === 'string' ? rec.element.trim() : '';
+    if (element) {
+        const checked = checkElement(preset, element);
+        if (checked.ok) out.element = checked.element;
+        else drops.push({ name, field: 'element', value: element.slice(0, 24), reason: checked.reason });
+    }
+    return out;
+}
+
+const DROP_FIELD_WORDS: Readonly<Record<ElementField, string>> = {
+    weak: 'weak',
+    resist: 'resist',
+    immune: 'immune',
+    element: 'element',
+};
+
+export function elementListLine(preset: ElementPresetId): string {
+    return `Elements of this setting: ${elementsFor(preset).join(', ')}. Use only these names in weak, resist, immune and element.`;
+}
+
+export function elementToolNotes(drops: readonly ElementDropNote[]): string[] {
+    return drops.map(d => `${d.name}: ${DROP_FIELD_WORDS[d.field]} "${d.value}" was dropped (${d.reason === 'unknown' ? 'not an element' : 'not an element of this setting'}).`);
+}
+
+export function elementSpecFields(c: ElementFields): { weak?: ElementId[]; resist?: ElementId[]; immune?: ElementId[]; mindless?: boolean; element?: ElementId } {
+    return {
+        ...(c.weak && c.weak.length > 0 ? { weak: [...c.weak] } : {}),
+        ...(c.resist && c.resist.length > 0 ? { resist: [...c.resist] } : {}),
+        ...(c.immune && c.immune.length > 0 ? { immune: [...c.immune] } : {}),
+        ...(c.mindless !== undefined ? { mindless: c.mindless } : {}),
+        ...(c.element ? { element: c.element } : {}),
+    };
+}
 
 function asRecord(raw: unknown): Record<string, unknown> | null {
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
@@ -104,7 +170,8 @@ function parseMap(raw: unknown): CombatMapSpec | undefined {
 export function parseCombatArgs(
     raw: string | Record<string, unknown>,
     ledger: readonly NPCEntry[] = [],
-): { ok: true; value: ParsedCombatArgs; notes: string[] } | { ok: false; error: string } {
+    preset?: ElementPresetId,
+): { ok: true; value: ParsedCombatArgs; notes: string[]; drops: ElementDropNote[] } | { ok: false; error: string } {
     const args = parseArgsObject(raw);
     if (!args) return { ok: false, error: 'the arguments were not a JSON object' };
     const list = parseMaybeJson(args.combatants);
@@ -115,6 +182,7 @@ export function parseCombatArgs(
     if (entries.length === 0) return { ok: false, error: '`combatants` needs at least one entry with a `name`' };
     const clipped = entries.slice(0, MAX_PROPOSED_COMBATANTS);
     const names = dedupeCombatantNames(clipped.map(e => cleanText(e.name, NAME_MAX)));
+    const drops: ElementDropNote[] = [];
     const combatants: ProposedCombatant[] = clipped.map((e, i) => {
         const archetype = typeof e.archetype === 'string' && (COMBAT_ARCHETYPES as readonly string[]).includes(e.archetype.trim().toLowerCase())
             ? e.archetype.trim().toLowerCase() as Archetype
@@ -131,6 +199,7 @@ export function parseCombatArgs(
             : undefined;
         const officer = parseOfficer(e.officer);
         const signature = parseSignature(e.signature);
+        const elements = parseElementFields(e, names[i], preset, drops);
         return {
             name: names[i],
             side: pick<ProposedCombatantSide>(e.side, PROPOSED_COMBATANT_SIDES, 'enemy'),
@@ -146,6 +215,7 @@ export function parseCombatArgs(
             ...(attack ? { attack } : {}),
             ...(officer !== undefined ? { officer } : {}),
             ...(signature ? { signature } : {}),
+            ...elements,
         };
     });
     const map = parseMap(args.map);
@@ -174,6 +244,7 @@ export function parseCombatArgs(
             ...(settled ? { objective: settled } : {}),
         },
         notes,
+        drops,
     };
 }
 

@@ -67,9 +67,14 @@ export const SIGNATURE_SURCHARGE: Readonly<Partial<Record<EffectId, number>>> = 
     heal: 2,
     shield: 2,
     drain: 1,
+    rewind: 2,
+    vanish: 1,
+    decay: 1,
 };
 
-export const SIGNATURE_UNUSABLE_EFFECTS: ReadonlySet<EffectId> = new Set<EffectId>(['blink', 'barrier', 'swap']);
+export const SIGNATURE_UNUSABLE_EFFECTS: ReadonlySet<EffectId> = new Set<EffectId>(['blink', 'barrier', 'swap', 'leap']);
+
+export const SIGNATURE_UNUSABLE_FORMS: ReadonlySet<string> = new Set<string>(['sigil', 'wall']);
 
 export const SIGNATURE_NAME_FALLBACK = 'Signature move';
 

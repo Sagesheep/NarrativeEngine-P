@@ -1,10 +1,14 @@
 import {
-    canAttackWith, canTarget, currentActorId, currentTurn, DEFEND_CONDITION, freshTurn, hasCondition, HASTED, isPlayerSide, playerCharacterOf, SLOWED,
-    STUNNED,
+    canAttackWith, canTarget, currentActorId, currentTurn, DEFEND_CONDITION, FEARED, freshTurn, hasCondition, HASTED, isPlayerSide, playerCharacterOf,
+    SLOWED, SNARED, STUNNED, VANISHED,
 } from '../core';
+import { delayedPayload } from '../glyphs/apply';
+import { mantleOf, placedCovers, seenSigils, zonesAgainst } from '../glyphs/placed';
+import { dimBonus, expectedMarkHarm, marksOf } from '../glyphs/marks';
+import { TILE_MARKS } from '../elements/marks';
 import {
     canStep, coverBetween, destinations, distance, distanceField, hasLineOfSight, inBounds, isWalkable, pathFromSearch, rangeOf, sameTeam, searchMoves, speedOf,
-    stepCost, terrainOf, tileAt, traceLine,
+    stepCostAt, terrainOf, tileAt, traceLine,
 } from '../grid';
 import type { MoveSearch } from '../grid';
 import { checkFlee, isEdgeTile, isRetreating, teamOfSide } from '../party';
@@ -14,22 +18,25 @@ import {
 } from '../glyphs/builtins';
 import { abilityReadiness, usesMp } from '../glyphs/apply';
 import {
-    burstRadius, burstRange, casterStats, drainDice, healDice, proficiencyOf, projectileRange, pushDistance, saveDc, saveModifier, shieldAmount,
+    burstRadius, burstRange, casterStats, decayDice, drainDice, gravitySquares, healDice, isDelayed, mantleRadius, proficiencyOf, projectileRange,
+    pushDistance, saveDc, saveModifier, shieldAmount,
 } from '../glyphs/numbers';
-import { EFFECTS, UNSTUNNABLE_TIERS } from '../glyphs/registry';
+import { DISPEL_HARMFUL, DISPEL_HELPFUL, EFFECTS, GLYPH_NUMBERS, UNSTUNNABLE_TIERS } from '../glyphs/registry';
 import { abilityTargets, tileEffectOf } from '../glyphs/targeting';
 import { previewPush } from '../glyphs/push';
 import { payloadChoices, previewThrow, throwRangeOf } from '../glyphs/throw';
 import { abilityCost } from '../glyphs/validate';
 import type {
-    CombatAction, CombatState, Combatant, GlyphAbility, Grid, OrderKind, PlanIntent, Pos, Tactic, ThrowPayload, TurnPlan, TurnState,
+    CombatAction, CombatState, Combatant, ElementId, GlyphAbility, Grid, OrderKind, PlacedEffect, PlanIntent, Pos, Tactic, ThrowPayload, TurnPlan, TurnState,
 } from '../types';
 import {
-    atLeast, averageOf, betterSaveModifier, critChance, damageFactor, effectiveHp, hasAreaKit, hitChance, kitDice, saveFails, shootsFar,
-    shoveDc, threatOf,
+    abilityFactor, atLeast, averageOf, betterSaveModifier, critChance, effectiveHp, hasAreaKit, hitChance, kitDice, riderValue, saveFails,
+    shootsFar, shoveDc, threatOf,
 } from './estimate';
+import { abilityDamageType, abilityElement, blindPenalty, isImmune, revealedCover } from '../elements/rules';
+import { ELEMENTS } from '../elements/tables';
 import type { Dice } from './estimate';
-import { AI_LIMITS, AI_WEIGHTS, ALL_TERMS, AUTOPILOT_DEPTH, TACTIC_PROFILES, TIER_DEPTH } from './tables';
+import { AI_LIMITS, AI_SKIP_EFFECTS, AI_SKIP_FORMS, AI_WEIGHTS, ALL_TERMS, AUTOPILOT_DEPTH, GLYPH_AI_VALUES, TACTIC_PROFILES, TIER_DEPTH } from './tables';
 import type { TacticProfile, TermId } from './tables';
 import { tacticOf } from './tactic';
 import { hasLose, leaderExitsOf, leaderIdOf, mainWin, objectiveClock, wardIdOf } from '../objectives/marks';
@@ -83,6 +90,10 @@ type Ctx = {
     allowThrow: boolean;
     obj?: ObjCtx;
     ord?: OrdCtx;
+    seen?: Set<number>;
+    harm?: Map<number, number>;
+    zones?: PlacedEffect[];
+    fear?: { id: string; at: Pos };
 };
 
 type ObjCtx = {
@@ -109,6 +120,12 @@ type Candidate = {
 };
 
 const EMPTY_STEPS: CombatAction[] = [];
+
+const HOSTILE_EFFECTS: ReadonlySet<string> = new Set(['damage', 'drain', 'push', 'pull', 'stun', 'slow', 'swap', 'snare', 'fear', 'decay', 'gravity']);
+
+function moveReach(o: Combatant): number {
+    return o.conditions.length > 0 && hasCondition(o, SNARED) ? 0 : speedOf(o);
+}
 
 const weightCache = new Map<string, Weights>();
 
@@ -169,7 +186,7 @@ function fieldFrom(grid: Grid, from: Pos): number[] {
                     const next = { x: here.x + dx, y: here.y + dy };
                     if (!canStep(grid, here, next)) continue;
                     const j = indexOf(grid, next);
-                    const nd = d + stepCost(tileAt(grid, next));
+                    const nd = d + stepCostAt(grid, next);
                     if (nd < dist[j]) {
                         dist[j] = nd;
                         (buckets[nd] ??= []).push(j);
@@ -306,8 +323,8 @@ function incoming(ctx: Ctx, p: Pos): number {
         const d = distance(at(o), p);
         const th = ctx.threat.get(o.id) ?? 0;
         if (ctx.far.has(o.id)) {
-            if (d <= 12 + speedOf(o)) total += th;
-        } else if (d <= speedOf(o) + reachOf(o)) {
+            if (d <= 12 + moveReach(o)) total += th;
+        } else if (d <= moveReach(o) + reachOf(o)) {
             total += th;
         }
     }
@@ -341,7 +358,7 @@ function positionScore(ctx: Ctx, p: Pos): number {
             }
         } else {
             nearestMelee = Math.min(nearestMelee, d);
-            if (w.exposure > 0 && ctx.weak && d <= speedOf(o) + reachOf(o)) s -= w.exposure * th * ctx.fragility;
+            if (w.exposure > 0 && ctx.weak && d <= moveReach(o) + reachOf(o)) s -= w.exposure * th * ctx.fragility;
         }
     }
     if (ctx.engage > 1 || nearestAny <= ctx.engage) s += shelter;
@@ -396,6 +413,12 @@ function positionScore(ctx: Ctx, p: Pos): number {
         }
         if (o.screen?.position) s -= OBJECTIVE_WEIGHTS.screen * Math.max(0, distance(p, o.screen.position) - AI_LIMITS.guardRadius);
     }
+    if (ctx.seen && ctx.seen.has(idx)) s -= w.hazard * AI_LIMITS.hazardHit;
+    if (ctx.harm) s -= w.hazard * (ctx.harm.get(idx) ?? 0);
+    if (ctx.zones) {
+        for (const z of ctx.zones) if (placedCovers(ctx.state, z, p)) s -= w.hazard * AI_LIMITS.hazardHit * GLYPH_AI_VALUES.zoneShare;
+    }
+    if (ctx.fear) s += GLYPH_AI_VALUES.fearPull * distance(p, ctx.fear.at);
     const ord = ctx.ord;
     if (ord) {
         const pr = ord.profile;
@@ -428,7 +451,7 @@ function weaponOptions(ctx: Ctx, p: Pos, out: Option[]): boolean {
         const key = `${t.id}|${check.cover}|${dis ? 1 : 0}`;
         let base = ctx.weaponCache.get(key);
         if (base === undefined) {
-            const odds = weaponOdds(actor.attackBonus, actor.damage, t.ac + check.cover, dis, effectiveHp(t));
+            const odds = weaponOdds(actor.attackBonus - blindPenalty(actor), actor.damage, t.ac + check.cover, dis, effectiveHp(t));
             base = targetValue(ctx, t, odds.expected, odds.kill);
             ctx.weaponCache.set(key, base);
         }
@@ -447,17 +470,29 @@ function isFriendly(ctx: Ctx, c: Combatant): boolean {
     return c.id === ctx.id || sameTeam(ctx.actor.side, c.side) || (c.mark === 'bystander' && isPlayerSide(ctx.actor.side));
 }
 
-function abilityUse(ctx: Ctx, p: Pos, ability: GlyphAbility, targets: Combatant[], aim: Pos | null, cacheKey = ''): Option | null {
+function abilityUse(ctx: Ctx, p: Pos, cast: GlyphAbility, targets: Combatant[], aim: Pos | null, cacheKey = '', scales?: Record<string, number>): Option | null {
     const actor = ctx.actor;
     const w = ctx.w;
+    const delayed = isDelayed(cast);
+    const ability = delayed ? delayedPayload(cast) : cast;
     const stats = casterStats(actor);
     const roll = abilityRoll(ability);
     const form = ability.form.id;
     const pierce = ability.form.augments.includes('pierce');
     const helpfulOnly = ability.effects.every(e => EFFECTS[e.id].helpful);
-    const type = ability.damageType?.trim() || 'force';
+    const type = abilityDamageType(ability, 'force');
+    const element = abilityElement(ability);
+    const saveAgainst = element ? ELEMENTS[element].saveAgainst : undefined;
+    const dcBonus = element ? ELEMENTS[element].dcBonus ?? 0 : 0;
+    const armourIgnored = element ? ELEMENTS[element].ignoresArmour ?? 0 : 0;
+    const blind = blindPenalty(actor);
+    const hostileChain = ability.effects.some(e => HOSTILE_EFFECTS.has(e.id));
     const adjacentShot = form === 'projectile' && ctx.opponents.some(o => distance(at(o), p) <= 1);
-    const covers = targets.map(t => (roll === 'attack' && form === 'projectile' && !pierce && !helpfulOnly && t.position && !isFriendly(ctx, t) ? coverBetween(ctx.terrain, p, t.position) : 0));
+    const covers = targets.map(t => {
+        if (roll !== 'attack' || helpfulOnly || !t.position || isFriendly(ctx, t)) return 0;
+        const terrainCover = form === 'projectile' && !pierce ? revealedCover(t, coverBetween(ctx.terrain, p, t.position)) : 0;
+        return terrainCover + dimBonus(ctx.state, p, t.position);
+    });
     const movable = ability.effects.some(e => e.id === 'push' || e.id === 'pull');
     const key = movable || !cacheKey ? '' : `${cacheKey}|${adjacentShot ? 1 : 0}|${covers.join(',')}`;
     if (key) {
@@ -475,23 +510,32 @@ function abilityUse(ctx: Ctx, p: Pos, ability: GlyphAbility, targets: Combatant[
         const friendly = isFriendly(ctx, t);
         let pHit = 1;
         if (roll === 'attack' && !friendly) {
-            const cover = covers[ti];
-            const dis = hasCondition(t, DEFEND_CONDITION) || adjacentShot || hasCondition(actor, SLOWED);
-            pHit = hitChance(stats.proficiency + stats.castingMod, t.ac + cover, dis);
+            if (saveAgainst) {
+                pHit = isImmune(t, element as ElementId) ? 1 : saveFails(saveDc(stats) + dcBonus, saveModifier(t, saveAgainst));
+            } else {
+                const cover = covers[ti];
+                const dis = hasCondition(t, DEFEND_CONDITION) || adjacentShot || hasCondition(actor, SLOWED);
+                pHit = hitChance(stats.proficiency + stats.castingMod - blind, t.ac + cover - armourIgnored, dis);
+            }
         }
         let mine = 0;
         let kind: PlanIntent['kind'] = 'attack';
+        let expectedHere = 0;
+        let riderLand = 0;
         for (const effect of ability.effects) {
-            const key = roll === 'save' ? EFFECTS[effect.id].save : undefined;
-            const pFail = key ? saveFails(saveDc(stats), saveModifier(t, key)) : 1;
+            const base = roll === 'save' ? EFFECTS[effect.id].save : undefined;
+            const key = base && saveAgainst ? saveAgainst : base;
+            const pFail = key ? saveFails(saveDc(stats) + dcBonus, saveModifier(t, key)) : 1;
             const land = roll === 'attack' ? pHit : pFail;
             switch (effect.id) {
                 case 'damage':
                 case 'drain': {
                     const dice = effect.id === 'damage' ? kitDice(actor, ability, effect.augments) : { count: drainDice(stats, effect.augments), sides: 6, bonus: 0 };
-                    const factor = damageFactor(t, type);
+                    const factor = abilityFactor(t, ability, type);
                     const avg = averageOf(dice) * factor;
                     const expected = key ? avg * (pFail + (1 - pFail) / 2) : pHit * avg;
+                    expectedHere += expected;
+                    riderLand = Math.max(riderLand, key ? 1 : pHit);
                     if (friendly) {
                         mine -= w.friendlyFire * expected * (t.side === 'player' ? 2 : 1);
                         hurtsFriend = true;
@@ -543,11 +587,86 @@ function abilityUse(ctx: Ctx, p: Pos, ability: GlyphAbility, targets: Combatant[
                         const moved = withPosition(ctx.state, ctx.id, p);
                         const plan = previewPush(moved, ctx.id, t.id, effect.id, pushDistance(effect.augments), aim && form === 'burst' ? { origin: aim } : {});
                         if (plan && plan.hazards.length > 0) mine += land * w.control * AI_LIMITS.hazardHit * 2;
+                        else if (plan && plan.squares > 0) mine += land * w.control * expectedMarkHarm(ctx.state, t, plan.landing) * 2;
+                    }
+                    break;
+                case 'gravity':
+                    if (!friendly && aim && t.position) {
+                        const moved = withPosition(ctx.state, ctx.id, p);
+                        const squares = Math.min(gravitySquares(effect.augments), distance(t.position, aim));
+                        const plan = squares > 0 ? previewPush(moved, ctx.id, t.id, 'pull', squares, { origin: aim }) : null;
+                        if (plan && plan.hazards.length > 0) mine += land * w.control * AI_LIMITS.hazardHit * 2;
+                        else if (plan && plan.squares > 0) mine += land * w.control * expectedMarkHarm(ctx.state, t, plan.landing) * 2;
+                        if (plan && plan.squares > 0) mine += land * w.control * (ctx.threat.get(t.id) ?? 0) * GLYPH_AI_VALUES.gravity;
+                    }
+                    break;
+                case 'snare':
+                    if (!friendly && !hasCondition(t, SNARED)) {
+                        mine += land * w.control * (ctx.threat.get(t.id) ?? 0) * (shootsFar(ctx.state, t) ? GLYPH_AI_VALUES.snareShooter : GLYPH_AI_VALUES.snare);
+                        if (!hostileHit) kind = 'control';
+                    }
+                    break;
+                case 'fear':
+                    if (!friendly && !hasCondition(t, FEARED)) {
+                        mine += land * w.control * (ctx.threat.get(t.id) ?? 0) * GLYPH_AI_VALUES.fear;
+                        if (!hostileHit) kind = 'control';
+                    }
+                    break;
+                case 'decay':
+                    if (!friendly) {
+                        const dice = { count: decayDice(stats, effect.augments), sides: GLYPH_NUMBERS.decaySides, bonus: 0 };
+                        const room = Math.max(0, t.maxHp - Math.ceil((t.maxHp + (t.decayed ?? 0)) * GLYPH_NUMBERS.decayFloor));
+                        const expected = land * Math.min(averageOf(dice), room);
+                        mine += targetValue(ctx, t, expected, land * atLeast(dice, Math.max(1, effectiveHp(t))));
+                        riderLand = Math.max(riderLand, land);
+                    }
+                    break;
+                case 'dispel': {
+                    if (friendly) {
+                        let v = 0;
+                        for (const c of t.conditions) if (DISPEL_HARMFUL.includes(c.id)) v += c.id === STUNNED ? GLYPH_AI_VALUES.dispelStun : GLYPH_AI_VALUES.dispelOther;
+                        if (v > 0) {
+                            mine += w.support * v;
+                            kind = 'support';
+                        }
+                    } else {
+                        let v = 0;
+                        for (const c of t.conditions) {
+                            if (!DISPEL_HELPFUL.includes(c.id)) continue;
+                            v += c.id === HASTED ? GLYPH_AI_VALUES.dispelHaste : c.id === 'shielded' ? Math.min(5, (t.tempHp ?? 0) / 2) : GLYPH_AI_VALUES.dispelOther;
+                        }
+                        mine += land * w.control * v;
+                    }
+                    break;
+                }
+                case 'vanish':
+                    if (friendly && t.id === ctx.id && !hasCondition(t, VANISHED)) {
+                        mine += w.support * incoming(ctx, p) * GLYPH_AI_VALUES.vanish * (ctx.weak ? 1.5 : 1);
+                        kind = 'support';
+                    }
+                    break;
+                case 'rewind':
+                    if (friendly && t.id === ctx.id && t.rewind) {
+                        const back = Math.min(t.maxHp, t.rewind.hp) - t.hp;
+                        if (back > 0) {
+                            mine += w.support * back;
+                            kind = 'support';
+                        }
                     }
                     break;
                 default:
                     break;
             }
+        }
+        const share = (scales?.[t.id] ?? 1) * (delayed ? (hasCondition(t, SNARED) || hasCondition(t, STUNNED) ? 1 : GLYPH_AI_VALUES.delayStay) : 1);
+        if (share !== 1) {
+            mine *= share;
+            expectedHere *= share;
+        }
+        if (element && !friendly && hostileChain) {
+            const land = riderLand > 0 ? riderLand : roll === 'attack' ? pHit : 0.5;
+            const arcTargets = ctx.opponents.filter(o => o.id !== t.id && !!t.position && !!o.position && distance(o.position, t.position) <= 1).length;
+            mine += riderValue(t, ability, { land, expected: expectedHere, arcTargets, control: w.control, damage: w.damage });
         }
         if (!friendly && mine > 0) hostileHit = true;
         value += mine;
@@ -558,7 +677,7 @@ function abilityUse(ctx: Ctx, p: Pos, ability: GlyphAbility, targets: Combatant[
         }
     }
     if (ability.effects.some(e => e.id === 'summon')) value += w.support * AI_LIMITS.summonValue;
-    const cost = usesMp(actor) ? abilityCost(ability) : 2;
+    const cost = usesMp(actor) ? abilityCost(cast) : 2;
     value -= w.economy * cost * (ctx.winning ? 2 : 1);
     if (ctx.ord?.sigId === ability.id && !hurtsFriend && (hostileHit || value > 0)) value += ctx.ord.profile.signatureBonus ?? 0;
     const step: CombatAction = { type: 'use_ability', actorId: ctx.id, abilityId: ability.id, aim: aim ? { x: aim.x, y: aim.y } : null };
@@ -610,7 +729,18 @@ function kitOptions(ctx: Ctx, p: Pos, out: Option[]): void {
     for (const ability of ctx.kitReady) {
         const form = ability.form.id;
         const tileEffect = tileEffectOf(ability);
-        if (ability.effects.some(e => e.id === 'blink' || e.id === 'barrier' || e.id === 'swap')) continue;
+        if (AI_SKIP_FORMS.has(form) || ability.effects.some(e => AI_SKIP_EFFECTS.has(e.id))) continue;
+        if (form === 'mantle') {
+            if (mantleOf(ctx.state, ctx.id)) continue;
+            const r = mantleRadius(ability);
+            const hostile = ability.effects.some(e => EFFECTS[e.id].hostile);
+            const pool = hostile ? ctx.opponents : [ctx.actor, ...ctx.allies];
+            const inside = pool.filter(t => distance(t.id === ctx.id ? p : at(t), p) <= r);
+            if (inside.length === 0) continue;
+            const use = abilityUse(ctx, p, ability, inside, p);
+            if (use) out.push(use);
+            continue;
+        }
         if (form === 'self') {
             const use = abilityUse(ctx, p, ability, [ctx.actor], null);
             if (use) out.push(use);
@@ -656,26 +786,22 @@ function kitOptions(ctx: Ctx, p: Pos, out: Option[]): void {
             continue;
         }
         const helpful = ability.effects.every(e => EFFECTS[e.id].helpful);
-        const pool = helpful ? ctx.allies : ctx.opponents;
+        const either = !helpful && ability.effects.every(e => EFFECTS[e.id].helpful || EFFECTS[e.id].either);
+        const pool = either ? [...ctx.allies, ...ctx.opponents] : helpful ? ctx.allies : ctx.opponents;
         const simple = (form === 'projectile' || form === 'touch') && !ability.form.augments.includes('pierce') && !ability.form.augments.includes('split');
         for (const t of pool) {
             const tp = t.id === ctx.id ? p : at(t);
-            let targets: Combatant[];
+            if (t.id === ctx.id) continue;
             if (simple) {
-                if (t.id === ctx.id) continue;
                 if (form === 'touch' && distance(p, tp) !== 1) continue;
                 if (form === 'projectile' && (distance(p, tp) > projectileRange(ability) || distance(p, tp) === 0 || !hasLineOfSight(grid, p, tp))) continue;
-                targets = [t];
-                const use = abilityUse(ctx, p, ability, targets, tp, `${ability.id}|t${t.id}`);
+                const use = abilityUse(ctx, p, ability, [t], tp, `${ability.id}|t${t.id}`);
                 if (use) out.push(use);
                 continue;
-            } else {
-                if (t.id === ctx.id) continue;
-                const res = abilityTargets(movedState(), ctx.id, ability, tp);
-                if (!res.ok) continue;
-                targets = res.targetIds.map(id => ctx.state.combatants[id]);
             }
-            const use = abilityUse(ctx, p, ability, targets, tp);
+            const res = abilityTargets(movedState(), ctx.id, ability, tp);
+            if (!res.ok) continue;
+            const use = abilityUse(ctx, p, ability, res.targetIds.map(id => ctx.state.combatants[id]), tp, '', res.scales);
             if (use) out.push(use);
         }
     }
@@ -813,6 +939,8 @@ function shoveOption(ctx: Ctx, p: Pos, bonusFree: boolean): Option | null {
             const landed = tileAt(ctx.terrain, plan.landing) === 'hazard';
             v += plan.hazards.length * AI_LIMITS.hazardHit * (landed ? 2 : 1);
             v += w.kill * atLeast({ count: plan.hazards.length, sides: 6, bonus: 0 }, effectiveHp(o)) * (2 + th);
+        } else {
+            v += expectedMarkHarm(ctx.state, o, plan.landing) * 2;
         }
         if (ctx.protectee && distance(at(o), at(ctx.protectee)) <= 1 && distance(plan.landing, at(ctx.protectee)) > 1) v += th * 0.8;
         for (const a of ctx.allies) {
@@ -853,7 +981,11 @@ function tilesFrom(ctx: Ctx, state: CombatState, budget: number): Array<Pos & { 
     const here = { x: at(actor).x, y: at(actor).y, cost: 0 };
     if (budget <= 0) return [here];
     const search = searchMoves(state, ctx.id, { budget, avoidHazards: ctx.actor.controller === 'engine' });
-    return [here, ...(search ? destinations(search).map(d => ({ x: d.x, y: d.y, cost: d.cost })) : [])];
+    const all = [here, ...(search ? destinations(search).map(d => ({ x: d.x, y: d.y, cost: d.cost })) : [])];
+    const fear = ctx.fear;
+    if (!fear) return all;
+    const start = distance(here, fear.at);
+    return all.filter(t => distance(t, fear.at) >= start);
 }
 
 function moveStep(ctx: Ctx, from: Pos, to: Pos): CombatAction[] {
@@ -904,7 +1036,7 @@ function fullTurn(ctx: Ctx): TurnPlan {
         best = evaluateTiles(ctx, ctx.state, ctx.turn.moveLeft, { act: true, bonus: bonusFree, lead: EMPTY_STEPS, order: 0 });
     }
     const engaged = !!best?.option?.hostile;
-    if (!engaged && ctx.w.jump > 0 && bonusFree) {
+    if (!engaged && ctx.w.jump > 0 && bonusFree && !ctx.fear) {
         const jump = jumpCandidate(ctx);
         if (jump && better(jump, best)) best = jump;
     }
@@ -1214,6 +1346,24 @@ function buildCtx(state: CombatState, actor: Combatant, turn: TurnState): Ctx | 
         ...(objective ? { obj: objective.obj } : {}),
         ...(ord ? { ord } : {}),
     };
+    if (terrain && state.placed && state.placed.length > 0) {
+        const seen = seenSigils(state, actor).map(s => indexOf(terrain, s.tiles[0]));
+        if (seen.length > 0) ctx.seen = new Set(seen);
+        const zones = zonesAgainst(state, actor);
+        if (zones.length > 0) ctx.zones = zones;
+        const harm = new Map<number, number>();
+        for (const m of marksOf(state)) {
+            if (!m.mark || !TILE_MARKS[m.mark].harm) continue;
+            for (const t of m.tiles) {
+                const amount = expectedMarkHarm(state, actor, t);
+                if (amount > 0) harm.set(indexOf(terrain, t), amount);
+            }
+        }
+        if (harm.size > 0) ctx.harm = harm;
+    }
+    const scare = actor.conditions.length > 0 ? actor.conditions.find(c => c.id === FEARED) : undefined;
+    const source = scare?.sourceId ? state.combatants[scare.sourceId] : undefined;
+    if (source && source.status === 'up' && source.position) ctx.fear = { id: source.id, at: { ...source.position } };
     if (w.post > 0 || w.protect > 0) ctx.protectee = protecteeOf(state, actor, objective?.obj.wardId);
     if (ord?.kind === 'protect' && ord.target) ctx.protectee = ord.target;
     if (!placed) {

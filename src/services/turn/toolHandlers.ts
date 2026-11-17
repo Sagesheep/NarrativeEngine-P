@@ -1,9 +1,9 @@
 import type { GameContext, LoreChunk, DiceSystemConfig, DieType, InventoryProposal, NPCEntry } from '../../types';
-import { parseCombatArgs, signatureToolNotes, type ParsedCombatArgs } from '../combat/combatProposal';
+import { elementListLine, elementToolNotes, parseCombatArgs, signatureToolNotes, type ParsedCombatArgs } from '../combat/combatProposal';
 import { objectiveToolNotes } from '../combat/combatObjective';
 import { ABILITY_ONE_AT_A_TIME, PROPOSE_ABILITY_TOOL_RESULT, parseAbilityArgs, rejectionText } from '../combat/abilityProposalArgs';
-import { AUGMENT_IDS, EFFECT_IDS, FORM_IDS } from '@narrative/engine';
-import type { AbilityLimits, GlyphAbility } from '@narrative/engine';
+import { AUGMENT_IDS, EFFECT_IDS, FORM_IDS, elementsFor, normalizePreset } from '@narrative/engine';
+import type { AbilityLimits, ElementPresetId, GlyphAbility } from '@narrative/engine';
 import { searchLoreByQuery } from '../lore/loreRetriever';
 import { uid } from '../../utils/uid';
 import { mapTier } from '../engine/diceTier';
@@ -276,6 +276,11 @@ const START_COMBAT_TOOL = {
                                 },
                                 required: ['name', 'form', 'effects'],
                             },
+                            weak: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Elements it is weak to (they hurt it more), from the element list.' },
+                            resist: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Elements it resists (they hurt it less), from the element list.' },
+                            immune: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Elements that cannot hurt it at all, from the element list. Use sparingly.' },
+                            mindless: { type: 'boolean' as const, description: 'Optional. true for a construct, undead, machine or other thing without a mind; false for one that has a mind despite its kind. Default is guessed from species.' },
+                            element: { type: 'string' as const, description: 'Optional. For a caster: the one element its spells carry, from the element list.' },
                         },
                         required: ['name'],
                     },
@@ -346,6 +351,16 @@ const START_COMBAT_TOOL = {
 export const START_COMBAT_TOOL_RESULT =
     'Combat has been proposed to the player and will be resolved by the game engine. Write at most three sentences that bring the scene to the instant violence begins. Do not describe any attack, hit, miss, wound or outcome. Then stop.';
 
+const GLYPH_GUIDE =
+    'Forms: touch (an adjacent target), projectile (one target at range), self (the user), line, cone, burst (an area at range), dash (the user charges and strikes), ' +
+    'sigil (a trap on a square that goes off on the first foe to enter), mantle (an aura around the user for a few rounds, striking units that start a turn in it), ' +
+    'chain (hits one target, then jumps to nearby ones, weaker each jump), wall (raises a short line of barrier squares that lash foes beside them).\n' +
+    'Effects: damage, heal, shield, push, pull, stun, slow, haste, blink, swap, barrier, drain, summon, ' +
+    'snare (the target cannot move), dispel (strips harmful conditions from a friend or helpful ones from a foe), leap (the user jumps to a square over whatever lies between), ' +
+    'gravity (drags everyone in the area toward its centre), fear (the target may not come closer to the user on its next turn), decay (lowers maximum HP for the fight), ' +
+    'vanish (the user cannot be targeted until its next turn), rewind (the user returns to its place, HP and conditions from the start of its last turn).\n' +
+    'Augments: amplify, widen, extend, pierce, split, quicken, dampen (weaker and cheaper), sustain (lasts longer), delay (goes off at the start of the user\'s next turn, stronger).';
+
 const PROPOSE_ABILITY_TOOL = {
     type: 'function' as const,
     function: {
@@ -361,7 +376,7 @@ const PROPOSE_ABILITY_TOOL = {
                 name: { type: 'string' as const, description: 'Short name, at most 40 characters.' },
                 description: { type: 'string' as const, description: 'One or two sentences of flavour. No numbers.' },
                 damageType: { type: 'string' as const, description: 'One word such as fire, frost, lightning, psychic, physical. Optional.' },
-                form: { type: 'string' as const, enum: [...FORM_IDS], description: 'self only carries heal, shield, haste or blink. barrier and summon must be the only effect.' },
+                form: { type: 'string' as const, enum: [...FORM_IDS], description: 'self only carries effects on the user (heal, shield, haste, blink, leap, dispel, vanish, rewind). barrier and summon must be the only effect.\n' + GLYPH_GUIDE },
                 formAugments: { type: 'array' as const, items: { type: 'string' as const, enum: [...AUGMENT_IDS] } },
                 effects: {
                     type: 'array' as const,
@@ -394,13 +409,59 @@ export function handleProposeAbilityTool(toolArguments: string, limits: AbilityL
     return { toolResult: PROPOSE_ABILITY_TOOL_RESULT, ability: parsed.ability };
 }
 
-export function getToolDefinitions(opts: { allowDiceTool: boolean; allowCombatTool?: boolean; allowAbilityTool?: boolean; diceSystem?: DiceSystemConfig | null }): unknown[] {
+let presetSource: () => ElementPresetId = () => 'all';
+
+export function setElementPresetSource(source: (() => ElementPresetId) | null): void {
+    presetSource = source ?? (() => 'all');
+}
+
+export function activeToolElementPreset(): ElementPresetId {
+    try {
+        return normalizePreset(presetSource());
+    } catch {
+        return 'all';
+    }
+}
+
+export function buildStartCombatTool(preset: ElementPresetId): unknown {
+    return {
+        ...START_COMBAT_TOOL,
+        function: {
+            ...START_COMBAT_TOOL.function,
+            description: `${START_COMBAT_TOOL.function.description}\n${elementListLine(preset)}`,
+        },
+    };
+}
+
+export function buildProposeAbilityTool(preset: ElementPresetId): unknown {
+    const fn = PROPOSE_ABILITY_TOOL.function;
+    return {
+        ...PROPOSE_ABILITY_TOOL,
+        function: {
+            ...fn,
+            parameters: {
+                ...fn.parameters,
+                properties: {
+                    ...fn.parameters.properties,
+                    element: {
+                        type: 'string' as const,
+                        enum: [...elementsFor(preset)],
+                        description: 'Optional. One element that sets the damage type and adds a small extra effect when the ability lands. Leave it out for an ability without one.',
+                    },
+                },
+            },
+        },
+    };
+}
+
+export function getToolDefinitions(opts: { allowDiceTool: boolean; allowCombatTool?: boolean; allowAbilityTool?: boolean; diceSystem?: DiceSystemConfig | null; elementPreset?: ElementPresetId }): unknown[] {
     const tools: unknown[] = [...BASE_TOOLS];
     if (opts.allowDiceTool) tools.push(buildRollDiceTool(opts.diceSystem));
     // propose_inventory_change is combat-independent — always offered.
     tools.push(PROPOSE_INVENTORY_TOOL);
-    if (opts.allowCombatTool) tools.push(START_COMBAT_TOOL);
-    if (opts.allowAbilityTool) tools.push(PROPOSE_ABILITY_TOOL);
+    const preset = opts.allowCombatTool || opts.allowAbilityTool ? normalizePreset(opts.elementPreset ?? activeToolElementPreset()) : 'all';
+    if (opts.allowCombatTool) tools.push(buildStartCombatTool(preset));
+    if (opts.allowAbilityTool) tools.push(buildProposeAbilityTool(preset));
     return tools;
 }
 
@@ -532,8 +593,8 @@ export type StartCombatHandlerResult = {
     proposal?: ParsedCombatArgs;
 };
 
-export function handleStartCombatTool(toolArguments: string, npcLedger: readonly NPCEntry[] = []): StartCombatHandlerResult {
-    const parsed = parseCombatArgs(toolArguments, npcLedger);
+export function handleStartCombatTool(toolArguments: string, npcLedger: readonly NPCEntry[] = [], elementPreset?: ElementPresetId): StartCombatHandlerResult {
+    const parsed = parseCombatArgs(toolArguments, npcLedger, normalizePreset(elementPreset ?? activeToolElementPreset()));
     if (!parsed.ok) {
         return { toolResult: `start_combat was not accepted: ${parsed.error}. Fix the arguments and call it again, or continue the scene in narration.` };
     }
@@ -545,7 +606,11 @@ export function handleStartCombatTool(toolArguments: string, npcLedger: readonly
     const reworked = signatures.length > 0
         ? `\n\nSignature moves were adjusted; the fight will use them this way: ${signatures.join(' ')}`
         : '';
-    return { toolResult: `${START_COMBAT_TOOL_RESULT}${adjusted}${reworked}`, proposal: parsed.value };
+    const elementNotes = elementToolNotes(parsed.drops);
+    const dropped = elementNotes.length > 0
+        ? `\n\nSome elements were dropped; the fight will not use them: ${elementNotes.join(' ')}`
+        : '';
+    return { toolResult: `${START_COMBAT_TOOL_RESULT}${adjusted}${reworked}${dropped}`, proposal: parsed.value };
 }
 
 function parseAndRoll(expr: string): { total: number; breakdown: string; sides: number; count: number } {

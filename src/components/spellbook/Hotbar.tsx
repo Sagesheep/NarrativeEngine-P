@@ -1,5 +1,7 @@
 import type { DragEvent } from 'react';
 import { X } from 'lucide-react';
+import { isElementId } from '@narrative/engine';
+import { ElementChip } from './ElementChip';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { GlyphAbility } from '../../types';
 import { ABILITY_MIME, SLOT_MIME, carries, readTransfer } from './dnd';
@@ -58,6 +60,9 @@ export function Hotbar({ ids, max, abilities, selectedId, onSelect, onEquipAt, o
                                     <GlyphShape kind="effect" id={ability.effects[0]?.id ?? null} size="md" />
                                     <span className="text-xs text-text-primary text-center leading-tight break-words w-full line-clamp-2">{ability.name}</span>
                                 </button>
+                                {isElementId(ability.element) && (
+                                    <span className="absolute bottom-1 right-1"><ElementChip element={ability.element} size="xs" /></span>
+                                )}
                                 <button
                                     type="button"
                                     onClick={() => onUnequip(ability.id)}

@@ -108,7 +108,7 @@ const handleProposeInventory: ToolHandlerFn = (ctx) => {
 };
 
 const handleStartCombat: ToolHandlerFn = (ctx) => {
-    const { toolResult, proposal } = handleStartCombatTool(ctx.arguments, ctx.npcLedger ?? []);
+    const { toolResult, proposal } = handleStartCombatTool(ctx.arguments, ctx.npcLedger ?? [], ctx.abilityLimits?.elementPreset);
     return {
         toolResult,
         accumulation: 'append',

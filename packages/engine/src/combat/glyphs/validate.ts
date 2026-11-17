@@ -1,17 +1,20 @@
-import type { AttackRange, AugmentId, Combatant, EffectId, FormId, GlyphAbility } from '../types';
+import type { AttackRange, AugmentId, Combatant, EffectId, ElementPresetId, FormId, GlyphAbility } from '../types';
+import { abilityDamageType, abilityElement, checkElement, describeElement, elementCost, isElementId } from '../elements/rules';
 import { abilityRoll, builtinStats, isBuiltinId, leapRange, strengthMod, throwProfile, weaponReach } from './builtins';
 import { throwRangeOf } from './throw';
 import {
-    AUGMENT_COSTS, AUGMENT_IDS, EFFECT_IDS, EFFECTS, FORM_IDS, FORMS, GLYPH_NUMBERS as N, SINGLE_TARGET_FORMS,
+    AUGMENT_COSTS, AUGMENT_IDS, DAMPENED_COST_FLOOR, DELAY_REFUSED_EFFECTS, EFFECT_IDS, EFFECTS, FORM_IDS, FORMS, GLYPH_NUMBERS as N,
+    SINGLE_TARGET_FORMS, TELEPORT_EFFECTS,
 } from './registry';
 import {
-    barrierRounds, blinkRange, burstRadius, burstRange, coneLength, count, damageDice, dashLength, drainDice, hasteTurns,
-    healDice, isQuickened, lineLength, lineWidth, projectileRange, pushDistance, saveDc, shieldAmount, shieldTurns, slowTurns,
-    splitCount, stunTurns, summonRounds, summonTier,
+    barrierRounds, blinkRange, burstRadius, burstRange, chainJumps, chainRange, coneLength, count, damageDice, dashLength, decayDice, drainDice,
+    fearTurns, gravitySquares, hasteTurns, healDice, isDelayed, isQuickened, leapGlyphRange, lineLength, lineWidth, mantleRadius, mantleRounds,
+    projectileRange, pushDistance, saveDc, shieldAmount, shieldTurns, sigilRange, sigilRounds, slowTurns, snareTurns, splitCount, stunTurns,
+    summonRounds, summonTier, wallLength, wallRange, wallRounds,
 } from './numbers';
 import type { CasterStats } from './numbers';
 
-export type AbilityLimits = { maxChainLength: number; maxSummons?: number };
+export type AbilityLimits = { maxChainLength: number; maxSummons?: number; elementPreset?: ElementPresetId };
 
 export const DEFAULT_ABILITY_LIMITS: Readonly<AbilityLimits> = { maxChainLength: 6, maxSummons: 2 };
 
@@ -20,18 +23,41 @@ export function cleanAbilityName(raw: unknown): string {
 }
 
 export function glyphCount(ability: GlyphAbility): number {
-    return 1 + ability.form.augments.length + ability.effects.reduce((sum, e) => sum + 1 + e.augments.length, 0);
+    return (ability.element ? 1 : 0) + 1 + ability.form.augments.length + ability.effects.reduce((sum, e) => sum + 1 + e.augments.length, 0);
 }
 
 export function abilityCost(ability: GlyphAbility): number {
     if (ability.builtin) return 0;
+    const element = elementCost(abilityElement(ability));
     const form = FORMS[ability.form.id]?.cost ?? 0;
     const formAug = ability.form.augments.reduce((sum, a) => sum + (AUGMENT_COSTS[a] ?? 0), 0);
     const effects = ability.effects.reduce(
         (sum, e) => sum + (EFFECTS[e.id]?.cost ?? 0) + e.augments.reduce((s, a) => s + (AUGMENT_COSTS[a] ?? 0), 0),
         0,
     );
-    return form + formAug + effects;
+    return dampenedCost(form + formAug + effects + element, ability.effects);
+}
+
+export function dampenedCost(total: number, effects: readonly { augments: readonly AugmentId[] }[]): number {
+    return effects.some(e => e.augments.includes('dampen')) ? Math.max(DAMPENED_COST_FLOOR, total) : total;
+}
+
+function chainRules(formId: FormId, formAugments: readonly AugmentId[], effects: readonly { id: EffectId; augments: readonly AugmentId[] }[]): string[] {
+    const reasons: string[] = [];
+    const ids = effects.map(e => e.id);
+    if (count(formAugments, 'delay') > 0) {
+        for (const id of ids) if (DELAY_REFUSED_EFFECTS.has(id)) reasons.push(`delay cannot hold ${id}`);
+    }
+    for (const e of effects) {
+        if (count(e.augments, 'dampen') > 0 && count(e.augments, 'amplify') > 0) reasons.push(`the ${e.id} effect cannot be both amplified and dampened`);
+    }
+    if (ids.filter(id => TELEPORT_EFFECTS.has(id)).length > 1) reasons.push('an ability may hold only one of blink and leap');
+    if (FORMS[formId]?.placed) {
+        const hostile = ids.some(id => EFFECTS[id]?.hostile);
+        const helpful = ids.some(id => EFFECTS[id]?.helpful);
+        if (hostile && helpful) reasons.push(`a ${formId} carries either hostile or helpful effects, not both`);
+    }
+    return reasons;
 }
 
 function checkAugments(label: string, augments: readonly AugmentId[], allowed: readonly AugmentId[], reasons: string[]): void {
@@ -49,6 +75,14 @@ export function validateAbility(ability: GlyphAbility, limits: AbilityLimits = D
     if (!ability || typeof ability !== 'object') return ['the ability is not an object'];
     if (ability.builtin !== undefined || isBuiltinId(ability.id)) reasons.push('built-in actions cannot be built, changed or stored');
     if (!cleanAbilityName(ability.name)) reasons.push('the ability needs a name');
+    if (ability.element !== undefined) {
+        const checked = checkElement(limits.elementPreset, ability.element);
+        if (!checked.ok) {
+            reasons.push(checked.reason === 'unknown'
+                ? `unknown element "${String(ability.element)}"`
+                : `the ${String(ability.element)} element is not available in this setting`);
+        }
+    }
     const formId = ability.form?.id as FormId;
     const form = FORMS[formId];
     if (!form) {
@@ -84,6 +118,7 @@ export function validateAbility(ability: GlyphAbility, limits: AbilityLimits = D
     if (ids.includes('barrier') && count(formAugments, 'widen') > 0) reasons.push('barrier cannot be widened');
     if (ids.includes('summon') && (limits.maxSummons ?? 1) <= 0) reasons.push('summons are switched off in the combat settings');
     if (new Set(ids).size !== ids.length) reasons.push('each effect may appear only once');
+    reasons.push(...chainRules(formId, formAugments, effects.filter(e => !!EFFECTS[e?.id as EffectId]).map(e => ({ id: e.id, augments: Array.isArray(e.augments) ? e.augments : [] }))));
     const glyphs = glyphCount({ ...ability, form: { id: formId, augments: formAugments }, effects });
     if (glyphs > limits.maxChainLength) reasons.push(`the ability has ${glyphs} glyphs; the limit is ${limits.maxChainLength}`);
     return reasons;
@@ -164,14 +199,28 @@ export function formClause(ability: GlyphAbility): string {
         }
         case 'dash':
             return `Dash up to ${dashLength(ability)} squares to a target`;
+        case 'sigil':
+            return `Sigil on an empty square within ${sigilRange(ability)} squares for ${plural(sigilRounds(ability), 'round', 'rounds')}; it goes off on the first foe to enter it`;
+        case 'mantle': {
+            const side = mantleRadius(ability) * 2 + 1;
+            return `Mantle, ${side}×${side} around the user for ${plural(mantleRounds(ability), 'round', 'rounds')}; it touches each foe (each friend, if it only helps) that starts a turn inside`;
+        }
+        case 'chain':
+            return `Chain, one target within ${chainRange(ability)} squares, then up to ${plural(chainJumps(ability), 'jump', 'jumps')} to the nearest unit of the same side within ${N.chainJumpRange} squares, each at half the strength of the last`;
+        case 'wall':
+            return `Wall of ${wallLength(ability)} barrier squares across a point within ${wallRange(ability)} squares for ${plural(wallRounds(ability), 'round', 'rounds')}; it touches each foe that starts a turn beside it`;
         default:
             return '';
     }
 }
 
+function delayClause(ability: GlyphAbility): string {
+    return isDelayed(ability) ? ` It goes off at the start of the user's next turn on whoever is then in the squares aimed at, with ${plural(N.delayBoost, 'more die', 'more dice')} of damage or healing.` : '';
+}
+
 export function effectClause(ability: GlyphAbility, effect: GlyphAbility['effects'][number], stats: CasterStats, roll: string, wielder?: Wielder): string {
     const a = effect.augments;
-    const type = ability.damageType?.trim() || N.defaultDamageType;
+    const type = abilityDamageType(ability);
     const dc = saveDc(stats);
     const save = (key: string, what: string, success: string) => roll === 'save' ? `${key} save (DC ${dc}) or ${what}${success}` : what;
     switch (effect.id) {
@@ -210,6 +259,7 @@ export function effectClause(ability: GlyphAbility, effect: GlyphAbility['effect
         case 'sprint':
             return 'gains one more full allowance of movement this turn';
         case 'leap': {
+            if (ability.builtin?.kind !== 'jump') return `the user leaps to an empty square within ${leapGlyphRange(a)}, over anything in between`;
             const s = sturdy(wielder);
             const within = s ? `${leapRange(s)} squares` : '2 + its STR modifier squares (at least 2)';
             return `leaps to an empty square it can see within ${within}, spending that much movement and ignoring difficult ground, hazards and low cover on the way`;
@@ -223,6 +273,20 @@ export function effectClause(ability: GlyphAbility, effect: GlyphAbility['effect
         }
         case 'guard':
             return 'takes a defensive stance; attacks against it have disadvantage until its next turn';
+        case 'snare':
+            return save('STR', `cannot move for ${plural(snareTurns(a), 'turn', 'turns')} of its own (it can still act)`, '');
+        case 'dispel':
+            return 'loses its harmful conditions if it is a friend, or (WIS save for an area) its helpful ones if it is a foe';
+        case 'gravity':
+            return save('STR', `is dragged up to ${plural(gravitySquares(a), 'square', 'squares')} toward the centre`, '');
+        case 'fear':
+            return save('WIS', `must move away from the user on its next ${fearTurns(a) === 1 ? 'turn' : `${fearTurns(a)} turns`} and may not come closer`, '');
+        case 'decay':
+            return save('CON', `loses ${decayDice(stats, a)}d${N.decaySides} maximum HP and HP for the rest of the fight (never below half its maximum)`, '');
+        case 'vanish':
+            return 'cannot be targeted until the start of its next turn (areas still reach it)';
+        case 'rewind':
+            return 'returns to its square, HP and conditions at the start of its last turn';
         default:
             return '';
     }
@@ -243,8 +307,10 @@ export function describeAbility(ability: GlyphAbility, caster: CasterStats = { p
             ? `Attack roll ${bonus}; on a hit the target `
             : ability.form.id === 'self' ? 'The user ' : ability.builtin ? 'The target ' : 'Targets ';
         const body = clauses.join('; then ');
-        parts.push(`${lead}${body}.`);
+        parts.push(`${lead}${body}.${delayClause(ability)}`);
     }
+    const element = abilityElement(ability);
+    if (element) parts.push(describeElement(element));
     parts.push(ability.builtin ? 'No MP.' : `${abilityCost(ability)} MP.`);
     return parts.join(' ');
 }
@@ -257,6 +323,7 @@ export function isGlyphAbilityShape(raw: unknown): raw is GlyphAbility {
     if (!form || !(FORM_IDS as readonly unknown[]).includes(form.id) || !Array.isArray(form.augments)) return false;
     if (!form.augments.every(a => (AUGMENT_IDS as readonly unknown[]).includes(a))) return false;
     if (!Array.isArray(r.effects)) return false;
+    if (r.element !== undefined && !isElementId(r.element)) return false;
     return r.effects.every(e => {
         const eff = e as Record<string, unknown> | null;
         return !!eff && (EFFECT_IDS as readonly unknown[]).includes(eff.id) && Array.isArray(eff.augments)

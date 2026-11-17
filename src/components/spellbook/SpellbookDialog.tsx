@@ -3,10 +3,11 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { BookOpen, X } from 'lucide-react';
 import {
-    autoPlacementReason, buildPcCombatant, builtinAbilities, casterStats, chainColumns, chainCount, describeAbility,
-    firstFreeSocket, placeGlyph, placementReason, removeGlyph, sameSocket, socketGlyph, socketKey, validateAbility,
+    autoPlacementReason, buildPcCombatant, builtinAbilities, casterStats, chainColumns, chainCount, describeAbility, elementPlacementReason, elementsFor,
+    firstFreeSocket, placeElement, placeGlyph, placementReason, removeGlyph, sameSocket, socketGlyph, socketKey, validateAbility,
 } from '@narrative/engine';
-import type { GlyphRef, Socket } from '@narrative/engine';
+import type { ElementId, GlyphRef, Socket } from '@narrative/engine';
+import { elementName } from '../combat/elementText';
 import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { commitCombatPatch, remirrorCombatSheet } from '../../services/combat/combatSheet';
@@ -183,6 +184,32 @@ function Workbench() {
 
     const reasonFor = (glyph: GlyphRef) => (socket ? placementReason(draft.chain, socket, glyph, limits) : autoPlacementReason(draft.chain, glyph, limits));
 
+    const elementLimits = { ...limits, elementPreset: config.combatElements };
+    const elementReason = (element: ElementId) => elementPlacementReason(draft.chain, element, elementLimits);
+
+    const toggleElement = (element: ElementId) => {
+        const name = elementName(element, t);
+        if (draft.chain.element === element) {
+            patchChain(placeElement(draft.chain, null));
+            setStatus(t('spellbook.status.removed', { name }));
+            return;
+        }
+        const reason = elementReason(element);
+        if (reason) {
+            setStatus(reasonText.element(reason));
+            return;
+        }
+        patchChain(placeElement(draft.chain, element));
+        setStatus(t('spellbook.status.placed', { name }));
+    };
+
+    const removeElement = () => {
+        if (!draft.chain.element) return;
+        const name = elementName(draft.chain.element, t);
+        patchChain(placeElement(draft.chain, null));
+        setStatus(t('spellbook.status.removed', { name }));
+    };
+
     const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
         if (e.key === 'Escape') {
             e.preventDefault();
@@ -242,6 +269,7 @@ function Workbench() {
             onSelect={(s) => setSocket(current => (sameSocket(current, s) ? null : s))}
             onRemove={removeAt}
             onDropGlyph={place}
+            onRemoveElement={removeElement}
             status={status}
             stats={stats}
             limits={limits}
@@ -249,7 +277,16 @@ function Workbench() {
             label={label}
         />
     );
-    const palette = <GlyphPalette stats={stats} label={label} reasonFor={reasonFor} onPlace={onPlace} onRemoveSocket={removeByKey} />;
+    const palette = (
+        <GlyphPalette
+            stats={stats}
+            label={label}
+            reasonFor={reasonFor}
+            onPlace={onPlace}
+            onRemoveSocket={removeByKey}
+            elements={{ list: elementsFor(config.combatElements), current: draft.chain.element ?? null, reasonFor: elementReason, onToggle: toggleElement }}
+        />
+    );
     const panels = narrow ? [chain, palette, library] : [library, chain, palette];
     const panelClass = narrow ? 'p-4 border-b border-border' : 'p-4 min-h-0 overflow-y-auto';
 

@@ -34,6 +34,7 @@ export function toAbility(draft: AbilityDraft): GlyphAbility {
         ...(draft.damageType ? { damageType: draft.damageType } : {}),
         form: { id: (draft.chain.form.id ?? '') as FormId, augments: [...draft.chain.form.augments] },
         effects: draft.chain.effects.map(e => ({ id: e.id, augments: [...e.augments] })),
+        ...(draft.chain.element ? { element: draft.chain.element } : {}),
         source: draft.source,
     };
 }

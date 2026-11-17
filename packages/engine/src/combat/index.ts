@@ -42,6 +42,11 @@ export {
     TACTIC_DERIVATION, DEFAULT_TACTIC, AI_LIMITS,
 } from './ai/tables';
 export type { TermId, TargetTerm, PositionTerm, ActionTerm, TacticProfile, TacticRule } from './ai/tables';
+export { SNARED, FEARED, VANISHED, GLYPH_EVENT_TYPES } from './core';
+export { GLYPH_AI, AI_SKIP_EFFECTS, AI_SKIP_FORMS, GLYPH_AI_VALUES } from './ai/tables';
+export type { GlyphAiEntry } from './ai/tables';
+export { SIGNATURE_UNUSABLE_FORMS } from './director/tables';
+export type { GlyphTier, PlacedKind, PlacedTrigger, PlacedEndReason, PlacedEffect, RewindPoint } from './types';
 export {
     STUNNED, SLOWED, HASTED, SHIELDED, COMBAT_EVENT_TYPES, canAttackWith, hasCondition, countsForOutcome,
     playerCharacterOf, OUTCOME_TEXT, HARDCORE_DEATH_MAX, isPlayerSide, recoverFieldItems, fieldItemData,
@@ -109,3 +114,7 @@ export type { SignatureValidation } from './director/signature';
 export { directorBrief, briefBand } from './director/brief';
 export type { BriefBand, BriefUnit, BriefFoe, BriefAlly, BriefDirected, BriefObjective, DirectorBrief } from './director/brief';
 export type { SimulationResult, SimulationOptions } from './simulate';
+export type { ElementId, ElementPresetId, TileMarkId, ElementDrop } from './types';
+export * from './elements/index';
+export { nearestUnit } from './resolve';
+export { burnTick } from './glyphs/riders';
