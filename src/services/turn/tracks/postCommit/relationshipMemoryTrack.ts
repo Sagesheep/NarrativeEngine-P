@@ -1,10 +1,19 @@
 import { readRelationshipMemoryState, writeRelationshipMemoryState } from '../../../../store/relationshipMemoryState';
 import { saveRelationshipMemories } from '../../../../store/relationshipMemoryStore';
+import { useAppStore } from '../../../../store/useAppStore';
 import { getRelationshipMemoryParticipants, mergeRelationshipMemoryCollections, rateRelationshipMemory } from '../../../archive-memory/relationshipMemory';
 import { backgroundQueue } from '../../../infrastructure/backgroundQueue';
 import { hasHostModelRole } from '../../hostFacade';
 import type { PostTurnTrack, PostCommitTrackContext } from '../types';
 import { assertStillActive } from '../guarded';
+
+function sceneStillArchived(sceneId: string): boolean {
+    const index = (useAppStore.getState() as { archiveIndex?: Array<{ sceneId: string }> }).archiveIndex;
+    // No index in the store (tests, host facade without one): nothing to check against.
+    if (!Array.isArray(index) || index.length === 0) return true;
+    const wanted = Number.parseInt(sceneId, 10);
+    return index.some(entry => Number.parseInt(entry.sceneId, 10) === wanted);
+}
 
 export const relationshipMemoryTrack: PostTurnTrack<PostCommitTrackContext> = {
     id: 'track.relationship-memory',
@@ -48,6 +57,10 @@ export const relationshipMemoryTrack: PostTurnTrack<PostCommitTrackContext> = {
                 });
             }
             if (result.npcToMc.length === 0 && result.npcToNpc.length === 0) return;
+            // The rating is queued work. If the player rolled this scene back while it ran,
+            // its records describe a scene that no longer exists — and its number will be
+            // reused — so they must not be written.
+            if (!sceneStillArchived(ctx.sceneId)) return;
 
             const state = readRelationshipMemoryState();
             const merged = mergeRelationshipMemoryCollections(

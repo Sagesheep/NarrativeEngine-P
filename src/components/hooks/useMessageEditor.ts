@@ -6,6 +6,7 @@ import type { ArchiveManagerDeps } from '../../services/archive-memory/archiveMa
 import { findPendingCommitMessage, findRetryableMessage, clearPendingTurnSnapshot } from '../../services/turn/pendingCommit';
 import { useAppStore } from '../../store/useAppStore';
 import { debouncedSaveCampaignState } from '../../store/slices/campaignSlice';
+import { dropRelationshipMemoriesForScenes } from '../../store/relationshipMemoryStore';
 
 interface UseMessageEditorDeps {
     messages: ChatMessage[];
@@ -218,6 +219,9 @@ export function useMessageEditor(deps: UseMessageEditorDeps) {
             deps.archiveDeps.setArchiveIndex(freshIndex);
             deps.archiveDeps.setTimeline(freshTimeline);
             deps.archiveDeps.setChapters(freshChapters);
+            const deletedNum = Number.parseInt(sceneId, 10);
+            await dropRelationshipMemoriesForScenes(deps.activeCampaignId, n => n === deletedNum)
+                .catch(e => console.warn('[Archive] Relationship memory trim after scene delete failed:', e));
             // WO-12.6 — purge client divergence facts for the deleted scene (mobile parity).
             deps.deleteDivergenceChapter(sceneId);
             console.log(`[Archive] Surgically deleted scene #${sceneId}`);

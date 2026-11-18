@@ -249,13 +249,41 @@ export function mergeRelationshipMemoryCollections(
     existingNpcToNpc: RelationshipMemoryRecord[],
     fresh: RelationshipMemoryCollections,
 ): { npcToMc: RelationshipMemoryRecord[]; npcToNpc: RelationshipMemoryRecord[] } {
+    // Fresh records win over stored ones for the same scene and pair. Scene numbers are
+    // reused after an archive rollback, so a stored record under the same key can come
+    // from a version of the scene that no longer exists; keeping it would silently drop
+    // the real memory. Hand-written (`user`) records are never replaced.
     const merge = (existing: RelationshipMemoryRecord[], incoming: RelationshipMemoryRecord[]) => {
         const key = (record: RelationshipMemoryRecord) => record.sceneId + '|' + record.subject + '|' + record.target;
-        const keys = new Set(existing.map(key));
-        return [...existing, ...incoming.filter(record => !keys.has(key(record)))];
+        const incomingKeys = new Set(incoming.map(key));
+        return [
+            ...existing.filter(record => record.source === 'user' || !incomingKeys.has(key(record))),
+            ...incoming,
+        ];
     };
     return {
         npcToMc: merge(existingNpcToMc, fresh.npcToMc),
         npcToNpc: merge(existingNpcToNpc, fresh.npcToNpc),
     };
+}
+
+/**
+ * Drop the recorded memories of scenes that left the archive (rollback, surgical delete).
+ * Without this they outlive their scene, and because scene numbers are reused they are
+ * later read as memories of a different scene. Hand-written (`user`) records are kept.
+ */
+export function pruneRelationshipMemoriesForScenes(
+    collections: { npcToMc: RelationshipMemoryRecord[]; npcToNpc: RelationshipMemoryRecord[] },
+    isRemovedScene: (sceneNumber: number) => boolean,
+): { npcToMc: RelationshipMemoryRecord[]; npcToNpc: RelationshipMemoryRecord[]; removed: number } {
+    const keep = (record: RelationshipMemoryRecord) => {
+        if (record.source === 'user') return true;
+        const numeric = Number.parseInt(record.sceneId, 10);
+        return !Number.isFinite(numeric) || !isRemovedScene(numeric);
+    };
+    const npcToMc = collections.npcToMc.filter(keep);
+    const npcToNpc = collections.npcToNpc.filter(keep);
+    const removed = collections.npcToMc.length - npcToMc.length
+        + collections.npcToNpc.length - npcToNpc.length;
+    return { npcToMc, npcToNpc, removed };
 }

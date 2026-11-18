@@ -1,6 +1,7 @@
 import { api } from '../llm/apiClient';
 import { API_BASE as API } from '../../lib/apiBase';
 import { safeSceneNum } from '../../utils/helpers';
+import { dropRelationshipMemoriesForScenes } from '../../store/relationshipMemoryStore';
 import type { ArchiveChapter, ArchiveIndexEntry, ChatMessage, CondenserState, TimelineEvent } from '../../types';
 
 export interface ArchiveManagerDeps {
@@ -39,6 +40,12 @@ export async function rollbackArchiveFrom(deps: ArchiveManagerDeps, fromTimestam
 
     try {
         await api.archive.deleteFrom(campaignId, target.sceneId);
+
+        // The removed scenes' relationship memories go too: the next scenes reuse these
+        // numbers, and a leftover record would be read as a memory of the new scene.
+        const fromNum = safeSceneNum(target.sceneId);
+        await dropRelationshipMemoriesForScenes(campaignId, n => n >= fromNum)
+            .catch(e => console.warn('[Archive] Relationship memory trim after rollback failed:', e));
 
         const [freshIndex, freshTimeline, freshChapters] = await Promise.all([
             api.archive.getIndex(campaignId),
