@@ -7,11 +7,14 @@ vi.mock('../lore/loreRetriever', () => ({
     retrieveRelevantLore: vi.fn(),
 }));
 vi.mock('../../utils/uid', () => ({ uid: vi.fn().mockReturnValue('note-uid') }));
+vi.mock('../archive-memory/archiveToolSearch', () => ({ searchArchiveForTool: vi.fn().mockResolvedValue('') }));
 
-import { handleLoreTool, handleNotebookTool, TOOL_DEFINITIONS } from '../turn/toolHandlers';
+import { handleLoreTool, handleNotebookTool, NO_LORE_RESULT, TOOL_DEFINITIONS } from '../turn/toolHandlers';
 import { searchLoreByQuery } from '../lore/loreRetriever';
+import { searchArchiveForTool } from '../archive-memory/archiveToolSearch';
 
 const mockSearchLore = vi.mocked(searchLoreByQuery);
+const mockArchiveSearch = vi.mocked(searchArchiveForTool);
 
 const emptyNotebook = (): GameContext['notebook'] => [];
 const makeNote = (text: string) => ({ id: 'n1', text, timestamp: 1000 });
@@ -27,30 +30,50 @@ describe('TOOL_DEFINITIONS', () => {
 describe('handleLoreTool', () => {
     beforeEach(() => vi.clearAllMocks());
 
-    it('returns "No relevant lore found." when query is empty', () => {
-        const { toolResult } = handleLoreTool(JSON.stringify({ query: '' }), { loreChunks: [], notebook: [] });
-        expect(toolResult).toBe('No relevant lore found.');
+    it('returns the no-result text when query is empty', async () => {
+        const { toolResult } = await handleLoreTool(JSON.stringify({ query: '' }), { loreChunks: [], notebook: [] });
+        expect(toolResult).toBe(NO_LORE_RESULT);
         expect(mockSearchLore).not.toHaveBeenCalled();
     });
 
-    it('returns "No relevant lore found." when searchLoreByQuery returns []', () => {
+    it('returns the no-result text when searchLoreByQuery returns [] and there is no archive', async () => {
         mockSearchLore.mockReturnValue([]);
-        const { toolResult } = handleLoreTool(JSON.stringify({ query: 'dragons' }), { loreChunks: [], notebook: [] });
-        expect(toolResult).toBe('No relevant lore found.');
+        const { toolResult } = await handleLoreTool(JSON.stringify({ query: 'dragons' }), { loreChunks: [], notebook: [] });
+        expect(toolResult).toBe(NO_LORE_RESULT);
+        expect(toolResult).toMatch(/^no relevant lore/i);
     });
 
-    it('formats found lore as ### header\\ncontent joined by \\n\\n', () => {
+    it('appends archived scenes after the lore', async () => {
+        mockSearchLore.mockReturnValue([
+            { id: '1', header: 'Dzwon', content: 'Barber.', tokens: 10, alwaysInclude: false, triggerKeywords: [], scanDepth: 0, category: 'general', linkedEntities: [], priority: 0 },
+        ] as any);
+        mockArchiveSearch.mockResolvedValueOnce('### Archive scene 598\nViktor writes the address.');
+        const { toolResult } = await handleLoreTool(JSON.stringify({ query: 'scene 598' }), { loreChunks: [], notebook: [], campaignId: 'c1', archiveIndex: [] });
+        expect(toolResult).toBe('### Dzwon\nBarber.\n\n### Archive scene 598\nViktor writes the address.');
+        expect(mockArchiveSearch).toHaveBeenCalledWith('c1', [], 'scene 598');
+    });
+
+    it('keeps the lore when the archive search fails', async () => {
+        mockSearchLore.mockReturnValue([
+            { id: '1', header: 'Dzwon', content: 'Barber.', tokens: 10, alwaysInclude: false, triggerKeywords: [], scanDepth: 0, category: 'general', linkedEntities: [], priority: 0 },
+        ] as any);
+        mockArchiveSearch.mockRejectedValueOnce(new Error('offline'));
+        const { toolResult } = await handleLoreTool(JSON.stringify({ query: 'Dzwon' }), { loreChunks: [], notebook: [], campaignId: 'c1', archiveIndex: [] });
+        expect(toolResult).toBe('### Dzwon\nBarber.');
+    });
+
+    it('formats found lore as ### header\\ncontent joined by \\n\\n', async () => {
         mockSearchLore.mockReturnValue([
             { id: '1', header: 'Dragons', content: 'They breathe fire.', tokens: 10, alwaysInclude: false, triggerKeywords: [], scanDepth: 0, category: 'general', linkedEntities: [], priority: 0 },
             { id: '2', header: 'Elves', content: 'Long-lived folk.', tokens: 10, alwaysInclude: false, triggerKeywords: [], scanDepth: 0, category: 'general', linkedEntities: [], priority: 0 },
         ] as any);
-        const { toolResult } = handleLoreTool(JSON.stringify({ query: 'races' }), { loreChunks: [], notebook: [] });
+        const { toolResult } = await handleLoreTool(JSON.stringify({ query: 'races' }), { loreChunks: [], notebook: [] });
         expect(toolResult).toBe('### Dragons\nThey breathe fire.\n\n### Elves\nLong-lived folk.');
     });
 
-    it('handles malformed JSON arguments gracefully (empty query fallback)', () => {
-        const { toolResult } = handleLoreTool('not-json', { loreChunks: [], notebook: [] });
-        expect(toolResult).toBe('No relevant lore found.');
+    it('handles malformed JSON arguments gracefully (empty query fallback)', async () => {
+        const { toolResult } = await handleLoreTool('not-json', { loreChunks: [], notebook: [] });
+        expect(toolResult).toBe(NO_LORE_RESULT);
         expect(mockSearchLore).not.toHaveBeenCalled();
     });
 });

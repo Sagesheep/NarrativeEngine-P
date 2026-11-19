@@ -697,7 +697,7 @@ export async function runGenerationStage(
                     }
 
                     const engineText = stripLLMSceneHeader(finalText);
-                    const dispatchResult = toolHandler({ arguments: toolCall.arguments, loreChunks, notebook: state.context.notebook, diceSystem: context.diceSystem, npcLedger: state.npcLedger, abilityLimits: abilityLimitsOf(context), abilityAlreadyProposed: abilityProposed });
+                    const dispatchResult = await toolHandler({ arguments: toolCall.arguments, loreChunks, notebook: state.context.notebook, diceSystem: context.diceSystem, npcLedger: state.npcLedger, abilityLimits: abilityLimitsOf(context), abilityAlreadyProposed: abilityProposed, campaignId: state.activeCampaignId, archiveIndex: state.archiveIndex });
                     if (dispatchResult.accumulation === 'overwrite') {
                         accumulatedContent = engineText;
                     } else {

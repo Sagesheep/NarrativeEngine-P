@@ -2,6 +2,7 @@ import type { SemanticFact, NPCEntry, CharacterTrait, CharacterProfileState, Sce
 import { CORE_FLOOR_TRAITS } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
 import { PROPER_NOUN_STOP_WORDS } from '../../utils/stopWords';
+import { properNouns } from './wordTokens';
 
 export function extractContextEntities(
     input: string,
@@ -21,7 +22,7 @@ export function extractContextEntities(
 
     const text = input + ' ' + recentMessages.slice(-5)
         .map(m => (typeof m.content === 'string' ? m.content : '')).join(' ');
-    const matches = text.match(/[A-Z][A-Za-z]{2,}(?:\s[A-Z][A-Za-z]{2,})*/g) || [];
+    const matches = properNouns(text, 3);
     for (const match of matches) {
         if (!PROPER_NOUN_STOP_WORDS.has(match)) {
             entities.add(match.toLowerCase());

@@ -16,7 +16,7 @@ function currentSwipeText(message: ChatMessage): string {
 }
 
 function factMatches(question: string, fact: SemanticFact): boolean {
-    const terms = question.toLowerCase().match(/[a-z][a-z'-]{2,}/g) ?? [];
+    const terms = question.toLowerCase().match(/\p{L}[\p{L}\p{M}'-]{2,}/gu) ?? [];
     const haystack = `${fact.subject} ${fact.predicate} ${fact.object}`.toLowerCase();
     return terms.some(term => haystack.includes(term));
 }

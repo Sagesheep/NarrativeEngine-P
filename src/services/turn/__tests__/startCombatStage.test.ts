@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-type Send = { tools: unknown[] | undefined; onDone: (text: string, toolCall?: { id: string; name: string; arguments: string }) => void };
+type Send = { tools: unknown[] | undefined; onDone: (text: string, toolCall?: { id: string; name: string; arguments: string }) => void | Promise<void> };
 const sends: Send[] = [];
 
 vi.mock('../../chatEngine', () => ({
@@ -67,7 +67,7 @@ describe('Stage 7 and start_combat', () => {
         await runGenerationStage(ctx, state, callbacks, new AbortController(), { liveTrace: [], pushToolTrace: vi.fn() });
         const tools = names(sends[0].tools);
         expect(tools[tools.length - 1]).toBe('start_combat');
-        sends[0].onDone('', { id: 'call-1', name: 'start_combat', arguments: JSON.stringify({ combatants: [{ name: 'Mira', npcName: 'Mira' }], reason: 'Mira attacks' }) });
+        await sends[0].onDone('', { id: 'call-1', name: 'start_combat', arguments: JSON.stringify({ combatants: [{ name: 'Mira', npcName: 'Mira' }], reason: 'Mira attacks' }) });
         const gm = messages.find(m => m.role === 'assistant')!;
         expect(staged).toHaveLength(1);
         expect(staged[0]).toMatchObject({ messageId: gm.id, source: 'tool', reason: 'Mira attacks', combatants: [{ name: 'Mira', npcId: 'npc-9' }] });

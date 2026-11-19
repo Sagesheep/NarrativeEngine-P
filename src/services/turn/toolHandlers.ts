@@ -1,4 +1,5 @@
-import type { GameContext, LoreChunk, DiceSystemConfig, DieType, InventoryProposal, NPCEntry } from '../../types';
+import type { ArchiveIndexEntry, GameContext, LoreChunk, DiceSystemConfig, DieType, InventoryProposal, NPCEntry } from '../../types';
+import { searchArchiveForTool } from '../archive-memory/archiveToolSearch';
 import { elementListLine, elementToolNotes, parseCombatArgs, signatureToolNotes, type ParsedCombatArgs } from '../combat/combatProposal';
 import { objectiveToolNotes } from '../combat/combatObjective';
 import { ABILITY_ONE_AT_A_TIME, PROPOSE_ABILITY_TOOL_RESULT, parseAbilityArgs, rejectionText } from '../combat/abilityProposalArgs';
@@ -17,7 +18,13 @@ const MAX_NOTEBOOK_NOTES = 50;
 export type ToolContext = {
     loreChunks: LoreChunk[];
     notebook: GameContext['notebook'];
+    /** With both set, the lore tool also searches the archive of past scenes. */
+    campaignId?: string | null;
+    archiveIndex?: ArchiveIndexEntry[];
 };
+
+/** Starts with "No relevant lore" — the chat chip reads that prefix as a miss. */
+export const NO_LORE_RESULT = 'No relevant lore or archived scenes found.';
 
 export type LoreHandlerResult = {
     toolResult: string;
@@ -44,10 +51,10 @@ const BASE_TOOLS = [
         type: 'function' as const,
         function: {
             name: 'query_campaign_lore',
-            description: 'Search the Game Master notes for specific lore, rules, characters, or locations. Do NOT call this sequentially or spam it. If no relevant lore is found, immediately proceed with the narrative response. IMPORTANT: You MUST use the standard JSON tool call format. NEVER output raw XML <|DSML|> tags in your response text.',
+            description: 'Search the Game Master notes (lore, rules, characters, locations) and the archive of past scenes. To read a specific past scene, put its number in the query, e.g. "scene 598". Use the names and words the story itself used. Do NOT call this sequentially or spam it. If no relevant lore is found, immediately proceed with the narrative response. IMPORTANT: You MUST use the standard JSON tool call format. NEVER output raw XML <|DSML|> tags in your response text.',
             parameters: {
                 type: 'object' as const,
-                properties: { query: { type: 'string' as const, description: 'The specific search query' } },
+                properties: { query: { type: 'string' as const, description: 'The specific search query, or "scene <number>" to read that archived scene' } },
                 required: ['query'],
             },
         },
@@ -473,19 +480,21 @@ export const TOOL_DEFINITIONS = BASE_TOOLS;
  * Handles `query_campaign_lore` tool calls.
  * Returns the tool result string only — caller handles payload/message dispatch.
  */
-export function handleLoreTool(
+export async function handleLoreTool(
     toolArguments: string,
     ctx: ToolContext
-): LoreHandlerResult {
+): Promise<LoreHandlerResult> {
     let query = '';
     try { query = JSON.parse(toolArguments).query || ''; } catch { /* Ignore */ }
 
-    let toolResult = 'No relevant lore found.';
+    let toolResult = NO_LORE_RESULT;
     if (query) {
         const found = searchLoreByQuery(ctx.loreChunks, query);
-        if (found.length > 0) {
-            toolResult = found.map(c => `### ${c.header}\n${c.content}`).join('\n\n');
-        }
+        const lore = found.map(c => `### ${c.header}\n${c.content}`).join('\n\n');
+        // The archive half must never sink the lore half: a failed fetch is just no scenes.
+        const archive = await searchArchiveForTool(ctx.campaignId, ctx.archiveIndex, query).catch(() => '');
+        const parts = [lore, archive].filter(Boolean);
+        if (parts.length > 0) toolResult = parts.join('\n\n');
     }
 
     return { toolResult };

@@ -45,6 +45,9 @@ export type ToolDispatchContext = {
     npcLedger?: import('../../types').NPCEntry[];
     abilityLimits?: AbilityLimits;
     abilityAlreadyProposed?: boolean;
+    /** For the lore tool's archive search; without them it searches lore only. */
+    campaignId?: string | null;
+    archiveIndex?: import('../../types').ArchiveIndexEntry[];
 };
 
 export type ToolDispatchResult = {
@@ -64,10 +67,15 @@ export type ToolDispatchResult = {
 
 export type ToolHandlerFn = (
     ctx: ToolDispatchContext
-) => ToolDispatchResult;
+) => ToolDispatchResult | Promise<ToolDispatchResult>;
 
-const handleLore: ToolHandlerFn = (ctx) => {
-    const { toolResult } = handleLoreTool(ctx.arguments, { loreChunks: ctx.loreChunks, notebook: ctx.notebook });
+const handleLore: ToolHandlerFn = async (ctx) => {
+    const { toolResult } = await handleLoreTool(ctx.arguments, {
+        loreChunks: ctx.loreChunks,
+        notebook: ctx.notebook,
+        campaignId: ctx.campaignId,
+        archiveIndex: ctx.archiveIndex,
+    });
     return {
         toolResult,
         accumulation: 'overwrite',

@@ -2,6 +2,7 @@ import type { ArchiveIndexEntry, ChatMessage, NPCEntry } from '../../types';
 import { safeSceneNum } from '../../utils/helpers';
 import { namedNpcs } from '../npc/witnessCapture';
 import { sceneSearchWords } from './idf';
+import { lowerWords, properNouns } from '../retrieval/wordTokens';
 
 /**
  * archive-memory/scoring.ts
@@ -58,7 +59,8 @@ export function scoreEntry(
         for (const kw of entry.keywords) {
             const k = kw.toLowerCase();
             if (contextText.includes(k)) {
-                const exactMatch = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+                // Letter lookarounds, not \b: \b only knows ASCII, so "łódź" never matched whole.
+                const exactMatch = new RegExp(`(?<![\\p{L}\\p{N}])${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu');
                 activation += (exactMatch.test(contextText) ? 2 : 0.5) * (idf[k] ?? 1);
             }
         }
@@ -97,23 +99,23 @@ export function extractContextActivations(
     const activations: Record<string, number> = {};
 
     // 2-char minimum to capture short NPC names common in fantasy settings (e.g. "Xi", "Ka", "Al")
-    const userWords = userMessage.toLowerCase().match(/[a-z]{2,}/g) || [];
+    const userWords = lowerWords(userMessage, 2);
     for (const word of userWords) activations[word] = 1.0;
 
-    const userProperNouns = userMessage.match(/[A-Z][A-Za-z]{1,}(?:\s[A-Z][A-Za-z]{1,})*/g) || [];
+    const userProperNouns = properNouns(userMessage, 2);
     for (const noun of userProperNouns) activations[noun.toLowerCase()] = 1.0;
 
     const last3 = recentMessages.filter(m => m.role === 'assistant').slice(-3);
     for (const msg of last3) {
-        const words = (msg.content || '').toLowerCase().match(/[a-z]{2,}/g) || [];
-        const properNouns = (msg.content || '').match(/[A-Z][A-Za-z]{1,}(?:\s[A-Z][A-Za-z]{1,})*/g) || [];
+        const words = lowerWords(msg.content || '', 2);
+        const nouns = properNouns(msg.content || '', 2);
         for (const word of words) { if (!activations[word]) activations[word] = 0.7; }
-        for (const noun of properNouns) { if (!activations[noun.toLowerCase()]) activations[noun.toLowerCase()] = 0.7; }
+        for (const noun of nouns) { if (!activations[noun.toLowerCase()]) activations[noun.toLowerCase()] = 0.7; }
     }
 
     const last10 = recentMessages.slice(-10);
     for (const msg of last10) {
-        const words = (msg.content || '').toLowerCase().match(/[a-z]{2,}/g) || [];
+        const words = lowerWords(msg.content || '', 2);
         for (const word of words) { if (!activations[word]) activations[word] = 0.3; }
     }
 

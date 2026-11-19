@@ -1,6 +1,7 @@
 import { isFieldLabelKeyword } from './fieldLabels';
 import type { LoreChunk, LoreCategory } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
+import { cleanWord, properNouns } from '../retrieval/wordTokens';
 
 const LORE_CHUNK_MAX = 3000;
 const LORE_WINDOW_SIZE = 2000;
@@ -51,9 +52,9 @@ function extractTriggerKeywords(header: string, content: string): string[] {
     const unlabelled = text
         .replace(/\*\*\s*[A-Z][A-Za-z ]{0,30}?:\s*\*\*/g, ' ')
         .replace(/^\s*[-*]?\s*[A-Z][A-Za-z ]{0,30}?:(?=\s)/gm, ' ');
-    const properNouns = unlabelled.match(/[A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})*/g);
-    if (properNouns) {
-        for (const noun of properNouns) {
+    const nouns = properNouns(unlabelled, 3);
+    if (nouns.length > 0) {
+        for (const noun of nouns) {
             const lower = noun.toLowerCase();
             if (!STOP_WORDS.has(lower) && lower.length > 2 && !isFieldLabelKeyword(lower)) {
                 keywords.add(lower);
@@ -80,7 +81,7 @@ function extractTriggerKeywords(header: string, content: string): string[] {
     const headerWords = header
         .replace(/\[CHUNK:\s*[A-Z_-]+\]\s*/i, '')
         .split(/[\s/—–]+/)
-        .map(w => w.toLowerCase().replace(/[^a-z0-9]/g, ''))
+        .map(w => cleanWord(w))
         .filter(w => w.length > 2 && !STOP_WORDS.has(w));
     headerWords.filter(w => !isFieldLabelKeyword(w)).forEach(w => keywords.add(w));
 

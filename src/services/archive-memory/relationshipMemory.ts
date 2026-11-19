@@ -47,14 +47,20 @@ impact — how much this will weigh on them. Answer the tests, in order:
   \`carried\` also requires you to name what they carry, in one short clause.
   If you cannot finish that sentence, it is not carried — say \`formative\`.
 
-event — what the OTHER person did, or what happened to them. Eight words or
+event — what the OTHER person did, or what happened to them. Fifteen words or
   fewer. This is the part both people in the room would agree on. "put a hand
-  on her head", "burned the supply train", "spared her students". Concrete and
-  visual — a later writer has only this line to work from.
+  on her head", "burned the supply train", "paid him so he would NOT go to the
+  docks". Concrete and visual, with the specifics (who, where, how much) — a
+  later writer has only this line to work from. Keep negations and conditions
+  exactly as the scene has them.
 
-outcome — what THIS person VISIBLY did in response. Eight words or fewer. What
+outcome — what THIS person VISIBLY did in response. Fifteen words or fewer. What
   an observer saw, never what they felt inside. "went silent and left", not
   "felt betrayed".
+
+Write event, outcome and carried in the same language as the scene, and keep
+names exactly as the scene spells them. Only the JSON keys, mood and impact
+stay in English.
 
   event and outcome are two different facts. Do not put the reaction in
   \`event\`, and do not restate the event in \`outcome\`.
@@ -113,12 +119,17 @@ const findParticipant = (value: unknown, entries: Array<NPCEntry | PlayerCharact
 
 const splitWords = (value: string): string[] => value.split(/\s+/).map(word => word.trim()).filter(Boolean);
 
+// 15 words / 120 chars. The old 8 / 60 squeezed out specifics and, in languages with
+// longer words (Polish), cut lines mid-clause so a negation could vanish.
+const MEMORY_LINE_WORDS = 15;
+const MEMORY_LINE_CHARS = 120;
+
 const capOutcome = (value: unknown): string => {
-    const words = splitWords(normalise(value)).slice(0, 8);
-    return words.join(' ').slice(0, 60).trim();
+    const words = splitWords(normalise(value)).slice(0, MEMORY_LINE_WORDS);
+    return words.join(' ').slice(0, MEMORY_LINE_CHARS).trim();
 };
 
-/** `event` shares outcome's 8-word / 60-char cap — reuse the helper, do not write a second one. */
+/** `event` shares outcome's word / char cap — reuse the helper, do not write a second one. */
 const capEvent = capOutcome;
 
 const MC_TARGETS = new Set(['mc', 'player', 'the player', 'player character', 'the player character', 'protagonist', 'the protagonist']);
@@ -208,7 +219,7 @@ export function normaliseRelationshipMemoryRecords(
             impact: finalImpact,
             event,
             outcome,
-            ...(finalImpact === 'carried' && carriedNote ? { carriedNote: carriedNote.slice(0, 60) } : {}),
+            ...(finalImpact === 'carried' && carriedNote ? { carriedNote: carriedNote.slice(0, MEMORY_LINE_CHARS) } : {}),
             source: 'recorded',
             ...(isMc && !participants.playerCharacter ? { subjectInferred: true } : {}),
         };

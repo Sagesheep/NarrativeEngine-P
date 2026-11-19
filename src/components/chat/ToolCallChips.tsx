@@ -37,14 +37,16 @@ function DiceChip({ args, result }: { args: Record<string, unknown>; result: Rec
 function LoreChip({ args, result }: { args: Record<string, unknown>; result?: string }) {
     const query = (args.query ?? '') as string;
     const found = result ? !/^no relevant lore/i.test(result.trim()) : undefined;
+    // The tool searches lore notes and archived scenes; say how many scenes came back.
+    const scenes = result ? (result.match(/^### Archive scene /gm) ?? []).length : 0;
     return (
         <>
             <Search size={11} className="text-ice shrink-0" />
-            <span className="text-ice/90 font-semibold">Searched archives</span>
+            <span className="text-ice/90 font-semibold">Searched notes &amp; archive</span>
             {query && <span className="text-text-dim/80 truncate">· “{query}”</span>}
             {found !== undefined && (
                 <span className={`ml-auto shrink-0 uppercase ${found ? 'text-emerald-500/80' : 'text-text-dim/60'}`}>
-                    {found ? 'hit' : 'none'}
+                    {found ? (scenes > 0 ? `hit · ${scenes} scene${scenes === 1 ? '' : 's'}` : 'hit') : 'none'}
                 </span>
             )}
         </>

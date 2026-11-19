@@ -195,7 +195,7 @@ export function generateSceneContinuation(
                         : chunk;
                     onChunk(merged);
                 },
-                (finalText, toolCall) => {
+                async (finalText, toolCall) => {
                     // R4: discard reasoning_content on the continuation (param omitted).
 
                     // Cap reached OR no tool call OR unknown tool → treat as final.
@@ -212,7 +212,7 @@ export function generateSceneContinuation(
 
                     // Use the same dice system for execution and for the offered tool.
                     try {
-                        const dispatchResult = handler({
+                        const dispatchResult = await handler({
                             arguments: toolCall.arguments,
                             loreChunks: [],
                             notebook: [],

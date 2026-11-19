@@ -81,8 +81,8 @@ function stripTitle(raw) {
  */
 export function extractIndexKeywords(text) {
     const keywords = new Set();
-    // Proper nouns — capitalised words 3+ chars
-    const properNouns = text.match(/[A-Z][A-Za-z]{2,}(?:\s[A-Z][A-Za-z]{2,})*/g) || [];
+    // Proper nouns — capitalised words 3+ letters, any alphabet ("Ciepły Rondel", "Łukasz")
+    const properNouns = text.match(/\p{Lu}[\p{L}\p{M}]{2,}(?:\s\p{Lu}[\p{L}\p{M}]{2,})*/gu) || [];
     const stopWords = new Set(['The', 'And', 'For', 'Are', 'But', 'Not', 'You', 'All', 'Can', 'Has',
         'Was', 'One', 'His', 'Her', 'Had', 'May', 'Who', 'Been', 'Some', 'They', 'Will', 'Each', 'That',
         'This', 'With', 'From', 'Then', 'When', 'What', 'Where', 'There', 'Those', 'These', 'User', 'Scene']);

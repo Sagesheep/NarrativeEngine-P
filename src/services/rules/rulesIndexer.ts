@@ -19,7 +19,7 @@ const STOP_WORDS = new Set([
 function stemSimple(word: string): string {
     return word
         .toLowerCase()
-        .replace(/[^a-z0-9]/g, '')
+        .replace(/[^\p{L}\p{M}\p{N}]/gu, '')
         .replace(/(ing|ed|tion|ment|ness|ity|ous|ive|ful|less|able|ible|al|ly|er|est|s)$/, '')
         .slice(0, 20);
 }

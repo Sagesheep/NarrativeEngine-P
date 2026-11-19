@@ -1,4 +1,5 @@
 import type { ArchiveIndexEntry } from '../../types';
+import { lowerWords } from '../retrieval/wordTokens';
 
 /**
  * archive-memory/idf.ts
@@ -26,7 +27,7 @@ export function sceneSearchWords(entry: ArchiveIndexEntry): Record<string, numbe
     let words = definitionWordsCache.get(entry);
     if (!words) {
         words = {};
-        for (const w of entry.definition.toLowerCase().match(/[a-z]{3,}/g) ?? []) words[w] = 1;
+        for (const w of lowerWords(entry.definition, 3)) words[w] = 1;
         definitionWordsCache.set(entry, words);
     }
     return words;

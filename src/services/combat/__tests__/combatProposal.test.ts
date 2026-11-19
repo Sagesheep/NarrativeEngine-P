@@ -87,10 +87,10 @@ describe('start_combat handler and registry', () => {
         expect(out.toolResult).toMatch(/not accepted/);
     });
 
-    it('registers the handler with append accumulation and a trace', () => {
+    it('registers the handler with append accumulation and a trace', async () => {
         expect(() => validateToolRegistry()).not.toThrow();
         expect(typeof TOOL_REGISTRY.start_combat).toBe('function');
-        const result = resolveToolHandler('start_combat')!({
+        const result = await resolveToolHandler('start_combat')!({
             arguments: JSON.stringify({ combatants: [{ name: 'Vey', npcName: 'Captain Vey' }], reason: 'Duel' }),
             loreChunks: [],
             notebook: [],

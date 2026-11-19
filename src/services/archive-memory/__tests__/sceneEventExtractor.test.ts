@@ -17,7 +17,7 @@ describe('analyzeScene', () => {
         const result = await analyzeScene(undefined, 'scene text', '042', { modelCall });
 
         expect(modelCall).toHaveBeenCalledTimes(1);
-        expect(modelCall.mock.calls[0][0]).toMatchObject({ thinkingEffort: 'off', maxTokens: 1400, trackingLabel: 'scene-event-extract' });
+        expect(modelCall.mock.calls[0][0]).toMatchObject({ thinkingEffort: 'off', maxTokens: 2000, trackingLabel: 'scene-event-extract' });
         expect(modelCall.mock.calls[0][0].prompt).toContain('scene text');
         expect(result).toEqual({
             events: [parsedEvent],

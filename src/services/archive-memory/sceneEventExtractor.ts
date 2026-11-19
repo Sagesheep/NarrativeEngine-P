@@ -100,17 +100,21 @@ OUTPUT FORMAT — respond with a single JSON object:
   "resolvedHooks": ["014:0"]
 }
 
+LANGUAGE:
+Write "definition", event "text", "cause", "result" and hook "what" in the same language as the SCENE TEXT, and keep every name exactly as the scene spells it (later searches use the scene's own words). Only the JSON keys, eventType, tag names and hook types stay in English.
+
 DEFINITION RULES:
-1. One or two plain sentences, at most 40 words, that let someone find this scene later without reading it.
+1. One or two plain sentences, at most 50 words, that let someone find this scene later without reading it.
 2. Name the people (by name), the place, what happened, and what changed by the end. No mood words, no commentary.
+3. Keep concrete specifics a later scene may need: addresses, names given, amounts paid, times and places agreed.
 
 EVENT RULES:
 1. eventType MUST be exactly one of: 'combat' | 'discovery' | 'item_acquired' | 'item_lost' | 'relationship_shift' | 'travel' | 'promise' | 'betrayal' | 'death' | 'revelation' | 'quest_milestone' | 'other'
 2. importance must be an integer from 1 to 10.
-3. text must be a short, clean, descriptive sentence (max 15 words) of what happened.
+3. text must be one clean, descriptive sentence (max 25 words) of what happened, with its specifics (who, what, where, how much). Keep negations and conditions exactly ("paid him NOT to go", "only if she returns").
 4. characters, locations, items, concepts are optional string arrays listing specific entities present or involved.
 5. cause and result are optional short plain-text consequence beats (one short clause each).
-6. Cap at MAXIMUM 3 events for the scene. If nothing highly meaningful occurred, use an empty array.
+6. Cap at MAXIMUM 5 events for the scene. Shared meals, errands and conversations count when they matter to the people in them. If nothing meaningful occurred, use an empty array.
 
 TAG RULES:
 1. Tags say what KIND of scene this is, never its specific content. Use ONLY these tags. Pick the ones that fit, at most 3 per group, and skip any group that does not apply:
@@ -148,7 +152,8 @@ export async function analyzeScene(
     const request = {
         temperature: 0.1,
         priority: 'low' as const,
-        maxTokens: 1400,
+        // Room for five longer events in a language that costs more tokens per word.
+        maxTokens: 2000,
         thinkingEffort: 'off' as const,
         signal,
         trackingLabel: 'scene-event-extract',

@@ -2,6 +2,7 @@ import type { LoreChunk, ChatMessage } from '../../types';
 import { computeIdf, fuseRRF } from '../retrieval/lexicalFusion';
 import { getCachedKeywordRegex as getKeywordRegex, makeScanTextGetter } from '../retrieval/retrievalCore';
 import { isFieldLabelKeyword } from './fieldLabels';
+import { cleanWord } from '../retrieval/wordTokens';
 import { DEFAULT_LORE_DEPTH, loreRelevanceTopN, type LoreDepth } from './loreBudget';
 
 // ─── Group Competition ────────────────────────────────────────────────────
@@ -405,7 +406,7 @@ export function searchLoreByQuery(
 
     const words = query.toLowerCase().split(/\s+/);
     for (const w of words) {
-        const clean = w.replace(/[^a-z0-9]/g, '');
+        const clean = cleanWord(w);
         if (clean.length > 2 && !stopWords.has(clean)) {
             queryKeywords.add(clean);
         }
