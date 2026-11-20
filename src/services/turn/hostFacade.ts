@@ -1,4 +1,5 @@
 import { retrievalBudget } from '../payload/contextAllocation';
+import { normalizeSealTimeoutSeconds } from '../llm/timeouts';
 import type {
     AiTier,
     ArchiveChapter,
@@ -110,6 +111,7 @@ export interface FacadeConfig {
     readonly sceneRecallBudget: number;
     readonly autoArchiveStaleNPCsTurns: number;
     readonly divergenceScanBudget: number;
+    readonly sealTimeoutSeconds: number;
     readonly enableArchivePlanner: boolean;
     readonly lodElevateScenes: number;
     readonly lodImportanceBonus: number;
@@ -211,6 +213,7 @@ type FacadeSettings = {
     sceneRecallBudget?: number;
     autoArchiveStaleNPCsTurns?: number;
     divergenceScanBudget?: number;
+    sealTimeoutSeconds?: number;
     enableArchivePlanner?: boolean;
     lodElevateScenes?: number;
     lodImportanceBonus?: number;
@@ -263,6 +266,7 @@ function readFacadeSettings(settings: FacadeSettings): FacadeConfig {
         sceneRecallBudget: retrievalBudget(settings, 'recall'),
         autoArchiveStaleNPCsTurns: settings.autoArchiveStaleNPCsTurns ?? 0,
         divergenceScanBudget: settings.divergenceScanBudget ?? 0,
+        sealTimeoutSeconds: normalizeSealTimeoutSeconds(settings.sealTimeoutSeconds),
         enableArchivePlanner: settings.enableArchivePlanner ?? false,
         lodElevateScenes: settings.lodElevateScenes ?? 2,
         lodImportanceBonus: settings.lodImportanceBonus ?? 2,

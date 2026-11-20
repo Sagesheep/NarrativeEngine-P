@@ -9,7 +9,10 @@ import {
   READING_ALIGNS, READING_DEFAULTS, READING_FONTS, READING_LEADINGS, READING_WIDTHS, READING_SIZE_MAX, READING_SIZE_MIN,
   clampReadingSize, normalizeReadingAlign, normalizeReadingFont, normalizeReadingLeading, normalizeReadingWidth,
 } from '../chat/readingPrefs';
-import { MAX_STORY_TIMEOUT_SECONDS, MIN_STORY_TIMEOUT_SECONDS, normalizeStoryTimeoutSeconds } from '../../services/llm/timeouts';
+import {
+  MAX_SEAL_TIMEOUT_SECONDS, MAX_STORY_TIMEOUT_SECONDS, MIN_SEAL_TIMEOUT_SECONDS, MIN_STORY_TIMEOUT_SECONDS,
+  normalizeSealTimeoutSeconds, normalizeStoryTimeoutSeconds,
+} from '../../services/llm/timeouts';
 import { computeLoreBudget, normalizeLoreDepth } from '../../services/lore/loreBudget';
 import { ContextAllocationSection } from './ContextAllocationSection';
 
@@ -38,6 +41,7 @@ export function GlobalSettingsTab() {
   // state simply has no effect.
   const [activeGroup, setActiveGroup] = useState<string>('interface');
   const [storyTimeoutDraft, setStoryTimeoutDraft] = useState<string | null>(null);
+  const [sealTimeoutDraft, setSealTimeoutDraft] = useState<string | null>(null);
 
   return (
     <div data-ui="global-root" className="mt-8 pt-6 border-t border-border space-y-4">
@@ -131,6 +135,50 @@ export function GlobalSettingsTab() {
             <button key={seconds} type="button" onClick={() => {
               setStoryTimeoutDraft(null);
               updateSettings({ storyTimeoutSeconds: seconds });
+            }}
+              className="px-2 py-1 text-[10px] font-mono border border-border rounded hover:border-terminal">
+              {seconds / 60} min
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="md:col-span-2 bg-void p-3 border border-border rounded space-y-2">
+        <label htmlFor="seal-timeout-seconds" className="block text-[11px] text-text-primary uppercase tracking-wider font-bold">
+          Chapter Seal Timeout (Seconds)
+        </label>
+        <p id="seal-timeout-help" className="text-[9px] text-text-dim leading-tight">
+          How long a chapter seal may run before it is stopped. Raise it for slow or local models.
+          Default: 480 seconds (8 minutes). Range: 60-3600 seconds. Extend remains available while waiting.
+        </p>
+        <input
+          id="seal-timeout-seconds"
+          aria-describedby="seal-timeout-help"
+          type="number"
+          min={MIN_SEAL_TIMEOUT_SECONDS}
+          max={MAX_SEAL_TIMEOUT_SECONDS}
+          step={1}
+          value={sealTimeoutDraft ?? normalizeSealTimeoutSeconds(settings.sealTimeoutSeconds)}
+          onChange={(e) => {
+            setSealTimeoutDraft(e.target.value);
+            const value = e.target.valueAsNumber;
+            if (Number.isInteger(value) && value >= MIN_SEAL_TIMEOUT_SECONDS && value <= MAX_SEAL_TIMEOUT_SECONDS) {
+              updateSettings({ sealTimeoutSeconds: value });
+            }
+          }}
+          onBlur={() => {
+            if (sealTimeoutDraft !== null) {
+              updateSettings({ sealTimeoutSeconds: normalizeSealTimeoutSeconds(Number(sealTimeoutDraft)) });
+              setSealTimeoutDraft(null);
+            }
+          }}
+          className="w-full h-7 bg-surface border border-border rounded px-2 text-xs text-text font-mono focus:outline-none focus:border-terminal"
+        />
+        <div className="flex flex-wrap gap-1.5">
+          {[180, 360, 480, 900].map(seconds => (
+            <button key={seconds} type="button" onClick={() => {
+              setSealTimeoutDraft(null);
+              updateSettings({ sealTimeoutSeconds: seconds });
             }}
               className="px-2 py-1 text-[10px] font-mono border border-border rounded hover:border-terminal">
               {seconds / 60} min

@@ -4,6 +4,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { api } from '../llm/apiClient';
 import { rateImportance, ratingToIndexImportance } from '../archive-memory/importanceRater';
 import { sealChapterCombined, type SealModelCall } from '../saveFileEngine';
+import { normalizeSealTimeoutSeconds } from '../llm/timeouts';
 import { toast } from '../../components/Toast';
 import { mergeLifecycleEntries } from '../campaign-state/divergenceRegister';
 import { saveDivergenceRegister } from '../../store/campaignStore';
@@ -389,6 +390,8 @@ export async function runCombinedSeal(
         divergenceScanBudget: number;
         contextLimit: number;
         divergenceRegister: import('../../types').DivergenceRegister;
+        /** Chapter seal call deadline; missing means the default (see llm/timeouts.ts). */
+        sealTimeoutSeconds?: number;
     },
     modelCall?: SealModelCall,
 ): Promise<void> {
@@ -435,9 +438,8 @@ export async function runCombinedSeal(
         indexEntries.length > 0 ? indexEntries : undefined,
         sealInputs.divergenceRegister.entries,
     ] as const;
-    const result = modelCall
-        ? await sealChapterCombined(provider, ...sealArgs, modelCall)
-        : await sealChapterCombined(provider, ...sealArgs);
+    const sealTimeoutMs = normalizeSealTimeoutSeconds(sealInputs.sealTimeoutSeconds) * 1000;
+    const result = await sealChapterCombined(provider, ...sealArgs, modelCall, sealTimeoutMs);
 
     if (result.divergenceParseError && !result.summary && !result.divergences.length) {
         toast.error('Chapter seal produced no output. Try regenerating.');

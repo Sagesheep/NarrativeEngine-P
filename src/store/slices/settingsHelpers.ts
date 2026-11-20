@@ -3,7 +3,7 @@ import type { AppSettings, LLMProvider, AIPreset, ApiFormat, AiTier } from '../.
 import { set as idbSet } from 'idb-keyval';
 import { encryptSettingsProviders } from '../../services/infrastructure/settingsCrypto';
 import { uid } from '../../utils/uid';
-import { DEFAULT_STORY_TIMEOUT_SECONDS, normalizeStoryTimeoutSeconds } from '../../services/llm/timeouts';
+import { DEFAULT_SEAL_TIMEOUT_SECONDS, DEFAULT_STORY_TIMEOUT_SECONDS, normalizeSealTimeoutSeconds, normalizeStoryTimeoutSeconds } from '../../services/llm/timeouts';
 import { toast } from '../../components/Toast';
 import { applyLocale, detectLocale, isLocaleCode } from '../../i18n';
 import { getBuiltinTokenCap } from '../../services/payload/contributions/builtins';
@@ -107,6 +107,7 @@ export const defaultSettings: AppSettings = {
     autoGenerateRuleKeywords: true,
     utilityTimeoutSeconds: 45,
     storyTimeoutSeconds: DEFAULT_STORY_TIMEOUT_SECONDS,
+    sealTimeoutSeconds: DEFAULT_SEAL_TIMEOUT_SECONDS,
     enableArchivePlanner: false,
     retrievalAlgorithm: 'idf-rrf',
     loreDepth: 'balanced',
@@ -446,6 +447,7 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         autoGenerateRuleKeywords: (raw.autoGenerateRuleKeywords as boolean) ?? true,
         utilityTimeoutSeconds: (raw.utilityTimeoutSeconds as number) ?? 45,
         storyTimeoutSeconds: normalizeStoryTimeoutSeconds(raw.storyTimeoutSeconds),
+        sealTimeoutSeconds: normalizeSealTimeoutSeconds(raw.sealTimeoutSeconds),
         verboseUtilityLogging: raw.verboseUtilityLogging as boolean,
         enableArchivePlanner: (raw.enableArchivePlanner as boolean) ?? false,
         retrievalAlgorithm: (raw.retrievalAlgorithm as 'classic' | 'idf-rrf') ?? 'idf-rrf',

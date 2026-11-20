@@ -142,6 +142,7 @@ export const ChapterTab: React.FC = () => {
                     archiveIndex,
                     divergenceScanBudget: state.settings.divergenceScanBudget ?? 0,
                     contextLimit: state.settings.contextLimit ?? 4096,
+                    sealTimeoutSeconds: state.settings.sealTimeoutSeconds,
                     divergenceRegister: state.divergenceRegister ?? { entries: [], chapterToggles: {}, categoryToggles: {}, lastUpdatedSceneId: '', lastUpdatedAt: 0, version: 2 },
                 },
             );

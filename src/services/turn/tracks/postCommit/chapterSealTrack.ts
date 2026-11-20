@@ -82,6 +82,7 @@ export const chapterSealTrack: PostTurnTrack<PostCommitTrackContext> = {
                         archiveIndex: ctx.facade?.data.archiveIndex ?? ctx.state.archiveIndex ?? [],
                         divergenceScanBudget: ctx.facade?.config.divergenceScanBudget ?? ctx.state.settings.divergenceScanBudget ?? 0,
                         contextLimit: ctx.facade?.config.contextLimit ?? ctx.state.settings.contextLimit ?? 4096,
+                        sealTimeoutSeconds: ctx.facade?.config.sealTimeoutSeconds ?? ctx.state.settings.sealTimeoutSeconds,
                         divergenceRegister: ctx.facade?.data.divergenceRegister ?? ctx.state.divergenceRegister ?? EMPTY_REGISTER,
                     },
                     // Under the facade sealProvider is undefined and this is the only model path.

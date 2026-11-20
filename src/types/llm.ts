@@ -177,6 +177,7 @@ export type AppSettings = {
     rulesBudgetPct?: number;               // fraction of context limit for rules RAG, default 0.10
     autoGenerateRuleKeywords?: boolean;    // default true; false = header+bold extraction only
     storyTimeoutSeconds?: number;          // streaming AI idle deadline, 30-3600 seconds (default 600)
+    sealTimeoutSeconds?: number;           // chapter seal call deadline, 60-3600 seconds (default 480)
     /** @deprecated No reader since 6969e90 (utility calls use fixed timeouts, llm/timeouts.ts); its controls were removed 2026-10-07. Kept so stored settings load. */
     utilityTimeoutSeconds?: number;
     verboseUtilityLogging?: boolean;

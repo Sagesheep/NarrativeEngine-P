@@ -21,3 +21,19 @@ export function normalizeStoryTimeoutSeconds(value: unknown): number {
     }
     return Math.min(MAX_STORY_TIMEOUT_SECONDS, Math.max(MIN_STORY_TIMEOUT_SECONDS, Math.round(value)));
 }
+
+/**
+ * Chapter seal reads a whole chapter and writes its summary plus facts in one call,
+ * so on slow or local models it often outruns the 3-minute AI_CALL budget. It runs
+ * in the background, so a longer default costs nothing while it works.
+ */
+export const DEFAULT_SEAL_TIMEOUT_SECONDS = 480;
+export const MIN_SEAL_TIMEOUT_SECONDS = 60;
+export const MAX_SEAL_TIMEOUT_SECONDS = 3600;
+
+export function normalizeSealTimeoutSeconds(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+        return DEFAULT_SEAL_TIMEOUT_SECONDS;
+    }
+    return Math.min(MAX_SEAL_TIMEOUT_SECONDS, Math.max(MIN_SEAL_TIMEOUT_SECONDS, Math.round(value)));
+}

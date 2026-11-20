@@ -404,6 +404,7 @@ export async function sealChapterCombined(
     indexEntries?: { sceneId: string; witnesses?: string[] }[],
     activeStateFacts: DivergenceEntry[] = [],
     modelCall?: SealModelCall,
+    timeoutMs: number = AI_CALL_TIMEOUT_MS,
 ): Promise<CombinedSealResult> {
     // A try whose summary is good but whose facts block failed to parse. Retries go
     // after the facts; if none succeeds, this summary is still kept rather than lost
@@ -420,8 +421,8 @@ export async function sealChapterCombined(
         });
 
         const output = modelCall
-            ? await modelCall({ prompt, priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000, trackingLabel: 'chapter-seal', timeoutMs: AI_CALL_TIMEOUT_MS })
-            : await llmCall(provider!, prompt, { priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000, trackingLabel: 'chapter-seal', timeoutMs: AI_CALL_TIMEOUT_MS });
+            ? await modelCall({ prompt, priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000, trackingLabel: 'chapter-seal', timeoutMs })
+            : await llmCall(provider!, prompt, { priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000, trackingLabel: 'chapter-seal', timeoutMs });
         const result = parseCombinedSealOutput(output, chapterId, sceneIds, npcLedger);
 
         if (result.summary && !result.divergenceParseError) {
