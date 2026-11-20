@@ -135,7 +135,8 @@ describe('Stage C archive-child tracks', () => {
 
         const atCap = makeContext(25);
         const started = postCommitTracks.start(atCap, { isEnabled: () => true });
-        expect(mockApi.chapters.seal).toHaveBeenCalledWith('campaign-1');
+        // Names the chapter it saw at the cap, so a second queued seal cannot seal its successor.
+        expect(mockApi.chapters.seal).toHaveBeenCalledWith('campaign-1', undefined, 'CH01');
 
         await Promise.allSettled([...started, ...mocks.tasks]);
         expect(mockApi.chapters.seal).toHaveBeenCalledTimes(1);

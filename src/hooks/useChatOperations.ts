@@ -28,7 +28,6 @@ export function useChatOperations({
     armedAskGmBrief,
     setArmedAskGmBrief,
     sceneContinue,
-    checkAndSealChapter,
     takeAttachment,
     hasAttachment,
 }: {
@@ -39,7 +38,6 @@ export function useChatOperations({
     armedAskGmBrief: { campaignId: string; text: string } | null;
     setArmedAskGmBrief: (v: { campaignId: string; text: string } | null) => void;
     sceneContinue: ReturnType<typeof useSceneContinue>;
-    checkAndSealChapter: (campaignId: string) => void;
     /** Vision v1.5 — consume the pending chat image, if any. Called once per
      *  send, and clears the composer chip. Returns null when nothing is attached. */
     takeAttachment?: () => { caption: string; localPath: string } | null;
@@ -355,9 +353,8 @@ ${textToUse}` : attachmentBlock)
             },
         }, abortControllerRef.current);
 
-        if (activeCampaignId) {
-            checkAndSealChapter(activeCampaignId);
-        }
+        // Chapter auto-seal is the post-commit `track.chapter-seal` (it respects its
+        // toggle). A second check here used to seal again from a stale chapter list.
     };
 
     const handleStop = () => {

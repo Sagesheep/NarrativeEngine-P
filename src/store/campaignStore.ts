@@ -76,25 +76,34 @@ export async function importCampaign(bundle: unknown): Promise<{ id: string; nam
 
 // ─── Campaign State ───
 
+/** Message fields that live only in memory and must never reach disk. */
+export function stripEphemeralMessageFields(messages: ChatMessage[]): ChatMessage[] {
+    return messages.map((m) => {
+        const msg = { ...m };
+        delete msg.debugPayload;
+        // Smart Retry v1 — ephemerals must never reach disk. A persisted
+        // `retryable` yields a Retry button that survives restart with no
+        // in-memory payload behind it (dead button → "Context lost" toast).
+        delete msg.retryable;
+        delete msg.precontext;
+        return msg;
+    });
+}
+
+/**
+ * The one campaign-state write. Every path — the turn commit, the debounced save,
+ * Save Now, the campaign-switch flush, Exit — goes through here, so all of them strip
+ * the in-memory-only fields and all of them see a failed write: it rejects on an
+ * error response (a full disk answers 500), not only when the request cannot be sent.
+ */
 export async function saveCampaignState(campaignId: string, state: CampaignState): Promise<void> {
-    const stripped: CampaignState = {
-        ...state,
-        messages: state.messages.map((m) => {
-            const msg = { ...m };
-            delete msg.debugPayload;
-            // Smart Retry v1 — ephemerals must never reach disk. A persisted
-            // `retryable` yields a Retry button that survives restart with no
-            // in-memory payload behind it (dead button → "Context lost" toast).
-            delete msg.retryable;
-            delete msg.precontext;
-            return msg;
-        }),
-    };
-    await fetch(`${API}/campaigns/${campaignId}/state`, {
+    const stripped: CampaignState = { ...state, messages: stripEphemeralMessageFields(state.messages ?? []) };
+    const res = await fetch(`${API}/campaigns/${campaignId}/state`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(stripped),
     });
+    if (!res.ok) throw new Error(`Campaign state save failed (HTTP ${res.status})`);
 }
 
 export async function loadCampaignState(campaignId: string): Promise<CampaignState | null> {

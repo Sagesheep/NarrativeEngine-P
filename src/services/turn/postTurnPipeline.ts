@@ -392,6 +392,14 @@ export async function runCombinedSeal(
         divergenceRegister: import('../../types').DivergenceRegister;
         /** Chapter seal call deadline; missing means the default (see llm/timeouts.ts). */
         sealTimeoutSeconds?: number;
+        /**
+         * The established-facts register as it is NOW. The seal's new facts are merged
+         * into this after the model call, not into `divergenceRegister` above: that is a
+         * copy from before a call that can run for minutes, and writing it back dropped
+         * every pin, edit and delete made meanwhile, and put back the facts a rewind had
+         * removed. Missing means the snapshot (tests).
+         */
+        getDivergenceRegister?: () => import('../../types').DivergenceRegister;
     },
     modelCall?: SealModelCall,
 ): Promise<void> {
@@ -441,6 +449,24 @@ export async function runCombinedSeal(
     const sealTimeoutMs = normalizeSealTimeoutSeconds(sealInputs.sealTimeoutSeconds) * 1000;
     const result = await sealChapterCombined(provider, ...sealArgs, modelCall, sealTimeoutMs);
 
+    // The call above can run for minutes. If the chapter was reopened by a rewind into
+    // it, sealed again, or removed in that time, this result describes scenes that have
+    // changed: writing it would put a summary and facts on the wrong chapter. A deleted
+    // scene leaves the chapter sealed but marks it `invalidated`; writing then would
+    // restore the deleted scene's facts and clear that mark. An empty list means the
+    // read failed, which is not evidence of a change.
+    const chaptersNow = await api.chapters.list(activeCampaignId);
+    if (chaptersNow.length > 0) {
+        const current = chaptersNow.find(c => c.chapterId === chapter.chapterId);
+        const reopenedOrResealed = !current || (current.sealedAt ?? null) !== (chapter.sealedAt ?? null);
+        const sceneDeleted = Boolean(current?.invalidated) && !chapter.invalidated;
+        if (reopenedOrResealed || sceneDeleted) {
+            console.warn(`[CombinedSeal] Chapter ${chapter.chapterId} changed while sealing — result discarded`);
+            state.setChapters(chaptersNow);
+            return;
+        }
+    }
+
     if (result.divergenceParseError && !result.summary && !result.divergences.length) {
         toast.error('Chapter seal produced no output. Try regenerating.');
         return;
@@ -468,7 +494,7 @@ export async function runCombinedSeal(
     if (result.divergences.length > 0) {
         const currentSceneId = sceneIds[sceneIds.length - 1] ?? '';
         // WO-P1-03: was `useAppStore.getState().divergenceRegister ?? EMPTY_REGISTER` (the :546 read).
-        const liveRegister = sealInputs.divergenceRegister;
+        const liveRegister = sealInputs.getDivergenceRegister?.() ?? sealInputs.divergenceRegister;
         const merged = mergeLifecycleEntries(liveRegister, result.divergences, currentSceneId);
         callbacks.setDivergenceRegister?.(merged);
 

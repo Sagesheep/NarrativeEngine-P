@@ -132,7 +132,6 @@ function baseArgs(): Parameters<typeof useChatOperations>[0] {
         armedAskGmBrief: null,
         setArmedAskGmBrief: vi.fn(),
         sceneContinue: sceneContinueStub,
-        checkAndSealChapter: vi.fn(),
     };
 }
 

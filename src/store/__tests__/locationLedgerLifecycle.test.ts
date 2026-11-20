@@ -21,7 +21,7 @@ vi.mock('../campaignStore', () => ({
     saveDivergenceRegister: vi.fn(),
     saveChapters: vi.fn(),
     saveNPCLedger: vi.fn(),
-    saveCampaignState: vi.fn(),
+    saveCampaignState: vi.fn().mockResolvedValue(undefined),
 }));
 
 const locations = [
@@ -85,10 +85,10 @@ describe('location ledger lifecycle', () => {
             { id: 'new', name: 'Renamed Place', aliases: '', description: '' },
         ]);
 
-        const stateSave = fetchMock.mock.calls.find(([url, init]) =>
-            url === '/api/campaigns/location-campaign/state' && init?.method === 'PUT'
-        );
-        expect(JSON.parse(stateSave?.[1]?.body as string).context).toMatchObject({
+        // State saves go through campaignStore.saveCampaignState (one checked writer).
+        const { saveCampaignState } = await import('../campaignStore');
+        const stateSave = vi.mocked(saveCampaignState).mock.calls.find(([id]) => id === 'location-campaign');
+        expect(stateSave?.[1].context).toMatchObject({
             currentPlaceId: null,
             currentFeature: null,
         });

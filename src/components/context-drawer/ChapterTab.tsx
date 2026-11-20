@@ -96,6 +96,9 @@ export const ChapterTab: React.FC = () => {
                 await refreshChapters();
                 toast.success('Chapter sealed');
                 regenerateChapter(result.sealedChapter, true);
+            } else {
+                // The server refuses to seal a chapter with no scenes yet.
+                toast.warning('Nothing to seal yet — the open chapter has no scenes.');
             }
         } catch (err) {
             console.error(err);
@@ -144,6 +147,7 @@ export const ChapterTab: React.FC = () => {
                     contextLimit: state.settings.contextLimit ?? 4096,
                     sealTimeoutSeconds: state.settings.sealTimeoutSeconds,
                     divergenceRegister: state.divergenceRegister ?? { entries: [], chapterToggles: {}, categoryToggles: {}, lastUpdatedSceneId: '', lastUpdatedAt: 0, version: 2 },
+                    getDivergenceRegister: () => useAppStore.getState().divergenceRegister,
                 },
             );
 

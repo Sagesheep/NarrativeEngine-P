@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Settings, PanelLeftOpen, PanelLeftClose, LogOut, Cpu } from './icons/narrativeIcons';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/useAppStore';
+import { toast } from './Toast';
 import { TokenGauge } from './TokenGauge';
 import { saveCampaignState } from '../store/campaignStore';
 import type { AiTier } from '../types/llm';
@@ -63,7 +64,14 @@ export function Header() {
     const handleExit = async () => {
         const { context, messages, condenser, divergenceRegister, pinnedExcerpts } = useAppStore.getState();
         if (activeCampaignId) {
-            await saveCampaignState(activeCampaignId, { context, messages, condenser, pinnedExcerpts });
+            try {
+                await saveCampaignState(activeCampaignId, { context, messages, condenser, pinnedExcerpts });
+            } catch (e) {
+                // Stay in the campaign: leaving would drop the unsaved state from memory.
+                console.error('[Header] Save on exit failed:', e);
+                toast.error('Could not save the campaign — staying here so nothing is lost. Try Exit again.');
+                return;
+            }
             if (divergenceRegister && (divergenceRegister.entries.length > 0 || (divergenceRegister.prunedLog ?? []).length > 0)) {
                 try {
                     const { saveDivergenceRegister } = await import('../store/campaignStore');

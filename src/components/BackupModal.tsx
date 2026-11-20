@@ -56,7 +56,11 @@ export function BackupModal() {
     async function handleCreateManual() {
         if (!activeCampaignId) return;
         setCreating(true);
-        await flushAllPendingSaves();
+        try {
+            await flushAllPendingSaves();
+        } catch {
+            toast.warning('Some recent changes could not be saved, so this backup may not include them.');
+        }
         const customLabel = newBackupLabel.trim();
         const label = customLabel || 'Manual backup';
         const result = await createBackup(activeCampaignId, { trigger: 'manual', label });

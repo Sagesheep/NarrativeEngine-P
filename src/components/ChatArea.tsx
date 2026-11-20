@@ -20,7 +20,6 @@ import { useSceneContinue } from './hooks/useSceneContinue';
 import { useRetryStoryAI } from './hooks/useRetryStoryAI';
 import { rollbackArchiveFrom } from '../services/archive-memory/archiveManager';
 import { useCondenser } from './hooks/useCondenser';
-import { useChapterSealing } from './hooks/useChapterSealing';
 import { useMessageEditor } from './hooks/useMessageEditor';
 import { useChatOperations } from '../hooks/useChatOperations';
 import { useChatAttachment } from './hooks/useChatAttachment';
@@ -62,13 +61,12 @@ export function ChatArea() {
     const relationshipMemoriesNpcToNpc = useAppStore(s => s.relationshipMemoriesNpcToNpc);
     const relationshipMemoryFaults = useAppStore(s => s.relationshipMemoryFaults);
 
-    const { settings, loreChunks, npcLedger, archiveIndex, chapters, locationLedger } = useAppStore(
+    const { settings, loreChunks, npcLedger, archiveIndex, locationLedger } = useAppStore(
         useShallow(s => ({
             settings: s.settings,
             loreChunks: s.loreChunks,
             npcLedger: s.npcLedger,
             archiveIndex: s.archiveIndex,
-            chapters: s.chapters,
             locationLedger: s.locationLedger,
         }))
     );
@@ -175,15 +173,6 @@ export function ChatArea() {
         setCondensed,
     });
 
-    const { checkAndSealChapter } = useChapterSealing({
-        activeCampaignId,
-        chapters,
-        context,
-        setChapters,
-        getActiveSummarizerEndpoint: () => useAppStore.getState().getActiveSummarizerEndpoint?.(),
-        getActiveStoryEndpoint: () => useAppStore.getState().getActiveStoryEndpoint(),
-    });
-
     const {
         isStreaming, loadingStatus, pendingProposal, setPendingProposal,
         pendingPcPrompt, resolvePcPrompt,
@@ -197,7 +186,6 @@ export function ChatArea() {
         armedAskGmBrief,
         setArmedAskGmBrief,
         sceneContinue,
-        checkAndSealChapter,
         takeAttachment: () => {
             const a = attachmentRef.current;
             if (!a || !a.localPath) return null;

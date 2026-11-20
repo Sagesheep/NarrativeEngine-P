@@ -150,10 +150,24 @@ export function createChaptersRouter() {
     router.post('/api/campaigns/:id/archive/chapters/seal', wrapAsync(async (req, res) => {
         const result = await withCampaignLock(req.params.id, () => {
             const cp = chaptersPath(req.params.id);
-            const existing = readJson(cp, []);
+            // Hydrated: `sceneCount` recomputed from the scenes that exist, so "empty" is real.
+            const existing = readHydratedChapters(req.params.id);
             const openChapter = existing.find(c => !c.sealedAt);
 
-            if (!openChapter) return null;
+            if (!openChapter) return { status: 400, body: { error: 'No open chapter to seal' } };
+
+            // Auto-seal names the chapter it saw reach the cap. Two seals can be queued
+            // for one chapter; the second must not seal the fresh chapter that replaced it.
+            const expected = req.body?.expectedChapterId;
+            if (expected && openChapter.chapterId !== expected) {
+                return { status: 409, body: { error: 'Chapter already sealed', openChapterId: openChapter.chapterId } };
+            }
+            // A chapter with no scenes has nothing to seal, and sealing it would make the
+            // next chapter start one scene late — the next scene would land in a sealed
+            // chapter's range.
+            if ((openChapter.sceneCount ?? 0) <= 0) {
+                return { status: 409, body: { error: 'The open chapter has no scenes yet' } };
+            }
 
             // Seal the open chapter
             const sealed = {
@@ -184,11 +198,10 @@ export function createChaptersRouter() {
             existing.push(newOpen);
 
             writeJson(cp, existing);
-            return { sealedChapter: sealed, newOpenChapter: newOpen };
+            return { status: 200, body: { sealedChapter: sealed, newOpenChapter: newOpen } };
         });
 
-        if (!result) return res.status(400).json({ error: 'No open chapter to seal' });
-        res.json(result);
+        res.status(result.status).json(result.body);
     }));
 
     // POST /api/campaigns/:id/archive/chapters/merge — Merge two adjacent chapters

@@ -160,12 +160,13 @@ export const api = {
             }
             return undefined;
         },
-        async seal(campaignId: string, title?: string): Promise<{ sealedChapter: ArchiveChapter; newOpenChapter: ArchiveChapter } | undefined> {
+        /** `expectedChapterId`: seal only if this is still the open chapter (auto-seal). */
+        async seal(campaignId: string, title?: string, expectedChapterId?: string): Promise<{ sealedChapter: ArchiveChapter; newOpenChapter: ArchiveChapter } | undefined> {
             try {
                 const res = await fetch(`${API}/campaigns/${campaignId}/archive/chapters/seal`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ title }),
+                    body: JSON.stringify({ title, expectedChapterId }),
                 });
                 if (res.ok) return await res.json();
             } catch (err) {

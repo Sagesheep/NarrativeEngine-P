@@ -13,6 +13,7 @@ import type { PostTurnTrack, PostCommitTrackContext } from '../types';
 import { assertStillActive, makeGuarded } from '../guarded';
 import { compactRelationshipMemoryCollections } from '../../../npc/relationshipMemoryCompaction';
 import { readRelationshipMemoryState } from '../../../../store/relationshipMemoryState';
+import { useAppStore } from '../../../../store/useAppStore';
 
 export const chapterSealTrack: PostTurnTrack<PostCommitTrackContext> = {
     id: 'track.chapter-seal',
@@ -41,7 +42,10 @@ export const chapterSealTrack: PostTurnTrack<PostCommitTrackContext> = {
         };
         backgroundQueue.push('Chapter-AutoSeal', async () => {
             if (!assertStillActive(ctx.activeCampaignId, 'Chapter-AutoSeal')) return;
-            const sealResult = await api.chapters.seal(ctx.activeCampaignId);
+            // Name the chapter this turn saw reach the cap. If it was already sealed (by a
+            // seal queued for an earlier turn, or by hand), the server refuses instead of
+            // sealing the fresh, near-empty chapter that replaced it.
+            const sealResult = await api.chapters.seal(ctx.activeCampaignId, undefined, openChapter.chapterId);
             if (!assertStillActive(ctx.activeCampaignId, 'Chapter-AutoSeal')) return;
             if (!sealResult) return;
             const sealedChapters = await api.chapters.list(ctx.activeCampaignId);
@@ -84,6 +88,7 @@ export const chapterSealTrack: PostTurnTrack<PostCommitTrackContext> = {
                         contextLimit: ctx.facade?.config.contextLimit ?? ctx.state.settings.contextLimit ?? 4096,
                         sealTimeoutSeconds: ctx.facade?.config.sealTimeoutSeconds ?? ctx.state.settings.sealTimeoutSeconds,
                         divergenceRegister: ctx.facade?.data.divergenceRegister ?? ctx.state.divergenceRegister ?? EMPTY_REGISTER,
+                        getDivergenceRegister: () => useAppStore.getState().divergenceRegister ?? EMPTY_REGISTER,
                     },
                     // Under the facade sealProvider is undefined and this is the only model path.
                     // It was dropped in c8a4539 (2026-08-10), so every auto-seal threw before

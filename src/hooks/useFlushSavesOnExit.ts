@@ -19,12 +19,12 @@ export function useFlushSavesOnExit(): void {
     useEffect(() => {
         const onVisibilityChange = () => {
             if (document.visibilityState === 'hidden' && hasPendingSaves()) {
-                void flushAllPendingSaves();
+                void flushAllPendingSaves().catch((e) => console.error('[FlushOnHide]', e));
             }
         };
         const onBeforeUnload = (event: BeforeUnloadEvent) => {
             if (!hasPendingSaves()) return;
-            void flushAllPendingSaves();
+            void flushAllPendingSaves().catch((e) => console.error('[FlushOnUnload]', e));
             event.preventDefault();
             // Some browsers still require a returnValue to show the prompt.
             event.returnValue = '';

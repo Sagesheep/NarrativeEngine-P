@@ -62,7 +62,6 @@ function args(): Parameters<typeof useChatOperations>[0] {
         armedAskGmBrief: null,
         setArmedAskGmBrief: vi.fn(),
         sceneContinue: { getAbortController: () => null } as any,
-        checkAndSealChapter: vi.fn(),
     };
 }
 

@@ -340,3 +340,39 @@ describe('refit', () => {
         expect(after[1].invalidated).toBeUndefined();
     });
 });
+
+describe('POST chapters/seal — guards', () => {
+    it('seals the open chapter and starts the next one after its last scene', async () => {
+        seedScenes(25);
+        seedChapters([chapter('CH01', 1, 25)]);
+        const res = await request.post(`/api/campaigns/${ID}/archive/chapters/seal`).send({ expectedChapterId: 'CH01' });
+        expect(res.status).toBe(200);
+        expect(res.body.sealedChapter.chapterId).toBe('CH01');
+        expect(res.body.newOpenChapter.sceneRange).toEqual(['026', '026']);
+    });
+
+    it('refuses a second auto-seal of a chapter that was already sealed', async () => {
+        seedScenes(26);
+        // CH01 was sealed by the first queued seal; CH02 holds one scene.
+        seedChapters([chapter('CH01', 1, 25, { sealedAt: 1 }), chapter('CH02', 26, 26)]);
+        const res = await request.post(`/api/campaigns/${ID}/archive/chapters/seal`).send({ expectedChapterId: 'CH01' });
+        expect(res.status).toBe(409);
+        expect(readChaptersFile()).toHaveLength(2);
+        expect(readChaptersFile()[1].sealedAt).toBeUndefined();
+    });
+
+    it('refuses to seal a chapter with no scenes', async () => {
+        seedScenes(25);
+        seedChapters([chapter('CH01', 1, 25, { sealedAt: 1 }), chapter('CH02', 26, 26, { sceneCount: 0 })]);
+        const res = await request.post(`/api/campaigns/${ID}/archive/chapters/seal`).send({});
+        expect(res.status).toBe(409);
+        expect(readChaptersFile()).toHaveLength(2);
+    });
+
+    it('reports when there is no open chapter', async () => {
+        seedScenes(25);
+        seedChapters([chapter('CH01', 1, 25, { sealedAt: 1 })]);
+        const res = await request.post(`/api/campaigns/${ID}/archive/chapters/seal`).send({});
+        expect(res.status).toBe(400);
+    });
+});
