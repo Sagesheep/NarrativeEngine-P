@@ -1,5 +1,5 @@
 import { readRelationshipMemoryState, writeRelationshipMemoryState } from '../../../../store/relationshipMemoryState';
-import { saveRelationshipMemories } from '../../../../store/relationshipMemoryStore';
+import { updateRelationshipMemories } from '../../../../store/relationshipMemoryStore';
 import { useAppStore } from '../../../../store/useAppStore';
 import { getRelationshipMemoryParticipants, mergeRelationshipMemoryCollections, rateRelationshipMemory } from '../../../archive-memory/relationshipMemory';
 import { backgroundQueue } from '../../../infrastructure/backgroundQueue';
@@ -7,12 +7,21 @@ import { hasHostModelRole } from '../../hostFacade';
 import type { PostTurnTrack, PostCommitTrackContext } from '../types';
 import { assertStillActive } from '../guarded';
 
-function sceneStillArchived(sceneId: string): boolean {
-    const index = (useAppStore.getState() as { archiveIndex?: Array<{ sceneId: string }> }).archiveIndex;
+/**
+ * Is the scene this rating describes still the one in the archive? The number alone is
+ * not enough: after a rollback the next scene reuses it, and a rating of the removed
+ * scene that finishes late would be filed under the new one. The archive timestamp
+ * tells the two apart (edit-sync keeps it, a new append gets a new one).
+ */
+export function sceneStillArchived(sceneId: string, archivedAt: number | undefined): boolean {
+    const index = (useAppStore.getState() as { archiveIndex?: Array<{ sceneId: string; timestamp?: number }> }).archiveIndex;
     // No index in the store (tests, host facade without one): nothing to check against.
     if (!Array.isArray(index) || index.length === 0) return true;
     const wanted = Number.parseInt(sceneId, 10);
-    return index.some(entry => Number.parseInt(entry.sceneId, 10) === wanted);
+    const entry = index.find(e => Number.parseInt(e.sceneId, 10) === wanted);
+    if (!entry) return false;
+    if (archivedAt === undefined || entry.timestamp === undefined) return true;
+    return entry.timestamp === archivedAt;
 }
 
 export const relationshipMemoryTrack: PostTurnTrack<PostCommitTrackContext> = {
@@ -40,6 +49,7 @@ export const relationshipMemoryTrack: PostTurnTrack<PostCommitTrackContext> = {
         if (participants.onStageNpcs.length === 0) return;
 
         const sceneText = ctx.displayInput + '\n\n' + ctx.lastAssistantContent;
+        const archivedAt = ctx.entry?.timestamp;
         backgroundQueue.push('Relationship-Memory:' + ctx.sceneId, async () => {
             if (!assertStillActive(ctx.activeCampaignId, 'Relationship-Memory')) return;
             const result = await rateRelationshipMemory(
@@ -58,22 +68,16 @@ export const relationshipMemoryTrack: PostTurnTrack<PostCommitTrackContext> = {
             }
             if (result.npcToMc.length === 0 && result.npcToNpc.length === 0) return;
             // The rating is queued work. If the player rolled this scene back while it ran,
-            // its records describe a scene that no longer exists — and its number will be
-            // reused — so they must not be written.
-            if (!sceneStillArchived(ctx.sceneId)) return;
+            // its records describe a scene that no longer exists — and its number may
+            // already belong to a new scene — so they must not be written.
+            if (!sceneStillArchived(ctx.sceneId, archivedAt)) return;
 
-            const state = readRelationshipMemoryState();
-            const merged = mergeRelationshipMemoryCollections(
-                state.relationshipMemoriesNpcToMc,
-                state.relationshipMemoriesNpcToNpc,
-                result,
+            // Merge into the store as it is NOW, with no await before the write. Two ratings
+            // run at once; merging into a copy read before an await let the later save drop
+            // the other scene's records.
+            await updateRelationshipMemories(ctx.activeCampaignId, current =>
+                mergeRelationshipMemoryCollections(current.npcToMc, current.npcToNpc, result),
             );
-            await saveRelationshipMemories(ctx.activeCampaignId, merged);
-            if (!assertStillActive(ctx.activeCampaignId, 'Relationship-Memory')) return;
-            writeRelationshipMemoryState({
-                relationshipMemoriesNpcToMc: merged.npcToMc,
-                relationshipMemoriesNpcToNpc: merged.npcToNpc,
-            });
         }).catch(error => {
             console.warn('[PostTurn] Background relationship memory failed:', error);
             if (assertStillActive(ctx.activeCampaignId, 'Relationship-Memory')) {

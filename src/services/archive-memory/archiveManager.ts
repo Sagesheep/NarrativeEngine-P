@@ -99,6 +99,10 @@ export async function clearArchive(deps: ArchiveManagerDeps): Promise<void> {
     }).catch(() => {});
     try {
         await api.archive.clear(campaignId);
+        // Scene numbers restart at 001 after a clear, so every recorded memory would be
+        // read as a memory of a new scene. Hand-written ones are kept.
+        await dropRelationshipMemoriesForScenes(campaignId, () => true)
+            .catch(e => console.warn('[Archive] Relationship memory trim after clear failed:', e));
         deps.clearArchive();
         deps.setChapters([]);
         deps.setCondenser({

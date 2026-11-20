@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Pencil, Plus, Save, X } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
-import { saveRelationshipMemories } from '../../store/relationshipMemoryStore';
+import { updateRelationshipMemories } from '../../store/relationshipMemoryStore';
+import { MEMORY_LINE_CHARS, MEMORY_LINE_WORDS } from '../../services/archive-memory/relationshipMemory';
+import { findEditedRecordIndex, latestArchivedSceneId, recordKey } from './relationshipMemoryEditorHelpers';
 import {
     RELATIONSHIP_MEMORY_IMPACTS,
     RELATIONSHIP_MEMORY_MOODS,
@@ -16,6 +18,7 @@ type Props = {
     subjectLabel?: string;
     targetId?: string;
     targetLabel?: string;
+    /** Scene a new memory is filed under. Defaults to the latest archived scene. */
     sceneId?: string;
     title?: string;
     allowAdd?: boolean;
@@ -32,18 +35,16 @@ type Draft = {
     carriedNote: string;
 };
 
-const MAX_WORDS = 8;
-const MAX_CHARS = 60;
-
-function recordKey(record: Pick<RelationshipMemoryRecord, 'sceneId' | 'subject' | 'target'>): string {
-    return `${record.sceneId}|${record.subject}|${record.target}`;
-}
+// Same caps as the recorder. The old 8 / 60 refused to save an edit of any recorded line
+// longer than that.
+const MAX_WORDS = MEMORY_LINE_WORDS;
+const MAX_CHARS = MEMORY_LINE_CHARS;
 
 function withinCap(value: string): boolean {
     return value.length <= MAX_CHARS && value.trim().split(/\s+/).filter(Boolean).length <= MAX_WORDS;
 }
 
-function emptyDraft(subject: string, target: string, sceneId: string): Draft {
+function emptyDraft(subject: string, target: string): Draft {
     return {
         subject,
         target,
@@ -51,7 +52,7 @@ function emptyDraft(subject: string, target: string, sceneId: string): Draft {
         outcome: '',
         mood: 'companionable',
         impact: 'remembered',
-        carriedNote: sceneId,
+        carriedNote: '',
     };
 }
 
@@ -61,16 +62,16 @@ export function RelationshipMemoryEditor({
     subjectLabel,
     targetId = 'MC',
     targetLabel = 'the player character',
-    sceneId = 'manual',
+    sceneId,
     title = 'Relationship memories',
     allowAdd = true,
     compact = false,
 }: Props) {
     const npcLedger = useAppStore(s => s.npcLedger);
     const activeCampaignId = useAppStore(s => s.activeCampaignId);
-    const setRelationshipMemories = useAppStore(s => s.setRelationshipMemories);
+    const archiveIndex = useAppStore(s => s.archiveIndex);
     const addRelationshipMemoryFault = useAppStore(s => s.addRelationshipMemoryFault);
-    const [editingKey, setEditingKey] = useState<string | null>(null);
+    const [editing, setEditing] = useState<RelationshipMemoryRecord | null>(null);
     const [draft, setDraft] = useState<Draft | null>(null);
     const [adding, setAdding] = useState(false);
     const [error, setError] = useState('');
@@ -83,7 +84,7 @@ export function RelationshipMemoryEditor({
     const openEdit = (record: RelationshipMemoryRecord) => {
         setError('');
         setAdding(false);
-        setEditingKey(recordKey(record));
+        setEditing(record);
         setDraft({
             subject: record.subject,
             target: record.target,
@@ -97,28 +98,21 @@ export function RelationshipMemoryEditor({
 
     const openAdd = () => {
         setError('');
-        setEditingKey(null);
+        setEditing(null);
         setAdding(true);
-        setDraft(emptyDraft(subjectId ?? '', targetId, sceneId));
+        setDraft(emptyDraft(subjectId ?? '', targetId));
     };
 
     const closeDraft = () => {
-        setEditingKey(null);
+        setEditing(null);
         setAdding(false);
         setDraft(null);
         setError('');
     };
 
-    const persist = async (nextMc: RelationshipMemoryRecord[], nextNpc: RelationshipMemoryRecord[]) => {
-        setRelationshipMemories(nextMc, nextNpc);
-        if (activeCampaignId) await saveRelationshipMemories(activeCampaignId, { npcToMc: nextMc, npcToNpc: nextNpc });
-    };
-
     const saveDraft = async () => {
         if (!draft) return;
-        const isLegacyEdit = !adding && editingKey
-            ? records.find(record => recordKey(record) === editingKey)?.event === undefined
-            : false;
+        const isLegacyEdit = !adding && editing ? editing.event === undefined : false;
         if (!draft.subject || !draft.target) {
             setError('Choose both sides of the relationship.');
             return;
@@ -132,12 +126,14 @@ export function RelationshipMemoryEditor({
             return;
         }
 
-        const original = editingKey
-            ? records.find(record => recordKey(record) === editingKey)
-            : undefined;
+        if (!activeCampaignId) {
+            setError('No campaign is open.');
+            return;
+        }
+        const original = !adding ? editing ?? undefined : undefined;
         const nextRecord: RelationshipMemoryRecord = {
             ...(original ?? {}),
-            sceneId: original?.sceneId ?? (draft.carriedNote.trim() || sceneId),
+            sceneId: original?.sceneId ?? sceneId ?? latestArchivedSceneId(archiveIndex.map(entry => entry.sceneId)),
             subject: draft.subject,
             target: draft.target,
             mood: draft.mood,
@@ -148,16 +144,16 @@ export function RelationshipMemoryEditor({
             source: 'user',
             subjectInferred: original?.subjectInferred,
         };
-        const nextMc = [...useAppStore.getState().relationshipMemoriesNpcToMc];
-        const nextNpc = [...useAppStore.getState().relationshipMemoriesNpcToNpc];
-        const collection = nextRecord.target === 'MC' ? nextMc : nextNpc;
-        const oldKey = editingKey;
-        const index = oldKey ? collection.findIndex(record => recordKey(record) === oldKey) : -1;
-        if (index >= 0) collection[index] = nextRecord;
-        else collection.push(nextRecord);
-
         try {
-            await persist(nextMc, nextNpc);
+            await updateRelationshipMemories(activeCampaignId, current => {
+                const nextMc = [...current.npcToMc];
+                const nextNpc = [...current.npcToNpc];
+                const collection = nextRecord.target === 'MC' ? nextMc : nextNpc;
+                const index = original ? findEditedRecordIndex(collection, original) : -1;
+                if (index >= 0) collection[index] = nextRecord;
+                else collection.push(nextRecord);
+                return { npcToMc: nextMc, npcToNpc: nextNpc };
+            }, { resetStances: true });
             closeDraft();
         } catch {
             addRelationshipMemoryFault({ sceneId: nextRecord.sceneId, message: 'Relationship memory storage failed.' });
@@ -178,8 +174,8 @@ export function RelationshipMemoryEditor({
             {visibleRecords.length === 0 && !draft && (
                 <p className="text-[10px] text-text-dim/50 italic">No memories recorded for this edge.</p>
             )}
-            {visibleRecords.map(record => {
-                const key = recordKey(record);
+            {visibleRecords.map((record, index) => {
+                const key = recordKey(record) + '|' + index;
                 return (
                     <div key={key} className="border border-border/40 rounded p-2 text-[10px] text-text-dim/80">
                         <div className="flex items-start justify-between gap-2">
@@ -214,7 +210,7 @@ export function RelationshipMemoryEditor({
                             {RELATIONSHIP_MEMORY_IMPACTS.map(impact => <option key={impact} value={impact}>{impact}</option>)}
                         </select>
                     </div>
-                    <input value={draft.carriedNote} onChange={event => setDraft({ ...draft, carriedNote: event.target.value })} placeholder="Scene id / carried note" className="w-full bg-void border border-border rounded px-2 py-1 text-[10px] text-text-primary" />
+                    <input value={draft.carriedNote} onChange={event => setDraft({ ...draft, carriedNote: event.target.value })} placeholder="Carried note — what they carry (for carried impact)" className="w-full bg-void border border-border rounded px-2 py-1 text-[10px] text-text-primary" />
                     {error && <div className="text-[9px] text-ember">{error}</div>}
                     <div className="flex justify-end gap-2">
                         <button type="button" onClick={closeDraft} className="inline-flex items-center gap-1 text-[9px] text-text-dim hover:text-text-primary"><X size={11} /> Cancel</button>

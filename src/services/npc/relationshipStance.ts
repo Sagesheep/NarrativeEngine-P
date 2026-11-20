@@ -141,6 +141,8 @@ type RawStance = {
 };
 
 const stanceCache = new Map<string, Promise<RelationshipStance[]>>();
+/** Each entry is one cast-and-place combination; old ones are never read again. */
+const STANCE_CACHE_LIMIT = 32;
 
 export function clearRelationshipStanceCache(): void {
     stanceCache.clear();
@@ -458,6 +460,11 @@ export function computeRelationshipStances(input: RelationshipStanceInput): Prom
         return [];
     });
     stanceCache.set(key, promise);
+    while (stanceCache.size > STANCE_CACHE_LIMIT) {
+        const oldest = stanceCache.keys().next().value;
+        if (oldest === undefined) break;
+        stanceCache.delete(oldest);
+    }
     return promise;
 }
 

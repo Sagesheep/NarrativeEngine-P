@@ -121,8 +121,8 @@ const splitWords = (value: string): string[] => value.split(/\s+/).map(word => w
 
 // 15 words / 120 chars. The old 8 / 60 squeezed out specifics and, in languages with
 // longer words (Polish), cut lines mid-clause so a negation could vanish.
-const MEMORY_LINE_WORDS = 15;
-const MEMORY_LINE_CHARS = 120;
+export const MEMORY_LINE_WORDS = 15;
+export const MEMORY_LINE_CHARS = 120;
 
 const capOutcome = (value: unknown): string => {
     const words = splitWords(normalise(value)).slice(0, MEMORY_LINE_WORDS);

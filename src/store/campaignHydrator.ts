@@ -5,10 +5,11 @@ import {
     loadDivergenceRegister, saveDivergenceRegister, saveChapters,
     saveNPCLedger, saveCampaignState,
 } from './campaignStore';
-import { loadRelationshipMemories } from './relationshipMemoryStore';
+import { loadRelationshipMemories, markRelationshipMemoriesLoaded } from './relationshipMemoryStore';
+import { clearRelationshipStanceCache } from '../services/npc/relationshipStance';
 import { DEFAULT_CONTEXT, DEFAULT_CONDENSER } from '../services/campaignInit';
 import { migrateLegacyContext } from '../types';
-import type { GameContext, ArchiveChapter, ArchiveIndexEntry, DivergenceRegister, DivergenceEntry, ChatMessage } from '../types';
+import type { GameContext, ArchiveChapter, ArchiveIndexEntry, DivergenceRegister, DivergenceEntry, ChatMessage, RelationshipMemoryRecord } from '../types';
 import { migrateV1ToV2 } from '../services/campaign-state/divergenceRegister';
 import { migratePCIntoContext } from '../services/character/migratePC';
 import { retireLegacyNpcFields } from '../services/npc/retireLegacyFields';
@@ -280,7 +281,19 @@ export async function hydrateCampaign(campaignId: string) {
         hydrateModTablesFromServer(campaignId),
         loadCombatTable(campaignId),
     ]);
-    const relationshipMemories = state?.context?.relationshipMemory === true ? await loadRelationshipMemories(campaignId) : { npcToMc: [], npcToNpc: [] };
+    // Read whether or not the switch is on. Every save rewrites both files from the store,
+    // so a store left empty here (switch off at load, then turned on, or a hand edit) used
+    // to overwrite the whole history. A failed read leaves saves refused for this campaign.
+    markRelationshipMemoriesLoaded(null);
+    let relationshipMemories: { npcToMc: RelationshipMemoryRecord[]; npcToNpc: RelationshipMemoryRecord[] } = { npcToMc: [], npcToNpc: [] };
+    let relationshipMemoriesLoaded = false;
+    try {
+        relationshipMemories = await loadRelationshipMemories(campaignId);
+        relationshipMemoriesLoaded = true;
+    } catch (e) {
+        console.warn('[Hydrator] Relationship memories could not be read — they will not be saved this session:', e);
+    }
+    clearRelationshipStanceCache();
 
     const rawContext: GameContext = { ...DEFAULT_CONTEXT, ...(state?.context ?? {}) } as GameContext;
     const migratedContext = migrateLegacyContext(rawContext);
@@ -394,6 +407,7 @@ export async function hydrateCampaign(campaignId: string) {
         abilityProposal: null,
         abilityEditDraft: null,
     });
+    if (relationshipMemoriesLoaded) markRelationshipMemoriesLoaded(campaignId);
 
     // Phase 3.2 / `EVENTS.md` §6.2 — after the single `setState` that makes a
     // campaign current, so every campaign-scoped read is valid the instant a
