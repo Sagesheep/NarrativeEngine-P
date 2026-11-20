@@ -30,7 +30,7 @@ describe('RulesManagerTab manual mode edits', () => {
     ])('persists the $control override', ({ role, name, modes }) => {
         updateContext.mockClear();
         render(<RulesManagerTab />);
-        fireEvent.click(screen.getByRole(role, { name, exact: true }));
+        fireEvent.click(screen.getByRole(role, { name }));
 
         const { rulesChunkMeta } = updateContext.mock.lastCall?.[0] as {
             rulesChunkMeta: Record<string, RuleChunkMeta>;
