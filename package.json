@@ -1,7 +1,7 @@
 {
   "name": "narrative-engine",
   "private": true,
-  "version": "2.3.0",
+  "version": "2.3.1",
   "type": "module",
   "engines": {
     "node": ">=20.19.0"
