@@ -107,3 +107,38 @@ describe('PUT /api/settings', () => {
         expect(res.body.settings.theme).toBe('dark');
     });
 });
+
+// The embedding model choice and what the vector tables hold are written only by
+// the server. The client saves its whole settings object, which lacks them, and
+// used to erase them on every save — a switched model would then read as "no
+// record" and an old model's vectors would be kept.
+describe('PUT /api/settings — server-owned embedding keys', () => {
+    const serverOwned = { embeddingDims: 384, embeddingModelId: 'Xenova/multilingual-e5-small', embeddingModelKey: 'multilingual' };
+
+    it('keeps the embedding keys across a client save that does not carry them', async () => {
+        fs.writeFileSync(settingsFile, JSON.stringify({ settings: { theme: 'light', ...serverOwned } }), 'utf-8');
+        await request.put('/api/settings').send(payload());
+        const res = await request.get('/api/settings');
+        expect(res.body.settings).toMatchObject(serverOwned);
+        expect(res.body.settings.theme).toBe('dark');
+    });
+
+    it('ignores a client that tries to change them', async () => {
+        fs.writeFileSync(settingsFile, JSON.stringify({ settings: serverOwned }), 'utf-8');
+        const body = payload();
+        body.settings.embeddingModelKey = 'english';
+        body.settings.embeddingModelId = 'something-else';
+        await request.put('/api/settings').send(body);
+        const onDisk = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+        expect(onDisk.settings).toMatchObject(serverOwned);
+    });
+
+    it('does not invent them when the server never wrote them', async () => {
+        const body = payload();
+        body.settings.embeddingModelKey = 'multilingual';
+        await request.put('/api/settings').send(body);
+        const onDisk = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+        expect(onDisk.settings.embeddingModelKey).toBeUndefined();
+        expect(onDisk.settings.embeddingDims).toBeUndefined();
+    });
+});

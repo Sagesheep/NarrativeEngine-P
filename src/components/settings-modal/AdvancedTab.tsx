@@ -7,6 +7,7 @@ import { API_BASE } from '../../lib/apiBase';
 import { toast } from '../Toast';
 import type { BackfillStatus } from '../../services/archive-memory/backfillRunner';
 import { generateTts, getTtsStatus, initTtsModel, type TtsStatus } from '../../services/tts/ttsClient';
+import { EmbeddingModelSection } from './EmbeddingModelSection';
 
 type EmbedderInfo = {
     modelId: string;
@@ -309,28 +310,12 @@ export function AdvancedTab() {
                 )}
             </div>
 
-            {/* Active embedder — read-only on desktop (single server-side model) */}
-            <div className="bg-void p-4 border border-border rounded space-y-3">
-                <div>
-                    <label className="block text-[11px] text-text-primary uppercase tracking-wider font-bold mb-1">Embedding Model</label>
-                    <p className="text-[10px] text-text-dim leading-tight">
-                        mainApp runs embeddings server-side with a single bundled model. Switching is not supported here (unlike the mobile on-device build).
-                    </p>
-                </div>
-                <div className="border border-terminal/30 bg-terminal/5 rounded p-3 flex items-center justify-between">
-                    <div>
-                        <div className="text-[11px] font-bold text-text-primary">
-                            {embedderInfo ? embedderInfo.modelId.split('/').pop() : '—'}
-                        </div>
-                        <div className="text-[9px] text-text-dim">
-                            {embedderInfo
-                                ? `${embedderInfo.dims}-dim · server-side · scenes v${embedderInfo.embeddingVersions.scene} · lore v${embedderInfo.embeddingVersions.lore}`
-                                : 'Loading…'}
-                        </div>
-                    </div>
-                    <span className="text-[9px] text-terminal font-bold uppercase">Active</span>
-                </div>
-            </div>
+            {/* Embedding model: built-in English or the downloadable multilingual one */}
+            <EmbeddingModelSection
+                detail={embedderInfo
+                    ? `server-side · scenes v${embedderInfo.embeddingVersions.scene} · lore v${embedderInfo.embeddingVersions.lore}`
+                    : undefined}
+            />
 
             {/* Re-index embeddings */}
             <div className="bg-void p-4 border border-border rounded space-y-2">

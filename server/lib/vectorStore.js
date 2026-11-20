@@ -1,12 +1,13 @@
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 import { DATA_DIR, readJson, writeJson, SETTINGS_FILE } from './fileStore.js';
-import { getActiveDims as embedderDims } from './embedder.js';
+import { getActiveDims as embedderDims, getActiveModelId as embedderModelId } from './embedder.js';
 import path from 'path';
 import fs from 'fs';
 
 const DB_PATH = path.join(DATA_DIR, 'embeddings.db');
 const VEC_DIMS_KEY = 'embeddingDims';
+const VEC_MODEL_KEY = 'embeddingModelId';
 
 // One version per item type. Bump a type's version when the model, or the text its
 // vectors are built from, changes: older vectors of that type are then excluded from
@@ -156,11 +157,22 @@ export function markVectorStoreUnavailable(detail) {
     db = null;
 }
 
-function resolveDims() {
-    const settings = readJson(SETTINGS_FILE, {});
-    const dims = settings?.settings?.[VEC_DIMS_KEY];
-    if (dims) return dims;
-    return embedderDims();
+/**
+ * What the tables must hold, and whether the stored vectors came from another model.
+ *
+ * `embeddingModelId` records the model the stored vectors were built with. When it
+ * differs from the running model, every vector is unusable even if the size
+ * matches — two models' vectors live in unrelated spaces — so the size is taken
+ * from the running model and the caller rebuilds exactly as for a size change.
+ * A settings file without the key predates model choice, when mxbai was the only
+ * model, so it is read as "same model".
+ */
+export function resolveVectorSchema(storedSettings, activeModelId, activeDims) {
+    const storedModelId = storedSettings?.[VEC_MODEL_KEY] ?? null;
+    const modelChanged = storedModelId !== null && storedModelId !== activeModelId;
+    const storedDims = storedSettings?.[VEC_DIMS_KEY];
+    const dims = (!modelChanged && storedDims) ? storedDims : activeDims;
+    return { dims, modelChanged, storedModelId };
 }
 
 function getStoredSchemaDims() {
@@ -209,11 +221,19 @@ export function initDb() {
     const version = db.prepare("select vec_version() as v").get();
     console.log(`[VectorStore] sqlite-vec v${version.v} loaded`);
 
-    currentDims = resolveDims();
+    const activeModelId = embedderModelId();
+    const schema = resolveVectorSchema(readJson(SETTINGS_FILE, {})?.settings, activeModelId, embedderDims());
+    currentDims = schema.dims;
     const storedDims = getStoredSchemaDims();
 
     let rebuilt = false;
-    if (storedDims !== null && storedDims !== currentDims) {
+    if (schema.modelChanged) {
+        console.warn(`[VectorStore] Embedding model changed: ${schema.storedModelId} → ${activeModelId}. Rebuilding tables.`);
+        db.exec("DROP TABLE IF EXISTS archive_vss");
+        db.exec("DROP TABLE IF EXISTS lore_vss");
+        db.exec("DROP TABLE IF EXISTS rules_vss");
+        rebuilt = true;
+    } else if (storedDims !== null && storedDims !== currentDims) {
         console.warn(`[VectorStore] Dimension mismatch: schema=${storedDims}, active=${currentDims}. Rebuilding tables.`);
         db.exec("DROP TABLE IF EXISTS archive_vss");
         db.exec("DROP TABLE IF EXISTS lore_vss");
@@ -270,9 +290,14 @@ export function initDb() {
         console.warn(`[VectorStore] Tables rebuilt for ${currentDims} dims; marked ${changes} embeddings stale for re-index.`);
     }
 
-    const settings = readJson(SETTINGS_FILE, {});
-    if (settings?.settings && !settings.settings[VEC_DIMS_KEY]) {
+    // Record what the tables now hold. The model id must be written even on a
+    // fresh install, or a later switch would read "no record" as "same model"
+    // and keep the old vectors.
+    const settings = readJson(SETTINGS_FILE, {}) ?? {};
+    settings.settings ??= {};
+    if (settings.settings[VEC_DIMS_KEY] !== currentDims || settings.settings[VEC_MODEL_KEY] !== activeModelId) {
         settings.settings[VEC_DIMS_KEY] = currentDims;
+        settings.settings[VEC_MODEL_KEY] = activeModelId;
         writeJson(SETTINGS_FILE, settings);
     }
 

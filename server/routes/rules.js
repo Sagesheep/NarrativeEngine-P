@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
 import { CAMPAIGNS_DIR, readJson } from '../lib/fileStore.js';
-import { embedText, embedQuery, embedBatch, isModelReady } from '../lib/embedder.js';
-import { storeRulesEmbedding, deleteRulesEmbedding, searchRules, getEmbeddingStatus } from '../lib/vectorStore.js';
+import { embedText, embedQuery, embedBatch, isModelReady, getActiveModelId } from '../lib/embedder.js';
+import { storeRulesEmbedding, deleteRulesEmbedding, searchRules, getEmbeddingStatus, getDb } from '../lib/vectorStore.js';
 import { isJobRunning } from '../lib/embedJobs.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 
@@ -72,7 +72,7 @@ export function createRulesRouter() {
 
         res.json({
             chunkId,
-            modelId: 'mixedbread-ai/mxbai-embed-large-v1',
+            modelId: getActiveModelId(),
             version: 1
         });
     }));
@@ -104,55 +104,64 @@ export function createRulesRouter() {
 
     // Server-side Rules Reindexing
     router.post('/api/campaigns/:id/rules/reindex', wrapAsync(async (req, res) => {
-        const campaignId = req.params.id;
-        console.log(`[Rules Reindex] Starting server-side rules reindex for campaign ${campaignId}`);
-
-        const campaignStatePath = path.join(CAMPAIGNS_DIR, `${campaignId}.state.json`);
-        if (!fs.existsSync(campaignStatePath)) {
+        const result = await reindexCampaignRules(req.params.id);
+        if (result.status === 'not-found') {
             return res.status(404).json({ error: 'Campaign state not found' });
         }
-
-        const campaignState = readJson(campaignStatePath);
-        const rulesRaw = campaignState?.context?.rulesRaw || '';
-        
-        if (!rulesRaw.trim()) {
-            return res.json({ status: 'ignored', totalChunks: 0, reason: 'No rules text' });
-        }
-
-        const chunks = chunkRulesServer(rulesRaw);
-
-        try {
-            const { getDb } = await import('../lib/vectorStore.js');
-            const sqliteDb = getDb();
-            if (sqliteDb) {
-                sqliteDb.prepare("DELETE FROM rules_vss WHERE campaign_id = ?").run(campaignId);
-                sqliteDb.prepare("DELETE FROM embedding_meta WHERE campaign_id = ? AND item_type = 'rule'").run(campaignId);
-            }
-        } catch (err) {
-            console.warn('[Rules Reindex] Failed to clear DB explicitly:', err.message);
-        }
-
-        if (chunks.length === 0) {
-            return res.json({ status: 'success', totalChunks: 0 });
-        }
-
-        // 2. Perform batch embedding of rule chunks
-        const texts = chunks.map(c => `${c.header}\n${c.content}`.slice(0, 500));
-        const embeddings = await embedBatch(texts, 10, 100);
-
-        for (let i = 0; i < chunks.length; i++) {
-            storeRulesEmbedding(campaignId, chunks[i].id, embeddings[i]);
-        }
-
-        const newStatus = getEmbeddingStatus(campaignId);
-        console.log(`[Rules Reindex] Successfully indexed ${chunks.length} chunks.`);
-
-        res.json({
-            status: 'success',
-            totalChunks: chunks.length,
-            embeddingStatus: newStatus
-        });
+        res.json(result);
     }));
 
     return router;
+}
+
+/**
+ * Rebuild a campaign's rule embeddings from the rules text in its state file.
+ * Used by the re-index route and by an embedding-model switch.
+ */
+export async function reindexCampaignRules(campaignId) {
+    console.log(`[Rules Reindex] Starting server-side rules reindex for campaign ${campaignId}`);
+
+    const campaignStatePath = path.join(CAMPAIGNS_DIR, `${campaignId}.state.json`);
+    if (!fs.existsSync(campaignStatePath)) {
+        return { status: 'not-found', totalChunks: 0 };
+    }
+
+    const campaignState = readJson(campaignStatePath);
+    const rulesRaw = campaignState?.context?.rulesRaw || '';
+
+    if (!rulesRaw.trim()) {
+        return { status: 'ignored', totalChunks: 0, reason: 'No rules text' };
+    }
+
+    const chunks = chunkRulesServer(rulesRaw);
+
+    try {
+        const sqliteDb = getDb();
+        if (sqliteDb) {
+            sqliteDb.prepare("DELETE FROM rules_vss WHERE campaign_id = ?").run(campaignId);
+            sqliteDb.prepare("DELETE FROM embedding_meta WHERE campaign_id = ? AND item_type = 'rule'").run(campaignId);
+        }
+    } catch (err) {
+        console.warn('[Rules Reindex] Failed to clear DB explicitly:', err.message);
+    }
+
+    if (chunks.length === 0) {
+        return { status: 'success', totalChunks: 0 };
+    }
+
+    const texts = chunks.map(c => `${c.header}\n${c.content}`.slice(0, 500));
+    const embeddings = await embedBatch(texts, 10, 100);
+
+    for (let i = 0; i < chunks.length; i++) {
+        storeRulesEmbedding(campaignId, chunks[i].id, embeddings[i]);
+    }
+
+    const newStatus = getEmbeddingStatus(campaignId);
+    console.log(`[Rules Reindex] Successfully indexed ${chunks.length} chunks.`);
+
+    return {
+        status: 'success',
+        totalChunks: chunks.length,
+        embeddingStatus: newStatus
+    };
 }

@@ -1075,6 +1075,25 @@ export const en = {
     'combat.elements.mindlessHelp': 'Constructs, undead and machines: immune to mental and madness.',
     'combat.elements.casterElement': 'Spell element',
     'combat.elements.casterElementFor': 'Spell element of {{name}}',
+
+    // ── Settings → Advanced → Embedding model ────────────────────────────
+    'settings.embeddingModel.title': 'Memory Search Model',
+    'settings.embeddingModel.help': 'The model that finds past scenes, lore and rules by meaning. The built-in model understands English only; pick Multilingual if you play in another language.',
+    'settings.embeddingModel.english': 'English (built-in)',
+    'settings.embeddingModel.multilingual': 'Multilingual (download ~{{size}} MB)',
+    'settings.embeddingModel.multilingualReady': 'Multilingual (downloaded)',
+    'settings.embeddingModel.active': 'Active',
+    'settings.embeddingModel.download': 'Download and switch',
+    'settings.embeddingModel.switch': 'Switch to this model',
+    'settings.embeddingModel.downloading': 'Downloading… {{loaded}} / {{total}} MB',
+    'settings.embeddingModel.downloadStarting': 'Starting download…',
+    'settings.embeddingModel.downloadFailed': 'Download failed — still using the current model. {{error}}',
+    'settings.embeddingModel.reindexNote': 'Switching re-indexes every campaign. Until that finishes, recall uses keyword search.',
+    'settings.embeddingModel.reindexing': 'Re-indexing campaigns… {{done}} / {{total}}',
+    'settings.embeddingModel.reindexDone': 'All campaigns re-indexed for the new model.',
+    'settings.embeddingModel.reindexFailed': 'Re-index stopped: {{error}}. Use Re-index Now on each campaign.',
+    'settings.embeddingModel.switched': 'Memory search model changed. Re-indexing campaigns…',
+    'settings.embeddingModel.error': 'Could not change the model: {{error}}',
 } as const;
 
 /** Every valid translation key. Locales are checked against this. */

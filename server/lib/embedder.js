@@ -1,11 +1,131 @@
-import { DATA_DIR } from './fileStore.js';
+import { DATA_DIR, SETTINGS_FILE, readJson } from './fileStore.js';
 import path from 'path';
 import fs from 'fs';
 
-const MODEL_ID = 'mixedbread-ai/mxbai-embed-large-v1';
 const CACHE_DIR = path.join(DATA_DIR, '.embeddings_cache');
-const ACTIVE_DIMS = 1024;
-const ACTIVE_PROVIDER = 'local-mxbai';
+
+/**
+ * The embedding models a player can pick. `english` is the built-in default and
+ * what every existing install runs; `multilingual` is an opt-in download.
+ *
+ *   id               Hugging Face repo, loaded by transformers.js into CACHE_DIR
+ *   dims             vector size (the vec tables are built for it)
+ *   dtype            transformers.js dtype; q8 loads onnx/model_quantized.onnx
+ *   queryPrefix      put before text that is searched FOR (embedQuery)
+ *   passagePrefix    put before text that is stored and searched (embedText/embedBatch)
+ *   maxInputTokens   the model reads at most this many tokens; the tokenizer truncates
+ *   approxDownloadMB weights + tokenizer, shown in settings before the download
+ *
+ * Multilingual pick: Xenova/multilingual-e5-small. It has a transformers.js ONNX
+ * build with a q8 file (onnx/model_quantized.onnx, 118 MB, plus a 17 MB tokenizer),
+ * uses mean pooling like mxbai (so the same pipeline call works), covers ~100
+ * languages including Polish, and is fast on CPU. The alternative, Xenova/bge-m3,
+ * is 570 MB at q8, uses CLS pooling and is several times slower per passage on
+ * CPU; its 8k context buys nothing here because scenes are embedded as
+ * ~1,500-character passages. e5 is trained with "query: " / "passage: " prefixes
+ * and loses quality without them.
+ */
+export const EMBEDDING_MODELS = Object.freeze({
+    english: Object.freeze({
+        key: 'english',
+        id: 'mixedbread-ai/mxbai-embed-large-v1',
+        provider: 'local-mxbai',
+        dims: 1024,
+        dtype: 'q8',
+        // mxbai-embed-large-v1 is trained for asymmetric retrieval: a search query
+        // carries this instruction and the passages it is matched against carry
+        // none (model card).
+        queryPrefix: 'Represent this sentence for searching relevant passages: ',
+        passagePrefix: '',
+        maxInputTokens: 512,
+        approxDownloadMB: 340,
+        weightsFile: 'onnx/model_quantized.onnx',
+    }),
+    multilingual: Object.freeze({
+        key: 'multilingual',
+        id: 'Xenova/multilingual-e5-small',
+        provider: 'local-e5-multilingual',
+        dims: 384,
+        dtype: 'q8',
+        queryPrefix: 'query: ',
+        passagePrefix: 'passage: ',
+        maxInputTokens: 512,
+        approxDownloadMB: 135,
+        weightsFile: 'onnx/model_quantized.onnx',
+    }),
+});
+
+export const DEFAULT_EMBEDDING_MODEL_KEY = 'english';
+
+/** Server setting (data/settings.json → settings) holding the player's model choice. */
+export const EMBEDDING_MODEL_SETTING_KEY = 'embeddingModelKey';
+
+/** The registry entry for `key`; the default for anything unknown. */
+export function getModelSpec(key) {
+    return EMBEDDING_MODELS[key] ?? EMBEDDING_MODELS[DEFAULT_EMBEDDING_MODEL_KEY];
+}
+
+/** Text as the model expects it for a search query. */
+export function formatQuery(text, key) {
+    return getModelSpec(key).queryPrefix + text;
+}
+
+/** Text as the model expects it for a stored passage. */
+export function formatPassage(text, key) {
+    return getModelSpec(key).passagePrefix + text;
+}
+
+/**
+ * True when the model's weights and tokenizer are already in the local cache, so
+ * loading it needs no network. transformers.js writes each file under a temp name
+ * and renames it when complete, so a present file is a whole file.
+ */
+export function isModelDownloaded(key) {
+    const spec = EMBEDDING_MODELS[key];
+    if (!spec) return false;
+    const dir = path.join(CACHE_DIR, ...spec.id.split('/'));
+    return [spec.weightsFile, 'tokenizer.json', 'config.json']
+        .every(f => fs.existsSync(path.join(dir, f)));
+}
+
+/**
+ * The model the server should run: the player's choice when it is a known model
+ * whose files are on disk, otherwise the default. The default needs no check — it
+ * downloads on first use, as it always has. So a failed or unfinished download,
+ * or deleted files, fall back to the built-in model instead of breaking recall.
+ */
+export function resolveModelKey(requested, downloaded = isModelDownloaded) {
+    if (!requested || !EMBEDDING_MODELS[requested]) return DEFAULT_EMBEDDING_MODEL_KEY;
+    if (requested === DEFAULT_EMBEDDING_MODEL_KEY) return requested;
+    return downloaded(requested) ? requested : DEFAULT_EMBEDDING_MODEL_KEY;
+}
+
+/** The model the player chose in settings (not necessarily the one running). */
+export function readSelectedModelKey() {
+    const requested = readJson(SETTINGS_FILE, {})?.settings?.[EMBEDDING_MODEL_SETTING_KEY];
+    return EMBEDDING_MODELS[requested] ? requested : DEFAULT_EMBEDDING_MODEL_KEY;
+}
+
+let activeKey = null;
+// Bumped on every model switch. An inference that started under an older model
+// must not hand its vectors to a store that now holds another model's.
+let generation = 0;
+
+function activeSpec() {
+    if (activeKey === null) {
+        const requested = readSelectedModelKey();
+        activeKey = resolveModelKey(requested);
+        if (activeKey !== requested) {
+            console.warn(`[Embedder] Selected model "${requested}" is not downloaded; using "${activeKey}".`);
+        }
+    }
+    return EMBEDDING_MODELS[activeKey];
+}
+
+/** Registry key of the model in use. */
+export function getActiveModelKey() {
+    return activeSpec().key;
+}
 
 let extractor = null;
 let warmupPromise = null;
@@ -62,19 +182,77 @@ function ensureCacheDir() {
     }
 }
 
+async function createExtractor(spec, progressCallback) {
+    ensureCacheDir();
+    const { pipeline } = await import('@huggingface/transformers');
+    return pipeline('feature-extraction', spec.id, {
+        dtype: spec.dtype,
+        cache_dir: CACHE_DIR,
+        ...(progressCallback ? { progress_callback: progressCallback } : {}),
+    });
+}
+
+let loadingPromise = null;
+
 async function loadModel() {
     if (extractor) return extractor;
+    if (!loadingPromise) {
+        const spec = activeSpec();
+        const gen = generation;
+        loadingPromise = createExtractor(spec).then(
+            (model) => {
+                loadingPromise = null;
+                if (gen !== generation) {
+                    // The model was switched while this one loaded.
+                    void model.dispose?.();
+                    return loadModel();
+                }
+                extractor = model;
+                console.log(`[Embedder] Model loaded: ${spec.id} (${spec.dims} dims, CPU)`);
+                return extractor;
+            },
+            (err) => {
+                loadingPromise = null;
+                throw err;
+            },
+        );
+    }
+    return loadingPromise;
+}
 
-    ensureCacheDir();
+/**
+ * Download (if needed) and load `key`'s model WITHOUT making it active, reporting
+ * transformers.js progress events to `onProgress`. Resolves to the loaded pipeline,
+ * which `setActiveModel` can adopt so the switch does not load it twice. Rejects
+ * when offline or the download fails; the active model is untouched either way.
+ */
+export async function downloadModel(key, onProgress) {
+    const spec = EMBEDDING_MODELS[key];
+    if (!spec) throw new Error(`Unknown embedding model: ${key}`);
+    const model = await createExtractor(spec, onProgress);
+    // One inference proves the files are usable, not just present.
+    await model('warmup', { pooling: 'mean', normalize: true });
+    return model;
+}
 
-    const { pipeline } = await import('@huggingface/transformers');
-    extractor = await pipeline('feature-extraction', MODEL_ID, {
-        dtype: 'q8',
-        cache_dir: CACHE_DIR,
-    });
-
-    console.log(`[Embedder] Model loaded: ${MODEL_ID} (${ACTIVE_DIMS} dims, CPU)`);
-    return extractor;
+/**
+ * Make `key` the running model. Drops the loaded pipeline and the embedding cache
+ * and bumps the generation, so nothing computed by the old model is reused. Pass a
+ * pipeline from `downloadModel` to adopt it instead of loading it again.
+ */
+export function setActiveModel(key, preloaded = null) {
+    const spec = EMBEDDING_MODELS[key];
+    if (!spec) throw new Error(`Unknown embedding model: ${key}`);
+    const old = extractor;
+    generation++;
+    activeKey = key;
+    extractor = preloaded;
+    loadingPromise = null;
+    warmupPromise = null;
+    modelReady = !!preloaded;
+    embedCache.clear();
+    if (old && old !== preloaded) void old.dispose?.();
+    console.log(`[Embedder] Active model: ${spec.id} (${spec.dims} dims)`);
 }
 
 export async function warmup() {
@@ -100,9 +278,23 @@ export async function warmup() {
     return warmupPromise;
 }
 
+export class ModelChangedError extends Error {
+    constructor() {
+        super('Embedding model changed during inference; result discarded');
+        this.name = 'ModelChangedError';
+    }
+}
+
+function assertGeneration(gen) {
+    if (gen !== generation) throw new ModelChangedError();
+}
+
 async function runInference(texts) {
+    const gen = generation;
     const model = await loadModel();
+    assertGeneration(gen);
     const output = await model(texts, { pooling: 'mean', normalize: true });
+    assertGeneration(gen);
     modelReady = true;
     const data = output.data;
     const src = data.buffer ? new Float32Array(data.buffer, data.byteOffset, data.length) : Float32Array.from(data);
@@ -115,9 +307,8 @@ async function runInference(texts) {
     return out;
 }
 
-export async function embedText(text) {
-    if (!text || !text.trim()) return new Float32Array(ACTIVE_DIMS);
-
+// Embed one text exactly as given (prefix already applied).
+async function embedRaw(text) {
     const cached = cacheGet(text);
     if (cached) return cached;
 
@@ -126,7 +317,17 @@ export async function embedText(text) {
     return vec;
 }
 
-export async function embedBatch(texts, batchSize = 10, delayMs = 100) {
+/** Embed text that is stored and searched (a scene passage, a lore chunk, a rule). */
+export async function embedText(text) {
+    if (!text || !text.trim()) return new Float32Array(getActiveDims());
+    return embedRaw(formatPassage(text, getActiveModelKey()));
+}
+
+/** Embed many stored texts, prefixed like `embedText`. */
+export async function embedBatch(rawTexts, batchSize = 10, delayMs = 100) {
+    const gen = generation;
+    const key = getActiveModelKey();
+    const texts = rawTexts.map(t => (t && t.trim() ? formatPassage(t, key) : t));
     const results = new Array(texts.length);
 
     for (let i = 0; i < texts.length; i += batchSize) {
@@ -138,7 +339,7 @@ export async function embedBatch(texts, batchSize = 10, delayMs = 100) {
         for (let j = 0; j < batchSlice.length; j++) {
             const text = batchSlice[j];
             if (!text || !text.trim()) {
-                cachedVecs[j] = new Float32Array(ACTIVE_DIMS);
+                cachedVecs[j] = new Float32Array(getActiveDims());
                 continue;
             }
             const c = cacheGet(text);
@@ -168,35 +369,33 @@ export async function embedBatch(texts, batchSize = 10, delayMs = 100) {
 
         console.log(`[Embedder] Batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(texts.length / batchSize)} done`);
     }
+    // Cached vectors and the delays between batches can span a model switch.
+    assertGeneration(gen);
     return results;
 }
 
 export function getActiveDims() {
-    return ACTIVE_DIMS;
+    return activeSpec().dims;
 }
 
 export function getActiveProvider() {
-    return ACTIVE_PROVIDER;
+    return activeSpec().provider;
 }
 
 export function getActiveModelId() {
-    return MODEL_ID;
+    return activeSpec().id;
 }
-
-// mxbai-embed-large-v1 is trained for asymmetric retrieval: a search query carries
-// this instruction and the passages it is matched against carry none (model card).
-const QUERY_INSTRUCTION = 'Represent this sentence for searching relevant passages: ';
 
 /** Embed text that is searched FOR (a player message, an expanded query). */
 export async function embedQuery(text) {
     if (!text || !text.trim()) return embedText('');
-    return embedText(QUERY_INSTRUCTION + text);
+    return embedRaw(formatQuery(text, getActiveModelKey()));
 }
 
 // A scene is embedded as passages of its own prose and ranked by its best passage,
 // so the whole scene is searchable: GMs often recap the deal or the outcome at the
-// END of a scene. The model reads at most 512 tokens per input; ~1,500 characters
-// plus the context line stays under that.
+// END of a scene. Both registry models read at most 512 tokens per input (see
+// `maxInputTokens`); ~1,500 characters plus the context line stays under that.
 const PASSAGE_CHARS = 1500;
 const MAX_PASSAGES_PER_SCENE = 16;
 

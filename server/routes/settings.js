@@ -30,6 +30,30 @@ function blankApiKeys(node) {
     }
 }
 
+/**
+ * Keys in `settings` that only the server writes. The client saves its whole
+ * settings object, which does not carry these, so a save used to erase them:
+ *   embeddingDims / embeddingModelId — what the vector tables hold (vectorStore.js)
+ *   embeddingModelKey                — the player's embedding model, changed only
+ *                                      through /api/embedding/model so the switch
+ *                                      can download first and then re-index.
+ */
+export const SERVER_OWNED_SETTING_KEYS = Object.freeze(['embeddingDims', 'embeddingModelId', 'embeddingModelKey']);
+
+/** `incoming` with the server-owned keys taken from `existing`, never from the client. */
+export function keepServerOwnedSettings(existing, incoming) {
+    if (!incoming || typeof incoming !== 'object' || !incoming.settings || typeof incoming.settings !== 'object') {
+        return incoming;
+    }
+    const merged = { ...incoming, settings: { ...incoming.settings } };
+    for (const key of SERVER_OWNED_SETTING_KEYS) {
+        const kept = existing?.settings?.[key];
+        if (kept === undefined) delete merged.settings[key];
+        else merged.settings[key] = kept;
+    }
+    return merged;
+}
+
 export function createSettingsRouter() {
     const router = Router();
 
@@ -39,7 +63,7 @@ export function createSettingsRouter() {
     }));
 
     router.put('/api/settings', wrapAsync((req, res) => {
-        const sanitized = stripApiKeys(req.body);
+        const sanitized = keepServerOwnedSettings(readJson(SETTINGS_FILE, {}), stripApiKeys(req.body));
         writeJson(SETTINGS_FILE, sanitized);
         res.json({ ok: true });
     }));
