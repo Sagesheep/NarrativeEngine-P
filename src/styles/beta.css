@@ -173,8 +173,8 @@ html[data-ui="beta"] [data-ui="msg"] .gm-prose li {
 html[data-ui="beta"] [data-ui="msg"] { font-family: var(--lamp-story); }
 html[data-ui="beta"] .gm-prose p { margin-top: 0; margin-bottom: 0.85em; }
 html[data-ui="beta"] .gm-prose p:last-child { margin-bottom: 0; }
-html[data-ui="beta"] .gm-prose strong { color: var(--color-ice); font-weight: 600; }
-html[data-ui="beta"] .gm-prose em { color: var(--color-text-dim); }
+html[data-ui="beta"] .gm-prose strong { color: var(--story-bold-color, var(--color-ice)); font-weight: 600; }
+html[data-ui="beta"] .gm-prose em { color: var(--story-italic-color, var(--color-text-dim)); }
 html[data-ui="beta"] .gm-prose blockquote { border-left-color: var(--lamp-accent); }
 
 /* What you type is part of the same manuscript. */

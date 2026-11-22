@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { AppSettings, ReadingAlign, ReadingFont, ReadingLeading, ReadingWidth } from '../../types';
+import type { AppSettings, ReadingAlign, ReadingFont, ReadingLeading, ReadingWidth, StoryTextColors } from '../../types';
 
 /**
  * Story typography — the reading area's own settings, separate from UI Scale.
@@ -77,7 +77,51 @@ export function normalizeReadingAlign(v: unknown): ReadingAlign {
     return READING_ALIGNS.some(o => o.value === v) ? (v as ReadingAlign) : READING_DEFAULTS.readingAlign;
 }
 
-type ReadingSettings = Pick<AppSettings, 'readingFont' | 'readingSize' | 'readingLeading' | 'readingWidth'>;
+/**
+ * Story text colours — one per kind of text. Each is optional: unset keeps the
+ * active theme's colour (index.css / beta.css read the variable with the
+ * theme colour as fallback), so a fresh install looks exactly as before.
+ * Dialogue is only marked up at all when a dialogue colour is set
+ * (MessageMarkdown → dialoguePlugin).
+ */
+export const STORY_TEXT_KINDS: { key: keyof StoryTextColors; label: string; cssVar: string }[] = [
+    { key: 'text', label: 'Narration', cssVar: '--story-text-color' },
+    { key: 'dialogue', label: 'Dialogue', cssVar: '--story-dialogue-color' },
+    { key: 'bold', label: 'Bold', cssVar: '--story-bold-color' },
+    { key: 'italic', label: 'Italic', cssVar: '--story-italic-color' },
+];
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+export function normalizeStoryTextColors(v: unknown): StoryTextColors | undefined {
+    if (!v || typeof v !== 'object') return undefined;
+    const out: StoryTextColors = {};
+    for (const { key } of STORY_TEXT_KINDS) {
+        const c = (v as Record<string, unknown>)[key];
+        if (typeof c === 'string' && HEX_COLOR.test(c)) out[key] = c.toLowerCase();
+    }
+    return Object.keys(out).length ? out : undefined;
+}
+
+/** Set (or with null, clear) one colour, returning the new settings value. */
+export function withStoryTextColor(current: StoryTextColors | undefined, key: keyof StoryTextColors, color: string | null): StoryTextColors | undefined {
+    const next: StoryTextColors = { ...current };
+    if (color === null) delete next[key];
+    else next[key] = color;
+    return normalizeStoryTextColors(next);
+}
+
+/** The CSS variables for the colours the player set; unset ones are omitted. */
+export function storyTextColorVars(colors: StoryTextColors | undefined): CSSProperties {
+    const vars: Record<string, string> = {};
+    const valid = normalizeStoryTextColors(colors);
+    for (const { key, cssVar } of STORY_TEXT_KINDS) {
+        if (valid?.[key]) vars[cssVar] = valid[key]!;
+    }
+    return vars as CSSProperties;
+}
+
+type ReadingSettings = Pick<AppSettings, 'readingFont' | 'readingSize' | 'readingLeading' | 'readingWidth' | 'storyTextColors'>;
 
 /** The CSS variables the story column reads. Unknown values fall back to defaults. */
 export function readingStyleVars(settings: ReadingSettings | null | undefined): CSSProperties {
@@ -92,5 +136,6 @@ export function readingStyleVars(settings: ReadingSettings | null | undefined): 
         '--reading-size': `${size}px`,
         '--reading-leading': String(leading.lineHeight),
         '--reading-measure': measure,
+        ...storyTextColorVars(settings?.storyTextColors),
     } as CSSProperties;
 }

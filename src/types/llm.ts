@@ -27,6 +27,8 @@ export type ReadingFont = 'serif' | 'sans';
 export type ReadingLeading = 'tight' | 'normal' | 'relaxed';
 export type ReadingWidth = 'narrow' | 'standard' | 'wide' | 'full';
 export type ReadingAlign = 'left' | 'center' | 'right';
+/** Story text colours as #rrggbb. An absent key keeps the theme's own colour. */
+export type StoryTextColors = { text?: string; bold?: string; italic?: string; dialogue?: string };
 
 export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high' | 'max';
 
@@ -221,6 +223,7 @@ export type AppSettings = {
     readingLeading?: ReadingLeading; // line height 1.4 / 1.55 / 1.75, default 'normal'
     readingWidth?: ReadingWidth;     // column measure in em of readingSize, default 'standard'
     readingAlign?: ReadingAlign;     // where the column sits in the story area, default 'center'
+    storyTextColors?: StoryTextColors; // per-kind story text colours; absent = theme default
     /** Beta UI: opt-in restyle of the whole app (new palette, type scale and
      *  chrome density). Projected onto <html data-ui="beta"> by applyBetaUi;
      *  every rule lives in src/styles/beta.css behind that attribute, so OFF

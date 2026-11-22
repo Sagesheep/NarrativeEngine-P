@@ -353,9 +353,11 @@
 }
 
 /* ─── Prose overrides for readable AI output ─── */
+/* --story-*-color are the player's story text colours (Settings → Story Text),
+   set on .story-journal only when chosen; unset falls back to the theme. */
 .gm-prose {
   line-height: 1.75;
-  color: var(--color-text-primary);
+  color: var(--story-text-color, var(--color-text-primary));
 }
 
 .gm-prose p {
@@ -407,13 +409,19 @@
 }
 
 .gm-prose strong {
-  color: var(--color-ice);
+  color: var(--story-bold-color, var(--color-ice));
   font-weight: 700;
 }
 
 .gm-prose em {
-  color: var(--color-ember);
+  color: var(--story-italic-color, var(--color-ember));
   font-style: italic;
+}
+
+/* Quoted dialogue (dialoguePlugin.ts). Nested inside bold/italic, so it wins
+   their colour while they keep weight and slant. */
+.gm-prose .story-dialogue {
+  color: var(--story-dialogue-color, currentColor);
 }
 
 .gm-prose blockquote {
@@ -626,8 +634,8 @@ html [data-ui="stage"] .story-journal .journal-prose :is(h1, h2, h3, h4) {
   margin: 1.3em 0 0.6em;
   text-wrap: balance;
 }
-html [data-ui="stage"] .story-journal .journal-prose strong { color: inherit; font-weight: 700; }
-html [data-ui="stage"] .story-journal .journal-prose em { color: inherit; }
+html [data-ui="stage"] .story-journal .journal-prose strong { color: var(--story-bold-color, currentColor); font-weight: 700; }
+html [data-ui="stage"] .story-journal .journal-prose em { color: var(--story-italic-color, currentColor); }
 html [data-ui="stage"] .story-journal .journal-prose blockquote {
   border-left: 2px solid var(--color-terminal);
   padding: 4px 0 4px 18px;

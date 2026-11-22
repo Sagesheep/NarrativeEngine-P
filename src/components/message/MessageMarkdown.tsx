@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import type { GlossaryEntry } from '../../types';
 import { buildMentionLookup, mentionPlugin, inlineNameBracketsPlugin, MENTION_PREFIX } from './mentionLookup';
 import { MentionPreview } from './MentionPreview';
+import { dialoguePlugin } from './dialoguePlugin';
 import { useAppStore } from '../../store/useAppStore';
 
 const EMPTY_GLOSSARY: GlossaryEntry[] = [];
@@ -14,8 +15,15 @@ export function MessageMarkdown({ content }: { content: string }) {
     const npcLedger = useAppStore(s => s.npcLedger);
     const locationLedger = useAppStore(s => s.locationLedger);
     const glossary = useAppStore(s => s.context.glossary ?? EMPTY_GLOSSARY);
+    // Dialogue is only marked up when the player picked a colour for it, so
+    // the default render is unchanged. Runs last: name links inside a quote
+    // are already links, and the quote colour wraps their text.
+    const colorDialogue = useAppStore(s => !!s.settings.storyTextColors?.dialogue);
     const lookup = useMemo(() => buildMentionLookup(npcLedger, locationLedger, glossary), [npcLedger, locationLedger, glossary]);
-    const plugins = useMemo(() => [remarkGfm, inlineNameBracketsPlugin, mentionPlugin(lookup)], [lookup]);
+    const plugins = useMemo(
+        () => [remarkGfm, inlineNameBracketsPlugin, mentionPlugin(lookup), ...(colorDialogue ? [dialoguePlugin] : [])],
+        [lookup, colorDialogue],
+    );
     const components = useMemo(() => ({
         a: ({ href, children }: { href?: string; children?: ReactNode }) => {
             const entry = href?.startsWith(MENTION_PREFIX)

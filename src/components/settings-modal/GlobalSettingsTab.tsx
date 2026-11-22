@@ -4,6 +4,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { VaultSection } from './VaultSection';
 import { LanguageSection } from './LanguageSection';
 import { BackgroundControl } from '../BackgroundControl';
+import { StoryTextColors } from '../chat/StoryTextColors';
 import type { ReadingAlign, ReadingFont, ReadingLeading, ReadingWidth } from '../../types';
 import {
   READING_ALIGNS, READING_DEFAULTS, READING_FONTS, READING_LEADINGS, READING_WIDTHS, READING_SIZE_MAX, READING_SIZE_MIN,
@@ -710,6 +711,11 @@ export function GlobalSettingsTab() {
           >
             Reset
           </button>
+        </div>
+        <div className="pt-2 border-t border-border space-y-1">
+          <span className="text-[10px] text-text-primary uppercase tracking-wider font-bold">Text colours</span>
+          <p className="text-[9px] text-text-dim leading-tight">Colour narration, "quoted dialogue", bold and italic story text. Unset ones follow the theme. Dialogue in quotes is coloured up to the closing quote or the end of its paragraph.</p>
+          <StoryTextColors />
         </div>
       </div>
       </div>
