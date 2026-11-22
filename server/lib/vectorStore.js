@@ -512,6 +512,23 @@ export function deleteAllArchiveEmbeddings(campaignId) {
     db.prepare("DELETE FROM embedding_meta WHERE campaign_id = ? AND item_type = 'scene'").run(campaignId);
 }
 
+/**
+ * Lore ids with an up-to-date vector (stamped at the current lore version).
+ * A lore save uses this to embed only chunks that are missing or stale.
+ */
+export function listCurrentLoreEmbeddingIds(campaignId) {
+    if (!db) return [];
+    return db.prepare("SELECT item_id FROM embedding_meta WHERE campaign_id = ? AND item_type = 'lore' AND version >= ?")
+        .all(campaignId, EMBEDDING_VERSIONS.lore)
+        .map(r => r.item_id);
+}
+
+export function deleteLoreEmbedding(campaignId, loreId) {
+    if (!db) return;
+    db.prepare("DELETE FROM lore_vss WHERE campaign_id = ? AND lore_id = ?").run(campaignId, loreId);
+    db.prepare("DELETE FROM embedding_meta WHERE campaign_id = ? AND item_type = 'lore' AND item_id = ?").run(campaignId, loreId);
+}
+
 export function deleteRulesEmbedding(campaignId, ruleId) {
     if (!db) return;
     db.prepare("DELETE FROM rules_vss WHERE campaign_id = ? AND rule_id = ?").run(campaignId, ruleId);

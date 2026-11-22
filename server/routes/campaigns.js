@@ -5,7 +5,8 @@ import { CAMPAIGNS_DIR, SETTINGS_FILE, campaignFiles, readJson, writeJson, ensur
 import { isCampaignMetaFile } from '../lib/tableRegistry.js';
 import { readMigrationLedger } from '../lib/legacyAdoption.js';
 import { embedText, buildLoreText, resolveIndexingSpeed } from '../lib/embedder.js';
-import { storeLoreEmbedding, deleteCampaignEmbeddings } from '../lib/vectorStore.js';
+import { storeLoreEmbedding, deleteCampaignEmbeddings, listCurrentLoreEmbeddingIds, deleteLoreEmbedding } from '../lib/vectorStore.js';
+import { planLoreIndex } from '../lib/loreIndexPlan.js';
 import { startJob, tickJob, endJob } from '../lib/embedJobs.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 import { copyCampaign, COPY_MODES } from '../services/campaignCopy.js';
@@ -168,12 +169,20 @@ export function createCampaignsRouter() {
         validateCampaignId(req.params.id);
         ensureDirs();
         const filePath = path.join(CAMPAIGNS_DIR, `${req.params.id}.lore.json`);
+        const previous = readJson(filePath, []);
         writeJson(filePath, req.body);
         res.json({ ok: true });
 
-        const chunks = req.body;
-        if (Array.isArray(chunks) && chunks.length > 0) {
-            const campaignId = req.params.id;
+        const campaignId = req.params.id;
+        let chunks = [];
+        try {
+            const plan = planLoreIndex(previous, req.body, listCurrentLoreEmbeddingIds(campaignId));
+            chunks = plan.toEmbed;
+            for (const id of plan.toDelete) deleteLoreEmbedding(campaignId, id);
+        } catch (err) {
+            console.warn('[Lore Embed] Could not plan the lore index update:', err.message);
+        }
+        if (chunks.length > 0) {
             // Indexing speed governs batch size + inter-batch yield. Read fresh each
             // import so a settings change takes effect without a server restart.
             const serverSettings = readJson(SETTINGS_FILE, {});

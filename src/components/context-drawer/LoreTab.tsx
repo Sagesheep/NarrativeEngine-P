@@ -7,6 +7,7 @@ import { ScreenSection } from '../primitives/ScreenSection';
 import { WorldCardPanel } from '../WorldCardPanel';
 import { createWorldCard } from '../../services/lore/worldCard';
 import { uid } from '../../utils/uid';
+import { NewLoreEntryForm } from './NewLoreEntryForm';
 
 export function LoreTab() {
     const loreChunks = useAppStore((s) => s.loreChunks);
@@ -315,6 +316,7 @@ export function LoreTab() {
                     const additions = result.card.world.chunks.map(c => ({ ...c, id: uid() }));
                     state.setLoreChunks([...state.loreChunks, ...additions]);
                 }} />}
+            {campaignId && <NewLoreEntryForm key={`new-${campaignId}`} campaignId={campaignId} />}
             {loreChunks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center space-y-3 opacity-40">
                     <Database size={48} strokeWidth={1} />

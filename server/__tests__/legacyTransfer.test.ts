@@ -77,6 +77,7 @@ beforeEach(async () => {
     vi.doMock('../lib/vectorStore.js', () => ({
         storeArchiveEmbedding: vi.fn(), storeLoreEmbedding: vi.fn(), deleteCampaignEmbeddings: vi.fn(),
         listArchiveSceneIds: vi.fn(() => []), deleteArchiveEmbedding: vi.fn(),
+        listCurrentLoreEmbeddingIds: vi.fn(() => []), deleteLoreEmbedding: vi.fn(),
     }));
     vi.doMock('../lib/embedJobs.js', () => ({ startJob: vi.fn(), tickJob: vi.fn(), endJob: vi.fn() }));
 

@@ -245,6 +245,51 @@ function assignGroups(chunks: LoreChunk[]) {
     }
 }
 
+export type LoreEntryDraft = {
+    header: string;
+    content: string;
+    /** Omit to let the chunker classify it from the text. */
+    category?: LoreCategory;
+    /** Keywords the player typed; auto-extracted ones are added after them. */
+    keywords?: string[];
+    alwaysInclude?: boolean;
+    ragMode?: LoreChunk['ragMode'];
+};
+
+/**
+ * Build one lore chunk from a hand-written entry (added mid-game from the Lore
+ * tab), shaped the same way an imported Markdown section is: category,
+ * priority, keywords, summary and links to the chunks already in the campaign.
+ */
+export function buildLoreEntry(draft: LoreEntryDraft, existing: LoreChunk[], id: string): LoreChunk {
+    const header = draft.header.trim();
+    const content = draft.content.trim();
+    const alwaysInclude = !!draft.alwaysInclude || draft.ragMode === 'always';
+    const category = draft.category ?? classifyCategory(header, content);
+    const typed = (draft.keywords ?? []).map(k => k.trim().toLowerCase()).filter(Boolean);
+    const triggerKeywords = [...new Set([...typed, ...extractTriggerKeywords(header, content)])];
+
+    const lowerContent = content.toLowerCase();
+    const linkedEntities = [...new Set(existing
+        .map(c => extractEntityName(c.header))
+        .filter(name => name.length > 3 && lowerContent.includes(name.toLowerCase())))];
+
+    return {
+        id,
+        header,
+        content,
+        tokens: countTokens(header + '\n' + content),
+        alwaysInclude,
+        triggerKeywords,
+        scanDepth: 3,
+        category,
+        linkedEntities,
+        priority: assignPriority(category, alwaysInclude),
+        summary: generateSummary(header, content),
+        ragMode: draft.ragMode,
+    };
+}
+
 export function chunkLoreFile(markdown: string): LoreChunk[] {
     const normalizedMarkdown = markdown.replace(/\\(#{2,3})\s*/g, '\n$1 ');
     const lines = normalizedMarkdown.split(/\r?\n/);
