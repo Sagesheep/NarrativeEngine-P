@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getCampaign } from '../../store/campaignStore';
-import { ChevronDown, ChevronUp, Database, Search, X } from '../icons/narrativeIcons';
+import { ChevronDown, ChevronUp, Database, Search, Trash2, X } from '../icons/narrativeIcons';
 import { useAppStore } from '../../store/useAppStore';
 import type { LoreChunk } from '../../types';
 import { ScreenSection } from '../primitives/ScreenSection';
@@ -73,6 +73,20 @@ export function LoreTab() {
         setNewKeyword(prev => ({ ...prev, [chunkId]: '' }));
     };
 
+    // Two-click delete: the first click arms the button ("Confirm?"), the
+    // second removes the entry. Leaving the button disarms it. The server
+    // drops the entry's vector on the next lore save.
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+    const deleteChunk = (chunkId: string) => {
+        if (confirmDeleteId !== chunkId) {
+            setConfirmDeleteId(chunkId);
+            return;
+        }
+        const state = useAppStore.getState();
+        state.setLoreChunks(state.loreChunks.filter(c => c.id !== chunkId));
+        setConfirmDeleteId(null);
+    };
+
     const removeKeyword = (chunkId: string, kw: string) => {
         const chunk = loreChunks.find(c => c.id === chunkId);
         if (!chunk) return;
@@ -131,6 +145,20 @@ export function LoreTab() {
                 >
                     {expandedContent[chunk.id] ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
                     {expandedContent[chunk.id] ? 'Hide' : 'Preview'}
+                </button>
+                <button
+                    onClick={() => deleteChunk(chunk.id)}
+                    onMouseLeave={() => setConfirmDeleteId(prev => (prev === chunk.id ? null : prev))}
+                    onBlur={() => setConfirmDeleteId(prev => (prev === chunk.id ? null : prev))}
+                    className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] uppercase tracking-wider border transition-colors ${
+                        confirmDeleteId === chunk.id
+                            ? 'bg-danger/15 text-danger border-danger/50'
+                            : 'bg-void text-text-dim border-border hover:text-danger hover:border-danger/40'
+                    }`}
+                    title={confirmDeleteId === chunk.id ? 'Click again to delete this entry' : 'Delete this lore entry'}
+                    aria-label={confirmDeleteId === chunk.id ? `Confirm delete ${chunk.header}` : `Delete ${chunk.header}`}
+                >
+                    {confirmDeleteId === chunk.id ? 'Confirm?' : <Trash2 size={9} />}
                 </button>
             </div>
 
