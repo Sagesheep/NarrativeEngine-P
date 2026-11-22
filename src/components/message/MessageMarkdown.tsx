@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import type { GlossaryEntry } from '../../types';
 import { buildMentionLookup, mentionPlugin, inlineNameBracketsPlugin, MENTION_PREFIX } from './mentionLookup';
 import { MentionPreview } from './MentionPreview';
-import { dialoguePlugin } from './dialoguePlugin';
+import { markedTextPlugin } from './markedTextPlugin';
 import { useAppStore } from '../../store/useAppStore';
 
 const EMPTY_GLOSSARY: GlossaryEntry[] = [];
@@ -15,14 +15,19 @@ export function MessageMarkdown({ content }: { content: string }) {
     const npcLedger = useAppStore(s => s.npcLedger);
     const locationLedger = useAppStore(s => s.locationLedger);
     const glossary = useAppStore(s => s.context.glossary ?? EMPTY_GLOSSARY);
-    // Dialogue is only marked up when the player picked a colour for it, so
-    // the default render is unchanged. Runs last: name links inside a quote
-    // are already links, and the quote colour wraps their text.
-    const colorDialogue = useAppStore(s => !!s.settings.storyTextColors?.dialogue);
+    // Quotes and brackets are only marked up for the kinds the player picked a
+    // colour for, so the default render is unchanged. Runs last: name links
+    // inside a quote are already links, and the quote colour wraps their text.
+    const dialogue = useAppStore(s => !!s.settings.storyTextColors?.dialogue);
+    const single = useAppStore(s => !!s.settings.storyTextColors?.singleQuote);
+    const bracket = useAppStore(s => !!s.settings.storyTextColors?.bracket);
     const lookup = useMemo(() => buildMentionLookup(npcLedger, locationLedger, glossary), [npcLedger, locationLedger, glossary]);
     const plugins = useMemo(
-        () => [remarkGfm, inlineNameBracketsPlugin, mentionPlugin(lookup), ...(colorDialogue ? [dialoguePlugin] : [])],
-        [lookup, colorDialogue],
+        () => [
+            remarkGfm, inlineNameBracketsPlugin, mentionPlugin(lookup),
+            ...(dialogue || single || bracket ? [markedTextPlugin({ dialogue, single, bracket })] : []),
+        ],
+        [lookup, dialogue, single, bracket],
     );
     const components = useMemo(() => ({
         a: ({ href, children }: { href?: string; children?: ReactNode }) => {

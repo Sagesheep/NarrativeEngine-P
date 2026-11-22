@@ -4,12 +4,15 @@ import type { StoryTextColors as StoryTextColorsValue } from '../../types';
 import { MessageMarkdown } from '../message/MessageMarkdown';
 import { STORY_TEXT_KINDS, normalizeReadingFont, readingStyleVars, withStoryTextColor } from './readingPrefs';
 
-const PREVIEW = 'The rain eases off. **Mara** checks the door. "Keep moving," she says, "and **don\'t** look back." *Somewhere, a bell.*';
+const PREVIEW = 'The rain eases off. **Mara** checks the door. "Keep moving," she says, "and **don\'t** look back." '
+    + "Her brother mutters 'not again' under his breath. *Somewhere, a bell.* [Stealth: 14 vs 12, success]";
 
 /** Which element in the preview shows each kind's current colour. */
 const PROBES: Record<keyof StoryTextColorsValue, string> = {
     text: 'p',
     dialogue: '.story-dialogue',
+    singleQuote: '.story-single-quote',
+    bracket: '.story-bracket',
     bold: 'strong',
     italic: 'em',
 };
@@ -51,12 +54,15 @@ export function StoryTextColors() {
     return (
         <div className="space-y-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
-                {STORY_TEXT_KINDS.map(({ key, label }) => {
+                {STORY_TEXT_KINDS.map(({ key, label, marks }) => {
                     const chosen = colors?.[key];
                     const shown = chosen ?? themeColors[key] ?? '#888888';
                     return (
                         <div key={key} className="flex items-center gap-2">
-                            <span className="text-[10px] text-text-dim uppercase tracking-wider w-20 flex-shrink-0">{label}</span>
+                            <span className="w-28 flex-shrink-0 flex items-baseline gap-1.5">
+                                <span className="text-[10px] text-text-dim uppercase tracking-wider">{label}</span>
+                                <span className="text-[10px] text-text-dim/70 font-mono">{marks}</span>
+                            </span>
                             <input
                                 type="color"
                                 value={shown}

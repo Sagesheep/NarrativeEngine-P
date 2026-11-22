@@ -1,4 +1,5 @@
 import type { GlossaryEntry, LocationEntry, NPCEntry } from '../../types';
+import { BRACKET_NAME_FLAG } from './markedTextPlugin';
 
 export type MentionEntry = {
     id: string;
@@ -52,7 +53,7 @@ export function buildMentionLookup(npcs: NPCEntry[], locations: LocationEntry[],
 }
 
 // Work on parsed Markdown text nodes so links, images, code, and URLs stay intact.
-type MarkdownNode = { type: string; value?: string; url?: string; children?: MarkdownNode[] };
+type MarkdownNode = { type: string; value?: string; url?: string; children?: MarkdownNode[]; data?: Record<string, unknown> };
 export const MENTION_PREFIX = '#story-mention-';
 function transformText(node: MarkdownNode, transform: (value: string) => MarkdownNode[]): void {
     if (['link', 'linkReference', 'image', 'imageReference', 'code', 'inlineCode', 'html', 'definition'].includes(node.type) || !node.children) return;
@@ -77,6 +78,7 @@ export function inlineNameBracketsPlugin() {
                 if (before.type === 'text' && /\[\s*$/.test(before.value ?? '') && bold.type === 'strong' && after.type === 'text' && /^\s*\]/.test(after.value ?? '') && /^[A-Za-z][A-Za-z0-9 _.'-]*[A-Za-z0-9.]$/.test(name) && !['SURPRISE', 'ENCOUNTER', 'WORLD_EVENT'].some(tag => name.includes(tag))) {
                     before.value = before.value!.replace(/\[\s*$/, '');
                     after.value = after.value!.replace(/^\s*\]/, '');
+                    bold.data = { ...bold.data, [BRACKET_NAME_FLAG]: true };
                 }
             }
             for (const child of children) unwrapBold(child);
@@ -90,7 +92,7 @@ export function inlineNameBracketsPlugin() {
                 if (['SURPRISE', 'ENCOUNTER', 'WORLD_EVENT'].some(tag => match[1].includes(tag))) continue;
                 const start = match.index!;
                 if (start > end) parts.push({ type: 'text', value: value.slice(end, start) });
-                parts.push({ type: 'strong', children: [{ type: 'text', value: match[1].trim() }] });
+                parts.push({ type: 'strong', data: { [BRACKET_NAME_FLAG]: true }, children: [{ type: 'text', value: match[1].trim() }] });
                 end = start + match[0].length;
             }
             if (!end) return [{ type: 'text', value }];

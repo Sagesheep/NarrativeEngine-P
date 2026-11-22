@@ -418,10 +418,16 @@
   font-style: italic;
 }
 
-/* Quoted dialogue (dialoguePlugin.ts). Nested inside bold/italic, so it wins
-   their colour while they keep weight and slant. */
+/* Quoted and bracketed text (markedTextPlugin.ts). Nested inside bold/italic,
+   so it wins their colour while they keep weight and slant. */
 .gm-prose .story-dialogue {
   color: var(--story-dialogue-color, currentColor);
+}
+.gm-prose .story-single-quote {
+  color: var(--story-single-quote-color, currentColor);
+}
+.gm-prose .story-bracket {
+  color: var(--story-bracket-color, currentColor);
 }
 
 .gm-prose blockquote {

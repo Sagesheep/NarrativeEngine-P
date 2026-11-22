@@ -81,14 +81,17 @@ export function normalizeReadingAlign(v: unknown): ReadingAlign {
  * Story text colours — one per kind of text. Each is optional: unset keeps the
  * active theme's colour (index.css / beta.css read the variable with the
  * theme colour as fallback), so a fresh install looks exactly as before.
- * Dialogue is only marked up at all when a dialogue colour is set
- * (MessageMarkdown → dialoguePlugin).
+ * Quoted and bracketed text is only marked up at all for the kinds that have
+ * a colour set (MessageMarkdown → markedTextPlugin). `marks` is the format as
+ * the GM writes it, shown beside the picker.
  */
-export const STORY_TEXT_KINDS: { key: keyof StoryTextColors; label: string; cssVar: string }[] = [
-    { key: 'text', label: 'Narration', cssVar: '--story-text-color' },
-    { key: 'dialogue', label: 'Dialogue', cssVar: '--story-dialogue-color' },
-    { key: 'bold', label: 'Bold', cssVar: '--story-bold-color' },
-    { key: 'italic', label: 'Italic', cssVar: '--story-italic-color' },
+export const STORY_TEXT_KINDS: { key: keyof StoryTextColors; label: string; marks: string; cssVar: string }[] = [
+    { key: 'text', label: 'Narration', marks: 'plain', cssVar: '--story-text-color' },
+    { key: 'dialogue', label: 'Dialogue', marks: '"…"', cssVar: '--story-dialogue-color' },
+    { key: 'singleQuote', label: 'Single', marks: "'…'", cssVar: '--story-single-quote-color' },
+    { key: 'bracket', label: 'Brackets', marks: '[…]', cssVar: '--story-bracket-color' },
+    { key: 'bold', label: 'Bold', marks: '**…**', cssVar: '--story-bold-color' },
+    { key: 'italic', label: 'Italic', marks: '*…*', cssVar: '--story-italic-color' },
 ];
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
