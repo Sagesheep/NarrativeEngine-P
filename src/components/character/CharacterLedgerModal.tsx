@@ -49,7 +49,10 @@ export function CharacterLedgerModal() {
     const setPlayerCharacter = useAppStore((s) => s.setPlayerCharacter);
 
     const sheetRef = useRef<SheetTabHandle>(null);
-    const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
+    // What the user was trying to do when the unsaved-changes guard fired:
+    // close the ledger, or switch to another tab. null = no prompt shown.
+    const [pendingAction, setPendingAction] = useState<{ kind: 'close' } | { kind: 'tab'; tab: LedgerTab } | null>(null);
+    const showUnsavedPrompt = pendingAction !== null;
 
     const { t } = useTranslation();
     const combatOn = useAppStore((s) => s.context.combatModeActive === true);
@@ -69,7 +72,7 @@ export function CharacterLedgerModal() {
         if (pcPanelOpen) {
             setActiveTab('sheet');
             setGuidedMode(false);
-            setShowUnsavedPrompt(false);
+            setPendingAction(null);
         }
     }
 
@@ -80,24 +83,38 @@ export function CharacterLedgerModal() {
     // to the store on every keystroke, so they have no un-saved state).
     const requestClose = useCallback(() => {
         if (sheetRef.current?.isDirty()) {
-            setShowUnsavedPrompt(true);
+            setPendingAction({ kind: 'close' });
             return;
         }
         togglePCPanel();
     }, [togglePCPanel]);
 
-    const handleSaveAndClose = useCallback(() => {
-        if (sheetRef.current?.save()) {
-            setShowUnsavedPrompt(false);
-            togglePCPanel();
+    // Tab switches unmount the Sheet tab, which drops its local form state —
+    // so they go through the same guard as closing.
+    const requestTab = useCallback((tab: LedgerTab) => {
+        if (tab !== 'sheet' && sheetRef.current?.isDirty()) {
+            setPendingAction({ kind: 'tab', tab });
+            return;
         }
-    }, [togglePCPanel]);
+        setActiveTab(tab);
+    }, []);
 
-    const handleDiscardAndClose = useCallback(() => {
+    const completePending = useCallback(() => {
+        const action = pendingAction;
+        setPendingAction(null);
+        if (!action) return;
+        if (action.kind === 'close') togglePCPanel();
+        else setActiveTab(action.tab);
+    }, [pendingAction, togglePCPanel]);
+
+    const handleSaveAndContinue = useCallback(() => {
+        if (sheetRef.current?.save()) completePending();
+    }, [completePending]);
+
+    const handleDiscardAndContinue = useCallback(() => {
         sheetRef.current?.discard();
-        setShowUnsavedPrompt(false);
-        togglePCPanel();
-    }, [togglePCPanel]);
+        completePending();
+    }, [completePending]);
 
     // Escape-to-close is ScreenLightbox's job now — it calls `onClose`, which is
     // `requestClose`, so the unsaved-changes guard still runs. Keeping a second
@@ -200,9 +217,10 @@ export function CharacterLedgerModal() {
 
                 {showUnsavedPrompt && (
                     <UnsavedChangesDialog
-                        onSave={handleSaveAndClose}
-                        onDiscard={handleDiscardAndClose}
-                        onCancel={() => setShowUnsavedPrompt(false)}
+                        intent={pendingAction?.kind === 'tab' ? 'switch' : 'close'}
+                        onSave={handleSaveAndContinue}
+                        onDiscard={handleDiscardAndContinue}
+                        onCancel={() => setPendingAction(null)}
                     />
                 )}
 
@@ -221,7 +239,7 @@ export function CharacterLedgerModal() {
                             {tabs.map(({ key, Icon: TabIcon, label }) => (
                                 <button
                                     key={key}
-                                    onClick={() => setActiveTab(key)}
+                                    onClick={() => requestTab(key)}
                                     className={`flex-1 flex flex-col items-center gap-0.5 py-2 px-1 text-[9px] uppercase tracking-wider transition-colors ${
                                         shownTab === key
                                             ? 'text-terminal border-b-2 border-terminal -mb-px'
@@ -240,7 +258,7 @@ export function CharacterLedgerModal() {
                             `min-height: auto` on a flex item resolves to
                             min-content and the panel grows instead of scrolling. */}
                         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-                            {shownTab === 'sheet' && <SheetTab ref={sheetRef} onStartGuidedCreation={() => setGuidedMode(true)} onNavigateTab={setActiveTab} />}
+                            {shownTab === 'sheet' && <SheetTab ref={sheetRef} onStartGuidedCreation={() => setGuidedMode(true)} onNavigateTab={requestTab} />}
                             {shownTab === 'record' && <RecordTab />}
                             {shownTab === 'inventory' && <InventoryTab onNavigateTab={setActiveTab} />}
                             {shownTab === 'stats' && <StatsTab onNavigateTab={setActiveTab} />}

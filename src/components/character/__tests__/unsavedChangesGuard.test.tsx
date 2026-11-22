@@ -95,6 +95,36 @@ describe('CharacterLedgerModal — unsaved-changes close guard', () => {
         expect(useAppStore.getState().playerCharacter?.name).toBe('Aria Saved');
     });
 
+    it('prompts on tab switch when the sheet has unsaved edits, and Save commits then switches', async () => {
+        const user = userEvent.setup();
+        render(<CharacterLedgerModal />);
+        await user.click(screen.getByRole('button', { name: 'Edit Character' }));
+        const nameInput = screen.getByPlaceholderText("Your character's name") as HTMLInputElement;
+        await user.clear(nameInput);
+        await user.type(nameInput, 'Aria Tabbed');
+        await user.click(screen.getByTitle('Record'));
+        expect(screen.getByText('Unsaved Changes')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText("Your character's name")).toBeInTheDocument();
+        await user.click(screen.getByText('Commit edits, then switch tab').closest('button')!);
+        expect(useAppStore.getState().playerCharacter?.name).toBe('Aria Tabbed');
+        expect(screen.queryByText('Unsaved Changes')).not.toBeInTheDocument();
+        expect(screen.queryByPlaceholderText("Your character's name")).not.toBeInTheDocument();
+        expect(useAppStore.getState().pcPanelOpen).toBe(true);
+    });
+
+    it('Cancel on a tab-switch prompt stays on the sheet with edits intact', async () => {
+        const user = userEvent.setup();
+        render(<CharacterLedgerModal />);
+        await user.click(screen.getByRole('button', { name: 'Edit Character' }));
+        const nameInput = screen.getByPlaceholderText("Your character's name") as HTMLInputElement;
+        await user.clear(nameInput);
+        await user.type(nameInput, 'Aria Kept');
+        await user.click(screen.getByTitle('Inventory'));
+        await user.click(screen.getByRole('button', { name: /Cancel \(keep editing\)/i }));
+        expect((screen.getByPlaceholderText("Your character's name") as HTMLInputElement).value).toBe('Aria Kept');
+        expect(useAppStore.getState().playerCharacter?.name).toBe('Aria');
+    });
+
     it('Cancel in the guard returns to editing without closing', async () => {
         const user = userEvent.setup();
         render(<CharacterLedgerModal />);
