@@ -49,7 +49,7 @@ export function MentionPreview({ entry, children }: { entry: MentionEntry; child
             <span
                 ref={trigger} role="button" tabIndex={0} aria-expanded={open}
                 aria-describedby={open ? tooltipId : undefined}
-                className="text-terminal font-bold cursor-help select-text outline-offset-2"
+                className="story-name font-bold cursor-help select-text outline-offset-2"
                 onMouseEnter={reveal}
                 onMouseLeave={() => { if (!pinned.current && document.activeElement !== trigger.current) setPosition(null); }}
                 onFocus={reveal} onBlur={close} onClick={toggle}

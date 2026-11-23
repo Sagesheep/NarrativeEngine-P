@@ -15,6 +15,7 @@ const PROBES: Record<keyof StoryTextColorsValue, string> = {
     bracket: '.story-bracket',
     bold: 'strong',
     italic: 'em',
+    name: '.story-name',
 };
 
 function toHex(rgb: string): string | null {
@@ -93,6 +94,9 @@ export function StoryTextColors() {
                 >
                     <div ref={previewRef} className="gm-prose journal-prose">
                         <MessageMarkdown content={PREVIEW} />
+                        {/* Names only link up for entries in the open campaign, so the
+                            sample name is drawn directly, styled like MentionPreview. */}
+                        <p><span className="story-name font-bold">Kris</span> watches from the doorway.</p>
                     </div>
                 </div>
             </div>

@@ -29,7 +29,7 @@ export type ReadingWidth = 'narrow' | 'standard' | 'wide' | 'full';
 export type ReadingAlign = 'left' | 'center' | 'right';
 /** Story text colours as #rrggbb. An absent key keeps the theme's own colour. */
 export type StoryTextColors = {
-    text?: string; dialogue?: string; singleQuote?: string; bracket?: string; bold?: string; italic?: string;
+    text?: string; dialogue?: string; singleQuote?: string; bracket?: string; bold?: string; italic?: string; name?: string;
 };
 
 export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high' | 'max';

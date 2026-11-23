@@ -92,6 +92,7 @@ export const STORY_TEXT_KINDS: { key: keyof StoryTextColors; label: string; mark
     { key: 'bracket', label: 'Brackets', marks: '[…]', cssVar: '--story-bracket-color' },
     { key: 'bold', label: 'Bold', marks: '**…**', cssVar: '--story-bold-color' },
     { key: 'italic', label: 'Italic', marks: '*…*', cssVar: '--story-italic-color' },
+    { key: 'name', label: 'Names', marks: '', cssVar: '--story-name-color' },
 ];
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;

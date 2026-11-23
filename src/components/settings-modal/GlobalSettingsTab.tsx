@@ -714,7 +714,7 @@ export function GlobalSettingsTab() {
         </div>
         <div className="pt-2 border-t border-border space-y-1">
           <span className="text-[10px] text-text-primary uppercase tracking-wider font-bold">Text colours</span>
-          <p className="text-[9px] text-text-dim leading-tight">Colour story text by how the GM writes it. Unset ones follow the theme. "Dialogue" is coloured up to the closing quote or the end of its paragraph; 'single quotes' and [brackets] only when they close in the same paragraph, so apostrophes never count.</p>
+          <p className="text-[9px] text-text-dim leading-tight">Colour story text by how the GM writes it. Unset ones follow the theme. "Dialogue" is coloured up to the closing quote or the end of its paragraph; 'single quotes' and [brackets] only when they close in the same paragraph, so apostrophes never count. Names are the NPCs, places and lore terms you can hover for a card.</p>
           <StoryTextColors />
         </div>
       </div>

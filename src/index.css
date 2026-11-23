@@ -430,6 +430,15 @@
   color: var(--story-bracket-color, currentColor);
 }
 
+/* Detected NPC, place and lore names (MentionPreview.tsx). A name keeps its
+   colour inside quotes and brackets, so it still reads as something to hover. */
+.story-name {
+  color: var(--story-name-color, var(--color-terminal));
+}
+.story-name :is(.story-dialogue, .story-single-quote, .story-bracket) {
+  color: inherit;
+}
+
 .gm-prose blockquote {
   border-left: 3px solid var(--color-terminal);
   padding-left: 1em;

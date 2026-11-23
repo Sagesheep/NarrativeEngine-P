@@ -158,3 +158,13 @@ describe('story text colour settings', () => {
         expect(storyTextColorVars(undefined)).toEqual({});
     });
 });
+
+describe('name colour', () => {
+    it('marks detected names with the story-name class and emits its variable', () => {
+        useAppStore.setState({ npcLedger: [{ id: 'k', name: 'Kris' } as NPCEntry], locationLedger: [] });
+        const c = renderMd('Kris looks up.');
+        expect(c.querySelector('.story-name')?.textContent).toBe('Kris');
+        expect(storyTextColorVars({ name: '#abcdef' })).toEqual({ '--story-name-color': '#abcdef' });
+        expect(normalizeStoryTextColors({ name: '#ABCDEF' })).toEqual({ name: '#abcdef' });
+    });
+});
