@@ -558,3 +558,161 @@ function extractJsonObject(raw: string): string {
     if (start === -1 || end === -1 || end <= start) return fenceStripped;
     return fenceStripped.slice(start, end + 1);
 }
+
+// ── Custom questions — the player brings their own interview ─────────────────
+
+/**
+ * The format the AI question call outputs: seven numbered lines, one per
+ * question. Shown in the import box as a starting point the player edits.
+ */
+export function customQuestionsTemplate(): string {
+    return AI_SLOTS.map((s, i) => `${i + 1}) ${STOCK_QUESTIONS[s]}`).join('\n');
+}
+
+export type ImportQuestionsResult =
+    | {
+        ok: true;
+        /** Slots 2–8, keyed by absolute slot number. */
+        questions: Partial<Record<CreationSlot, string>>;
+        /** Slots the input left out — they keep the stock wording. */
+        stockSlots: CreationSlot[];
+    }
+    | { ok: false; error: string };
+
+// A custom question can carry long setup text, so the bound is far looser than
+// the AI parser's runaway guard.
+const MAX_CUSTOM_QUESTION_LEN = 4000;
+
+// Optional markdown heading or bullet, optional bold / "Q" / "Question",
+// the number, then `.` `)` `:` or `-`. Markdown bold around the number is tolerated.
+const CUSTOM_LINE_RE = /^\s*(?:#{1,6}\s*|[-*+]\s+)?\**\s*(?:q(?:uestion)?\s*)?(\d+)\s*\**\s*[.):-]\s*\**\s*(.*)$/i;
+
+function stripMarkdown(text: string): string {
+    return text.replace(/^\*+\s*|\s*\*+$/g, '').trim();
+}
+
+/**
+ * Turn JSON input into numbered text so the text parser owns the numbering
+ * rules. Accepts an array of strings (or `{ question }` objects), an object
+ * keyed by number, or either wrapped in `{ "questions": … }`.
+ * Returns null when the input is not JSON.
+ */
+function jsonToNumberedText(raw: string): string | null {
+    const unfenced = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    if (!/^[[{]/.test(unfenced)) return null;
+    let data: unknown;
+    try {
+        data = JSON.parse(unfenced);
+    } catch {
+        return null;
+    }
+    if (data && typeof data === 'object' && !Array.isArray(data) && 'questions' in data) {
+        data = (data as { questions: unknown }).questions;
+    }
+    const asText = (v: unknown): string => {
+        if (typeof v === 'string') return v;
+        if (v && typeof v === 'object' && typeof (v as { question?: unknown }).question === 'string') {
+            return (v as { question: string }).question;
+        }
+        return '';
+    };
+    if (Array.isArray(data)) {
+        return data.map((v, i) => `${i + 1}) ${asText(v).replace(/\s*\r?\n\s*/g, ' ')}`).join('\n');
+    }
+    if (data && typeof data === 'object') {
+        return Object.entries(data as Record<string, unknown>)
+            .filter(([k]) => /^\d+$/.test(k.trim()))
+            .map(([k, v]) => `${k.trim()}) ${asText(v).replace(/\s*\r?\n\s*/g, ' ')}`)
+            .join('\n');
+    }
+    return null;
+}
+
+/**
+ * Parse a player-written questionnaire for slots 2–8. Takes the same numbered
+ * list the AI outputs (`1)` … `7)`), markdown (`1.`, `## 1.`, `- **1.**`),
+ * JSON, or plain lines with no numbers. Numbering 1–7 maps to slots 2–8; a list
+ * that runs 2–8 with no 1 is read as slot numbers. Lines under a numbered line
+ * continue that question. Missing questions fall back to the stock wording.
+ *
+ * No LLM call. Like the AI path, this only supplies wording — the slot map
+ * stays fixed by position (§0).
+ */
+export function parseCustomQuestions(input: string): ImportQuestionsResult {
+    if (!input || !input.trim()) return { ok: false, error: 'Paste or load some questions first.' };
+
+    const text = jsonToNumberedText(input) ?? input;
+    const numbered: { num: number; text: string }[] = [];
+    const loose: string[] = [];
+    for (const line of text.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        const m = line.match(CUSTOM_LINE_RE);
+        if (m) {
+            numbered.push({ num: parseInt(m[1], 10), text: stripMarkdown(m[2]) });
+        } else if (numbered.length > 0) {
+            // Continuation of the question above (wrapped markdown, extra detail).
+            const last = numbered[numbered.length - 1];
+            const extra = stripMarkdown(line.replace(/^\s*(?:#{1,6}\s*|[-*+]\s+)/, ''));
+            last.text = last.text ? `${last.text} ${extra}` : extra;
+        } else {
+            // Before any numbered line: a title/preamble, or an unnumbered list.
+            loose.push(stripMarkdown(line.replace(/^\s*(?:#{1,6}\s*|[-*+]\s+)/, '')));
+        }
+    }
+
+    const bySlot = new Map<CreationSlot, string>();
+    if (numbered.length > 0) {
+        const nums = numbered.map(n => n.num);
+        const absolute = !nums.includes(1) && nums.includes(AI_SLOTS[AI_SLOTS.length - 1]);
+        for (const { num, text: q } of numbered) {
+            const slot = (absolute ? num : num + 1) as CreationSlot;
+            if (!AI_SLOTS.includes(slot) || !q || bySlot.has(slot)) continue;
+            bySlot.set(slot, q);
+        }
+    } else {
+        const lines = loose.filter(Boolean);
+        if (lines.length > AI_SLOTS.length) {
+            return { ok: false, error: `Found ${lines.length} lines but there are only ${AI_SLOTS.length} questions. Number them 1) to 7) so it is clear which is which.` };
+        }
+        lines.forEach((q, i) => bySlot.set(AI_SLOTS[i], q));
+    }
+
+    if (bySlot.size === 0) {
+        return { ok: false, error: 'No questions found. Number them 1) to 7), one per line.' };
+    }
+    for (const [slot, q] of bySlot) {
+        if (q.length > MAX_CUSTOM_QUESTION_LEN) {
+            return { ok: false, error: `Question ${slot - 1} is too long (${q.length} characters, max ${MAX_CUSTOM_QUESTION_LEN}).` };
+        }
+    }
+
+    const questions: Partial<Record<CreationSlot, string>> = {};
+    const stockSlots: CreationSlot[] = [];
+    for (const slot of AI_SLOTS) {
+        const q = bySlot.get(slot);
+        if (q) {
+            questions[slot] = q;
+        } else {
+            questions[slot] = STOCK_QUESTIONS[slot];
+            stockSlots.push(slot);
+        }
+    }
+    return { ok: true, questions, stockSlots };
+}
+
+/** Fold parsed custom questions into the draft, same shape the AI path produces. */
+export function applyCustomQuestions(
+    baseDraft: CharacterCreationDraft,
+    questions: Partial<Record<CreationSlot, string>>,
+): CharacterCreationDraft {
+    return {
+        ...baseDraft,
+        questions: {
+            1: STOCK_QUESTIONS[1],
+            9: STOCK_QUESTIONS[9],
+            ...(baseDraft.questions ?? {}),
+            ...questions,
+        },
+        answers: baseDraft.answers ?? {},
+    };
+}

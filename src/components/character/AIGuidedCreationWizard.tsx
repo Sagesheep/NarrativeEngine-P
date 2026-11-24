@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Wand2, Loader2, AlertTriangle, ChevronRight, ChevronLeft, Check } from 'lucide-react';
+import { X, Wand2, Loader2, AlertTriangle, ChevronRight, ChevronLeft, Check, FileText, Upload } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import type { CharacterCreationDraft, CreationSlot, EndpointConfig, ProviderConfig } from '../../types';
 import { DEFAULT_PORTRAIT_ART_STYLE, PORTRAIT_ART_STYLE_OPTIONS } from '../../data/portraitStyles';
@@ -13,6 +13,9 @@ import {
     setPlayerSlotValue,
     blankSlots,
     canRollSlot,
+    customQuestionsTemplate,
+    parseCustomQuestions,
+    applyCustomQuestions,
     type GuidedProgress,
 } from '../../services/character/aiGuidedGeneration';
 import { drawScenarios, deriveHexFromAnswers, type QuizScenario } from '../../services/character/hexQuiz';
@@ -20,7 +23,10 @@ import { commitCharacterDraft } from '../../services/character/commitCharacterDr
 import { hexBand } from '../../services/npc/agency/agencyBands';
 import { toast } from '../Toast';
 
-type Phase = 'idle' | 'generating-questions' | 'answering' | 'hex-choice' | 'quiz' | 'converting' | 'clarifying' | 'reveal';
+type Phase = 'idle' | 'generating-questions' | 'answering' | 'hex-choice' | 'quiz' | 'converting' | 'clarifying' | 'reveal' | 'importing';
+
+/** Browser-local memory of the player's last custom questionnaire (convenience only). */
+const CUSTOM_QUESTIONS_KEY = 'ne.guidedCreation.customQuestions';
 
 const ANSWER_SLOTS: CreationSlot[] = [2, 3, 4, 5, 6, 7, 8];
 
@@ -36,6 +42,8 @@ const ANSWER_SLOTS: CreationSlot[] = [2, 3, 4, 5, 6, 7, 8];
  *      when no lore chunks exist or no endpoint resolves.
  *   2. LLM call 1 (split: slots 2–5, then 6–8) — AI reskins wording only.
  *      Engine owns the slot/field map; the model never sees it.
+ *      Or the player imports their own questions (paste or .json/.md/.txt) —
+ *      no LLM call, same numbered format, same slot map.
  *   3. Answering — user answers the slots they know. The AI can decide any
  *      blank slot from the lore on request; it only runs when the user asks.
  *      Draft persisted to `context.creationDraft` on every step.
@@ -72,6 +80,9 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
     // excerpt only if the pick fails.
     const eligibleCount = useMemo(() => listCreationHeaders(loreChunks ?? []).length, [loreChunks]);
     const canRun = !!provider && eligibleCount > 0;
+    // Custom questions skip the lore-reading call, so they only need an endpoint
+    // (for the answer conversion later).
+    const canImport = !!provider;
 
     // Draft state — persisted to `context.creationDraft` on every change.
     const draft0 = context.creationDraft ?? emptyDraft();
@@ -126,7 +137,7 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
         return () => clearInterval(id);
     }, [phase, rolling]);
 
-    if (!canRun && phase === 'idle') {
+    if (!canImport && phase === 'idle') {
         return <UnavailableState reason={!provider ? 'no-endpoint' : 'no-lore'} onCancel={onCancel} />;
     }
 
@@ -173,6 +184,13 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
     const continueToAnswering = () => {
         if (pendingDraft) setDraft(pendingDraft);
         setStreamDone(false);
+        setPhase('answering');
+    };
+
+    const useCustomQuestions = (questions: Partial<Record<CreationSlot, string>>, sourceText: string) => {
+        try { localStorage.setItem(CUSTOM_QUESTIONS_KEY, sourceText); } catch { /* storage unavailable — fine */ }
+        setDraft(d => applyCustomQuestions(d, questions));
+        setError(null);
         setPhase('answering');
     };
 
@@ -343,8 +361,20 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
                 </div>
             )}
 
-            {phase === 'idle' && canRun && (
-                <IdleState onStart={start} loreChunkCount={eligibleCount} />
+            {phase === 'idle' && canImport && (
+                <IdleState
+                    onStart={start}
+                    onImport={() => { setError(null); setPhase('importing'); }}
+                    loreChunkCount={eligibleCount}
+                    canInterview={canRun}
+                />
+            )}
+
+            {phase === 'importing' && (
+                <ImportQuestionsForm
+                    onBack={() => setPhase('idle')}
+                    onUse={useCustomQuestions}
+                />
             )}
 
             {(phase === 'generating-questions' || phase === 'converting') && (
@@ -369,7 +399,7 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
                     setDraft={setDraft}
                     onBack={onCancel}
                     onNext={proceedToHexChoice}
-                    canRoll={!!provider && eligibleCount > 0}
+                    canRoll={canRun}
                     rollingSlots={rollingSlots}
                     rollProgress={rollProgress}
                     rollError={rollError}
@@ -439,18 +469,19 @@ function emptyDraft(): CharacterCreationDraft {
 }
 
 function phaseToStep(phase: Phase): number {
-    const order: Phase[] = ['idle', 'generating-questions', 'answering', 'hex-choice', 'quiz', 'converting', 'clarifying', 'reveal'];
+    const order: Phase[] = ['idle', 'generating-questions', 'answering', 'hex-choice', 'quiz', 'converting', 'clarifying', 'reveal', 'importing'];
     return order.indexOf(phase);
 }
 
 function resumePhase(step: number): Phase {
-    const order: Phase[] = ['idle', 'generating-questions', 'answering', 'hex-choice', 'quiz', 'converting', 'clarifying', 'reveal'];
+    const order: Phase[] = ['idle', 'generating-questions', 'answering', 'hex-choice', 'quiz', 'converting', 'clarifying', 'reveal', 'importing'];
     const resumed = order[Math.min(step, order.length - 1)] ?? 'idle';
     // Transient async phases have no live call behind them after a reload — resuming
     // into one shows a spinner with nothing running. Map each back to its stable
     // predecessor so the user re-triggers the call intentionally.
     if (resumed === 'generating-questions') return 'idle';
     if (resumed === 'converting') return 'answering';
+    if (resumed === 'importing') return 'idle';
     return resumed;
 }
 
@@ -482,7 +513,12 @@ function UnavailableState({ reason, onCancel }: { reason: 'no-endpoint' | 'no-lo
     );
 }
 
-function IdleState({ onStart, loreChunkCount }: { onStart: () => void; loreChunkCount: number }) {
+function IdleState({ onStart, onImport, loreChunkCount, canInterview }: {
+    onStart: () => void;
+    onImport: () => void;
+    loreChunkCount: number;
+    canInterview: boolean;
+}) {
     return (
         <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
             <div className="w-16 h-16 rounded-full bg-terminal/10 border border-terminal/30 flex items-center justify-center mb-4">
@@ -490,15 +526,129 @@ function IdleState({ onStart, loreChunkCount }: { onStart: () => void; loreChunk
             </div>
             <p className="text-text-dim uppercase tracking-widest text-sm font-bold">AI-Guided Creation</p>
             <p className="text-text-dim/60 text-xs mt-2 max-w-sm">
-                Answer a short interview tailored to your world lore. Fill in what you know, and let the AI decide the rest from the lore.
-                ({loreChunkCount} lore chunks selected)
+                {canInterview
+                    ? <>Answer a short interview tailored to your world lore. Fill in what you know, and let the AI decide the rest from the lore. ({loreChunkCount} lore chunks selected)</>
+                    : <>There is no world lore to build an interview from. You can still bring your own questions.</>}
             </p>
-            <button
-                onClick={onStart}
-                className="mt-4 px-6 py-2.5 bg-terminal/20 text-terminal border border-terminal/30 rounded hover:bg-terminal/30 transition-colors text-[11px] uppercase tracking-widest"
-            >
-                Begin Interview
-            </button>
+            <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                {canInterview && (
+                    <button
+                        onClick={onStart}
+                        className="px-6 py-2.5 bg-terminal/20 text-terminal border border-terminal/30 rounded hover:bg-terminal/30 transition-colors text-[11px] uppercase tracking-widest"
+                    >
+                        Begin Interview
+                    </button>
+                )}
+                <button
+                    onClick={onImport}
+                    className="flex items-center justify-center gap-1.5 px-6 py-2.5 bg-void text-text-dim border border-border rounded hover:border-terminal hover:text-terminal transition-colors text-[11px] uppercase tracking-widest"
+                >
+                    <FileText size={12} /> Use my own questions
+                </button>
+            </div>
+            <p className="text-text-dim/40 text-[10px] mt-2 max-w-sm">
+                Paste or load your own questionnaire (text, Markdown or JSON) instead of having the AI write the questions.
+            </p>
+        </div>
+    );
+}
+
+/**
+ * Custom questionnaire import — paste text or load a .txt / .md / .json file in
+ * the same numbered format the AI outputs. Parsed live (no LLM call); missing
+ * questions keep the stock wording.
+ */
+function ImportQuestionsForm({ onBack, onUse }: {
+    onBack: () => void;
+    onUse: (questions: Partial<Record<CreationSlot, string>>, sourceText: string) => void;
+}) {
+    const [text, setText] = useState(() => {
+        try { return localStorage.getItem(CUSTOM_QUESTIONS_KEY) || customQuestionsTemplate(); }
+        catch { return customQuestionsTemplate(); }
+    });
+    const [fileError, setFileError] = useState<string | null>(null);
+    const fileInput = useRef<HTMLInputElement>(null);
+    const parsed = useMemo(() => parseCustomQuestions(text), [text]);
+
+    const loadFile = async (file: File | undefined) => {
+        if (!file) return;
+        setFileError(null);
+        try {
+            setText(await file.text());
+        } catch {
+            setFileError(`Could not read ${file.name}.`);
+        }
+    };
+
+    return (
+        <div className="space-y-4">
+            <p className="text-[10px] text-text-dim/60">
+                Write one question per line, numbered 1) to 7), the same way the AI writes them. Markdown lists and JSON (an array of 7 strings) work too. Name and appearance are always asked, so leave them out. Any question you leave out keeps its standard wording.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    onClick={() => fileInput.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-void border border-border text-text-dim hover:border-terminal hover:text-terminal text-[10px] uppercase tracking-widest rounded transition-colors"
+                >
+                    <Upload size={12} /> Load file
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setText(customQuestionsTemplate())}
+                    className="px-3 py-1.5 bg-void border border-border text-text-dim hover:text-text-primary text-[10px] uppercase tracking-widest rounded transition-colors"
+                >
+                    Reset to standard questions
+                </button>
+                <input
+                    ref={fileInput}
+                    type="file"
+                    accept=".txt,.md,.markdown,.json,text/plain,text/markdown,application/json"
+                    className="hidden"
+                    onChange={e => { void loadFile(e.target.files?.[0]); e.target.value = ''; }}
+                />
+            </div>
+            {fileError && <p className="text-[11px] text-ember">{fileError}</p>}
+
+            <textarea
+                value={text}
+                onChange={e => setText(e.target.value)}
+                rows={10}
+                spellCheck={false}
+                aria-label="Custom questions"
+                className="w-full bg-void border border-border rounded p-2 text-[11px] text-text-primary font-mono outline-none focus:border-terminal resize-y custom-scrollbar"
+            />
+
+            <div className="bg-void border border-border/50 rounded p-3 space-y-1.5">
+                <p className="text-[9px] uppercase tracking-widest text-text-dim/70">Preview</p>
+                {parsed.ok ? (
+                    ANSWER_SLOTS.map(slot => (
+                        <div key={slot} className="text-[11px]">
+                            <span className="text-text-dim/60">{slot}.</span>{' '}
+                            <span className={parsed.stockSlots.includes(slot) ? 'text-text-dim/60 italic' : 'text-text-primary'}>
+                                {parsed.questions[slot]}
+                            </span>
+                            {parsed.stockSlots.includes(slot) && <span className="text-text-dim/40 text-[9px] uppercase tracking-widest ml-2">standard</span>}
+                        </div>
+                    ))
+                ) : (
+                    <p className="text-[11px] text-ember flex items-center gap-2"><AlertTriangle size={12} /> {parsed.error}</p>
+                )}
+            </div>
+
+            <div className="flex justify-between pt-4 border-t border-border">
+                <button onClick={onBack} className="px-4 py-2 text-xs uppercase tracking-widest text-text-dim hover:text-text-primary border border-border bg-void transition-colors">
+                    <ChevronLeft size={12} className="inline" /> Back
+                </button>
+                <button
+                    onClick={() => { if (parsed.ok) onUse(parsed.questions, text); }}
+                    disabled={!parsed.ok}
+                    className="px-6 py-2 text-xs uppercase tracking-widest text-void bg-terminal font-bold hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                    Use these questions <ChevronRight size={12} className="inline" />
+                </button>
+            </div>
         </div>
     );
 }
