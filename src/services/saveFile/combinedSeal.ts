@@ -5,13 +5,58 @@ import { llmCall } from '../../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import { DIVERGENCE_CATEGORIES, CATEGORY_DEFINITIONS, coerceCategory, isFactActive, isValidStateKey } from '../campaign-state/divergenceRegister';
 import { uid } from '../../utils/uid';
-import { truncateScenesToBudget } from './shared';
 import { parseChapterSummaryOutput } from './chapterSummary';
 import type { ChapterSummaryOutput } from './chapterSummary';
 
 // ─── Combined Seal Call (summary + divergences in ONE LLM call) ───
 
-const COMBINED_SEAL_TOKEN_BUDGET = 12000;
+// Scene text sent in ONE seal call. A chapter longer than this is sealed in several
+// calls (see planSealBatches) rather than cut down: cutting it dropped the middle
+// scenes, so their facts, events and NPC memories were never extracted.
+export const COMBINED_SEAL_TOKEN_BUDGET = 12000;
+
+type SealScene = { sceneId: string; content: string };
+
+/** The start of `content` that fits in `maxTokens`, measured with the real tokenizer. */
+function trimToTokens(content: string, maxTokens: number): string {
+    const total = countTokens(content);
+    if (total <= maxTokens) return content;
+    let chars = Math.floor(content.length * (maxTokens / total));
+    let slice = content.slice(0, chars);
+    while (chars > 0 && countTokens(slice) > maxTokens) {
+        chars = Math.floor(chars * 0.9);
+        slice = content.slice(0, chars);
+    }
+    return slice;
+}
+
+/**
+ * Splits a chapter's scenes, in order, into groups that each fit `budget` tokens.
+ * Every scene is kept. Only a single scene longer than the whole budget is cut,
+ * and then only its end.
+ */
+export function planSealBatches(scenes: SealScene[], budget: number = COMBINED_SEAL_TOKEN_BUDGET): SealScene[][] {
+    const batches: SealScene[][] = [];
+    let current: SealScene[] = [];
+    let currentTokens = 0;
+    for (const scene of scenes) {
+        let content = scene.content;
+        let tokens = countTokens(content);
+        if (tokens > budget) {
+            content = trimToTokens(content, budget - 10) + '\n[...truncated]';
+            tokens = countTokens(content);
+        }
+        if (current.length > 0 && currentTokens + tokens > budget) {
+            batches.push(current);
+            current = [];
+            currentTokens = 0;
+        }
+        current.push(content === scene.content ? scene : { sceneId: scene.sceneId, content });
+        currentTokens += tokens;
+    }
+    if (current.length > 0) batches.push(current);
+    return batches;
+}
 
 export type CombinedSealResult = {
     summary: ChapterSummaryOutput | null;
@@ -29,9 +74,10 @@ function buildCombinedSealPrompt(
     npcLedger: { id: string; name: string; aliases: string }[],
     indexEntries?: { sceneId: string; witnesses?: string[] }[],
     activeStateFacts: DivergenceEntry[] = [],
+    part?: { index: number; total: number },
 ): string {
-    const truncated = truncateScenesToBudget(scenes, COMBINED_SEAL_TOKEN_BUDGET);
-    const sceneContent = truncated.map(s => `--- SCENE ${s.sceneId} ---\n${s.content}`).join('\n\n');
+    // `scenes` already fits the budget: planSealBatches sized it.
+    const sceneContent = scenes.map(s => `--- SCENE ${s.sceneId} ---\n${s.content}`).join('\n\n');
 
     const npcList = npcLedger.map(n =>
         `- ${n.name} (id: ${n.id}${n.aliases ? ', also known as: ' + n.aliases : ''})`
@@ -79,7 +125,8 @@ TASK 1 — Generate a structured chapter summary.
 TASK 2 — Extract established facts that would BREAK A FUTURE SCENE if the AI contradicted them.
 TASK 3 — Extract structured scene events for each scene.
 
-CHAPTER: "${chapterTitle || 'Untitled'}"
+CHAPTER: "${chapterTitle || 'Untitled'}"${part ? `
+PART ${part.index} OF ${part.total}: this chapter is too long for one pass, so you see only some of its scenes. Summarize, and extract facts and events from, these scenes only.` : ''}
 SCENE IDs IN THIS CHAPTER: ${sceneIds.join(', ')}
 
 NPC LEDGER (resolve names to IDs):
@@ -406,23 +453,104 @@ export async function sealChapterCombined(
     modelCall?: SealModelCall,
     timeoutMs: number = AI_CALL_TIMEOUT_MS,
 ): Promise<CombinedSealResult> {
+    const maxTokens = scanBudget > 0 ? scanBudget : 2000;
+    const callModel: SealCall = (prompt, tokens, trackingLabel) => modelCall
+        ? modelCall({ prompt, priority: 'low', maxTokens: tokens, trackingLabel, timeoutMs })
+        : llmCall(provider!, prompt, { priority: 'low', maxTokens: tokens, trackingLabel, timeoutMs });
+
+    const batches = planSealBatches(scenes);
+    if (batches.length <= 1) {
+        return sealOnePass(callModel, maxTokens, batches[0] ?? scenes, chapterId, chapterTitle, sceneIds, npcLedger, maxRetries, indexEntries, activeStateFacts);
+    }
+
+    // Long chapter: seal it part by part so every scene is read. Parts run in order,
+    // and each sees the state facts the earlier parts set, so a later part can
+    // replace them (e.g. an item changing hands twice in one chapter).
+    console.log(`[CombinedSeal] Chapter ${chapterId} is too long for one pass — sealing in ${batches.length} parts`);
+    const parts: CombinedSealResult[] = [];
+    let stateFacts = [...activeStateFacts];
+    let firstError: unknown;
+    for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+        const batchIds = batch.map(s => s.sceneId);
+        const idSet = new Set(batchIds);
+        const batchIndex = indexEntries?.filter(e => idSet.has(e.sceneId));
+        try {
+            const part = await sealOnePass(
+                callModel, maxTokens, batch, chapterId, chapterTitle, batchIds, npcLedger, maxRetries,
+                batchIndex && batchIndex.length > 0 ? batchIndex : undefined, stateFacts,
+                { index: i + 1, total: batches.length },
+            );
+            parts.push(part);
+            const replaced = new Set(part.divergences.map(d => d.supersedesFactId).filter(Boolean));
+            stateFacts = [
+                ...stateFacts.filter(f => !replaced.has(f.id)),
+                ...part.divergences.filter(d => isValidStateKey(d.stateKey)),
+            ];
+        } catch (err) {
+            // One part failing (a timeout, say) should not throw away the others.
+            console.warn(`[CombinedSeal] Part ${i + 1}/${batches.length} failed:`, err);
+            firstError ??= err;
+            parts.push({ summary: null, divergences: [], divergenceParseError: true });
+        }
+    }
+    if (firstError !== undefined && parts.every(p => !p.summary && p.divergences.length === 0)) {
+        throw firstError;
+    }
+
+    const failedParts = parts.filter(p => p.divergenceParseError).length;
+    if (failedParts > 0) {
+        console.warn(`[CombinedSeal] Facts missing from ${failedParts} of ${parts.length} parts`);
+    }
+
+    const witnessCorrections: Record<string, string[]> = {};
+    const sceneEventMap: Record<string, SceneEvent[]> = {};
+    for (const p of parts) {
+        Object.assign(witnessCorrections, p.witnessCorrections ?? {});
+        Object.assign(sceneEventMap, p.sceneEventMap ?? {});
+    }
+    const partSummaries = parts.map(p => p.summary).filter((s): s is ChapterSummaryOutput => s !== null);
+
+    return {
+        summary: await mergePartSummaries(callModel, partSummaries, chapterTitle),
+        divergences: parts.flatMap(p => p.divergences),
+        divergenceParseError: failedParts > 0 || undefined,
+        witnessCorrections: Object.keys(witnessCorrections).length > 0 ? witnessCorrections : undefined,
+        sceneEventMap: parts.some(p => p.sceneEventMap) ? sceneEventMap : undefined,
+        sceneEventsParseError: parts.some(p => p.sceneEventsParseError) || undefined,
+    };
+}
+
+type SealCall = (prompt: string, maxTokens: number, trackingLabel: string) => Promise<string>;
+
+async function sealOnePass(
+    callModel: SealCall,
+    maxTokens: number,
+    scenes: SealScene[],
+    chapterId: string,
+    chapterTitle: string,
+    sceneIds: string[],
+    npcLedger: { id: string; name: string; aliases: string }[],
+    maxRetries: number,
+    indexEntries: { sceneId: string; witnesses?: string[] }[] | undefined,
+    activeStateFacts: DivergenceEntry[],
+    part?: { index: number; total: number },
+): Promise<CombinedSealResult> {
     // A try whose summary is good but whose facts block failed to parse. Retries go
     // after the facts; if none succeeds, this summary is still kept rather than lost
     // (the caller warns that only the facts failed).
     let summaryOnly: CombinedSealResult | null = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        const prompt = buildCombinedSealPrompt(scenes, chapterTitle, sceneIds, npcLedger, indexEntries, activeStateFacts);
+        const prompt = buildCombinedSealPrompt(scenes, chapterTitle, sceneIds, npcLedger, indexEntries, activeStateFacts, part);
         const label = attempt === 0 ? '' : ' (retry)';
 
-        console.log(`[CombinedSeal] Generating summary + divergences${label}...`, {
+        console.log(`[CombinedSeal] Generating summary + divergences${part ? ` (part ${part.index}/${part.total})` : ''}${label}...`, {
             sceneCount: scenes.length,
             sceneIds: sceneIds.length,
             promptTokens: countTokens(prompt),
         });
 
-        const output = modelCall
-            ? await modelCall({ prompt, priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000, trackingLabel: 'chapter-seal', timeoutMs })
-            : await llmCall(provider!, prompt, { priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000, trackingLabel: 'chapter-seal', timeoutMs });
+        const output = await callModel(prompt, maxTokens, 'chapter-seal');
         const result = parseCombinedSealOutput(output, chapterId, sceneIds, npcLedger);
 
         if (result.summary && !result.divergenceParseError) {
@@ -438,3 +566,75 @@ export async function sealChapterCombined(
 
     return summaryOnly ?? { summary: null, divergences: [], divergenceParseError: true };
 }
+
+/**
+ * One chapter summary from the summaries of its parts: a model call that rewrites
+ * them as one, or, when that fails, the parts joined together.
+ */
+async function mergePartSummaries(
+    callModel: SealCall,
+    parts: ChapterSummaryOutput[],
+    chapterTitle: string,
+): Promise<ChapterSummaryOutput | null> {
+    if (parts.length === 0) return null;
+    if (parts.length === 1) return parts[0];
+
+    const prompt = `You are a TTRPG campaign archivist. The chapter "${chapterTitle || 'Untitled'}" was too long to summarize at once, so it was summarized in ${parts.length} consecutive parts, in story order:
+
+${parts.map((p, i) => `--- PART ${i + 1} ---\n${JSON.stringify(p)}`).join('\n\n')}
+
+Write ONE summary of the whole chapter as a single JSON object with this shape:
+{
+    "title": "Short evocative chapter title",
+    "literalTitle": "Concrete factual title",
+    "abstractTitle": "Thematic title",
+    "synopsis": "1-2 sentences, past tense, the whole chapter",
+    "summary": "3-5 sentence narrative summary of the whole chapter",
+    "keywords": [], "npcs": [], "majorEvents": [], "unresolvedThreads": [],
+    "tone": "one of: combat-heavy, exploration, social, mystery, political, emotional, mixed",
+    "themes": []
+}
+Keep every significant NPC and major event from all parts. Drop threads a later part resolved. Output only the JSON.`;
+
+    try {
+        const merged = parseChapterSummaryOutput(await callModel(prompt, 1500, 'chapter-seal-merge'));
+        if (merged && merged.summary) return merged;
+        console.warn('[CombinedSeal] Summary merge produced no usable output — joining part summaries');
+    } catch (err) {
+        console.warn('[CombinedSeal] Summary merge failed — joining part summaries:', err);
+    }
+    return joinPartSummaries(parts);
+}
+
+/** The part summaries as one, without a model: the fallback when the merge call fails. */
+export function joinPartSummaries(parts: ChapterSummaryOutput[]): ChapterSummaryOutput {
+    const union = (lists: string[][]) => {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const item of lists.flat()) {
+            const key = item.trim().toLowerCase();
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            out.push(item.trim());
+        }
+        return out;
+    };
+    const first = parts[0];
+    const tones = new Set(parts.map(p => p.tone).filter(Boolean));
+    const synopses = parts.map(p => p.synopsis).filter((s): s is string => Boolean(s));
+    return {
+        title: first.title,
+        literalTitle: first.literalTitle,
+        abstractTitle: first.abstractTitle,
+        synopsis: synopses.length > 0 ? synopses.join(' ') : undefined,
+        summary: parts.map(p => p.summary).filter(Boolean).join('\n\n'),
+        keywords: union(parts.map(p => p.keywords)),
+        npcs: union(parts.map(p => p.npcs)),
+        majorEvents: union(parts.map(p => p.majorEvents)),
+        // Threads still open at the end of the chapter are the last part's.
+        unresolvedThreads: [...parts[parts.length - 1].unresolvedThreads],
+        tone: tones.size === 1 ? [...tones][0] : 'mixed',
+        themes: union(parts.map(p => p.themes)),
+    };
+}
+

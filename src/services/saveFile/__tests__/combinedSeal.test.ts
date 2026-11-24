@@ -306,3 +306,113 @@ describe('sealChapterCombined — keeps a good summary when only the facts fail'
         expect(result.divergences).toEqual([]);
     });
 });
+
+// A chapter longer than one seal call used to be cut to fit: the middle scenes were
+// dropped, so their facts and NPC memories were never extracted.
+describe('sealChapterCombined — long chapters are sealed in parts, not cut', () => {
+    // ~5000 tokens each: three of them are more than one 12000-token pass.
+    const longScene = (id: string) => ({ sceneId: id, content: `Scene ${id} marker. ` + 'the rider talks with Pike at the workshop. '.repeat(560) });
+
+    it('planSealBatches keeps every scene, in order, and fits each part', async () => {
+        const { planSealBatches, COMBINED_SEAL_TOKEN_BUDGET } = await import('../combinedSeal');
+        const { countTokens } = await import('../../infrastructure/tokenizer');
+        const scenes = ['051', '052', '053', '054', '055'].map(longScene);
+        const batches = planSealBatches(scenes);
+        expect(batches.length).toBeGreaterThan(1);
+        expect(batches.flat().map(s => s.sceneId)).toEqual(['051', '052', '053', '054', '055']);
+        for (const b of batches) {
+            expect(b.reduce((n, s) => n + countTokens(s.content), 0)).toBeLessThanOrEqual(COMBINED_SEAL_TOKEN_BUDGET);
+        }
+    });
+
+    it('cuts only a single scene that is longer than the whole budget', async () => {
+        const { planSealBatches, COMBINED_SEAL_TOKEN_BUDGET } = await import('../combinedSeal');
+        const { countTokens } = await import('../../infrastructure/tokenizer');
+        const huge = { sceneId: '001', content: 'word '.repeat(30000) };
+        const [[only]] = planSealBatches([huge]);
+        expect(only.content.endsWith('[...truncated]')).toBe(true);
+        expect(countTokens(only.content)).toBeLessThanOrEqual(COMBINED_SEAL_TOKEN_BUDGET);
+    });
+
+    it('reads every scene, keeps every part’s facts, and merges one summary', async () => {
+        const scenes = ['051', '052', '053', '054', '055'].map(longScene);
+        const sceneIds = scenes.map(s => s.sceneId);
+        const prompts: string[] = [];
+        const modelCall = vi.fn(async ({ prompt, trackingLabel }: { prompt: string; trackingLabel: string }) => {
+            prompts.push(prompt);
+            if (trackingLabel === 'chapter-seal-merge') {
+                return JSON.stringify(makeValidSummaryBlock({ title: 'Merged', npcs: ['Aldric', 'Morrigan'] }));
+            }
+            const first = /SCENE IDs IN THIS CHAPTER: (\d+)/.exec(prompt)![1];
+            return makeSealJson(makeValidSummaryBlock({ title: `Part from ${first}` }), {
+                divergences: { npc_events: [{ text: `Aldric did something in ${first}`, sceneRef: first, npcIds: ['npc_1'] }] },
+                sceneEvents: { [first]: [{ eventType: 'other', importance: 5, text: `event ${first}` }] },
+            });
+        });
+
+        const result = await sealChapterCombined(
+            undefined, scenes, CHAPTER_ID, 'Fuel and Chalk', sceneIds, NPC_LEDGER, 0, 0, undefined, [], modelCall,
+        );
+
+        const sealPrompts = prompts.filter(p => p.includes('Perform THREE tasks'));
+        expect(sealPrompts.length).toBeGreaterThan(1);
+        for (const id of sceneIds) {
+            expect(sealPrompts.some(p => p.includes(`Scene ${id} marker.`))).toBe(true);
+        }
+        expect(sealPrompts[0]).toContain(`PART 1 OF ${sealPrompts.length}`);
+        expect(result.divergences).toHaveLength(sealPrompts.length);
+        expect(new Set(result.divergences.map(d => d.sceneRef)).size).toBe(sealPrompts.length);
+        expect(Object.keys(result.sceneEventMap ?? {})).toHaveLength(sealPrompts.length);
+        expect(result.summary?.title).toBe('Merged');
+        expect(result.divergenceParseError).toBeUndefined();
+    });
+
+    it('joins the part summaries when the merge call fails, and keeps a failed part’s neighbours', async () => {
+        const scenes = ['051', '052', '053'].map(longScene);
+        let sealCalls = 0;
+        const modelCall = vi.fn(async ({ trackingLabel }: { prompt: string; trackingLabel: string }) => {
+            if (trackingLabel === 'chapter-seal-merge') throw new Error('timeout');
+            sealCalls++;
+            if (sealCalls === 1) throw new Error('timeout');
+            return makeSealJson(makeValidSummaryBlock({ title: `Part ${sealCalls}`, unresolvedThreads: [`thread ${sealCalls}`] }), {
+                divergences: { npc_events: [{ text: 'Aldric acted', sceneRef: '052', npcIds: ['npc_1'] }] },
+            });
+        });
+
+        const result = await sealChapterCombined(
+            undefined, scenes, CHAPTER_ID, 'Ch', scenes.map(s => s.sceneId), NPC_LEDGER, 0, 0, undefined, [], modelCall,
+        );
+
+        expect(result.divergences.length).toBeGreaterThan(0);
+        expect(result.divergenceParseError).toBe(true);
+        expect(result.summary).not.toBeNull();
+        expect(result.summary!.unresolvedThreads).toEqual([`thread ${sealCalls}`]);
+    });
+
+    it('lets a later part replace a state fact an earlier part set', async () => {
+        const scenes = ['051', '052', '053'].map(longScene);
+        const sceneIds = scenes.map(s => s.sceneId);
+        let firstFactId = '';
+        const modelCall = vi.fn(async ({ prompt, trackingLabel }: { prompt: string; trackingLabel: string }) => {
+            if (trackingLabel === 'chapter-seal-merge') return JSON.stringify(makeValidSummaryBlock());
+            const idMatch = /\[ID: (div_[^\]]+)\] \[STATE: item:key:holder\]/.exec(prompt);
+            if (!idMatch) {
+                return makeSealJson(makeValidSummaryBlock(), {
+                    divergences: { party_facts: [{ text: 'Aldric holds the key', sceneRef: '051', stateKey: 'item:key:holder' }] },
+                });
+            }
+            firstFactId = idMatch[1];
+            return makeSealJson(makeValidSummaryBlock(), {
+                divergences: { party_facts: [{ text: 'Morrigan holds the key', sceneRef: '053', stateKey: 'item:key:holder', supersedesFactId: idMatch[1] }] },
+            });
+        });
+
+        const result = await sealChapterCombined(
+            undefined, scenes, CHAPTER_ID, 'Ch', sceneIds, NPC_LEDGER, 0, 0, undefined, [], modelCall,
+        );
+
+        expect(firstFactId).not.toBe('');
+        expect(result.divergences[0].id).toBe(firstFactId);
+        expect(result.divergences.at(-1)?.supersedesFactId).toBe(firstFactId);
+    });
+});
