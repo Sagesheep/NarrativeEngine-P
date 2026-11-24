@@ -515,14 +515,11 @@ Your ruleset is automatically chunked and indexed. Each rule chunk gets AI-gener
 
 ## Security & Privacy
 
-- **Encrypted API key vault** — AES-256-GCM encryption, password-optional
-- **Machine-key mode** — no password needed, keys auto-unlock on your device
-- **Password mode** — PBKDF2 with 100K iterations for full lock-down
-- **Client-side encryption** — API keys are encrypted in the browser before they touch the server
+- **API keys stay on your device** — encrypted in the browser and never written to the game's data folder, so copying `data/` to another PC does not carry them (re-enter them there)
+- **Revoke leaked keys at the provider** — removing a key in Settings does not cancel it
 - **100% local vector search** — all semantic memory, lore queries, and embedding operations run locally via `@huggingface/transformers` (ONNX models) and `sqlite-vec`. No campaign text is sent to third-party vector providers
 - **Local relay for provider calls** — requests to your LLM can be routed through your own backend, so providers that reject browser-origin calls work without handing anything to a third party
 - All campaign data stored as local files — no database server, no cloud, no vendor lock-in
-- Export and import your vault for backups
 
 ---
 
@@ -581,7 +578,7 @@ Anything not yet translated falls back to English, so a partial translation is p
 
 | Path | What's in it |
 |---|---|
-| `data/` | Your campaigns, backups, settings, vault, embeddings — **never committed** |
+| `data/` | Your campaigns, backups, settings, embeddings — **never committed** |
 | `mods/` | Your installed extensions |
 | `Example_Setup/` | Ready-to-play worlds, rulesets and ability compendiums |
 | `docs/MODDING.md` | How to write an extension |

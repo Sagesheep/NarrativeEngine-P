@@ -25,7 +25,6 @@ import { PinnedMemoriesPanel } from './components/PinnedMemoriesPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import { IndexingSpeedPrompt } from './components/IndexingSpeedPrompt';
-import { VaultUnlockModal } from './components/VaultUnlockModal';
 import { WorldMapTravelBridge } from './components/WorldMapTravelBridge';
 import { hydrateCampaign } from './store/campaignHydrator';
 import { useRulesIndexer } from './hooks/useRulesIndexer';
@@ -40,37 +39,11 @@ export default function App() {
   useFlushSavesOnExit();
   const settingsLoaded = useAppStore((s) => s.settingsLoaded);
   const loadSettings = useAppStore((s) => s.loadSettings);
-  const vaultStatus = useAppStore((s) => s.vaultStatus);
-  const checkVaultStatus = useAppStore((s) => s.checkVaultStatus);
-  const unlockVaultWithRemembered = useAppStore((s) => s.unlockVaultWithRemembered);
-  const unlockVault = useAppStore((s) => s.unlockVault);
-  const resetVault = useAppStore((s) => s.resetVault);
   const pinnedMemoriesOpen = useAppStore((s) => s.pinnedMemoriesOpen);
   const closePinnedMemories = useAppStore((s) => s.closePinnedMemories);
 
   // True once campaign state has been hydrated into Zustand (or there's no campaign to hydrate)
   const [campaignLoaded, setCampaignLoaded] = useState(false);
-  const [isCheckingVault, setIsCheckingVault] = useState(false);
-
-  // Initial load: check vault status after settings load
-  useEffect(() => {
-    if (!settingsLoaded) return;
-    
-    const checkVault = async () => {
-      setIsCheckingVault(true);
-      await checkVaultStatus();
-      setIsCheckingVault(false);
-    };
-    
-    checkVault();
-  }, [settingsLoaded, checkVaultStatus]);
-
-  // Try to unlock with remembered key if vault exists and has remembered key
-  useEffect(() => {
-    if (vaultStatus?.exists && vaultStatus?.hasRemember && !vaultStatus?.unlocked && !isCheckingVault) {
-      unlockVaultWithRemembered();
-    }
-  }, [vaultStatus, unlockVaultWithRemembered, isCheckingVault]);
 
   useEffect(() => {
     loadSettings();
@@ -140,8 +113,8 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsLoaded]);
 
-  // Show loading while checking vault or settings
-  if (!settingsLoaded || isCheckingVault) {
+  // Show loading while settings load
+  if (!settingsLoaded) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-950 text-gray-400">
         <div className="text-lg animate-pulse">Loading…</div>
@@ -149,26 +122,7 @@ export default function App() {
     );
   }
 
-  // Show vault unlock if vault exists but is locked and no remembered key
-  if (vaultStatus && vaultStatus.exists && !vaultStatus.unlocked && !vaultStatus.hasRemember) {
-    return (
-      <div className="min-h-screen bg-void">
-        <VaultUnlockModal
-          onUnlock={async (password, remember) => {
-            return await unlockVault(password, remember);
-          }}
-          onUseMachineKey={async () => {
-            // Machine key mode - unlock with null password
-            return await unlockVault('', false);
-          }}
-          onResetVault={resetVault}
-          hasRememberedKey={false}
-        />
-      </div>
-    );
-  }
-
-  // If campaign is still loading (but vault is ready), show loading
+  // If campaign is still loading, show loading
   if (!campaignLoaded && activeCampaignId) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-950 text-gray-400">

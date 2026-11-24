@@ -31,4 +31,4 @@
 - **State Management**: Central Zustand store (`src/store/useAppStore.ts`) combining slices for settings, campaigns, chat, and UI. Avoid ad-hoc state managers.
 - **Turn Orchestration**: The main game loop flows through `src/services/turn/turnOrchestrator.ts` (`runTurn()`). Swiping and swipe-commit lifecycles are staged in `src/services/turn/pendingCommit.ts`.
 - **Database & Storage**: JSON file store per campaign in `data/`, indexed by SQLite vector database (`data/embeddings.db`) using `sqlite-vec` for local semantic recall.
-- **Encryption**: Application settings presets and keys are encrypted via AES-256-GCM using `KeyVault` (`server/vault.js`).
+- **API keys**: stored only in the browser (IndexedDB `nn_settings`), encrypted with AES-GCM via `src/services/infrastructure/settingsCrypto.ts`. The server blanks every `apiKey` before writing `data/settings.json` (`stripApiKeys` in `server/routes/settings.js`). There is no server-side key vault.

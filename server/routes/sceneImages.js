@@ -7,39 +7,20 @@ import { serverError } from '../lib/serverError.js';
 import { composeSceneImagePrompt } from '../services/sceneImageComposerService.js';
 import { generateSceneImage, generateComfyImageDataUri, getCampaignSceneImagesDir } from '../services/imageProvider.js';
 
-export function createSceneImagesRouter(vault) {
+export function createSceneImagesRouter() {
     const router = Router();
-
-    const getSettings = () => {
-        const settings = readJson(SETTINGS_FILE, {});
-        let keys = {};
-        try {
-            if (vault && typeof vault.getKeys === 'function') {
-                keys = vault.getKeys() || {};
-            }
-        } catch {
-            keys = {};
-        }
-        return { settings, keys };
-    };
 
     const getActiveStoryConfig = (overrideConfig) => {
         if (overrideConfig && overrideConfig.endpoint) {
             return overrideConfig;
         }
 
-        const { settings } = getSettings();
-        let vaultData = null;
-        try {
-            if (vault && typeof vault.isUnlocked === 'function' && vault.isUnlocked()) {
-                vaultData = vault.getData();
-            }
-        } catch {
-            vaultData = null;
-        }
-
-        const presets = vaultData?.presets?.length ? vaultData.presets : (settings.presets || []);
-        const providers = vaultData?.providers?.length ? vaultData.providers : (settings.providers || []);
+        // The client normally sends its own config (keys live only in the browser).
+        // This fallback reads settings.json, whose apiKeys are blanked, so it only
+        // serves keyless local endpoints such as ComfyUI.
+        const settings = readJson(SETTINGS_FILE, {});
+        const presets = settings.presets || [];
+        const providers = settings.providers || [];
 
         const activePresetId = settings.activePresetId;
         const activePreset = presets.find(p => p.id === activePresetId) || presets[0];
@@ -69,18 +50,12 @@ export function createSceneImagesRouter(vault) {
             return overrideConfig;
         }
 
-        const { settings } = getSettings();
-        let vaultData = null;
-        try {
-            if (vault && typeof vault.isUnlocked === 'function' && vault.isUnlocked()) {
-                vaultData = vault.getData();
-            }
-        } catch {
-            vaultData = null;
-        }
-
-        const presets = vaultData?.presets?.length ? vaultData.presets : (settings.presets || []);
-        const providers = vaultData?.providers?.length ? vaultData.providers : (settings.providers || []);
+        // The client normally sends its own config (keys live only in the browser).
+        // This fallback reads settings.json, whose apiKeys are blanked, so it only
+        // serves keyless local endpoints such as ComfyUI.
+        const settings = readJson(SETTINGS_FILE, {});
+        const presets = settings.presets || [];
+        const providers = settings.providers || [];
 
         const activePresetId = settings.activePresetId;
         const activePreset = presets.find(p => p.id === activePresetId) || presets[0];

@@ -1,8 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { KeyVault } from './server/vault.js';
 import { DATA_DIR, PUBLIC_ASSETS_DIR, MODS_DIR, BUNDLED_MODS_DIR, APP_VERSION, ensureDirs } from './server/lib/fileStore.js';
-import { createVaultRouter } from './server/routes/vault.js';
 import { createSettingsRouter } from './server/routes/settings.js';
 import { createCampaignsRouter } from './server/routes/campaigns.js';
 import { createArchiveRouter } from './server/routes/archive.js';
@@ -35,25 +33,7 @@ import { createHostGuard, createFetchSiteGuard } from './server/lib/requestGuard
 const app = express();
 const PORT = 3001;
 
-// Initialize vault
-const vault = new KeyVault(DATA_DIR);
 ensureDirs();
-
-// Auto-initialize vault with machine key if it doesn't exist
-if (!vault.exists()) {
-    vault.create({ presets: [] }, null);
-    console.log('[Vault] Auto-created with machine key');
-}
-// Auto-unlock machine-key vaults on startup
-if (!vault.isUnlocked()) {
-    try {
-        vault.unlock(null);
-        console.log('[Vault] Auto-unlocked with machine key');
-    } catch (e) {
-        // Password-protected vault — frontend will prompt for password
-        console.log('[Vault] Password-protected vault, manual unlock required');
-    }
-}
 
 // ─── Middleware ───
 // The API has no authentication, so "who can reach it" is the whole access
@@ -73,7 +53,7 @@ if (!vault.isUnlocked()) {
 //   - 'null', ONLY under Electron: its production build loads the frontend via
 //     file://, which the browser reports as origin "null". Outside Electron
 //     that same "null" is what a sandboxed <iframe> on any website sends, and
-//     allowlisting it unconditionally let every web page read /api/vault/keys.
+//     allowlisting it unconditionally let every web page read the local API.
 //   - $ALLOWED_ORIGINS (comma-separated) for operators hosting the frontend
 //     elsewhere.
 const BIND_HOST = process.env.HOST || '127.0.0.1';
@@ -131,7 +111,6 @@ warmupEmbedder().catch(err => console.error('[Embedder] Warmup failed:', err.mes
 warmupTts().catch(err => console.error('[TTS] Warmup failed:', err.message));
 
 // ─── Routes ───
-app.use(createVaultRouter(vault));
 app.use(createSettingsRouter());
 app.use(createCampaignsRouter());
 app.use(createArchiveRouter());
@@ -147,7 +126,7 @@ app.use(createRulesRouter());
 app.use(createLLMProxyRouter());
 app.use(createEmbeddingRouter());
 app.use(createTtsRouter());
-app.use(createSceneImagesRouter(vault));
+app.use(createSceneImagesRouter());
 app.use('/api/mods', createModsRouter({ modsDir: MODS_DIR, appVersion: APP_VERSION, bundledModsDir: BUNDLED_MODS_DIR }));
 
 // Phase 6.4 — register mod tables ONCE AT BOOT, not only as a side effect of

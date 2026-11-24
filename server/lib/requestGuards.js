@@ -8,7 +8,7 @@ import net from 'net';
  * and the CORS allowlist stops neither:
  *
  *  1. Cross-site requests. A page on any site can auto-submit a form at
- *     `http://127.0.0.1:3001/api/vault/reset` (CORS only stops the page from
+ *     `http://127.0.0.1:3001/api/settings` (CORS only stops the page from
  *     READING the reply, the request still lands), and it can wrap the API in
  *     a sandboxed <iframe>, whose origin the browser reports as the string
  *     "null". Browsers stamp every such request with

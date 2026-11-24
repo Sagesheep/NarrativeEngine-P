@@ -6,7 +6,7 @@ import { wrapAsync } from '../lib/asyncHandler.js';
  * Blank every `apiKey` string anywhere in the payload before it reaches disk.
  *
  * settings.json is plaintext. Keys belong in the browser (encrypted in
- * IndexedDB) and in the vault, never here. This used to blank only the three
+ * IndexedDB), never here. This used to blank only the three
  * legacy per-preset sections, so every key on the newer `settings.providers[]`
  * model was written to disk in the clear. Walking the whole object means a
  * future settings shape cannot reopen the hole.

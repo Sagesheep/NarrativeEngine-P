@@ -38,7 +38,7 @@ of bundled mods (worldmap, enemies, arc) that were previously hard-coded feature
                                        |
                 +----------------------v----------------------+
                 |                server.js (151 lines)          |
-                | KeyVault auto-init → ensureDirs → initDb →   |
+                | ensureDirs → initDb →                        |
                 | registerLocationTable → warmupEmbedder →    |
                 | warmupTts → mount 18 routers + generic +    |
                 | mod-table routes → listen 127.0.0.1:3001     |
@@ -118,7 +118,7 @@ directory under `src/services/` (or `server/`) with co-located or `__tests__/` t
 | **Vision & Scene Images** | `src/services/vision/` + `src/services/scene-images/` | `describeImage.ts`, `imageSource.ts`, `visionRequest.ts` + `sceneImageContextGatherer.ts`, `sceneImagesClient.ts` | Multimodal image description; scene illustration generation (ComfyUI/OpenAI-compatible/OpenRouter) |
 | **TTS** | `src/services/tts/` | `kokoroBuffer.ts`, `proseStripper.ts`, `ttsClient.ts`, `useTtsStatus.ts` | Chunked Kokoro playback, karaoke highlighting, prose stripping |
 | **Infrastructure** | `src/services/infrastructure/` | `backgroundQueue.ts`, `jsonExtract.ts`, `tokenizer.ts`, `settingsCrypto.ts`, `assetService.ts` | Background task queue, robust JSON extraction, AES-GCM settings crypto |
-| **Server Backend** | `server/` | `server.js`, `vault.js`, `lib/` (16 files), `routes/` (18 files), `services/` (12 files) | Express app, KeyVault, vector store, embedder, NLP, mods loader, table registry, routes, archive service, image providers |
+| **Server Backend** | `server/` | `server.js`, `lib/` (16 files), `routes/` (18 files), `services/` (12 files) | Express app, vector store, embedder, NLP, mods loader, table registry, routes, archive service, image providers |
 | **State Store** | `src/store/` | `useAppStore.ts`, `campaignStore.ts`, `campaignHydrator.ts`, `relationshipMemoryState.ts`, `relationshipMemoryStore.ts`, `slices/` (7 slice files) | Zustand composition root + 6 slices + hydration orchestrator + relationship-memory persistence seam |
 | **UI Components** | `src/components/` | 18 subdirectories + root files (197 files: block-view, character, chat, context-drawer, header, hooks, icons, inventory, location-ledger, map, message, npc-ledger, ooc, panels, primitives, rail, settings-modal, tts, `__tests__`) | All React components, hooks, modals, mod panel renderers |
 | **Shared Engine** | `packages/engine/` | `src/{json,loot,retrieval,rolls,npc,panels,tables,mods,roles}/` | Platform-pure shared core consumed by both mainApp and mobileApp |
@@ -217,12 +217,6 @@ When modifying core files, consult this matrix to trace downstream effects.
 |                                            | - transfer.js bundle export     | - Campaign import/export  |
 |                                            | - src/services/tables           |   drops tables            |
 +--------------------------------------------+----------------------------------+----------------------------+
-| server/vault.js                            | - server/routes/vault.js        | - Settings unlock fails   |
-| (AES-256-GCM, PBKDF2, NEV1 binary format)  | - server/routes/settings.js     | - API keys lost           |
-|                                            | - src/store/slices/settingsSlice| - .nevault import/export  |
-|                                            | - src/services/infrastructure/  |   fails                   |
-|                                            |   settingsCrypto.ts             | - sceneImages key fetch   |
-+--------------------------------------------+----------------------------------+----------------------------+
 | src/store/slices/campaignSlice.ts          | - src/store/useAppStore.ts      | - UI render loop breaks   |
 | (814 lines; Zustand campaign state)       | - all ledger modals             | - Campaign hydration      |
 |                                            | - src/components/ChatArea.tsx   |   fails on reload         |
@@ -284,7 +278,7 @@ When modifying core files, consult this matrix to trace downstream effects.
 1. **`server/lib/vectorStore.js`** (405 lines) — sqlite-vec schema, MMR algorithm, embedding versioning. A schema change without a migration path breaks `data/embeddings.db` and prevents campaigns from loading. The per-type `EMBEDDING_VERSIONS` (`{ scene: 2, lore: 1, rule: 1 }`) + `embedding_meta` table are the migration seam: bumping a type marks its vectors stale (excluded from search, flagged by the re-index banner) until Re-index rebuilds them.
 2. **`server/lib/modLoader.js`** (1,990 lines, largest file in the repo) — manifest validation, sandbox trust, table/panel/screen/tier declarations. Faults (never throws) but a bad change takes down ALL mods at boot, including bundled worldmap/enemies/arc.
 3. **`server/lib/tableRegistry.js`** (375 lines) — descriptor schema + both dynamic route mounts. Breaks `locations` (the one built-in table), all mod tables, and transfer bundling.
-4. **`server/vault.js`** (394 lines) — custom binary format with magic bytes `NEV1`. Any change to the IV/ciphertext/tag layout breaks every existing `.nevault` file. PBKDF2 iteration counts re-derive keys. Includes `archiveForRecovery()` reset path.
+4. **`src/services/infrastructure/settingsCrypto.ts`** — encrypts API keys in IndexedDB with a per-browser AES-GCM key. Changing the `enc:` format or the device-key slot makes every stored key unreadable, and users must re-enter them.
 5. **`src/store/slices/campaignSlice.ts`** (814 lines) — exports `debouncedSaveCampaignState` consumed by chatSlice; registers the live-state getter used by all debounced saves. Renaming or removing any export breaks the save pipeline.
 6. **`src/services/turn/pendingCommit.ts`** (703 lines) — owns the in-memory `PendingTurnSnapshot` singleton plus durable-commit persistence and single-flight commit. The snapshot invariant (importance rater must NEVER see next-turn messages) is load-bearing. Launch reconciliation + `retryFailedCommits()` sweep handle renderer death mid-browse.
 7. **`src/services/payload/payloadBuilder.ts`** (394 lines) — Anthropic prompt-cache `cache_control: ephemeral` placement is exactly tuned. Moving stable/divergence/pinned blocks out of the cached prefix, or letting contributions write above the cache boundary, busts every cached turn.
@@ -341,7 +335,7 @@ Largest test files: `server/__tests__/modLoader.test.js` (1,546 lines), `src/ser
 | "How does the travel system work?" | `src/services/turn/travelState.ts` (396 lines) + `travelPress.ts` + `departureComposer.ts` + `src/services/location/` |
 | "How does Absolute Command work?" | `src/services/turn/absoluteCommand.ts` (binding OOC block, placed last, suppresses director layer) |
 | "How does TTS work?" | `server/lib/tts.js` (209 lines, Kokoro-82M q8) + `src/components/tts/TtsPlaybackPanel.tsx` |
-| "How does the vault work?" | `server/vault.js` (394 lines, AES-256-GCM, PBKDF2) |
+| "Where are API keys stored?" | `src/services/infrastructure/settingsCrypto.ts` (browser IndexedDB, AES-GCM); server strips keys in `server/routes/settings.js` |
 | "What are the system rules?" | `src/services/rules/defaultRules.ts` (134-line template literal) |
 | "What data does the store hold?" | `src/store/slices/` (7 slice files, see `useAppStore.ts`) |
 | "How are NPCs detected?" | `src/services/npc/npcDetector.ts` (261 lines, multi-pass + LLM fail-closed validator) |
@@ -390,7 +384,7 @@ This codebase includes a custom parsing script to build interactive dependency g
 - **Turn Orchestration**: The main game loop flows through `runTurn()` in `turnOrchestrator.ts` → 9 named stages in `turnStages.ts`. Swiping and swipe-commit lifecycles are staged in `pendingCommit.ts` (single-flight `commitPendingTurn`, durable-commit persistence). The `PendingTurnSnapshot` freezes messages + cached payload + TurnContext at swipe-1 completion so the importance rater never sees next-turn messages.
 - **Post-Turn Tracks**: `postTurnPipeline.ts` runs prologue tracks, `Promise.allSettled` post-turn tracks (npc, pressure + mod-registered compute tracks like `mod.arc.compute`), sequential tracks (agency, locationHeader, onStage, repression), then 9 post-commit tracks. Tracks live in `src/services/turn/tracks/` and mods register their own.
 - **Database & Storage**: JSON file store per campaign in `data/campaigns/<id>/`, indexed by SQLite vector database (`data/embeddings.db`) using `sqlite-vec` for local semantic recall. Three vec0 virtual tables: `archive_vss`, `lore_vss`, `rules_vss` (all cosine distance). Embedding version tracked in `embedding_meta` table. Mod tables stored as `<id>.mod-<modId>-<table>.json` via the table registry.
-- **Encryption**: Application settings presets and keys are encrypted via AES-256-GCM using `KeyVault` (`server/vault.js`). Custom binary format with magic bytes `NEV1`. PBKDF2-SHA256 with 600,000 iterations for password-derived keys, 10,000 for machine-bound keys. Atomic writes via `*.tmp` + `fs.renameSync`.
+- **API keys**: stored only in the browser (IndexedDB `nn_settings`), encrypted with AES-GCM via `src/services/infrastructure/settingsCrypto.ts`. The server blanks every `apiKey` before writing `data/settings.json` (`stripApiKeys` in `server/routes/settings.js`). There is no server-side key vault.
 - **Cache Discipline**: Anthropic prompt-cache `cache_control: ephemeral` placed on stable/divergence/pinned + last history message. Volatile + RAG rules + user message ride BELOW the cache boundary. Budgets computed via the `budgetClaims.ts` registry: rules 10% default, NPC 5% guaranteed floor, stable 15% (deep) / 25%, world 60% (deep) / 40% minus NPC floor, volatile 10%.
 - **Mod Platform Discipline**: `mods/<mod-id>/manifest.json` folder manifests are validated by `server/lib/modLoader.js` (never throws — faults instead; flat `*.mod.json` files are rejected as legacy). Compute code runs in a worker sandbox (`src/services/mods/sandbox/`) with capability-scoped table/context access. Mod-declared ids are namespace-qualified (`mod.<modId>.<name>`). The base app must run with zero mods (`test:base-app-gate`).
 - **Engine Purity**: `packages/engine/` enforces platform purity via `boundary-gate.mjs` (rejects `react`, `react-dom`, `zustand`, `@capacitor*`, `idb-keyval`, `better-sqlite3`, `express`, `node:*`). Run as engine `pretest` hook.
@@ -585,7 +579,6 @@ Key library files:
 - **`server/lib/nlp.js`** (361 lines): NPC name detection (6 numbered passes server-side), `estimateImportance` (base 3, +3 death, +2 MEMORABLE, clamped 1–10), `extractWitnessesHeuristic`, 5 timeline regex predicates, `extractIndexKeywords` (cap 20).
 - **`server/lib/entityResolution.js`** (52 lines): 3-tier normalization (exact → substring → Levenshtein, threshold 2/3 by length).
 - **`server/lib/tts.js`** (209 lines): Kokoro-82M q8, `DEFAULT_VOICE='af_heart'`, SHA-256 WAV cache. Warmup is a no-op if model not cached. ASAR workaround sets cache env before dynamic import.
-- **`server/vault.js`** (394 lines): `MAGIC='NEV1'`, AES-256-GCM, PBKDF2 600k/10k. Format `[4B magic][4B ct len][12B IV][ct][16B tag][optional 16B salt]`. Atomic `*.tmp` + rename. `archiveForRecovery()` reversible reset.
 
 Key service files:
 - **`server/services/archiveService.js`** (978 lines, 20 exports): `appendScene` (6 NLP heuristics inline, fire-and-forget embed), `rollbackScenesFrom`, `deleteScene`, `updateSceneAssistant`, `archiveSemanticCandidates` (`{pending:true}` short-circuit), `reindexEmbeddings`, `previewRefitChapters`/`refitChapters`.
@@ -597,7 +590,7 @@ Key service files:
 - **`server/services/vectorService.js`** (137 lines): thin wrapper over vectorStore + embedder.
 - **`server/services/embeddingModelService.js`**: embedding model switch (`GET/POST /api/embedding/model`): download with progress → `setActiveModel` → `initDb` (stored `embeddingModelId` differs → tables rebuilt, all embeddings stale) → background re-index of every campaign (scenes, lore, rules). Failed/offline download leaves the current model. `embeddingDims`/`embeddingModelId`/`embeddingModelKey` are server-owned: `PUT /api/settings` keeps them from disk.
 
-Routes: **18 bespoke routers** mounted in `server.js` (vault, settings, campaigns, archive, chapters, timeline, facts, backups, assets, overworld, transfer, divergence, rules, llmProxy, embedding, tts, sceneImages, mods) + 2 registry-driven mounts (generic tables, mod tables) = 96 bespoke endpoints + 5 dynamic. See `ARCHITECTURE.md` § API Route Table.
+Routes: **17 bespoke routers** mounted in `server.js` (settings, campaigns, archive, chapters, timeline, facts, backups, assets, overworld, transfer, divergence, rules, llmProxy, embedding, tts, sceneImages, mods) + 2 registry-driven mounts (generic tables, mod tables) = 96 bespoke endpoints + 5 dynamic. See `ARCHITECTURE.md` § API Route Table.
 
 ### 9.7 Zustand Store (`src/store/`)
 
@@ -605,7 +598,7 @@ Routes: **18 bespoke routers** mounted in `server.js` (vault, settings, campaign
 
 | Slice | Persistence | Key State |
 |---|---|---|
-| `settingsSlice` (458 lines) | IndexedDB (`nn_settings`, providers encrypted) + server `PUT /settings` (500ms debounce) | `settings` (47 fields incl. 7 legacy migration-only), `vaultStatus`, 7 endpoint getters (story/image/summarizer/utility/auxiliary/vision) |
+| `settingsSlice` (458 lines) | IndexedDB (`nn_settings`, providers encrypted) + server `PUT /settings` (500ms debounce) | `settings` (47 fields incl. 7 legacy migration-only), 7 endpoint getters (story/image/summarizer/utility/auxiliary/vision) |
 | `campaignSlice` (814 lines) | Server-only (4 debounced saves, 1s debounce) | `activeCampaignId`, ledgers (npc/location), suggestions, `archiveIndex`, `chapters`, `timeline`, `entities`, `semanticFacts`, `pinnedChapterIds`, mod tables, `context` (~65 fields), `inventoryItems`, `characterProfileData`, relationship memory collections, bookkeeping counters |
 | `chatSlice` (616 lines) | Via shared `debouncedSaveCampaignState` | `messages` (with attachments), `isStreaming`, `condenser`, `divergenceRegister` (18 actions), `pinnedExcerpts`, rename modal |
 | `uiSlice` (182 lines) | Ephemeral (no persistence) | 16 boolean toggles + `pipelinePhase`, `streamingStats`, `contextScreen` (sys/world/eng/chpt/mem), armed roll/loot/oneshot/absoluteCommand, `composerInjection`, scene-image draft |
@@ -629,7 +622,7 @@ Non-slice store files: `relationshipMemoryState.ts` (narrow read/write seam so s
 
 **18 subdirectories + root files; 197 files (153 source + 44 tests).** Key surfaces:
 
-- **`src/App.tsx`** (221 lines): Vault-gate (loading → VaultUnlockModal → campaign-loading → main), ErrorBoundary wrappers, dynamic `import('./services/turn/pendingCommit')` for crash reconcile. Main branch mounts: Header, ContextNavigationDrawer, ChatArea, ChatRightRail, WindowManager (mod floating windows), WorldMapTravelBridge, SettingsModal, NPCLedgerModal, CharacterLedgerModal, LocationLedgerModal, BlockViewModal, BackupModal, LoreCheckModal, DivergenceReviewModal, CreateTroubleModal, RenameNpcModal, PinnedMemoriesPanel, Toast, IndexingSpeedPrompt.
+- **`src/App.tsx`** (221 lines): Load gate (settings loading → campaign-loading → main), ErrorBoundary wrappers, dynamic `import('./services/turn/pendingCommit')` for crash reconcile. Main branch mounts: Header, ContextNavigationDrawer, ChatArea, ChatRightRail, WindowManager (mod floating windows), WorldMapTravelBridge, SettingsModal, NPCLedgerModal, CharacterLedgerModal, LocationLedgerModal, BlockViewModal, BackupModal, LoreCheckModal, DivergenceReviewModal, CreateTroubleModal, RenameNpcModal, PinnedMemoriesPanel, Toast, IndexingSpeedPrompt.
 - **`ChatArea.tsx`** (398 lines): wires `useSwipeVariants`/`useSceneContinue`/`useRetryStoryAI`/`useCondenser`/`useChapterSealing`/`useMessageEditor`/`useChatOperations`/`useChatAttachment` (vision staging). Renders scene-note banner, SelectionActionsMenu, ChatMessageList, ChatActionStrip, IndexingBanner, ArmedAskGmNote, InventoryStagingBar, ChatComposer, AskGmPanel, ChatNavFabs, LootRollModal, DiceRollModal, SceneImageModal, PcPromptModal, RegenerateSheet.
 - **`ContextDrawer.tsx`** (91 lines) is a legacy shim re-exporting **`ContextNavigationDrawer.tsx`** (213 lines): 5 context screens (System Context w/ merged Rules Manager, World Info, Engine Tuning, Chapters, Memory) + nav groups (Story / World / Play / Mods) with leaf links (NPCs, Places, Character, Pinned, Blocks, Backups, Mods).
 - **`SettingsModal.tsx`** (98 lines): **6 tabs** (providers, presets, global, extensions, advanced, debug). ExtensionsTab (1,103 lines — mod enable/disable, load order, mod data, native trust, mod panels/screens) is the mod management surface.

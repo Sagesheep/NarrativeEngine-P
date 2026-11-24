@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store/useAppStore';
-import { VaultSection } from './VaultSection';
+import { KeyStorageNote } from './KeyStorageNote';
 import { LanguageSection } from './LanguageSection';
 import { BackgroundControl } from '../BackgroundControl';
 import { StoryTextColors } from '../chat/StoryTextColors';
@@ -753,9 +753,9 @@ export function GlobalSettingsTab() {
       <div data-ui="settings-section" data-group="security" data-active={activeGroup === 'security' ? 'true' : undefined} className="contents">
       <h4 data-ui="settings-group" className="hidden">Security</h4>
 
-      {/* Vault Export/Import */}
+      {/* Where API keys are stored */}
       <div className="md:col-span-2">
-        <VaultSection />
+        <KeyStorageNote />
       </div>
       </div>
       </div>
