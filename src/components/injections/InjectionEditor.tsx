@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp, Copy, Plus, Trash2, MessageSquare, ArrowRight } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
-import type { InjectionTrigger, PromptInjection } from '../../types';
+import type { InjectionTarget, InjectionTrigger, PromptInjection } from '../../types';
 import type { OpenAIMessage } from '../../services/llm/llmService';
-import { INJECTION_TRIGGERS, normalizeInjections, planInjections } from '../../services/payload/promptInjections';
+import { INJECTION_TARGETS, INJECTION_TRIGGERS, injectionTargetOf, normalizeInjections, planInjections } from '../../services/payload/promptInjections';
 import { uid } from '../../utils/uid';
+import { injectionSummary, targetHelp, targetLabels } from './injectionLabels';
 
 const inputClass = 'w-full rounded-xl border border-border bg-void px-3 py-2.5 text-sm text-text-primary outline-none focus:border-terminal focus:ring-1 focus:ring-terminal/30';
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-text-secondary hover:border-terminal hover:text-terminal disabled:opacity-30 disabled:pointer-events-none';
@@ -31,6 +32,7 @@ export function InjectionEditor() {
     const preset = settings.presets.find(p => p.id === settings.activePresetId) ?? settings.presets[0];
     const items = normalizeInjections(campaignInjections);
     const selected = items.find(item => item.id === selectedId) ?? items[0];
+    const isStory = !selected || injectionTargetOf(selected) === 'story';
     const provider = settings.providers.find(p => p.id === preset?.storyAIProviderId);
     const format = provider?.apiFormat ?? 'openai';
     const placements = planInjections(example, items, previewTrigger, format);
@@ -72,7 +74,7 @@ export function InjectionEditor() {
                             <input type="checkbox" role="switch" aria-label={`Enable ${item.name}`} checked={item.enabled} onChange={event => patch(item.id, { enabled: event.target.checked })} className="mt-1 accent-terminal" />
                             <button className="min-w-0 flex-1 text-left" onClick={() => setSelectedId(item.id)}>
                                 <span className={`block truncate text-sm font-medium ${item.enabled ? '' : 'text-text-dim'}`}>{item.name || 'Untitled injection'}</span>
-                                <span className={`mt-1 block text-[10px] uppercase tracking-wider ${roleColor[item.mode === 'message' ? item.role : 'assistant']}`}>{item.mode === 'message' ? `${item.role} · depth ${item.depth}` : item.mode === 'reasoning' ? 'Reasoning prefill' : 'Assistant prefill'}</span>
+                                <span className={`mt-1 block text-[10px] uppercase tracking-wider ${injectionTargetOf(item) !== 'story' ? 'text-terminal' : roleColor[item.mode === 'message' ? item.role : 'assistant']}`}>{injectionSummary(item)}</span>
                                 <span className="mt-2 block truncate text-xs text-text-dim">{item.content.trim() || 'Empty · not sent'}</span>
                             </button>
                         </div>)}
@@ -102,9 +104,18 @@ export function InjectionEditor() {
                     </div>
                     <div className="space-y-6 p-5">
                         <label className="block text-xs text-text-dim">Name<input aria-label="Injection name" className={inputClass + ' mt-2'} value={selected.name} onChange={event => patch(selected.id, { name: event.target.value })} placeholder="e.g. Keep the tension rising" /></label>
-                        <label className="block text-xs text-text-dim">Message content
+                        <div>
+                            <label className="block text-xs text-text-dim">Sends to
+                                <select aria-label="Injection target" className={inputClass + ' mt-2'} value={injectionTargetOf(selected)} onChange={event => patch(selected.id, { target: event.target.value as InjectionTarget })}>
+                                    {INJECTION_TARGETS.map(target => <option key={target} value={target}>{targetLabels[target]}</option>)}
+                                </select>
+                            </label>
+                            <p className="mt-2 text-xs leading-relaxed text-text-dim">{targetHelp[injectionTargetOf(selected)]}</p>
+                        </div>
+                        <label className="block text-xs text-text-dim">{isStory ? 'Message content' : 'Guidance text'}
                             <textarea aria-label="Injection content" className={inputClass + ' mt-2 min-h-40 resize-y font-mono leading-relaxed'} value={selected.content} onChange={event => patch(selected.id, { content: event.target.value })} placeholder="Write the exact text you want the model to receive…" />
                         </label>
+                        {isStory && <>
                         <div>
                             <label className="block text-xs text-text-dim">Insert as
                                 <select aria-label="Injection mode" className={inputClass + ' mt-2'} value={selected.mode} onChange={event => patch(selected.id, { mode: event.target.value as PromptInjection['mode'] })}>
@@ -125,6 +136,8 @@ export function InjectionEditor() {
                             {INJECTION_TRIGGERS.map(trigger => <button key={trigger} aria-pressed={selected.triggers.includes(trigger)} className={buttonClass + (selected.triggers.includes(trigger) ? ' !border-terminal/50 !text-terminal bg-terminal/5' : '')} onClick={() => patch(selected.id, { triggers: selected.triggers.includes(trigger) ? selected.triggers.filter(t => t !== trigger) : [...selected.triggers, trigger] })}>{triggerLabels[trigger]}</button>)}
                         </div>{!selected.triggers.length && <p className="mt-2 text-xs text-amber-500">No triggers selected — this injection will not be sent.</p>}</fieldset>
                         <p className="text-xs leading-relaxed text-text-dim">Card order breaks ties at the same depth. Prefills come last. Injections stay out of saved chat history.</p>
+                        </>}
+                        {!isStory && <div className="flex items-center gap-2 rounded-xl bg-terminal/5 px-3 py-2.5 text-xs text-terminal"><ArrowRight size={14} />Before the {targetLabels[injectionTargetOf(selected)]}'s answer format · cards in list order</div>}
                     </div>
                 </div> : <div className="flex min-h-96 flex-col items-center justify-center rounded-2xl border border-dashed border-border p-8 text-center">
                     <MessageSquare className="mb-5 text-terminal" size={32} /><h3 className="text-lg font-medium">No injections yet</h3>

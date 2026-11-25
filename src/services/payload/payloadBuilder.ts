@@ -1,4 +1,4 @@
-import { normalizeInjections, injectionText } from './promptInjections';
+import { reservedStoryInjections, injectionText } from './promptInjections';
 import { countTokens } from '../infrastructure/tokenizer';
 import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry, RelationshipStance } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
@@ -183,8 +183,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         engineCombatActive,
     } = options;
     const isDebug = settings.debugMode === true;
-    const injectionReserve = normalizeInjections(context.promptInjections)
-        .filter(item => item.enabled && item.content.trim() && item.triggers.length > 0)
+    const injectionReserve = reservedStoryInjections(context.promptInjections)
         .reduce((sum, item) => sum + countTokens(injectionText(item)) + 8, 0);
     const limit = Math.max(1, (settings.contextLimit || 8192) - injectionReserve);
     const collector = createTraceCollector(isDebug);

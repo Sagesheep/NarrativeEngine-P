@@ -221,7 +221,7 @@ export function renderDirectorPrompt(input: {
     npcSummary: string;
     recentEvents: string;
     worldFacts?: string[];
-    /** Rendered mod/player addenda (`renderPromptAddenda('director', …)`). Empty = none. */
+    /** Rendered helper-injection cards (`renderHelperInjections('director', …)`). Empty = none. */
     addenda?: string;
 }): string {
     // Addenda go in BEFORE the slots are filled, so a player message that happens
@@ -311,8 +311,8 @@ export interface DirectorBriefInput {
      * against. Rendered verbatim into VERIFIED FACTS. Generic by design — travel
      * is the first caller, not the only one. */
     worldFacts?: string[];
-    /** Rendered mod/player addenda (`renderPromptAddenda('director', …)`). Part
-     *  of the cache key: editing a note or muting a mod re-runs the Director. */
+    /** Rendered helper-injection cards (`renderHelperInjections('director', …)`). Part
+     *  of the cache key: editing or toggling a card re-runs the Director. */
     addenda?: string;
     /** Campaign id for the once-per-input cache key. */
     campaignId: string | null;

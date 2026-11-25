@@ -116,7 +116,7 @@ export async function recommendContext(
     // The `recommenderThinking` block. Off by default: on DS v4 Flash, thinking took
     // each pick from ~1 s to ~20 s and chose no better (Turn Prep Experiment).
     thinking = false,
-    // Rendered mod/player addenda (`renderPromptAddenda('recommender', …)`). Placed
+    // Rendered helper-injection cards (`renderHelperInjections('recommender', …)`). Placed
     // after the indexes and conversation, before the closing JSON instruction.
     addenda = '',
 ): Promise<RecommenderResult> {

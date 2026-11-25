@@ -2,7 +2,7 @@ import type { ArchiveChapter } from '../../types';
 import type { TurnState } from '../turn/turnOrchestrator';
 import { recommendContext } from '../turn/contextRecommender';
 import { isBlockEnabled } from '../turn/blockEnablement';
-import { renderPromptAddenda } from '../turn/promptAddenda';
+import { renderHelperInjections } from '../turn/promptAddenda';
 import { hasHostModelRole, type HostFacade } from '../turn/hostFacade';
 
 export type RecommenderResult = {
@@ -64,10 +64,7 @@ export async function gatherRecommender(
             // Read through the block switch, not tierAllows: tierAllows ignores the
             // Block View's explicit toggles, so a toggle read through it would do nothing.
             isBlockEnabled('recommenderThinking', config?.aiTier ?? state.settings.aiTier, config?.moduleEnabled ?? state.settings.moduleEnabled),
-            renderPromptAddenda('recommender', {
-                moduleEnabled: config?.moduleEnabled ?? state.settings.moduleEnabled,
-                playerPromptNotes: state.settings.playerPromptNotes,
-            }),
+            renderHelperInjections('recommender', context.promptInjections),
         );
         const { relevantNPCNames: recommendedNPCNames, inventoryCategories, profileFields, relevantLoreIds } = result;
         console.log(`[ContextGatherer] Recommender returned: ${recommendedNPCNames?.length || 0} NPCs, ${result.relevantLoreIds.length} lore, ${inventoryCategories?.length || 0} inv cats, ${profileFields?.length || 0} profile fields`);

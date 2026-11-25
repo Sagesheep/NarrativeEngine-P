@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store/useAppStore';
 import { countTokens } from '../../services/infrastructure/tokenizer';
-import { normalizeInjections, injectionText } from '../../services/payload/promptInjections';
+import { reservedStoryInjections, injectionText } from '../../services/payload/promptInjections';
 import type { AllocationRowId } from '../../services/payload/contextAllocation';
 import { ROWS, buildAllocationView, resetAll, resetRow, setRowPct, type RowView } from './contextAllocationModel';
 
@@ -47,8 +47,7 @@ export function ContextAllocationSection() {
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [drafts, setDrafts] = useState<Partial<Record<AllocationRowId, string>>>({});
 
-    const injectionTokens = useMemo(() => normalizeInjections(promptInjections)
-        .filter(item => item.enabled && item.content.trim() && item.triggers.length > 0)
+    const injectionTokens = useMemo(() => reservedStoryInjections(promptInjections)
         .reduce((sum, item) => sum + countTokens(injectionText(item)) + 8, 0), [promptInjections]);
     const view = useMemo(() => buildAllocationView(settings, injectionTokens), [settings, injectionTokens]);
     const anyCustom = view.rows.some(r => r.custom);

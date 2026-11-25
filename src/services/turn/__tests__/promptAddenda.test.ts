@@ -1,12 +1,25 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import {
-    __resetPromptAddenda,
-    addendumToggleKey,
-    getModPromptAddenda,
-    renderPromptAddenda,
-    setModPromptAddenda,
-} from '../promptAddenda';
+import { describe, it, expect } from 'vitest';
+import type { PromptInjection } from '../../../types';
+import { renderHelperInjections } from '../promptAddenda';
 import { renderDirectorPrompt } from '../directorBrief';
+import {
+    activeInjections,
+    applyInjections,
+    normalizeInjections,
+    reservedStoryInjections,
+} from '../../payload/promptInjections';
+
+const card = (overrides: Partial<PromptInjection>): PromptInjection => ({
+    id: overrides.id ?? 'c',
+    name: 'Card',
+    enabled: true,
+    role: 'system',
+    content: 'text',
+    depth: 0,
+    triggers: ['reply', 'swipe', 'continue'],
+    mode: 'message',
+    ...overrides,
+});
 
 const slots = {
     dossierText: 'D',
@@ -16,39 +29,50 @@ const slots = {
     recentEvents: 'R',
 };
 
-describe('promptAddenda', () => {
-    beforeEach(() => __resetPromptAddenda());
-
-    it('renders nothing when no mod or player text exists', () => {
-        setModPromptAddenda([{ id: 'a', name: 'A' }]);
-        expect(renderPromptAddenda('director', { moduleEnabled: {} })).toBe('');
-        expect(renderPromptAddenda('director', { playerPromptNotes: { director: '   ' } })).toBe('');
+describe('injection targets', () => {
+    it('treats a card saved before targets existed as a story card', () => {
+        const [legacy] = normalizeInjections([{ id: 'x', name: 'Old', enabled: true, content: 'hi' }]);
+        expect(legacy.target).toBeUndefined();
+        expect(activeInjections([legacy], 'reply')).toHaveLength(1);
+        const [bogus] = normalizeInjections([{ id: 'y', enabled: true, content: 'hi', target: 'writer' }]);
+        expect(bogus.target).toBeUndefined();
+        const [director] = normalizeInjections([{ id: 'z', content: 'hi', target: 'director' }]);
+        expect(director.target).toBe('director');
     });
 
-    it('registers per target in load order and puts the player last', () => {
-        setModPromptAddenda([
-            { id: 'a', name: 'Alpha', promptAddenda: { director: 'alpha-d', recommender: 'alpha-r' } },
-            { id: 'b', name: 'Beta', promptAddenda: { director: 'beta-d' } },
-        ]);
-        expect(getModPromptAddenda().map((e) => `${e.modId}:${e.target}`)).toEqual(['a:director', 'a:recommender', 'b:director']);
+    it('keeps helper cards out of the story request and its context reserve', () => {
+        const cards = [
+            card({ id: 's', content: 'story text' }),
+            card({ id: 'd', target: 'director', content: 'director text' }),
+            card({ id: 'r', target: 'recommender', content: 'recommender text' }),
+        ];
+        expect(activeInjections(cards, 'reply').map(c => c.id)).toEqual(['s']);
+        expect(reservedStoryInjections(cards).map(c => c.id)).toEqual(['s']);
+        const messages = applyInjections([{ role: 'user', content: 'hello' }], cards, 'reply');
+        expect(messages.map(m => m.content)).toEqual(['hello', 'story text']);
+    });
+});
 
-        const out = renderPromptAddenda('director', { playerPromptNotes: { director: 'mine' } });
-        expect(out.indexOf('[MOD NOTES — Alpha]')).toBeLessThan(out.indexOf('[MOD NOTES — Beta]'));
-        expect(out.indexOf('[MOD NOTES — Beta]')).toBeLessThan(out.indexOf('[PLAYER NOTES]\nmine'));
-        expect(out).not.toContain('alpha-r');
+describe('renderHelperInjections', () => {
+    it('renders nothing without an enabled, non-empty card for that target', () => {
+        expect(renderHelperInjections('director', undefined)).toBe('');
+        expect(renderHelperInjections('director', [
+            card({ target: 'director', enabled: false }),
+            card({ id: 'e', target: 'director', content: '   ' }),
+            card({ id: 's', content: 'story only' }),
+            card({ id: 'r', target: 'recommender', content: 'other helper' }),
+        ])).toBe('');
     });
 
-    it('drops a muted addendum and every addendum of a disabled mod', () => {
-        setModPromptAddenda([
-            { id: 'a', name: 'Alpha', promptAddenda: { director: 'alpha-d', recommender: 'alpha-r' } },
-            { id: 'b', name: 'Beta', promptAddenda: { director: 'beta-d' } },
+    it('renders matching cards in card order and ignores triggers', () => {
+        const out = renderHelperInjections('director', [
+            card({ id: 'a', name: 'Alpha', target: 'director', content: 'first', triggers: [] }),
+            card({ id: 'r', name: 'Rec', target: 'recommender', content: 'not here' }),
+            card({ id: 'b', name: 'Beta', target: 'director', content: 'second' }),
         ]);
-        const muted = renderPromptAddenda('director', { moduleEnabled: { [addendumToggleKey('a', 'director')]: false } });
-        expect(muted).not.toContain('alpha-d');
-        expect(muted).toContain('beta-d');
-
-        const modOff = { moduleEnabled: { 'mod.a': false } };
-        expect(renderPromptAddenda('recommender', modOff)).toBe('');
+        expect(out.startsWith('ADDITIONAL GUIDANCE')).toBe(true);
+        expect(out.indexOf('[Alpha]\nfirst')).toBeLessThan(out.indexOf('[Beta]\nsecond'));
+        expect(out).not.toContain('not here');
     });
 });
 

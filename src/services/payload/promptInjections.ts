@@ -1,7 +1,20 @@
-import type { ApiFormat, InjectionTrigger, PromptInjection } from '../../types';
+import type { ApiFormat, InjectionTarget, InjectionTrigger, PromptInjection } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 
 export const INJECTION_TRIGGERS: InjectionTrigger[] = ['reply', 'swipe', 'continue'];
+
+/** Every target a card can be sent to, in editor order. */
+export const INJECTION_TARGETS: InjectionTarget[] = ['story', 'director', 'recommender'];
+
+/** A card's target; absent (cards saved before targets existed) means the story AI. */
+export function injectionTargetOf(injection: Pick<PromptInjection, 'target'>): InjectionTarget {
+    return injection.target ?? 'story';
+}
+
+/** Story cards are the only ones placed in the story request and reserved from its context budget. */
+export function isStoryInjection(injection: Pick<PromptInjection, 'target'>): boolean {
+    return injectionTargetOf(injection) === 'story';
+}
 
 /** Saved settings are untrusted (old versions and hand-edited/imported presets). */
 export function normalizeInjections(value: unknown): PromptInjection[] {
@@ -9,7 +22,10 @@ export function normalizeInjections(value: unknown): PromptInjection[] {
     return value.flatMap((entry, index) => {
         if (!entry || typeof entry !== 'object' || typeof entry.content !== 'string') return [];
         const mode = entry.mode === 'prefill' || entry.mode === 'reasoning' ? entry.mode : 'message';
+        // Story is the absent default, so a story card stays shaped exactly as it was saved.
+        const target: InjectionTarget = INJECTION_TARGETS.includes(entry.target) ? entry.target : 'story';
         return [{
+            ...(target !== 'story' ? { target } : {}),
             id: typeof entry.id === 'string' ? entry.id : `injection-${index}`,
             name: typeof entry.name === 'string' ? entry.name : 'Untitled injection',
             enabled: entry.enabled === true,
@@ -35,8 +51,22 @@ export function injectionText(injection: PromptInjection): string {
     return injection.mode === 'reasoning' ? `<think>\n${injection.content}` : injection.content;
 }
 
+/** Story-AI cards that fire for this trigger. Helper-target cards never reach the story request. */
 export function activeInjections(value: unknown, trigger: InjectionTrigger): PromptInjection[] {
-    return normalizeInjections(value).filter(item => item.enabled && item.content.trim() && item.triggers.includes(trigger));
+    return normalizeInjections(value).filter(item => isStoryInjection(item) && item.enabled && item.content.trim() && item.triggers.includes(trigger));
+}
+
+/** Story-AI cards that may fire at all — what the story context budget reserves room for. */
+export function reservedStoryInjections(value: unknown): PromptInjection[] {
+    return normalizeInjections(value).filter(item => isStoryInjection(item) && item.enabled && item.content.trim() && item.triggers.length > 0);
+}
+
+/**
+ * Enabled, non-empty cards for one helper prompt, in card order. Triggers do not
+ * apply: a helper card is sent every time that helper runs.
+ */
+export function helperInjections(value: unknown, target: Exclude<InjectionTarget, 'story'>): PromptInjection[] {
+    return normalizeInjections(value).filter(item => injectionTargetOf(item) === target && item.enabled && item.content.trim());
 }
 
 export type InjectionPlacement = { index: number; injection: PromptInjection; message: OpenAIMessage };

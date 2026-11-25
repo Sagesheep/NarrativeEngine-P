@@ -40,6 +40,19 @@ describe('campaign Injection Modifier', () => {
         expect(screen.queryByRole('complementary', { name: 'Injection Modifier' })).toBeNull();
     });
 
+    it('sends a card to a helper prompt and hides the story-only placement fields', () => {
+        useAppStore.setState({ injectionModifierOpen: true });
+        render(<InjectionModifierPanel />);
+        expect(screen.getByLabelText('Injection depth')).toBeInTheDocument();
+        fireEvent.change(screen.getByLabelText('Injection target'), { target: { value: 'director' } });
+        expect(useAppStore.getState().context.promptInjections?.[0].target).toBe('director');
+        expect(screen.queryByLabelText('Injection depth')).toBeNull();
+        expect(screen.queryByLabelText('Injection mode')).toBeNull();
+        expect(screen.getByText(/Continuity Director's prompt/)).toBeInTheDocument();
+        fireEvent.change(screen.getByLabelText('Injection target'), { target: { value: 'story' } });
+        expect(screen.getByLabelText('Injection depth')).toBeInTheDocument();
+    });
+
     it('resets selection and undo when switching campaigns without leaking old cards', () => {
         useAppStore.setState({ injectionModifierOpen: true });
         render(<InjectionModifierPanel />);

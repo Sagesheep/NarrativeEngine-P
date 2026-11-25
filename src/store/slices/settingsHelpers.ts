@@ -215,16 +215,6 @@ function migrateModuleEnabled(raw: unknown): Record<string, boolean> | undefined
     return out;
 }
 
-/** The player's own Director / Recommender notes. Unknown targets and non-strings are dropped. */
-function migratePlayerPromptNotes(raw: unknown): AppSettings['playerPromptNotes'] {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-    const source = raw as Record<string, unknown>;
-    const out: NonNullable<AppSettings['playerPromptNotes']> = {};
-    if (typeof source.director === "string") out.director = source.director;
-    if (typeof source.recommender === "string") out.recommender = source.recommender;
-    return Object.keys(out).length > 0 ? out : undefined;
-}
-
 function migrateModuleTokens(raw: unknown): Record<string, number> | undefined {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
     const source = raw as Record<string, unknown>;
@@ -504,7 +494,6 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         // data was never at risk — only the user's choice about it was.
         moduleEnabled: migrateModuleEnabled(raw.moduleEnabled),
         moduleTokens: migrateModuleTokens(raw.moduleTokens),
-        playerPromptNotes: migratePlayerPromptNotes(raw.playerPromptNotes),
         modLoadOrder: Array.isArray(raw.modLoadOrder)
             ? (raw.modLoadOrder as unknown[]).filter((id): id is string => typeof id === 'string')
             : undefined,

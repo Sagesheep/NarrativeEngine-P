@@ -1,6 +1,7 @@
 import { Plus, SlidersHorizontal } from '../icons/narrativeIcons';
 import { useAppStore } from '../../store/useAppStore';
 import { normalizeInjections } from '../../services/payload/promptInjections';
+import { injectionSummary } from './injectionLabels';
 
 /** Fast campaign-local toggles live next to Gallery, without opening an editor. */
 export function InjectionQuickControls() {
@@ -19,7 +20,7 @@ export function InjectionQuickControls() {
                         className="mt-0.5 accent-terminal" />
                     <span className="min-w-0 flex-1">
                         <span className="block truncate text-[11px] text-text-primary">{item.name || 'Untitled injection'}</span>
-                        <span className="block text-[9px] text-text-dim">{item.mode === 'message' ? `${item.role} · depth ${item.depth}` : `${item.mode} prefill`}</span>
+                        <span className="block text-[9px] text-text-dim">{injectionSummary(item)}</span>
                     </span>
                 </label>
             ))}

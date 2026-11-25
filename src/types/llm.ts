@@ -113,7 +113,13 @@ export type LLMProvider = {
 };
 
 export type InjectionTrigger = 'reply' | 'swipe' | 'continue';
+/** Which generation a card is sent to. `story` = the story AI (chat placement by
+ *  role/depth/mode). The others are helper prompts: the card's text is added in a
+ *  fixed slot ahead of that prompt's output format (services/turn/promptAddenda.ts). */
+export type InjectionTarget = 'story' | 'director' | 'recommender';
 export type PromptInjection = {
+    /** Absent = `story`, so every card saved before targets existed keeps its behaviour. */
+    target?: InjectionTarget;
     id: string;
     name: string;
     enabled: boolean;
@@ -209,11 +215,6 @@ export type AppSettings = {
     moduleEnabled?: Record<string, boolean>;
     /** Optional per-module output-token caps, keyed by contribution/module id. */
     moduleTokens?: Record<string, number>;
-    /** The player's own steering text for the utility prompts, keyed by target
-     *  (`director` = Continuity Director, `recommender` = Context Recommender).
-     *  Added after any mod addenda; empty/absent adds nothing. See
-     *  services/turn/promptAddenda.ts. Global, like moduleEnabled. */
-    playerPromptNotes?: Partial<Record<'director' | 'recommender', string>>;
     /** Phase 6.2 — the user's chosen load order for installed mods, as an
      *  array of mod ids ascending. The server's topological sort uses this
      *  as the primary tiebreak (before `manifest.loadOrder`); the dependency

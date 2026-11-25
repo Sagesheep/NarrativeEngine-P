@@ -151,22 +151,6 @@ export const pl: LocalePack = {
     // without it. Previously this rendered as "Overridden by core default",
     // which was untrue whenever the default had been switched off.
     'settings.extensions.mod.roleNoProvider': 'Nie podano — ta funkcja jest wyłączona',
-    'settings.extensions.mod.addenda.title': 'Kieruje promptami pomocników',
-    'settings.extensions.mod.addenda.help': 'Ten mod dodaje poniższy tekst do promptu pomocnika. Może zmienić to, na co pomocnik zwraca uwagę, ale nie format jego odpowiedzi. Wyłącz jeden, aby zachować resztę moda.',
-    'settings.extensions.mod.addenda.director': 'Reżyser ciągłości',
-    'settings.extensions.mod.addenda.recommender': 'Doradca kontekstu',
-    'settings.extensions.mod.addenda.toggle': 'Wysyłaj tekst tego moda do: {{target}}',
-    'settings.extensions.mod.addenda.modOff': 'Mod jest wyłączony — nic nie jest wysyłane',
-    'settings.promptNotes.title': 'Twoje notatki dla pomocników',
-    'settings.promptNotes.help': 'Tekst dodawany w każdej turze do dwóch promptów pomocników, po tekście z modów. Użyj go, aby wskazać, na czym mają się skupić. Zostaw puste, aby nic nie dodawać.',
-    'settings.promptNotes.director.label': 'Reżyser ciągłości',
-    'settings.promptNotes.director.help': 'Sprawdza ostatnią turę MG i pisze krótkie wskazówki na następną (poziomy Pro i Max).',
-    'settings.promptNotes.director.placeholder': 'np. Dbaj o spójność intryg politycznych; nie oznaczaj blefów gracza jako błędów ciągłości.',
-    'settings.promptNotes.recommender.label': 'Doradca kontekstu',
-    'settings.promptNotes.recommender.help': 'Wybiera, które postacie, lore, przedmioty i szczegóły postaci wczytać na turę.',
-    'settings.promptNotes.recommender.placeholder': 'np. Zawsze uwzględniaj lore frakcji, gdy pada nazwa szlacheckiego rodu.',
-    'settings.promptNotes.fromMods': 'Wysyłane także z modów: {{mods}}',
-    'settings.promptNotes.fromModsNone': 'Żaden mod nie dodaje tu tekstu.',
     // Phase 9.2 — the API generation notice. Deliberately not phrased as
     // "broken": the mod loaded and may work perfectly. It says what is true
     // (it was written for an older surface) and what follows from the
