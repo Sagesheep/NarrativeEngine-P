@@ -39,6 +39,33 @@ describe('AI-Guided Creation — custom questions', () => {
         expect(useAppStore.getState().context.creationDraft?.questions?.[2]).toBe('Which ash-clan raised you?');
     });
 
+    it('lets a resumed draft swap its questions or start over', () => {
+        render(<AIGuidedCreationWizard onCancel={vi.fn()} onCommit={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /Use my own questions/ }));
+        fireEvent.change(screen.getByLabelText('Custom questions'), { target: { value: '1) First version?' } });
+        fireEvent.click(screen.getByRole('button', { name: /Use these questions/ }));
+        fireEvent.change(screen.getByPlaceholderText("Your character's name"), { target: { value: 'Ash' } });
+
+        // From the answer form: swap the questions, keeping answers typed so far.
+        fireEvent.click(screen.getByRole('button', { name: /Use my own questions/ }));
+        fireEvent.change(screen.getByLabelText('Custom questions'), { target: { value: '1) Second version?' } });
+        fireEvent.click(screen.getByRole('button', { name: /Use these questions/ }));
+        expect(screen.getByText('2. Second version?')).toBeTruthy();
+        expect((screen.getByPlaceholderText("Your character's name") as HTMLInputElement).value).toBe('Ash');
+
+        // Back from the import form returns to the answers, not the start screen.
+        fireEvent.click(screen.getByRole('button', { name: /Use my own questions/ }));
+        fireEvent.click(screen.getByRole('button', { name: /Back/ }));
+        expect(screen.getByText('2. Second version?')).toBeTruthy();
+
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        fireEvent.click(screen.getByRole('button', { name: 'Start over' }));
+        expect(confirm).toHaveBeenCalled();
+        expect(screen.getByText(/bring your own questions/)).toBeTruthy();
+        expect(useAppStore.getState().context.creationDraft?.name).toBe('');
+        confirm.mockRestore();
+    });
+
     it('blocks Use until the input parses', () => {
         render(<AIGuidedCreationWizard onCancel={vi.fn()} onCommit={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: /Use my own questions/ }));

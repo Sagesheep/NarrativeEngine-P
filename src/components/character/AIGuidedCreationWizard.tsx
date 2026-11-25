@@ -89,6 +89,8 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
     const [draft, setDraft] = useState<CharacterCreationDraft>(draft0);
     const [phase, setPhase] = useState<Phase>(draft0.step ? resumePhase(draft0.step) : 'idle');
     const [error, setError] = useState<string | null>(null);
+    // Where Back on the custom-questions form returns to (start screen or answers).
+    const [importReturn, setImportReturn] = useState<Phase>('idle');
     const [retryCount, setRetryCount] = useState(0);
     const [elapsed, setElapsed] = useState(0);
     const [scenarios, setScenarios] = useState<QuizScenario[]>([]);
@@ -185,6 +187,21 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
         if (pendingDraft) setDraft(pendingDraft);
         setStreamDone(false);
         setPhase('answering');
+    };
+
+    // Drop the saved draft (questions and answers) and go back to the start
+    // screen, where the player can pick the AI interview or their own questions.
+    const startOver = () => {
+        const hasAnswers = !!draft.name?.trim() || !!draft.appearance?.trim()
+            || Object.values(draft.answers ?? {}).some(a => a?.trim());
+        if (hasAnswers && !window.confirm('Start over? This clears your questions and answers.')) return;
+        rollAbort.current?.abort();
+        setDraft(emptyDraft());
+        setError(null);
+        setRollError(null);
+        setRetryCount(0);
+        setImportReturn('idle');
+        setPhase('idle');
     };
 
     const useCustomQuestions = (questions: Partial<Record<CreationSlot, string>>, sourceText: string) => {
@@ -364,7 +381,7 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
             {phase === 'idle' && canImport && (
                 <IdleState
                     onStart={start}
-                    onImport={() => { setError(null); setPhase('importing'); }}
+                    onImport={() => { setError(null); setImportReturn('idle'); setPhase('importing'); }}
                     loreChunkCount={eligibleCount}
                     canInterview={canRun}
                 />
@@ -372,7 +389,7 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
 
             {phase === 'importing' && (
                 <ImportQuestionsForm
-                    onBack={() => setPhase('idle')}
+                    onBack={() => setPhase(importReturn)}
                     onUse={useCustomQuestions}
                 />
             )}
@@ -399,6 +416,8 @@ export function AIGuidedCreationWizard({ onCancel, onCommit }: { onCancel: () =>
                     setDraft={setDraft}
                     onBack={onCancel}
                     onNext={proceedToHexChoice}
+                    onChangeQuestions={() => { setImportReturn('answering'); setPhase('importing'); }}
+                    onStartOver={startOver}
                     canRoll={canRun}
                     rollingSlots={rollingSlots}
                     rollProgress={rollProgress}
@@ -755,12 +774,14 @@ function StreamPanel({
 }
 
 function AnsweringForm({
-    draft, setDraft, onBack, onNext, canRoll, rollingSlots, rollProgress, rollError, elapsed, onRoll, onStopRoll,
+    draft, setDraft, onBack, onNext, onChangeQuestions, onStartOver, canRoll, rollingSlots, rollProgress, rollError, elapsed, onRoll, onStopRoll,
 }: {
     draft: CharacterCreationDraft;
     setDraft: (d: CharacterCreationDraft) => void;
     onBack: () => void;
     onNext: () => void;
+    onChangeQuestions: () => void;
+    onStartOver: () => void;
     canRoll: boolean;
     rollingSlots: CreationSlot[];
     rollProgress: GuidedProgress | null;
@@ -798,6 +819,25 @@ function AnsweringForm({
                         <Wand2 size={12} /> {blanks.length > 0 ? `AI decide ${blanks.length} blank` : 'No blanks left'}
                     </button>
                 )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    onClick={onChangeQuestions}
+                    disabled={rolling}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-void border border-border text-text-dim hover:border-terminal hover:text-terminal disabled:opacity-30 disabled:cursor-not-allowed text-[10px] uppercase tracking-widest rounded transition-colors"
+                >
+                    <FileText size={12} /> Use my own questions
+                </button>
+                <button
+                    type="button"
+                    onClick={onStartOver}
+                    disabled={rolling}
+                    className="px-3 py-1.5 bg-void border border-border text-text-dim hover:border-ember hover:text-ember disabled:opacity-30 disabled:cursor-not-allowed text-[10px] uppercase tracking-widest rounded transition-colors"
+                >
+                    Start over
+                </button>
             </div>
 
             {rolling && <RollStatus progress={rollProgress} count={rollingSlots.length} elapsed={elapsed} onStop={onStopRoll} />}
