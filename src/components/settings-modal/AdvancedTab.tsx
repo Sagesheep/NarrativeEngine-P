@@ -7,6 +7,7 @@ import { API_BASE } from '../../lib/apiBase';
 import { toast } from '../Toast';
 import type { BackfillStatus } from '../../services/archive-memory/backfillRunner';
 import { generateTts, getTtsStatus, initTtsModel, type TtsStatus } from '../../services/tts/ttsClient';
+import { PromptNotesSection } from './PromptNotesSection';
 import { EmbeddingModelSection } from './EmbeddingModelSection';
 
 type EmbedderInfo = {
@@ -214,6 +215,8 @@ export function AdvancedTab() {
     return (
         <div className="space-y-6">
             <label className="text-text-dim text-xs uppercase tracking-widest font-bold block">Advanced</label>
+
+            <PromptNotesSection />
 
             {/* Kokoro TTS — local text-to-speech for GM narration */}
             <div className="bg-void p-4 border border-border rounded space-y-3">

@@ -140,7 +140,7 @@ const TOP_LEVEL_KEYS = new Set([
     'id', 'name', 'version', 'description', 'author', 'homepage', 'appVersion',
     'apiVersion',
     'loadOrder', 'dependencies', 'i18n', 'contributions', 'tables', 'panels',
-    'screens', 'compute', 'native', 'roles', 'tierEntries', 'dev',
+    'screens', 'compute', 'native', 'roles', 'tierEntries', 'promptAddenda', 'dev',
 ]);
 
 /** ST spellings that get a "this app spells it X" hint, not a bare unknown-key. */
@@ -1201,6 +1201,38 @@ function validateDependenciesField(raw, modId) {
     return dependencies;
 }
 
+/**
+ * `promptAddenda` — plain text a mod adds to the two utility prompts that steer
+ * a turn: the Context Recommender (which NPCs/lore to load) and the Continuity
+ * Director (the Writer Brief). Text only, never code: the host places it in a
+ * fixed slot ahead of each prompt's output-format instructions, so a mod can
+ * steer what the call pays attention to but cannot change what it returns.
+ * Keep in step with `PROMPT_ADDENDUM_TARGETS` / `PROMPT_ADDENDUM_MAX_CHARS` in
+ * `src/services/turn/promptAddenda.ts`.
+ */
+const PROMPT_ADDENDUM_TARGETS = ['director', 'recommender'];
+const PROMPT_ADDENDUM_MAX_CHARS = 1200;
+
+function validatePromptAddenda(raw) {
+    if (raw === undefined) return {};
+    if (!isPlainObject(raw)) reject('promptAddenda must be an object like { "director": "...", "recommender": "..." }');
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) {
+        if (!PROMPT_ADDENDUM_TARGETS.includes(key)) {
+            reject(`promptAddenda has unknown target "${key}" — only ${PROMPT_ADDENDUM_TARGETS.join(', ')} are allowed`);
+        }
+        if (typeof value !== 'string' || value.trim() === '') {
+            reject(`promptAddenda.${key} must be a non-empty string`);
+        }
+        const text = value.trim();
+        if (text.length > PROMPT_ADDENDUM_MAX_CHARS) {
+            reject(`promptAddenda.${key} is ${text.length} characters — the limit is ${PROMPT_ADDENDUM_MAX_CHARS}`);
+        }
+        out[key] = text;
+    }
+    return out;
+}
+
 const KNOWN_ROLE_IDS = new Set(ROLE_IDS);
 
 function validateRoles(raw) {
@@ -1463,6 +1495,7 @@ function validateMod(raw, file, appVersion, modDir) {
     }
     const roles = validateRoles(raw.roles);
     const tierEntries = validateTierEntries(raw.tierEntries, raw.id);
+    const promptAddenda = validatePromptAddenda(raw.promptAddenda);
 
     // Phase 1.3 / MANIFEST.md §5 — i18n. Optional; absent = {}. Read here so
     // a malformed locale file is a load-time fault naming the locale, not a
@@ -1488,9 +1521,10 @@ function validateMod(raw, file, appVersion, modDir) {
         raw.native === undefined &&
         roles.length === 0 &&
         tierEntries.length === 0 &&
+        Object.keys(promptAddenda).length === 0 &&
         Object.keys(i18n).length === 0
     ) {
-        reject('manifest declares nothing — a mod must declare at least one of contributions, tables, panels, screens, compute, native, i18n, roles, tierEntries');
+        reject('manifest declares nothing — a mod must declare at least one of contributions, tables, panels, screens, compute, native, i18n, roles, tierEntries, promptAddenda');
     }
 
     // Phase 1.3 / MANIFEST.md §3 — `native`. Its presence alone makes the mod
@@ -1538,6 +1572,7 @@ function validateMod(raw, file, appVersion, modDir) {
         screenSources,
         roles,
         tierEntries,
+        promptAddenda,
         file,
     };
     if (typeof raw.description === 'string') mod.description = raw.description;

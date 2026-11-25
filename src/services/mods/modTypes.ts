@@ -318,6 +318,15 @@ export interface ModDefinition {
      */
     tierEntries?: ModTierEntryDeclaration[];
     /**
+     * Optional. Plain text added to the utility prompts that steer a turn — the
+     * Continuity Director (`director`) and the Context Recommender
+     * (`recommender`). Placed in a fixed slot ahead of each prompt's output
+     * format, so it steers attention but never the reply shape. Max 1200
+     * characters per target; the player can mute each one in Extensions. See
+     * `services/turn/promptAddenda.ts`.
+     */
+    promptAddenda?: ModPromptAddenda;
+    /**
      * Phase 1.1 / MANIFEST.md §3 — the native tier. Its presence alone makes
      * the mod native-tier for trust and warning purposes (TRUST.md §B); Phase
      * 6.1 shows the verbatim warning before first enablement. `js`/`css` paths
@@ -326,6 +335,12 @@ export interface ModDefinition {
      */
     native?: ModNative;
 }
+
+/** The utility prompts a mod (or the player) can add steering text to. */
+export type PromptAddendumTarget = 'director' | 'recommender';
+
+/** `promptAddenda` as declared in a manifest — one optional text per target. */
+export type ModPromptAddenda = Partial<Record<PromptAddendumTarget, string>>;
 
 /** Phase 1.1 / MANIFEST.md §3 — the native tier. */
 export interface ModNative {

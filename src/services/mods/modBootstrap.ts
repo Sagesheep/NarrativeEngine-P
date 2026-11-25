@@ -11,6 +11,7 @@ import { setExtensionModules } from '../payload/contributions/extensions';
 import { registerModTranslations } from '../../i18n';
 import { postTurnTracks } from '../turn/tracks';
 import { modTierBlocks } from '../turn/aiTier';
+import { setModPromptAddenda } from '../turn/promptAddenda';
 import { modToComputeTrack } from './computeTrack';
 import { modToTierEntries } from './tierEntryAdapter';
 import { emitCoreEvent } from './events';
@@ -429,6 +430,10 @@ export async function refreshMods(): Promise<{
         setExtensionModules(registrable.map(modToContributionModule));
         registerComputeTracks(registrable);
         registerTierEntries(registrable);
+        // Director / Recommender steering text. Same prompt-facing set: a
+        // disabled normal mod stays registered and is filtered at resolve
+        // time, a switched-off fixture never gets in.
+        setModPromptAddenda(registrable);
         // Phase 1.5 — run the lifecycle load cycle for every enabled mod
         // with a `native` block. The host fires install/update/activate in
         // the loader's resolved order, contains faults per-mod, and mounts

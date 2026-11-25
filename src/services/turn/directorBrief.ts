@@ -54,6 +54,8 @@ const RECENT_EVENTS_COUNT = 5;
 interface CacheEntry {
     campaignId: string;
     userMessage: string;
+    /** The addenda the cached brief was written under (`''` when none). */
+    addenda?: string;
     brief: string | null;
 }
 
@@ -208,6 +210,9 @@ WRITER BRIEF
 - [SUGGESTION] <directive>  (0-3 lines)
 Use [MANDATORY] only for a demonstrated world-law, continuity, knowledge, or fair-adjudication correction, never for a dice result or how a character should feel. Use [SUGGESTION] only for one compatible watchdog repair. Each directive is one imperative line naming specific characters. No analysis, no preamble. If nothing is needed, output "WRITER BRIEF" followed by "- [SUGGESTION] Proceed naturally."`;
 
+/** Where prompt addenda are spliced in: immediately before the output format. */
+const DIRECTOR_OUTPUT_MARKER = 'OUTPUT exactly this, nothing else:';
+
 /** Render the verbatim Director prompt with the slot values inlined. */
 export function renderDirectorPrompt(input: {
     dossierText: string;
@@ -216,8 +221,16 @@ export function renderDirectorPrompt(input: {
     npcSummary: string;
     recentEvents: string;
     worldFacts?: string[];
+    /** Rendered mod/player addenda (`renderPromptAddenda('director', …)`). Empty = none. */
+    addenda?: string;
 }): string {
-    return DIRECTOR_PROMPT_TEMPLATE
+    // Addenda go in BEFORE the slots are filled, so a player message that happens
+    // to contain the marker cannot move them, and ahead of the output format so
+    // the format keeps the last word. A function replacer keeps `$` literal.
+    const template = input.addenda
+        ? DIRECTOR_PROMPT_TEMPLATE.replace(DIRECTOR_OUTPUT_MARKER, () => `${input.addenda}\n\n${DIRECTOR_OUTPUT_MARKER}`)
+        : DIRECTOR_PROMPT_TEMPLATE;
+    return template
         .replace('{dossierText}', input.dossierText)
         .replace('{lastAssistant}', input.lastAssistant)
         .replace('{userMessage}', input.userMessage)
@@ -298,6 +311,9 @@ export interface DirectorBriefInput {
      * against. Rendered verbatim into VERIFIED FACTS. Generic by design — travel
      * is the first caller, not the only one. */
     worldFacts?: string[];
+    /** Rendered mod/player addenda (`renderPromptAddenda('director', …)`). Part
+     *  of the cache key: editing a note or muting a mod re-runs the Director. */
+    addenda?: string;
     /** Campaign id for the once-per-input cache key. */
     campaignId: string | null;
     /** Auxiliary-endpoint resolver (mirrors `getFreshAuxiliaryProvider`). */
@@ -346,7 +362,12 @@ export interface DirectorBriefInput {
 export async function runDirectorBrief(input: DirectorBriefInput): Promise<string | null> {
     // Cache check (once-per-input). Lazily clear when the campaignId changes.
     // Pure reads — cannot throw, so they sit outside the failure-total boundary.
-    if (cache && cache.campaignId === input.campaignId && cache.userMessage === input.userMessage) {
+    if (
+        cache &&
+        cache.campaignId === input.campaignId &&
+        cache.userMessage === input.userMessage &&
+        (cache.addenda ?? '') === (input.addenda ?? '')
+    ) {
         return cache.brief;
     }
     if (cache && cache.campaignId !== input.campaignId) {
@@ -377,6 +398,7 @@ export async function runDirectorBrief(input: DirectorBriefInput): Promise<strin
             npcSummary,
             recentEvents,
             worldFacts: input.worldFacts,
+            addenda: input.addenda,
         });
 
         // Thinking off unless the `directorThinking` block is on. Measured on DS v4
@@ -415,6 +437,7 @@ export async function runDirectorBrief(input: DirectorBriefInput): Promise<strin
         cache = {
             campaignId: input.campaignId ?? '',
             userMessage: input.userMessage,
+            addenda: input.addenda ?? '',
             brief,
         };
         return brief;

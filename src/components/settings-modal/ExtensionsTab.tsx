@@ -39,6 +39,7 @@ import { ModScreens } from './ModScreens';
 import { NativeTrustDialog } from './NativeTrustDialog';
 import { ModDataDialog } from './ModDataDialog';
 import { LoadOrderSection } from './LoadOrderSection';
+import { ModPromptAddendaSection } from './ModPromptAddendaSection';
 
 /**
  * Project 2 / WO-P2-05 — the Extensions screen (Phase 6.1: Mod Management).
@@ -625,7 +626,10 @@ export function ExtensionsTab() {
         updateSettings({ moduleEnabled: next });
     };
 
-    const atDefaults = allRows.every((row) => isEnabled(row.id, row.dev) === row.defaultEnabled);
+    // A muted mod addendum (`mod.<id>.addendum.<target>`: false) is also a
+    // non-default switch, and the reset above clears it.
+    const atDefaults = allRows.every((row) => isEnabled(row.id, row.dev) === row.defaultEnabled)
+        && !Object.entries(moduleEnabled ?? {}).some(([key, value]) => key.includes('.addendum.') && value === false);
 
     const selectedRow = useMemo(
         () => allRows.find((row) => row.id === effectiveSelectedRowId) ?? null,
@@ -1014,6 +1018,20 @@ export function ExtensionsTab() {
                                         : ' · ' + t('settings.extensions.mod.roleNoProvider')}
                             </p>
                         ))}
+
+                        {selectedMod && (
+                            <ModPromptAddendaSection
+                                mod={selectedMod}
+                                moduleEnabled={moduleEnabled}
+                                onToggle={(key, enabled) => {
+                                    const next = { ...(moduleEnabled ?? {}) };
+                                    // Absent means on, so switching back on removes the key.
+                                    if (enabled) delete next[key];
+                                    else next[key] = false;
+                                    updateSettings({ moduleEnabled: next });
+                                }}
+                            />
+                        )}
 
                         {selectedRow.fault && (
                             <p className="text-[9px] text-danger leading-tight break-words max-w-[640px]">

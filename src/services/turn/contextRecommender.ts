@@ -116,6 +116,9 @@ export async function recommendContext(
     // The `recommenderThinking` block. Off by default: on DS v4 Flash, thinking took
     // each pick from ~1 s to ~20 s and chose no better (Turn Prep Experiment).
     thinking = false,
+    // Rendered mod/player addenda (`renderPromptAddenda('recommender', …)`). Placed
+    // after the indexes and conversation, before the closing JSON instruction.
+    addenda = '',
 ): Promise<RecommenderResult> {
     const npcRoster = buildNPCRoster(npcLedger);
     const loreIndex = buildLoreIndex(loreChunks);
@@ -127,7 +130,7 @@ export async function recommendContext(
         ? `\n[DM-PINNED CHAPTERS — manually selected as relevant]\n${buildPinnedChapterContext(pinnedChapters)}\n`
         : '';
 
-    const userContent = `${RECOMMENDER_PROMPT}\n\n[NPC ROSTER — ${npcLedger.length} characters]\n${npcRoster}\n\n[LORE INDEX — ${loreChunks.filter(c => !c.alwaysInclude).length} entries]\n${loreIndex}\n${pinnedSection}[INVENTORY INDEX]\n${inventoryIndex}\n\n[PROFILE INDEX]\n${profileIndex}\n\n[RECENT CONVERSATION]\n${conversation}\n\nRespond with the JSON object now:`;
+    const userContent = `${RECOMMENDER_PROMPT}\n\n[NPC ROSTER — ${npcLedger.length} characters]\n${npcRoster}\n\n[LORE INDEX — ${loreChunks.filter(c => !c.alwaysInclude).length} entries]\n${loreIndex}\n${pinnedSection}[INVENTORY INDEX]\n${inventoryIndex}\n\n[PROFILE INDEX]\n${profileIndex}\n\n[RECENT CONVERSATION]\n${conversation}\n\n${addenda ? `${addenda}\n\n` : ''}Respond with the JSON object now:`;
 
     console.log(`[ContextRecommender] Sending recommendation request...`);
 

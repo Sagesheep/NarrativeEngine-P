@@ -43,6 +43,7 @@ import { emitCoreEvent, emitCoreEventLazy } from '../mods/events';
 import { runPromptInterceptors } from '../mods/interceptors';
 import { runFactPublishers } from '../mods/facts';
 import { blockTokenCap, isBlockEnabled } from './blockEnablement';
+import { renderPromptAddenda } from './promptAddenda';
 import { BUILTIN_IDS, getBuiltinTokenCap } from '../payload/contributions/builtins';
 import { combatNoteRegistryOption } from '../combat/combatTurnNotes';
 import { abilityLimitsOf } from '../combat/abilityProposalArgs';
@@ -345,6 +346,10 @@ export async function runDirectorStage(
                 onStageNpcIds: facade?.data.onStageNpcIds ?? state.onStageNpcIds,
                 timeline: facade?.data.timeline ?? state.timeline,
                 ...(worldFacts.length > 0 ? { worldFacts } : {}),
+                addenda: renderPromptAddenda('director', {
+                    moduleEnabled: settings.moduleEnabled,
+                    playerPromptNotes: state.settings.playerPromptNotes,
+                }),
                 campaignId: facade?.data.activeCampaignId ?? state.activeCampaignId,
                 getAuxiliaryProvider: facade ? undefined : state.getFreshAuxiliaryProvider,
                 signal: directorSignal,

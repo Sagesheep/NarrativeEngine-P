@@ -292,10 +292,11 @@ anywhere, never validated, never read by the app.
 | `native` | `NativeEntry` | no | absent | The native tier. Its presence alone makes the mod native-tier for trust and warning purposes. |
 | `roles` | string[] | no | `[]` | Native service-role ids claimed at runtime through `ctx.roles`. |
 | `tierEntries` | `ModTierEntryDeclaration[]` | no | `[]` | Phase 7.3. Per-tier `matrix` + optional `cooldown` so the user's Lite/Pro/Max setting governs a mod that calls a model. |
+| `promptAddenda` | `{ "director"?: string, "recommender"?: string }` | no | `{}` | Plain text added to the Continuity Director's prompt (the Writer Brief) and/or the Context Recommender's prompt (which NPCs/lore/items to load). Placed after the evidence and before the output-format instructions, so it steers attention but never the reply format. Max 1200 characters per target. The player sees the text in Extensions and can switch each one off; their own notes (Settings → Advanced) are added after every mod's. |
 | `x-*` | anything | no | ignored | Author / third-party-tooling metadata. |
 
 A manifest must declare at least one of `contributions`, `tables`, `panels`,
-`screens`, `compute`, `native`, `i18n`, `roles`, `tierEntries`. A manifest
+`screens`, `compute`, `native`, `i18n`, `roles`, `tierEntries`, `promptAddenda`. A manifest
 that declares none of them is a mod that does nothing, which is a typo, not
 an intention.
 

@@ -138,6 +138,23 @@ export const en = {
     // without it. Previously this rendered as "Overridden by core default",
     // which was untrue whenever the default had been switched off.
     'settings.extensions.mod.roleNoProvider': 'Not provided — this feature is off',
+    // Mod prompt addenda — steering text for the Director / Context Recommender.
+    'settings.extensions.mod.addenda.title': 'Steers helper prompts',
+    'settings.extensions.mod.addenda.help': 'This mod adds the text below to a helper prompt. It can change what the helper pays attention to, but not the format of its answer. Switch one off to keep the rest of the mod.',
+    'settings.extensions.mod.addenda.director': 'Continuity Director',
+    'settings.extensions.mod.addenda.recommender': 'Context Recommender',
+    'settings.extensions.mod.addenda.toggle': 'Send this mod\'s text to the {{target}}',
+    'settings.extensions.mod.addenda.modOff': 'Mod is off — nothing is sent',
+    'settings.promptNotes.title': 'Your notes for the helpers',
+    'settings.promptNotes.help': 'Text added to two helper prompts on every turn, after any text from your mods. Use it to steer what they focus on. Leave empty to add nothing.',
+    'settings.promptNotes.director.label': 'Continuity Director',
+    'settings.promptNotes.director.help': 'Checks the last GM turn and writes a short brief for the next one (Pro and Max tiers).',
+    'settings.promptNotes.director.placeholder': 'e.g. Keep the political intrigue consistent; never flag the player\'s bluffs as continuity errors.',
+    'settings.promptNotes.recommender.label': 'Context Recommender',
+    'settings.promptNotes.recommender.help': 'Picks which NPCs, lore, items and character details to load for the turn.',
+    'settings.promptNotes.recommender.placeholder': 'e.g. Always consider faction lore when a noble house is mentioned.',
+    'settings.promptNotes.fromMods': 'Also sent from mods: {{mods}}',
+    'settings.promptNotes.fromModsNone': 'No mods add text here.',
     // Phase 9.2 — the API generation notice. Deliberately not phrased as
     // "broken": the mod loaded and may work perfectly. It says what is true
     // (it was written for an older surface) and what follows from the
