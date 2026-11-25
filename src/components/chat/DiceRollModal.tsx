@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
-import { X, Dices } from 'lucide-react';
+import { useState } from 'react';
+import { X, Dices, Bookmark } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { buildDefaultDiceSystem } from '../../types';
 import type { RollDefinition, RollModifier, RollAggregation, ManualRollRequest } from '../../types';
+import {
+    isRollUsable, makePreset, pushRecentRoll, rollLabel, starterRolls,
+} from '../../services/engine/diceQuickRolls';
+
+const CHIP = 'px-2 py-1 text-[11px] font-mono rounded border border-border bg-void text-text-primary hover:border-terminal hover:text-terminal';
+const LOAD_HINT = 'Click to arm. Right-click to load into the form.';
 
 /**
  * Dice "dice me" modal — 3-gate configurator. Opens BEFORE the roll. The player
@@ -10,16 +16,30 @@ import type { RollDefinition, RollModifier, RollAggregation, ManualRollRequest }
  * (`armedRoll`); the orchestrator runs `resolveManualRoll` at send time and
  * asserts the result as fact, mirroring the loot drop precedent.
  *
+ * Quick rolls sit above the form: saved presets and the campaign's recent
+ * rolls (or one 1× chip per die type before there is any history). A chip arms
+ * in one tap; right-click loads it into the form for tweaking.
+ *
  * Mirrors LootRollModal structurally (backdrop + click-outside ghost-click
  * guard + same styling tokens).
  */
 export function DiceRollModal() {
     const open = useAppStore(s => s.diceRollModalOpen);
+    // Mounting the body only while open gives every opening a fresh form.
+    return open ? <DiceRollModalBody /> : null;
+}
+
+function DiceRollModalBody() {
     const onClose = useAppStore(s => s.closeDiceRollModal);
     const setArmedRoll = useAppStore(s => s.setArmedRoll);
+    const updateContext = useAppStore(s => s.updateContext);
     const context = useAppStore(s => s.context);
 
     const diceSystem = context.diceSystem ?? buildDefaultDiceSystem();
+    const presets = (context.dicePresets ?? []).filter(p => isRollUsable(p.roll, diceSystem));
+    const recent = (context.diceRecent ?? []).filter(r => isRollUsable(r, diceSystem));
+    const hasHistory = recent.length > 0;
+    const quickRolls = hasHistory ? recent : starterRolls(diceSystem);
 
     // rollDef is local to this roll — not stored globally. Defaults to a
     // plain single roll; the player adjusts via the 3 gates before confirming.
@@ -27,46 +47,57 @@ export function DiceRollModal() {
 
     const [dieTypeId, setDieTypeId] = useState(diceSystem.dieTypes[0]?.id ?? '');
     const [rollDef, setRollDef] = useState<RollDefinition>(defaultRollDef);
-    const openedAtRef = useRef(0);
-
-    useEffect(() => {
-        if (open) {
-            setDieTypeId(diceSystem.dieTypes[0]?.id ?? '');
-            setRollDef(defaultRollDef);
-            openedAtRef.current = Date.now();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open]);
-
-    if (!open) return null;
+    const [presetName, setPresetName] = useState<string | null>(null);
+    const [openedAt] = useState(() => Date.now());
 
     const handleBackdropClick = () => {
-        if (Date.now() - openedAtRef.current < 350) return;
+        if (Date.now() - openedAt < 350) return;
         onClose();
     };
 
-    const confirm = () => {
-        const req: ManualRollRequest = { dieTypeId, rollDef };
+    const arm = (req: ManualRollRequest) => {
         setArmedRoll(req);
+        updateContext({ diceRecent: pushRecentRoll(context.diceRecent, req) });
         onClose();
     };
 
+    const loadIntoForm = (req: ManualRollRequest) => {
+        setDieTypeId(req.dieTypeId);
+        setRollDef({ ...req.rollDef });
+    };
+
+    const current: ManualRollRequest = { dieTypeId, rollDef };
     const selectedDie = diceSystem.dieTypes.find(d => d.id === dieTypeId);
     const isTotalAll = rollDef.aggregation === 'total_all';
+    const preview = rollLabel(current, diceSystem) ?? '—';
 
-    const preview = (() => {
-        if (!selectedDie) return '—';
-        const modLabel = !isTotalAll && rollDef.modifier === 'adv'
-            ? ' (adv: highest)'
-            : !isTotalAll && rollDef.modifier === 'disadv'
-            ? ' (disadv: lowest)'
-            : isTotalAll ? ' (sum)' : '';
-        return `${rollDef.count}${selectedDie.name}${modLabel}`;
-    })();
+    const savePreset = () => {
+        const name = presetName?.trim();
+        if (!name || !selectedDie) return;
+        updateContext({ dicePresets: [...(context.dicePresets ?? []), makePreset(name, current)] });
+        setPresetName(null);
+    };
+
+    const deletePreset = (id: string) => {
+        updateContext({ dicePresets: (context.dicePresets ?? []).filter(p => p.id !== id) });
+    };
+
+    const quickChip = (req: ManualRollRequest, key: string, label: string) => (
+        <button
+            key={key}
+            type="button"
+            title={LOAD_HINT}
+            onClick={() => arm(req)}
+            onContextMenu={e => { e.preventDefault(); loadIntoForm(req); }}
+            className={CHIP}
+        >
+            {label}
+        </button>
+    );
 
     return (
         <div data-motion="overlay" className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60" onClick={handleBackdropClick}>
-            <div className="bg-surface border border-border rounded-lg w-full max-w-sm mx-4 flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="bg-surface border border-border rounded-lg w-full max-w-sm mx-4 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between p-4 border-b border-border">
                     <h2 className="text-terminal text-sm font-bold tracking-[0.2em] uppercase flex items-center gap-2">
                         <Dices size={14} /> Dice Me
@@ -76,7 +107,52 @@ export function DiceRollModal() {
                     </button>
                 </div>
 
-                <div className="p-4 space-y-4">
+                <div className="p-4 space-y-4 overflow-y-auto">
+                    {presets.length > 0 && (
+                        <div>
+                            <div className="text-[9px] text-text-dim uppercase tracking-wider mb-1">Presets</div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {presets.map(p => (
+                                    <span key={p.id} className="inline-flex items-stretch">
+                                        <button
+                                            type="button"
+                                            title={LOAD_HINT}
+                                            onClick={() => arm(p.roll)}
+                                            onContextMenu={e => { e.preventDefault(); loadIntoForm(p.roll); }}
+                                            className={`${CHIP} rounded-r-none border-r-0`}
+                                        >
+                                            <span className="font-sans font-semibold">{p.name}</span>
+                                            <span className="text-text-dim ml-1">{rollLabel(p.roll, diceSystem)}</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            aria-label={`Delete preset ${p.name}`}
+                                            title="Delete preset"
+                                            onClick={() => deletePreset(p.id)}
+                                            className="px-1 rounded-r border border-border bg-void text-text-dim hover:text-danger hover:border-danger"
+                                        >
+                                            <X size={11} />
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {quickRolls.length > 0 && (
+                        <div>
+                            <div className="text-[9px] text-text-dim uppercase tracking-wider mb-1">
+                                {hasHistory ? 'Recent' : 'Quick Roll'}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {quickRolls.map(r => {
+                                    const label = rollLabel(r, diceSystem);
+                                    return label ? quickChip(r, `${r.dieTypeId}|${label}`, label) : null;
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Die type selector */}
                     <div>
                         <div className="text-[9px] text-text-dim uppercase tracking-wider mb-1">Die Type</div>
@@ -147,15 +223,47 @@ export function DiceRollModal() {
                         {preview}
                     </div>
 
+                    {presetName !== null && (
+                        <form
+                            className="flex gap-2"
+                            onSubmit={e => { e.preventDefault(); savePreset(); }}
+                        >
+                            <input
+                                autoFocus
+                                aria-label="Preset name"
+                                placeholder="Preset name, e.g. Attack"
+                                value={presetName}
+                                maxLength={40}
+                                onChange={e => setPresetName(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setPresetName(null); } }}
+                                className="flex-1 min-w-0 bg-void border border-border focus:border-terminal text-[13px] text-text-primary rounded px-2 py-1.5 outline-none"
+                            />
+                            <button
+                                type="submit"
+                                disabled={!presetName.trim() || !selectedDie}
+                                className="px-3 py-1.5 text-xs font-semibold bg-terminal/20 text-terminal rounded hover:bg-terminal/30 disabled:opacity-30"
+                            >
+                                Save
+                            </button>
+                        </form>
+                    )}
+
                     <p className="text-[10px] text-text-dim/70 leading-relaxed">
                         Confirm to arm the roll. On your next send, the engine rolls real dice and the GM narrates the outcome as fact.
                     </p>
                 </div>
 
-                <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
+                <div className="px-4 py-3 border-t border-border flex items-center gap-2">
+                    <button
+                        onClick={() => setPresetName(presetName === null ? '' : null)}
+                        disabled={!selectedDie}
+                        className="mr-auto px-2 py-1.5 text-xs text-text-dim hover:text-terminal rounded flex items-center gap-1 disabled:opacity-30"
+                    >
+                        <Bookmark size={12} /> {presetName === null ? 'Save as preset' : 'Cancel preset'}
+                    </button>
                     <button onClick={onClose} className="px-3 py-1.5 text-xs text-text-dim hover:text-text-primary rounded">Cancel</button>
                     <button
-                        onClick={confirm}
+                        onClick={() => arm(current)}
                         disabled={!selectedDie}
                         className="px-3 py-1.5 text-xs font-semibold bg-terminal/20 text-terminal rounded hover:bg-terminal/30 disabled:opacity-30"
                     >

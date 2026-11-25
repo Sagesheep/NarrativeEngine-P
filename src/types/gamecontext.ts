@@ -114,6 +114,14 @@ export type ManualRollRequest = {
     rollDef: RollDefinition;  // per-roll 3-gate config (local to this roll)
 };
 
+/** A named roll the player saved in Dice Me for one-tap arming. Campaign setup,
+ *  so it survives a clean copy; recent rolls (`GameContext.diceRecent`) do not. */
+export type DicePreset = {
+    id: string;
+    name: string;
+    roll: ManualRollRequest;
+};
+
 /** @deprecated — kept for migration. Old shape was '1d20' | 'adv' | 'disadv'. */
 export type ManualRollMode = '1d20' | 'adv' | 'disadv';
 
@@ -233,6 +241,10 @@ export type GameContext = {
     worldEventDC?: number;
     diceConfig?: DiceConfig;        // @deprecated — migrated to diceSystem on load
     diceSystem?: DiceSystemConfig;   // generalized dice engine config
+    /** Dice Me quick rolls: last few distinct armed rolls, newest first. */
+    diceRecent?: ManualRollRequest[];
+    /** Dice Me quick rolls: named rolls the player saved. */
+    dicePresets?: DicePreset[];
     worldEventConfig?: WorldEventConfig;
     // Toggles: whether each field is appended to context
     canonStateActive: boolean;

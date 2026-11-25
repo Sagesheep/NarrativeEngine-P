@@ -40,7 +40,7 @@ const CLEAN_COPY_CONTEXT_FIELDS = Object.freeze([
     'sceneNoteActive', 'sceneNoteDepth', 'notebookActive', 'smartBookkeepingActive',
     'surpriseEngineActive', 'encounterEngineActive', 'worldEngineActive',
     'npcIntroEngineActive', 'diceFairnessActive', 'relationshipMemory',
-    'diceConfig', 'diceSystem', 'statLabelMap',
+    'diceConfig', 'diceSystem', 'dicePresets', 'statLabelMap',
     'surpriseConfig', 'encounterConfig', 'worldEventConfig', 'npcIntroConfig',
     'combatModeActive', 'combatConfig',
     'lootTree', 'activeLootProfileId',
