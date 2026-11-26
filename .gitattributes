@@ -1,0 +1,26 @@
+# Store text files with LF line endings in the repo and check them out as LF.
+* text=auto eol=lf
+
+# Windows launchers keep their CRLF endings exactly as committed.
+*.bat -text
+*.cmd -text
+
+# Binary files: never convert.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.db binary
+*.7z binary
+*.zip binary
+*.pdf binary
+*.jar binary
+*.onnx binary
+*.wasm binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.mp3 binary
+*.wav binary
