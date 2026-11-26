@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/useAppStore';
 import type { LoreCategory, LoreChunk } from '../../types';
 import { reviseLoreEntry } from '../../services/lore/loreChunker';
 import { button, CATEGORIES, field } from './loreFormStyles';
+import { cleanFolder, folderNames } from './loreFilters';
 
 const CHUNK_TAG = /^\s*\[CHUNK:\s*[A-Z_]+[—\-\s]*\]\s*/i;
 
@@ -20,6 +21,8 @@ export function LoreEntryEditor({ chunk, campaignId, onDone }: {
     const [header, setHeader] = useState(chunk.header.slice(tag.length));
     const [content, setContent] = useState(chunk.content);
     const [category, setCategory] = useState<LoreCategory>(chunk.category || 'misc');
+    const [folder, setFolder] = useState(chunk.folder ?? '');
+    const allChunks = useAppStore(s => s.loreChunks);
     const [error, setError] = useState('');
 
     const save = () => {
@@ -42,6 +45,7 @@ export function LoreEntryEditor({ chunk, campaignId, onDone }: {
             content,
             category: category === current.category ? undefined : category,
         }, state.loreChunks);
+        revised.folder = cleanFolder(folder);
         state.setLoreChunks(state.loreChunks.map(c => (c.id === chunk.id ? revised : c)));
         onDone();
     };
@@ -59,6 +63,13 @@ export function LoreEntryEditor({ chunk, campaignId, onDone }: {
                 <select className={field} value={category} onChange={e => setCategory(e.target.value as LoreCategory)}>
                     {CATEGORIES.map(c => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
                 </select>
+            </label>
+            <label className="block text-[11px] text-text-dim">Folder (your own sorting, e.g. Vehicles; optional)
+                <input className={field} value={folder} onChange={e => setFolder(e.target.value)}
+                    list={`lore-folders-${chunk.id}`} placeholder="none" />
+                <datalist id={`lore-folders-${chunk.id}`}>
+                    {folderNames(allChunks).map(name => <option key={name} value={name} />)}
+                </datalist>
             </label>
             {error && <p role="alert" className="text-xs text-danger">{error}</p>}
             <div className="flex gap-2">

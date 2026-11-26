@@ -5,6 +5,7 @@ import { buildLoreEntry } from '../../services/lore/loreChunker';
 import { uid } from '../../utils/uid';
 
 import { button, CATEGORIES, field } from './loreFormStyles';
+import { cleanFolder, folderNames } from './loreFilters';
 
 type MatchMode = '' | NonNullable<LoreChunk['ragMode']>;
 
@@ -19,12 +20,14 @@ export function NewLoreEntryForm({ campaignId }: { campaignId: string }) {
     const [content, setContent] = useState('');
     const [category, setCategory] = useState<LoreCategory | ''>('');
     const [keywords, setKeywords] = useState('');
+    const [folder, setFolder] = useState('');
+    const loreChunks = useAppStore(s => s.loreChunks);
     const [mode, setMode] = useState<MatchMode>('');
     const [error, setError] = useState('');
     const [added, setAdded] = useState('');
 
     const reset = () => {
-        setHeader(''); setContent(''); setCategory(''); setKeywords(''); setMode(''); setError('');
+        setHeader(''); setContent(''); setCategory(''); setKeywords(''); setFolder(''); setMode(''); setError('');
     };
 
     const save = () => {
@@ -44,6 +47,8 @@ export function NewLoreEntryForm({ campaignId }: { campaignId: string }) {
             keywords: keywords.split(','),
             ragMode: mode || undefined,
         }, state.loreChunks, uid());
+        const chosenFolder = cleanFolder(folder);
+        if (chosenFolder) entry.folder = chosenFolder;
         state.setLoreChunks([...state.loreChunks, entry]);
         setAdded(entry.header);
         reset();
@@ -90,6 +95,13 @@ export function NewLoreEntryForm({ campaignId }: { campaignId: string }) {
             <label className="block text-xs text-text-dim">Keywords (comma separated, optional)
                 <input className={field} value={keywords} onChange={e => setKeywords(e.target.value)}
                     placeholder="ashen pact, ember lords" />
+            </label>
+            <label className="block text-xs text-text-dim">Folder (your own sorting, e.g. Vehicles; optional)
+                <input className={field} value={folder} onChange={e => setFolder(e.target.value)}
+                    list="lore-folders-new" placeholder="none" />
+                <datalist id="lore-folders-new">
+                    {folderNames(loreChunks).map(name => <option key={name} value={name} />)}
+                </datalist>
             </label>
             {error && <p role="alert" className="text-sm text-danger">{error}</p>}
             <div className="flex gap-2">

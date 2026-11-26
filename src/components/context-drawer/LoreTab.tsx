@@ -11,6 +11,7 @@ import { NewLoreEntryForm } from './NewLoreEntryForm';
 import { LoreEntryEditor } from './LoreEntryEditor';
 import { LoreAiIndexPanel } from './LoreAiIndexPanel';
 import { hasFreshAiSummary } from '../../services/lore/loreAiIndex';
+import { buildLoreFilterChips, categoryLabel, cleanFolder, matchesLoreFilter } from './loreFilters';
 
 export function LoreTab() {
     const loreChunks = useAppStore((s) => s.loreChunks);
@@ -32,6 +33,8 @@ export function LoreTab() {
     const [query, setQuery] = useState('');
     // The entry whose title/text is open in the inline editor, if any.
     const [editingId, setEditingId] = useState<string | null>(null);
+    // The category or folder chip that narrows the list, if any.
+    const [chipKey, setChipKey] = useState<string | null>(null);
 
     const bulkModeIsOn = (mode: 'vector' | 'keyword' | 'always' | 'auto') => {
         if (loreChunks.length === 0) return false;
@@ -101,15 +104,20 @@ export function LoreTab() {
     // WO-screen-modernization §1 — search across the chunk header text and
     // trigger keywords. Case-insensitive substring. Matches the cross-field
     // pattern already used in NPC/Location ledgers.
+    const chips = buildLoreFilterChips(loreChunks);
+    // A chip whose last entry was deleted or moved simply stops filtering.
+    const activeChip = chips.find(c => c.key === chipKey) ?? null;
+    const chipChunks = activeChip ? loreChunks.filter(c => matchesLoreFilter(c, activeChip.key)) : loreChunks;
     const filteredChunks = query.trim()
-        ? loreChunks.filter(c => {
+        ? chipChunks.filter(c => {
             const q = query.toLowerCase();
             const header = c.header.replace(/\[CHUNK:\s*[A-Z_]+[—\-\s]*\]/i, '').trim().toLowerCase();
             return header.includes(q)
                 || (c.category || '').toLowerCase().includes(q)
+                || (c.folder || '').toLowerCase().includes(q)
                 || (c.triggerKeywords || []).some(k => k.toLowerCase().includes(q));
         })
-        : loreChunks;
+        : chipChunks;
 
     const renderChunk = (chunk: LoreChunk) => (
         <div key={chunk.id} className={`bg-void rounded border p-2 transition-colors ${chunk.disabled ? 'opacity-50 border-border' : chunk.alwaysInclude ? 'border-terminal/40 shadow-[0_0_10px_rgba(74,222,128,0.05)]' : 'border-border'}`}>
@@ -126,8 +134,13 @@ export function LoreTab() {
             {/* Meta badges row */}
             <div className="flex flex-wrap items-center gap-1 mb-2">
                 <span className="px-1.5 py-0.5 rounded bg-terminal/10 text-terminal text-[8px] uppercase tracking-wider font-bold">
-                    {chunk.category || 'misc'}
+                    {categoryLabel(chunk.category || 'misc')}
                 </span>
+                {cleanFolder(chunk.folder) && (
+                    <span className="px-1.5 py-0.5 rounded bg-void text-text-primary text-[8px] uppercase tracking-wider border border-terminal/30" title="Folder (your own sorting)">
+                        📁 {cleanFolder(chunk.folder)}
+                    </span>
+                )}
                 <span className="px-1.5 py-0.5 rounded bg-void text-text-dim text-[8px] uppercase tracking-wider border border-border" title="Priority level">
                     P{chunk.priority || 5}
                 </span>
@@ -320,7 +333,7 @@ export function LoreTab() {
                             type="text"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
-                            placeholder="Filter by header, category, or keyword..."
+                            placeholder="Filter by header, category, folder, or keyword..."
                             className="w-full pl-8 pr-8 py-1.5 bg-void border border-border rounded text-xs text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal transition-colors"
                         />
                         {query && (
@@ -332,6 +345,31 @@ export function LoreTab() {
                                 <X size={12} />
                             </button>
                         )}
+                    </div>
+                )}
+                {chips.length > 1 && (
+                    <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter lore by category or folder">
+                        <button
+                            onClick={() => setChipKey(null)}
+                            aria-pressed={!activeChip}
+                            className={`px-2 py-0.5 rounded-full border text-[11px] transition-colors ${!activeChip ? 'bg-terminal/15 text-terminal border-terminal/40' : 'text-text-dim border-border hover:text-terminal hover:border-terminal/40'}`}
+                        >
+                            All <span className="opacity-60">{loreChunks.length}</span>
+                        </button>
+                        {chips.map(chip => {
+                            const on = activeChip?.key === chip.key;
+                            return (
+                                <button
+                                    key={chip.key}
+                                    onClick={() => setChipKey(on ? null : chip.key)}
+                                    aria-pressed={on}
+                                    title={chip.kind === 'folder' ? 'Your folder' : 'Built-in category'}
+                                    className={`px-2 py-0.5 rounded-full border text-[11px] capitalize transition-colors ${on ? 'bg-terminal/15 text-terminal border-terminal/40' : 'text-text-dim border-border hover:text-terminal hover:border-terminal/40'}`}
+                                >
+                                    {chip.kind === 'folder' && '📁 '}{chip.label} <span className="opacity-60">{chip.count}</span>
+                                </button>
+                            );
+                        })}
                     </div>
                 )}
                 {loreChunks.length > 0 && (
@@ -387,7 +425,9 @@ export function LoreTab() {
             ) : filteredChunks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 opacity-60">
                     <Search size={32} strokeWidth={1} />
-                    <p className="text-xs font-mono uppercase tracking-tighter">No chunks match "{query}".</p>
+                    <p className="text-xs font-mono uppercase tracking-tighter">
+                        {query.trim() ? `No chunks match "${query}"${activeChip ? ` in ${activeChip.label}` : ''}.` : 'No chunks in this filter.'}
+                    </p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">

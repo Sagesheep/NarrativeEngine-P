@@ -56,6 +56,7 @@ export function validateChunks(value: unknown): LoreChunk[] {
             summary: typeof c.summary === 'string' ? c.summary : undefined,
             group: typeof c.group === 'string' ? c.group : undefined,
             groupWeight: typeof c.groupWeight === 'number' ? finite(c.groupWeight, 5) : undefined,
+            folder: typeof c.folder === 'string' && c.folder.trim() ? c.folder.trim().slice(0, 60) : undefined,
         };
     });
 }

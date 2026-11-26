@@ -39,6 +39,9 @@ export type LoreChunk = {
     aiSummaryHash?: string;
     group?: string;
     groupWeight?: number;
+    /** The user's own sorting label (e.g. "Vehicles"), shown as a filter chip in the Lore tab.
+     *  Display only: retrieval never reads it. Not the same as `group`, which drives group competition. */
+    folder?: string;
 };
 
 export type RuleChunkMeta = {

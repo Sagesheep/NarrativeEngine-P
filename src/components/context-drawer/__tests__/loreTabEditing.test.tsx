@@ -59,3 +59,59 @@ describe('LoreTab — adding an entry', () => {
         expect(saved[2].linkedEntities).toEqual(['Ember Lords']);
     });
 });
+
+describe('LoreTab — category and folder chips', () => {
+    beforeEach(() => {
+        useAppStore.setState({
+            loreChunks: [
+                { ...chunk('a', 'Old Mill'), category: 'location' },
+                { ...chunk('b', 'Ember Lords'), category: 'faction' },
+                { ...chunk('c', 'Sky Barge'), folder: 'Vehicles' },
+                { ...chunk('d', 'Dust Crawler'), category: 'location', folder: 'vehicles ' },
+            ],
+        } as never);
+    });
+
+    it('narrows the list to one category, and back to all on a second click', () => {
+        render(<LoreTab />);
+        fireEvent.click(screen.getByRole('button', { name: 'location 2' }));
+        expect(screen.getByText('Old Mill')).toBeTruthy();
+        expect(screen.getByText('Dust Crawler')).toBeTruthy();
+        expect(screen.queryByText('Ember Lords')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: 'location 2' }));
+        expect(screen.getByText('Ember Lords')).toBeTruthy();
+    });
+
+    it('groups folder names regardless of case or spacing', () => {
+        render(<LoreTab />);
+        fireEvent.click(screen.getByRole('button', { name: '📁 Vehicles 2' }));
+        expect(screen.getByText('Sky Barge')).toBeTruthy();
+        expect(screen.getByText('Dust Crawler')).toBeTruthy();
+        expect(screen.queryByText('Old Mill')).toBeNull();
+    });
+
+    it('saves a folder from the entry editor without changing the category', () => {
+        render(<LoreTab />);
+        fireEvent.click(screen.getByRole('button', { name: 'Edit Ember Lords' }));
+        fireEvent.change(screen.getByLabelText(/Folder/), { target: { value: '  Great   Houses ' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+        const saved = (setLoreChunks.mock.calls[0][0] as LoreChunk[]).find(c => c.id === 'b')!;
+        expect(saved.folder).toBe('Great Houses');
+        expect(saved.category).toBe('faction');
+        expect(saved.group).toBeUndefined();
+    });
+
+    it('adds a new entry straight into a folder', () => {
+        render(<LoreTab />);
+        fireEvent.click(screen.getByRole('button', { name: '+ New lore entry' }));
+        fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Rail Skiff' } });
+        fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'A light rail vehicle.' } });
+        fireEvent.change(screen.getByLabelText(/Folder/), { target: { value: 'Vehicles' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Add entry' }));
+
+        const saved = setLoreChunks.mock.calls[0][0] as LoreChunk[];
+        expect(saved.at(-1)?.folder).toBe('Vehicles');
+    });
+});
