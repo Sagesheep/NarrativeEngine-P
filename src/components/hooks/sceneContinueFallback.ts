@@ -47,6 +47,7 @@ export function rebuildStateFromLiveStoreLike(
         getRawAuxiliaryProvider: () => store.getActiveAuxiliaryEndpoint(),
         getRawSummariserProvider: () => store.getActiveSummarizerEndpoint(),
         chapters: store.chapters ?? [],
+        books: store.books ?? [],
         pinnedChapterIds: useAppStore.getState().pinnedChapterIds,
         clearPinnedChapters: overrides.clearPinnedChapters,
         setChapters: (chapters) => useAppStore.getState().setChapters(chapters),

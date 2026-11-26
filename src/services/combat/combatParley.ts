@@ -235,6 +235,7 @@ function ratingMessages(session: CombatSession, words: string, attemptId: string
         npcLedger: store.npcLedger,
         archiveIndex: store.archiveIndex,
         chapters: store.chapters,
+        books: store.books,
         onStageNpcIds: store.onStageNpcIds,
         pinnedExcerpts: store.pinnedExcerpts,
         locationLedger: store.locationLedger,

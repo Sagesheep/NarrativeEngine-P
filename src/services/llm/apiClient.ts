@@ -1,7 +1,8 @@
-import type { AppSettings, ArchiveChapter, ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, SceneEvent, ChapterRefitPreview, ChapterRefitResult, SceneHook, SceneTags } from '../../types';
+import type { AppSettings, ArchiveBook, ArchiveChapter,ArchiveIndexEntry, SemanticFact, EntityEntry, BackupMeta, TimelineEvent, SceneEvent, ChapterRefitPreview, ChapterRefitResult, SceneHook, SceneTags } from '../../types';
 
 import { API_BASE as API } from '../../lib/apiBase';
 import { encryptSettingsProviders } from '../infrastructure/settingsCrypto';
+import { reconcileBooks } from '../archive-memory/bookEngine';
 
 export const api = {
     archive: {
@@ -237,6 +238,38 @@ export const api = {
                 console.warn('[Chapters] Failed to refit:', err);
             }
             return undefined;
+        },
+    },
+    books: {
+        /**
+         * The campaign's books, checked against its chapters: a book whose
+         * chapters were rolled back, restored away or reopened is dropped (and the
+         * file rewritten), so every reader sees the same valid list.
+         */
+        async list(campaignId: string, chapters?: ArchiveChapter[]): Promise<ArchiveBook[]> {
+            try {
+                const res = await fetch(`${API}/campaigns/${campaignId}/archive/books`);
+                if (!res.ok) return [];
+                const stored: ArchiveBook[] = await res.json();
+                if (!Array.isArray(stored) || stored.length === 0) return [];
+                const valid = reconcileBooks(stored, chapters ?? await api.chapters.list(campaignId));
+                if (valid.length !== stored.length) {
+                    console.log(`[Books] Dropped ${stored.length - valid.length} book(s) whose chapters changed`);
+                    await api.books.save(campaignId, valid);
+                }
+                return valid;
+            } catch (err) {
+                console.warn('[Books] Failed to list:', err);
+                return [];
+            }
+        },
+        async save(campaignId: string, books: ArchiveBook[]): Promise<void> {
+            const res = await fetch(`${API}/campaigns/${campaignId}/archive/books`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(books),
+            });
+            if (!res.ok) throw new Error(`Saving books failed (${res.status})`);
         },
     },
     facts: {

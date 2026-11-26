@@ -267,6 +267,7 @@ ${textToUse}` : attachmentBlock)
             getRawSummariserProvider: () => useAppStore.getState().getActiveSummarizerEndpoint(),
             timeline: storeSnapshot.timeline,
             chapters: storeSnapshot.chapters,
+            books: storeSnapshot.books,
             pinnedChapterIds: storeSnapshot.pinnedChapterIds,
             clearPinnedChapters: storeSnapshot.clearPinnedChapters,
             setChapters: setChapters,

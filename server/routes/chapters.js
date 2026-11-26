@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { readJson, writeJson, chaptersPath, archiveIndexPath, getNextSceneNumber, createDefaultChapter } from '../lib/fileStore.js';
+import { readJson, writeJson, chaptersPath, booksPath, archiveIndexPath, getNextSceneNumber, createDefaultChapter } from '../lib/fileStore.js';
 import { withCampaignLock } from '../lib/writeLock.js';
 import { wrapAsync } from '../lib/asyncHandler.js';
 import {
@@ -43,6 +43,23 @@ export function createChaptersRouter() {
         }
         await withCampaignLock(req.params.id, () => {
             writeJson(chaptersPath(req.params.id), req.body);
+        });
+        res.json(req.body);
+    }));
+
+    // Books: the level above chapters. Stored as written; the client checks them
+    // against the chapters on read (bookEngine.reconcileBooks), the same as mobile.
+    router.get('/api/campaigns/:id/archive/books', wrapAsync((req, res) => {
+        const books = readJson(booksPath(req.params.id), []);
+        res.json(Array.isArray(books) ? books : []);
+    }));
+
+    router.put('/api/campaigns/:id/archive/books', wrapAsync(async (req, res) => {
+        if (!Array.isArray(req.body)) {
+            return res.status(400).json({ error: 'Expected an array of books' });
+        }
+        await withCampaignLock(req.params.id, () => {
+            writeJson(booksPath(req.params.id), req.body);
         });
         res.json(req.body);
     }));

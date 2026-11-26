@@ -560,6 +560,7 @@ function withLiveCampaignState(state: TurnState, live: ReturnType<typeof useAppS
         loreChunks: live.loreChunks ?? state.loreChunks,
         timeline: live.timeline ?? state.timeline,
         chapters: live.chapters ?? state.chapters,
+        books: live.books ?? state.books,
         divergenceRegister: live.divergenceRegister ?? state.divergenceRegister,
         onStageNpcIds: live.onStageNpcIds ?? state.onStageNpcIds,
     };
@@ -609,6 +610,7 @@ export function rebuildStateFromLiveStore(
         getRawAuxiliaryProvider: () => store.getActiveAuxiliaryEndpoint(),
         getRawSummariserProvider: () => store.getActiveSummarizerEndpoint(),
         chapters: store.chapters ?? [],
+        books: store.books ?? [],
         pinnedChapterIds: useAppStore.getState().pinnedChapterIds,
         clearPinnedChapters: () => useAppStore.getState().clearPinnedChapters(),
         setChapters: (chapters) => useAppStore.getState().setChapters(chapters),

@@ -1,4 +1,4 @@
-import type { ChatMessage, GameContext, ArchiveChapter, ArchiveIndexEntry } from '../../types';
+import type { ChatMessage, GameContext, ArchiveBook, ArchiveChapter, ArchiveIndexEntry } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import { countTokens } from '../infrastructure/tokenizer';
 import type { TraceCollector } from './traceCollector';
@@ -67,6 +67,8 @@ export function buildHistory(opts: {
     /** WO-09: sealed-chapter LOD inputs. When omitted (old campaigns), the
      *  condensed portion stays dropped as before — nothing throws. */
     chapters?: ArchiveChapter[];
+    /** Books replace their chapters in the LOD recap. */
+    books?: ArchiveBook[];
     archiveIndex?: ArchiveIndexEntry[];
     lodSummaryChapters?: number;
     lodImportanceBonus?: number;
@@ -89,6 +91,7 @@ export function buildHistory(opts: {
         context,
         collector,
         chapters,
+        books,
         archiveIndex,
         lodSummaryChapters,
         lodImportanceBonus,
@@ -139,6 +142,7 @@ export function buildHistory(opts: {
         if (currentSceneMin !== undefined) lodAllocation = Math.max(0, Math.min(lodAllocation, historyBudget - currentSceneMin));
         const lodResult = renderLodChapters({
             chapters,
+            books,
             archiveIndex: archiveIndex ?? [],
             condensedUpToIndex,
             messages: history,
@@ -154,7 +158,7 @@ export function buildHistory(opts: {
             lodContent = `${LOD_ENVELOPE_PREFIX}${lodResult.text}${LOD_ENVELOPE_SUFFIX}`;
             // Count the actual emitted content (envelope + body), not just the body.
             lodTokens = countTokens(lodContent);
-            for (const tier of Object.values(lodResult.tierByChapterId)) {
+            for (const tier of [...Object.values(lodResult.tierByBookId), ...Object.values(lodResult.tierByChapterId)]) {
                 if (tier === 'summary') lodSummaryCount++;
                 else if (tier === 'synopsis') lodSynopsisCount++;
                 else if (tier === 'dropped') lodDroppedCount++;

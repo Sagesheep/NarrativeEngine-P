@@ -14,6 +14,7 @@ import { assertStillActive, makeGuarded } from '../guarded';
 import { compactRelationshipMemoryCollections } from '../../../npc/relationshipMemoryCompaction';
 import { readRelationshipMemoryState } from '../../../../store/relationshipMemoryState';
 import { useAppStore } from '../../../../store/useAppStore';
+import { autoCloseBookIfDue } from '../../../archive-memory/bookService';
 
 export const chapterSealTrack: PostTurnTrack<PostCommitTrackContext> = {
     id: 'track.chapter-seal',
@@ -73,7 +74,8 @@ export const chapterSealTrack: PostTurnTrack<PostCommitTrackContext> = {
             const sealModelCall: SealModelCall | undefined = ctx.facade && hasHostModelRole(ctx.facade, 'story')
                 ? (request) => ctx.facade!.model.call('story', request).then(result => result.content)
                 : undefined;
-            if ((sealProvider || sealModelCall) && isBlockEnabled('sealChapter', ctx.facade?.config.aiTier ?? ctx.state.settings.aiTier, ctx.facade?.config.moduleEnabled ?? ctx.state.settings.moduleEnabled)) {
+            const sealAiEnabled = isBlockEnabled('sealChapter', ctx.facade?.config.aiTier ?? ctx.state.settings.aiTier, ctx.facade?.config.moduleEnabled ?? ctx.state.settings.moduleEnabled);
+            if ((sealProvider || sealModelCall) && sealAiEnabled) {
                 await runCombinedSeal(
                     sealProvider,
                     sealResult.sealedChapter,
@@ -95,6 +97,23 @@ export const chapterSealTrack: PostTurnTrack<PostCommitTrackContext> = {
                     // writing a summary while the "auto-sealed" toast still showed.
                     sealModelCall,
                 );
+            }
+
+            // Books: once BOOK_AUTO_CLOSE_CHAPTERS sealed chapters sit outside a book,
+            // bind them. Runs after the chapter summary is written (the book summary is
+            // written from it), in the same background step so the prompt changes once.
+            // With the seal AI off the book is still bound, with a stand-in summary.
+            if (!assertStillActive(ctx.activeCampaignId, 'Chapter-AutoSeal')) return;
+            const bookProvider = sealAiEnabled
+                ? (sealProvider ?? useAppStore.getState().getActiveSummarizerEndpoint())
+                : undefined;
+            const books = await autoCloseBookIfDue(ctx.activeCampaignId, bookProvider)
+                .catch(e => { console.warn('[Books] Auto-close failed:', e); return null; });
+            if (books && assertStillActive(ctx.activeCampaignId, 'Chapter-AutoSeal')) {
+                useAppStore.getState().setBooks(books);
+                const book = books[books.length - 1];
+                if (book.summaryPending) toast.warning(`Book "${book.title}" bound without a summary. Use Rewrite Summary in the Chapters tab.`);
+                else toast.info(`Book closed: ${book.title}`);
             }
         }).catch(err => console.warn('[Auto-Seal] Failed:', err));
     },

@@ -376,3 +376,28 @@ describe('POST chapters/seal — guards', () => {
         expect(res.status).toBe(400);
     });
 });
+
+describe('books routes', () => {
+    const booksFile = () => path.join(CAMPAIGNS_DIR, `${ID}.archive.books.json`);
+    const book = { bookId: 'BK01', title: 'The Siege', sceneRange: ['001', '050'], summary: 'It began.', keywords: [], npcs: [], majorEvents: [], unresolvedThreads: [], createdAt: 1 };
+
+    it('lists none for a campaign without books', async () => {
+        const res = await request.get(`/api/campaigns/${ID}/archive/books`);
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual([]);
+    });
+
+    it('saves and lists books in their own campaign file', async () => {
+        const put = await request.put(`/api/campaigns/${ID}/archive/books`).send([book]);
+        expect(put.status).toBe(200);
+        expect(JSON.parse(fs.readFileSync(booksFile(), 'utf-8'))).toEqual([book]);
+        const res = await request.get(`/api/campaigns/${ID}/archive/books`);
+        expect(res.body).toEqual([book]);
+    });
+
+    it('refuses anything but an array', async () => {
+        const res = await request.put(`/api/campaigns/${ID}/archive/books`).send({ bookId: 'BK01' });
+        expect(res.status).toBe(400);
+        expect(fs.existsSync(booksFile())).toBe(false);
+    });
+});

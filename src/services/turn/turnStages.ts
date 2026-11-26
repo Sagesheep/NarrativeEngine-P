@@ -490,6 +490,7 @@ export function buildTurnPayload(
         deepContextSummary: ctx.gathered.deepContextSummary,
         divergenceRegister: state.divergenceRegister,
         chapters: state.chapters,
+        books: state.books,
         onStageNpcIds: state.onStageNpcIds,
         relevantRules: ctx.gathered.relevantRules,
         rulesManifest: ctx.gathered.rulesManifest,

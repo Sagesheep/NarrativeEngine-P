@@ -1,6 +1,6 @@
 import { reservedStoryInjections, injectionText } from './promptInjections';
 import { countTokens } from '../infrastructure/tokenizer';
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry, RelationshipStance } from '../../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveBook, ArchiveChapter, PinnedExcerpt, SceneEventType, LocationEntry, RelationshipStance } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import { createTraceCollector } from './traceCollector';
 import { computeBudgets } from './budgets';
@@ -66,6 +66,8 @@ export type BuildPayloadOptions = {
     deepContextSummary?: string;
     divergenceRegister?: DivergenceRegister;
     chapters?: ArchiveChapter[];
+    /** Books replace their chapters in the Older History recap. */
+    books?: ArchiveBook[];
     onStageNpcIds?: string[];
     relevantRules?: LoreChunk[];
     rulesManifest?: string;
@@ -162,6 +164,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         deepContextSummary,
         divergenceRegister,
         chapters,
+        books,
         onStageNpcIds,
         relevantRules,
         rulesManifest,
@@ -404,6 +407,7 @@ export function buildPayload(options: BuildPayloadOptions): { messages: OpenAIMe
         // WO-09: plumb the existing `chapters` and `archiveIndex` params
         // (already in buildPayload's signature) plus the two LOD knobs.
         chapters,
+        books,
         archiveIndex,
         lodSummaryChapters: settings.lodSummaryChapters,
         lodImportanceBonus: settings.lodImportanceBonus,

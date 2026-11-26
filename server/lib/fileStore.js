@@ -134,6 +134,11 @@ export function chaptersPath(id) {
     return path.join(CAMPAIGNS_DIR, `${id}.archive.chapters.json`);
 }
 
+export function booksPath(id) {
+    validateCampaignId(id);
+    return path.join(CAMPAIGNS_DIR, `${id}.archive.books.json`);
+}
+
 export function factsPath(id) {
     validateCampaignId(id);
     return path.join(CAMPAIGNS_DIR, `${id}.facts.json`);
@@ -261,11 +266,13 @@ export const BUILTIN_CAMPAIGN_FILE_SUFFIXES = Object.freeze([
     MIGRATION_LEDGER_SUFFIX,
     '.relationship-memory.npc-to-mc.json',
     '.relationship-memory.npc-to-npc.json',
+    // Appended, not placed beside the chapters file: the order feeds the backup hash.
+    '.archive.books.json',
 ]);
 
 export function campaignFileNames(id) {
     // Derived (WO-P5-03 Step 2.1): with no descriptors registered this is the
-    // built-in 21, including the two relationship-memory files.
+    // built-in 22, including the two relationship-memory files and books.
     return getCampaignFileSuffixes().map(s => `${id}${s}`);
 }
 

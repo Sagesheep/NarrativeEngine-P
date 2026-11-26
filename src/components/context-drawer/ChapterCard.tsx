@@ -1,7 +1,7 @@
 import React, { memo, useState, useEffect, useRef } from 'react';
 import {
     ChevronDown, ChevronUp, Lock, Unlock, AlertCircle,
-    RefreshCcw, Edit2, Check, X, GitMerge, Scissors, Pin, PinOff, Trash2
+    RefreshCcw, Edit2, Check, X, GitMerge, Scissors, Pin, PinOff, Trash2, Library
 } from '../icons/narrativeIcons';
 import type { ArchiveChapter, TimelineEvent } from '../../types';
 import { TimelineDotRow } from './TimelineDotRow';
@@ -46,6 +46,8 @@ interface ChapterCardProps {
     onTogglePin?: () => void;
     /** Only wired for chapters that hold nothing — see `isEmpty` below. */
     onDelete?: () => void;
+    /** Bind every loose sealed chapter up to this one into a book. Absent = not offered. */
+    onEndBook?: () => void;
 }
 
 export const ChapterCard = memo(function ChapterCard({
@@ -63,6 +65,7 @@ export const ChapterCard = memo(function ChapterCard({
     isPinned,
     onTogglePin,
     onDelete,
+    onEndBook,
 }: ChapterCardProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [editTitle, setEditTitle] = useState(chapter.title);
@@ -288,6 +291,17 @@ export const ChapterCard = memo(function ChapterCard({
                                 >
                                     <RefreshCcw size={12} />
                                     <span>{status === 'invalidated' ? 'Repair Chapter' : 'Regenerate'}</span>
+                                </button>
+                            )}
+
+                            {onEndBook && (
+                                <button
+                                    onClick={onEndBook}
+                                    title="Close a book here: this chapter and the loose sealed chapters before it become one book with its own summary"
+                                    className="flex items-center space-x-1 px-3 py-1.5 rounded bg-void-dark border border-border hover:border-amber-400 hover:text-amber-400 text-text-secondary transition-colors font-bold text-[13px] uppercase"
+                                >
+                                    <Library size={12} />
+                                    <span>End Book Here</span>
                                 </button>
                             )}
 

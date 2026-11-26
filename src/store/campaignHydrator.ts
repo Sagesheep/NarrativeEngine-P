@@ -19,6 +19,7 @@ import { hydrateModTables, saveModTable } from '../services/mods/modTables';
 import { fetchMods } from '../services/mods/modClient';
 import { emitCoreEvent } from '../services/mods/events';
 import { safeSceneNum } from '../utils/helpers';
+import { api } from '../services/llm/apiClient';
 import type { ArcRecord } from '../types/arc';
 
 /**
@@ -317,6 +318,8 @@ export async function hydrateCampaign(campaignId: string) {
             console.warn('[Hydrator] Failed to save backfilled chapters:', e);
         }
     }
+    // Checked against the chapters just loaded; never fails the hydrate (an empty list on error).
+    const books = await api.books.list(campaignId, backfilled);
 
     // WO-A rewrite 2 §2: one-time migration of legacy `isPC` row from npcLedger
     // into `context.playerCharacter`. Idempotent — no-op on already-migrated
@@ -391,6 +394,7 @@ export async function hydrateCampaign(campaignId: string) {
         archiveIndex: archiveIndex ?? [],
         timeline: timeline ?? [],
         chapters: backfilled,
+        books,
         entities: entities ?? [],
         divergenceRegister: register,
         activeCampaignId: campaignId,

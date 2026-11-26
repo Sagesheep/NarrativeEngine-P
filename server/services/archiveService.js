@@ -26,7 +26,7 @@ import {
 } from '../lib/nlp.js';
 import { normalizeEntityName } from '../lib/entityResolution.js';
 import { withCampaignLock } from '../lib/writeLock.js';
-import { CAMPAIGNS_DIR, ensureDirs, validateCampaignId, readJson, writeJson, divergencePath } from '../lib/fileStore.js';
+import { CAMPAIGNS_DIR, ensureDirs, validateCampaignId, readJson, writeJson, divergencePath, booksPath } from '../lib/fileStore.js';
 
 import {
     appendSceneBlock, readArchiveMd, writeArchiveMd, archiveMdExists, deleteFiles,
@@ -214,12 +214,13 @@ export async function appendScene(campaignId, payload) {
 // 2. Clear archive
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Delete archive.md, index, chapters, timeline for a campaign. No lock. */
+/** Delete archive.md, index, chapters, books, timeline for a campaign. No lock. */
 export function clearArchive(campaignId) {
     const files = [
         archivePath(campaignId),
         archiveIndexPath(campaignId),
         chaptersPath(campaignId),
+        booksPath(campaignId),
         timelinePath(campaignId),
     ];
     deleteFiles(files);

@@ -1,7 +1,8 @@
 import type { StateCreator } from 'zustand';
-import type { ArchiveChapter, ChatMessage, CondenserState, DivergenceRegister, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion, RelationshipMemoryFault, RelationshipMemoryRecord, GalleryEntry } from '../../types';
+import type { ArchiveBook, ArchiveChapter, ChatMessage, CondenserState, DivergenceRegister, GameContext, LoreChunk, ArchiveIndexEntry, NPCEntry, NpcSuggestion, SemanticFact, EntityEntry, TimelineEvent, InventoryItem, CharacterProfile, PinnedExcerpt, LocationEntry, LocationSuggestion, RelationshipMemoryFault, RelationshipMemoryRecord, GalleryEntry } from '../../types';
 import { DEFAULT_CHARACTER_PROFILE, DEFAULT_INVENTORY, migrateLegacyContext, buildDefaultDiceSystem, normalizeInventoryItem } from '../../types';
 import { emitCoreEvent } from '../../services/mods/events';
+import { reconcileBooks } from '../../services/archive-memory/bookEngine';
 import { normalizeRelations } from '../../services/npc/relationDedupe';
 import { toast } from '../../components/Toast';
 import { disposeCampaignSubscriptions } from '../../services/mods/reactiveReads';
@@ -375,6 +376,9 @@ export type CampaignSlice = {
     setArchiveIndex: (entries: ArchiveIndexEntry[]) => void;
     chapters: ArchiveChapter[];
     setChapters: (chapters: ArchiveChapter[]) => void;
+    /** Books: runs of sealed chapters with their own summary (bookEngine.ts). */
+    books: ArchiveBook[];
+    setBooks: (books: ArchiveBook[]) => void;
     npcLedger: NPCEntry[];
     setNPCLedger: (npcs: NPCEntry[]) => void;
     addNPC: (npc: NPCEntry) => void;
@@ -609,7 +613,12 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     setArchiveIndex: (entries) => set({ archiveIndex: entries } as Partial<CampaignDeps>),
     chapters: [],
     // Read-only hydration setter — individual chapter mutations go through api.chapters.*
-    setChapters: (chapters) => set({ chapters } as Partial<CampaignDeps>),
+    // Books are re-checked against every new chapter list, so a rollback, delete or
+    // restore never leaves the recap rendering a book whose chapters are gone. The
+    // file is corrected on the next api.books.list.
+    setChapters: (chapters) => set((s) => ({ chapters, books: reconcileBooks(s.books, chapters) }) as Partial<CampaignDeps>),
+    books: [],
+    setBooks: (books) => set((s) => ({ books: reconcileBooks(books, s.chapters) }) as Partial<CampaignDeps>),
     npcLedger: [],
     setNPCLedger: (npcs) => set((s) => {
         debouncedSaveNPCLedger(s.activeCampaignId, npcs);

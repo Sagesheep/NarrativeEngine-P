@@ -27,7 +27,7 @@ afterEach(() => {
  * built-in list exactly.
  */
 describe('WO-P5-03 Step 2.1 — derived suffixes', () => {
-    it('is set-equal to the 21 built-in suffixes when the registry is empty', async () => {
+    it('is set-equal to the 22 built-in suffixes when the registry is empty', async () => {
         const { getCampaignFileSuffixes, BUILTIN_CAMPAIGN_FILE_SUFFIXES, serverTableRegistry } = await import('../lib/tableRegistry.js?t=' + Date.now());
         serverTableRegistry.clear();
 
@@ -38,18 +38,19 @@ describe('WO-P5-03 Step 2.1 — derived suffixes', () => {
         expect(new Set(derived)).toEqual(new Set(builtin));
         // Same count (guards against a hidden duplicate).
         // Phase 8.5 added `.migrations.json` (the adoption ledger), taking the
-        // built-in set from 18 to 21. The number is spelled out rather than
+        // built-in set from 18 to 21, and `.archive.books.json` (Books) to 22. The number is spelled out rather than
         // derived on purpose: it is a guard against a suffix appearing by
         // accident, so it must be changed deliberately when one is added.
-        expect(derived.length).toBe(21);
-        expect(builtin.length).toBe(21);
+        expect(derived.length).toBe(22);
+        expect(builtin.length).toBe(22);
     });
 
-    it('campaignFileNames produces the 21 filenames in built-in order with empty registry', async () => {
+    it('campaignFileNames produces the 22 filenames in built-in order with empty registry', async () => {
         const { campaignFileNames } = await import('../lib/fileStore.js?t=' + Date.now());
         const names = campaignFileNames('camp1');
-        expect(names.length).toBe(21);
+        expect(names.length).toBe(22);
         expect(names).toContain('camp1.migrations.json');
+        expect(names).toContain('camp1.archive.books.json');
         expect(names[0]).toBe('camp1.json');
         expect(names).toContain('camp1.state.json');
         expect(names).toContain('camp1.divergence.json');
@@ -62,11 +63,11 @@ describe('WO-P5-03 Step 2.1 — derived suffixes', () => {
 
         const derived = getCampaignFileSuffixes(reg);
         expect(derived).toContain('.fixture.json');
-        // All 21 built-ins still present.
+        // All 22 built-ins still present.
         for (const s of ['.json', '.state.json', '.lore.json', '.divergence.json']) {
             expect(derived).toContain(s);
         }
-        expect(derived.length).toBe(22);
+        expect(derived.length).toBe(23);
     });
 });
 

@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { BookOpen, Plus, Loader2, Sparkles, Scale, Search, X } from '../icons/narrativeIcons';
+import { BookOpen, Plus, Loader2, Sparkles, Scale, Search, X, Library } from '../icons/narrativeIcons';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store/useAppStore';
 import { api } from '../../services/llm/apiClient';
 import { ChapterCard } from './ChapterCard';
+import { BookCard } from './BookCard';
+import { bookOf, unbookedSealed, BOOK_AUTO_CLOSE_CHAPTERS } from '../../services/archive-memory/bookEngine';
+import { closeBookThrough, proposeBooksForExisting, buildBooks, regenerateBook, updateBook, removeLastBook } from '../../services/archive-memory/bookService';
 import { ResolvedStatePanel } from './ResolvedStatePanel';
 import { runCombinedSeal } from '../../services/turn/postTurnPipeline';
 import { backfillChapterSynopses, chaptersNeedingSynopsis } from '../../services/archive-memory/synopsisBackfill';
@@ -17,6 +20,8 @@ export const ChapterTab: React.FC = () => {
     const {
         chapters,
         setChapters,
+        books,
+        setBooks,
         activeCampaignId,
         getActiveSummarizerEndpoint,
         timeline,
@@ -31,6 +36,8 @@ export const ChapterTab: React.FC = () => {
     } = useAppStore(useShallow(s => ({
         chapters: s.chapters,
         setChapters: s.setChapters,
+        books: s.books,
+        setBooks: s.setBooks,
         activeCampaignId: s.activeCampaignId,
         getActiveSummarizerEndpoint: s.getActiveSummarizerEndpoint,
         timeline: s.timeline,
@@ -62,6 +69,9 @@ export const ChapterTab: React.FC = () => {
     // WO-screen-modernization §1 — sticky-header search. A live campaign
     // carries 24 chapters; an unfiltered list of that size needs a filter.
     const [query, setQuery] = useState('');
+    // Book being written / bound (book id, chapter id, or 'build').
+    const [bookBusy, setBookBusy] = useState<string | null>(null);
+    const [buildProgress, setBuildProgress] = useState<{ done: number; total: number } | null>(null);
 
     const refreshChapters = useCallback(async () => {
         if (!activeCampaignId) return;
@@ -71,7 +81,9 @@ export const ChapterTab: React.FC = () => {
         ]);
         setChapters(fresh);
         setTimeline(freshTimeline);
-    }, [activeCampaignId, setChapters, setTimeline]);
+        // Books are checked against the chapters on read (merge, split, rollback).
+        setBooks(await api.books.list(activeCampaignId, fresh));
+    }, [activeCampaignId, setChapters, setTimeline, setBooks]);
 
     useEffect(() => {
         refreshChapters();
@@ -350,6 +362,146 @@ export const ChapterTab: React.FC = () => {
         toast.success('Chapter deleted');
     }, [activeCampaignId, pinnedChapterIds, pinChapter, expandedId, refreshChapters]);
 
+    // ─── Books ───
+    // Book summaries are written from chapter summaries: the summarizer slot.
+    const bookProvider = useCallback(() => {
+        const provider = getActiveSummarizerEndpoint();
+        return provider?.endpoint ? provider : undefined;
+    }, [getActiveSummarizerEndpoint]);
+
+    const isStillActive = useCallback(
+        (campaignId: string) => useAppStore.getState().activeCampaignId === campaignId,
+        [],
+    );
+
+    const handleEndBook = useCallback(async (chapter: ArchiveChapter) => {
+        if (!activeCampaignId || bookBusy) return;
+        const loose = unbookedSealed(chapters, books);
+        const count = loose.findIndex(c => c.chapterId === chapter.chapterId) + 1;
+        if (count <= 0) return;
+        const provider = bookProvider();
+        const ok = window.confirm(
+            `Bind ${count} chapter${count === 1 ? '' : 's'} (${loose[0].chapterId} – ${chapter.chapterId}) into a book?\n\n` +
+            (provider
+                ? 'The summarizer AI writes the book\'s summary from the chapter summaries (one call). '
+                : 'No summarizer AI is configured, so the book gets a stand-in summary until you use Rewrite Summary. ') +
+            'The GM\'s Older History recap then shows the book instead of each chapter.\n\n' +
+            'The chapters are untouched, and you can unbind the book later from its card.'
+        );
+        if (!ok) return;
+        const campaignId = activeCampaignId;
+        setBookBusy(chapter.chapterId);
+        try {
+            const next = await closeBookThrough(campaignId, chapter.chapterId, provider);
+            if (!isStillActive(campaignId)) return;
+            if (next) {
+                setBooks(next);
+                const book = next[next.length - 1];
+                if (book.summaryPending) toast.warning('Book bound, but the summary was not written. Use Rewrite Summary on the book.');
+                else toast.success(`Book bound: ${book.title}`);
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error('Failed to bind book');
+        } finally {
+            setBookBusy(null);
+        }
+    }, [activeCampaignId, bookBusy, chapters, books, bookProvider, isStillActive, setBooks]);
+
+    const handleBuildBooks = useCallback(async () => {
+        if (!activeCampaignId || bookBusy) return;
+        const campaignId = activeCampaignId;
+        const provider = bookProvider();
+        setBookBusy('build');
+        try {
+            const { candidates, breaks } = await proposeBooksForExisting(campaignId, provider);
+            if (!isStillActive(campaignId)) return;
+            if (breaks.length === 0) {
+                toast.info('No book to bind yet: the current arc is still running');
+                return;
+            }
+            const groups: string[] = [];
+            let from = 0;
+            for (const end of breaks) {
+                const to = candidates.findIndex(c => c.chapterId === end);
+                groups.push(`• ${candidates[from].chapterId}–${end} (${to - from + 1}): "${candidates[from].title}" → "${candidates[to].title}"`);
+                from = to + 1;
+            }
+            const left = candidates.length - from;
+            const ok = window.confirm(
+                `Build ${breaks.length} book${breaks.length === 1 ? '' : 's'}?\n\n` +
+                `${provider ? 'Suggested by the AI at story breaks' : 'No summarizer AI is configured, so these are fixed groups'} (max ${BOOK_AUTO_CLOSE_CHAPTERS} chapters each):\n\n` +
+                `${groups.join('\n')}` +
+                (left > 0 ? `\n\n${left} newer chapter${left === 1 ? '' : 's'} stay loose until the current arc ends.` : '') +
+                `\n\n${provider ? `Each book gets an AI-written summary (${breaks.length} call${breaks.length === 1 ? '' : 's'}). ` : ''}` +
+                'You can unbind the newest book later and bind by hand with "End Book Here".'
+            );
+            if (!ok) return;
+            setBuildProgress({ done: 0, total: breaks.length });
+            const next = await buildBooks(campaignId, breaks, provider,
+                (done, total) => setBuildProgress({ done, total }),
+                () => isStillActive(campaignId));
+            if (!isStillActive(campaignId)) return;
+            setBooks(next);
+            const pending = next.filter(b => b.summaryPending).length;
+            toast.success(`${breaks.length} book${breaks.length === 1 ? '' : 's'} built${pending > 0 ? ` · ${pending} without a summary (Rewrite Summary)` : ''}`);
+        } catch (err) {
+            console.error(err);
+            toast.error('Failed to build books');
+        } finally {
+            setBookBusy(null);
+            setBuildProgress(null);
+        }
+    }, [activeCampaignId, bookBusy, bookProvider, isStillActive, setBooks]);
+
+    const handleRegenerateBook = useCallback(async (bookId: string) => {
+        if (!activeCampaignId || bookBusy) return;
+        const provider = bookProvider();
+        if (!provider) { toast.error('No summarizer AI configured'); return; }
+        const campaignId = activeCampaignId;
+        setBookBusy(bookId);
+        try {
+            const next = await regenerateBook(campaignId, bookId, provider);
+            if (!isStillActive(campaignId)) return;
+            if (next) { setBooks(next); toast.success('Book summary rewritten'); }
+            else toast.error('Book summary failed. Check the summarizer AI and try again.');
+        } catch (err) {
+            console.error(err);
+            toast.error('Book summary failed');
+        } finally {
+            setBookBusy(null);
+        }
+    }, [activeCampaignId, bookBusy, bookProvider, isStillActive, setBooks]);
+
+    const handleSetEra = useCallback(async (bookId: string, era: string) => {
+        if (!activeCampaignId) return;
+        try {
+            setBooks(await updateBook(activeCampaignId, bookId, { era: era || undefined }));
+        } catch (err) {
+            console.error(err);
+            toast.error('Failed to save era');
+        }
+    }, [activeCampaignId, setBooks]);
+
+    const handleUnbindBook = useCallback(async () => {
+        if (!activeCampaignId) return;
+        if (!window.confirm('Unbind this book?\n\nIts chapters become loose again and the book summary is discarded. The chapters themselves are untouched.')) return;
+        try {
+            setBooks(await removeLastBook(activeCampaignId));
+            toast.success('Book unbound');
+        } catch (err) {
+            console.error(err);
+            toast.error('Failed to unbind book');
+        }
+    }, [activeCampaignId, setBooks]);
+
+    // Chapters grouped under their book; chapters after the last book stay loose.
+    const { bookGroups, looseChapters, endBookIds } = useMemo(() => ({
+        bookGroups: books.map(book => ({ book, chapters: chapters.filter(c => bookOf(c, [book])) })),
+        looseChapters: chapters.filter(c => !bookOf(c, books)),
+        endBookIds: new Set(unbookedSealed(chapters, books).map(c => c.chapterId)),
+    }), [books, chapters]);
+
     /**
      * Reflow chapter boundaries to CHAPTER_SCENE_SOFT_CAP scenes each.
      *
@@ -427,6 +579,38 @@ export const ChapterTab: React.FC = () => {
         );
     }, [chapters, query]);
 
+    // `nextChapter` comes from the same list (a book's chapters, or the loose ones),
+    // so Merge is never offered across a book boundary.
+    const renderChapter = (ch: ArchiveChapter, nextChapter: ArchiveChapter | undefined) => (
+        <div key={ch.chapterId} className="relative">
+            {(isRegenerating === ch.chapterId || bookBusy === ch.chapterId) && (
+                <div className="absolute inset-0 bg-void/60 z-10 flex items-center justify-center rounded-lg backdrop-blur-[1px]">
+                    <div className="flex items-center space-x-2 text-terminal font-mono text-[12px] uppercase font-bold">
+                        <Loader2 size={14} className="animate-spin" />
+                        <span>{bookBusy === ch.chapterId ? 'Binding book...' : 'Processing...'}</span>
+                    </div>
+                </div>
+            )}
+            <ChapterCard
+                chapter={ch}
+                expanded={expandedId === ch.chapterId}
+                onToggle={() => setExpandedId(expandedId === ch.chapterId ? null : ch.chapterId)}
+                onSeal={handleSeal}
+                onRegenerate={() => regenerateChapter(ch, false)}
+                onRename={(title) => handleRename(ch.chapterId, title)}
+                onSplit={(sceneId) => handleSplit(ch.chapterId, sceneId)}
+                isNextAdjacent={nextChapter !== undefined}
+                onMergeWithNext={() => nextChapter && handleMerge(ch.chapterId, nextChapter.chapterId)}
+                timelineEvents={timeline}
+                onDeleteTimelineEvent={handleDeleteTimelineEvent}
+                isPinned={pinnedChapterIds.includes(ch.chapterId)}
+                onTogglePin={() => pinChapter(ch.chapterId)}
+                onDelete={() => handleDeleteChapter(ch)}
+                onEndBook={endBookIds.has(ch.chapterId) && !bookBusy ? () => handleEndBook(ch) : undefined}
+            />
+        </div>
+    );
+
     return (
         // Shape B — Collection. Width comes from the lightbox (`wide`); the
         // layout here is a sticky-header search + a responsive card grid that
@@ -469,9 +653,18 @@ export const ChapterTab: React.FC = () => {
                         </>
                     }
                 />
-                {pinnedChapterIds.length > 0 && (
-                    <div className="text-[12px] font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded font-mono w-fit">
-                        {pinnedChapterIds.length} PINNED
+                {(pinnedChapterIds.length > 0 || books.length > 0) && (
+                    <div className="flex items-center gap-2">
+                        {books.length > 0 && (
+                            <div className="text-[12px] font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded font-mono w-fit">
+                                {books.length} BOOK{books.length === 1 ? '' : 'S'}
+                            </div>
+                        )}
+                        {pinnedChapterIds.length > 0 && (
+                            <div className="text-[12px] font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded font-mono w-fit">
+                                {pinnedChapterIds.length} PINNED
+                            </div>
+                        )}
                     </div>
                 )}
                 {chapters.length > 0 && (
@@ -563,6 +756,32 @@ export const ChapterTab: React.FC = () => {
                 </div>
             )}
 
+            {/* A backlog of loose sealed chapters: campaigns from before books, or ones
+                that ran with auto-seal off. New play binds a book every
+                BOOK_AUTO_CLOSE_CHAPTERS chapters by itself. */}
+            {(buildProgress !== null || endBookIds.size >= BOOK_AUTO_CLOSE_CHAPTERS) && (
+                <div className="-mx-4 sm:-mx-6 px-4 sm:mx-0 sm:px-0">
+                    <button
+                        onClick={handleBuildBooks}
+                        disabled={bookBusy !== null}
+                        title="Group loose sealed chapters into books at story breaks (the AI suggests, you confirm)"
+                        className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded bg-amber-400/10 border border-amber-400/30 text-amber-400 hover:bg-amber-400/20 transition-colors text-[12px] font-bold uppercase tracking-wider disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        {bookBusy === 'build' ? (
+                            <>
+                                <Loader2 size={12} className="animate-spin" />
+                                <span>{buildProgress ? `Writing book ${buildProgress.done + 1}/${buildProgress.total}…` : 'Finding story breaks…'}</span>
+                            </>
+                        ) : (
+                            <>
+                                <Library size={12} />
+                                <span>Build books ({endBookIds.size} loose chapters)</span>
+                            </>
+                        )}
+                    </button>
+                </div>
+            )}
+
             <div className="flex-1 overflow-y-auto pr-1">
                 <ResolvedStatePanel />
 
@@ -579,41 +798,32 @@ export const ChapterTab: React.FC = () => {
                         <Search size={32} strokeWidth={1} />
                         <p className="text-xs font-mono uppercase tracking-tighter">No chapters match "{query}".</p>
                     </div>
-                ) : (
+                ) : query.trim() ? (
+                    // Filtering: one flat list, as before books.
                     <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
-                        {filteredChapters.map((ch, idx) => {
-                            const isNextAdjacent = idx < filteredChapters.length - 1;
-                            const nextChapter = filteredChapters[idx + 1];
-
-                            return (
-                                <div key={ch.chapterId} className="relative">
-                                    {isRegenerating === ch.chapterId && (
-                                        <div className="absolute inset-0 bg-void/60 z-10 flex items-center justify-center rounded-lg backdrop-blur-[1px]">
-                                            <div className="flex items-center space-x-2 text-terminal font-mono text-[12px] uppercase font-bold">
-                                                <Loader2 size={14} className="animate-spin" />
-                                                <span>Processing...</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                    <ChapterCard
-                                        chapter={ch}
-                                        expanded={expandedId === ch.chapterId}
-                                        onToggle={() => setExpandedId(expandedId === ch.chapterId ? null : ch.chapterId)}
-                                        onSeal={handleSeal}
-                                        onRegenerate={() => regenerateChapter(ch, false)}
-                                        onRename={(title) => handleRename(ch.chapterId, title)}
-                                        onSplit={(sceneId) => handleSplit(ch.chapterId, sceneId)}
-                                        isNextAdjacent={isNextAdjacent}
-                                        onMergeWithNext={() => nextChapter && handleMerge(ch.chapterId, nextChapter.chapterId)}
-                                        timelineEvents={timeline}
-                                        onDeleteTimelineEvent={handleDeleteTimelineEvent}
-                                        isPinned={pinnedChapterIds.includes(ch.chapterId)}
-                                        onTogglePin={() => pinChapter(ch.chapterId)}
-                                        onDelete={() => handleDeleteChapter(ch)}
-                                    />
-                                </div>
-                            );
-                        })}
+                        {filteredChapters.map((ch, idx) => renderChapter(ch, filteredChapters[idx + 1]))}
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {bookGroups.map(({ book, chapters: inBook }, i) => (
+                            <BookCard
+                                key={book.bookId}
+                                book={book}
+                                chapterCount={inBook.length}
+                                isLast={i === bookGroups.length - 1}
+                                busy={bookBusy === book.bookId}
+                                onSetEra={(era) => handleSetEra(book.bookId, era)}
+                                onRegenerate={() => handleRegenerateBook(book.bookId)}
+                                onUnbind={handleUnbindBook}
+                            >
+                                {inBook.map((ch, idx) => renderChapter(ch, inBook[idx + 1]))}
+                            </BookCard>
+                        ))}
+                        {looseChapters.length > 0 && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                                {looseChapters.map((ch, idx) => renderChapter(ch, looseChapters[idx + 1]))}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

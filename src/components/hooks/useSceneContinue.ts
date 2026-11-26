@@ -363,6 +363,7 @@ async function buildFallbackPayload(opts: {
             deepContextSummary: gathered.deepContextSummary,
             divergenceRegister: store.divergenceRegister,
             chapters: gathered.relevantRules ? undefined : store.chapters,
+            books: store.books,
             onStageNpcIds: store.onStageNpcIds,
             relevantRules: gathered.relevantRules,
             rulesManifest: gathered.rulesManifest,

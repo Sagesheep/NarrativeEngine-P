@@ -100,6 +100,29 @@ export type ArchiveChapter = {
 };
 
 /**
+ * A run of sealed chapters with its own summary — the level above chapters.
+ * Membership is by scene range (a chapter belongs to the book its first scene
+ * falls in), so merging or splitting chapters inside a book keeps it valid.
+ * Books are contiguous from the first scene: the next book starts at the first
+ * sealed chapter after the last one.
+ */
+export type ArchiveBook = {
+    bookId: string;
+    title: string;
+    sceneRange: [string, string];
+    /** Optional era label the player sets, e.g. "P3 · 2009". */
+    era?: string;
+    summary: string;
+    keywords: string[];
+    npcs: string[];
+    majorEvents: string[];
+    unresolvedThreads: string[];
+    createdAt: number;
+    /** The summary AI call failed: summary is a stand-in built from chapter titles. */
+    summaryPending?: boolean;
+};
+
+/**
  * What a chapter refit would cost, without performing it.
  *
  * The expensive part of a refit is not the boundary rewrite — that is free —

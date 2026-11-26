@@ -1,5 +1,5 @@
 import { useAppStore } from '../../store/useAppStore';
-import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact, ArmedGalleryRecall, CombatProposal, AbilityProposal } from '../../types';
+import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveBook, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, InventoryProposal, PayloadTrace, SemanticFact, ArmedGalleryRecall, CombatProposal, AbilityProposal } from '../../types';
 import type { OneShotEventId } from '../oneshot/oneShotEvents';
 import { createTurnContext } from './turnContext';
 import { buildHostFacade } from './hostFacade';
@@ -130,6 +130,8 @@ export type TurnState = {
     timeline?: TimelineEvent[];
     // Phase 2B: store-lifted fields (eliminate useAppStore.getState() inside runTurn)
     chapters: ArchiveChapter[];
+    /** Books replace their chapters in the Older History recap. Absent = none. */
+    books?: ArchiveBook[];
     pinnedChapterIds: string[];
     clearPinnedChapters: () => void;
     setChapters: (chapters: ArchiveChapter[]) => void;

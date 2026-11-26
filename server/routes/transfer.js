@@ -2,7 +2,7 @@ import fs from 'fs';
 import { Router } from 'express';
 import {
     CAMPAIGNS_DIR, readJson, writeJson, ensureDirs,
-    archivePath, archiveIndexPath, chaptersPath, factsPath,
+    archivePath, archiveIndexPath, chaptersPath, booksPath, factsPath,
     entitiesPath, timelinePath, validateCampaignId, relationshipMemoryNpcToMcPath, relationshipMemoryNpcToNpcPath,
 } from '../lib/fileStore.js';
 import { isCampaignMetaFile, getTransferableTables, serverTableRegistry } from '../lib/tableRegistry.js';
@@ -59,6 +59,7 @@ export function createTransferRouter() {
         const npcs = readJson(path.join(CAMPAIGNS_DIR, `${id}.npcs.json`), []);
         const archiveIndex = readJson(archiveIndexPath(id), []);
         const chapters = readJson(chaptersPath(id), []);
+        const books = readJson(booksPath(id), []);
         const facts = readJson(factsPath(id), []);
         const timeline = readJson(timelinePath(id), []);
         const entities = readJson(entitiesPath(id), []);
@@ -81,6 +82,7 @@ export function createTransferRouter() {
             scenes,
             archiveIndex,
             chapters,
+            books,
             facts,
             timeline,
             entities,
@@ -216,6 +218,7 @@ export function createTransferRouter() {
 
         // Write chapters, facts, timeline, entities
         if (bundle.chapters?.length) writeJson(chaptersPath(newId), bundle.chapters);
+        if (Array.isArray(bundle.books) && bundle.books.length) writeJson(booksPath(newId), bundle.books);
         if (bundle.facts?.length) writeJson(factsPath(newId), bundle.facts);
         if (bundle.timeline?.length) writeJson(timelinePath(newId), bundle.timeline);
         if (bundle.entities?.length) writeJson(entitiesPath(newId), bundle.entities);
