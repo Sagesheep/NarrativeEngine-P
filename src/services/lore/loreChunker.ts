@@ -290,6 +290,37 @@ export function buildLoreEntry(draft: LoreEntryDraft, existing: LoreChunk[], id:
     };
 }
 
+/**
+ * Apply a hand edit (title, text, category) to an existing lore chunk. Keeps its
+ * id, keywords, match mode and toggles; refreshes what is derived from the text
+ * (tokens, summary, links). The server re-embeds the chunk because its text changed.
+ */
+export function reviseLoreEntry(
+    chunk: LoreChunk,
+    edit: { header: string; content: string; category?: LoreCategory },
+    existing: LoreChunk[],
+): LoreChunk {
+    const header = edit.header.trim();
+    const content = edit.content.trim();
+    const category = edit.category ?? chunk.category;
+    const ownName = extractEntityName(header).toLowerCase();
+    const lowerContent = content.toLowerCase();
+    const linkedEntities = [...new Set(existing
+        .filter(c => c.id !== chunk.id)
+        .map(c => extractEntityName(c.header))
+        .filter(name => name.length > 3 && name.toLowerCase() !== ownName && lowerContent.includes(name.toLowerCase())))];
+    return {
+        ...chunk,
+        header,
+        content,
+        tokens: countTokens(header + '\n' + content),
+        category,
+        priority: category !== chunk.category ? assignPriority(category, chunk.alwaysInclude) : chunk.priority,
+        summary: generateSummary(header, content),
+        linkedEntities,
+    };
+}
+
 export function chunkLoreFile(markdown: string): LoreChunk[] {
     const normalizedMarkdown = markdown.replace(/\\(#{2,3})\s*/g, '\n$1 ');
     const lines = normalizedMarkdown.split(/\r?\n/);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getCampaign } from '../../store/campaignStore';
-import { ChevronDown, ChevronUp, Database, Search, Trash2, X } from '../icons/narrativeIcons';
+import { ChevronDown, ChevronUp, Database, Pencil, Search, Trash2, X } from '../icons/narrativeIcons';
 import { useAppStore } from '../../store/useAppStore';
 import type { LoreChunk } from '../../types';
 import { ScreenSection } from '../primitives/ScreenSection';
@@ -8,6 +8,7 @@ import { WorldCardPanel } from '../WorldCardPanel';
 import { createWorldCard } from '../../services/lore/worldCard';
 import { uid } from '../../utils/uid';
 import { NewLoreEntryForm } from './NewLoreEntryForm';
+import { LoreEntryEditor } from './LoreEntryEditor';
 
 export function LoreTab() {
     const loreChunks = useAppStore((s) => s.loreChunks);
@@ -27,6 +28,8 @@ export function LoreTab() {
     // can carry dozens of chunks; an ungrouped list of that size is the
     // single worst screen in the app without a filter.
     const [query, setQuery] = useState('');
+    // The entry whose title/text is open in the inline editor, if any.
+    const [editingId, setEditingId] = useState<string | null>(null);
 
     const bulkModeIsOn = (mode: 'vector' | 'keyword' | 'always' | 'auto') => {
         if (loreChunks.length === 0) return false;
@@ -146,6 +149,21 @@ export function LoreTab() {
                     {expandedContent[chunk.id] ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
                     {expandedContent[chunk.id] ? 'Hide' : 'Preview'}
                 </button>
+                {campaignId && (
+                    <button
+                        onClick={() => setEditingId(prev => (prev === chunk.id ? null : chunk.id))}
+                        className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] uppercase tracking-wider border transition-colors ${
+                            editingId === chunk.id
+                                ? 'bg-terminal/15 text-terminal border-terminal/40'
+                                : 'bg-void text-text-dim border-border hover:text-terminal hover:border-terminal/40'
+                        }`}
+                        title="Edit this entry's title, text and category"
+                        aria-label={`Edit ${chunk.header}`}
+                    >
+                        <Pencil size={9} />
+                        Edit
+                    </button>
+                )}
                 <button
                     onClick={() => deleteChunk(chunk.id)}
                     onMouseLeave={() => setConfirmDeleteId(prev => (prev === chunk.id ? null : prev))}
@@ -166,7 +184,9 @@ export function LoreTab() {
                 Renders the raw chunk.content verbatim in a scrollable monospace
                 block to match the terminal aesthetic and avoid layout blow-up
                 on very long chunks. */}
-            {expandedContent[chunk.id] && (
+            {editingId === chunk.id && campaignId ? (
+                <LoreEntryEditor key={chunk.id} chunk={chunk} campaignId={campaignId} onDone={() => setEditingId(null)} />
+            ) : expandedContent[chunk.id] && (
                 <div className="mb-2 border border-border/60 rounded bg-surface/50 overflow-hidden">
                     <div className="px-2 py-1 border-b border-border/40 bg-void/40">
                         <span className="text-[8px] text-text-dim uppercase tracking-wider font-bold">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildLoreEntry } from '../loreChunker';
+import { buildLoreEntry, reviseLoreEntry } from '../loreChunker';
 import type { LoreChunk } from '../../../types';
 
 const existing = [{
@@ -35,5 +35,31 @@ describe('buildLoreEntry', () => {
         expect(entry.alwaysInclude).toBe(true);
         expect(entry.ragMode).toBe('always');
         expect(entry.priority).toBe(10);
+    });
+});
+
+describe('reviseLoreEntry', () => {
+    const base = buildLoreEntry({ header: 'Old Mill', content: 'A mill.', category: 'location', keywords: ['mill'], ragMode: 'keyword' }, [], 'm1');
+
+    it('changes the text and refreshes what is derived from it, keeping the rest', () => {
+        const edited = reviseLoreEntry({ ...base, scanDepth: 5 }, {
+            header: ' Old Mill ', content: 'A burned mill the Ember Lords torched.',
+        }, [...existing, base]);
+        expect(edited.id).toBe('m1');
+        expect(edited.header).toBe('Old Mill');
+        expect(edited.content).toBe('A burned mill the Ember Lords torched.');
+        expect(edited.tokens).toBeGreaterThan(base.tokens);
+        expect(edited.linkedEntities).toEqual(['Ember Lords']);
+        expect(edited.triggerKeywords).toEqual(base.triggerKeywords);
+        expect(edited.ragMode).toBe('keyword');
+        expect(edited.scanDepth).toBe(5);
+        expect(edited.category).toBe('location');
+        expect(edited.priority).toBe(base.priority);
+    });
+
+    it('re-prioritises when the category changes', () => {
+        const edited = reviseLoreEntry(base, { header: 'Old Mill', content: 'A mill.', category: 'faction' }, [base]);
+        expect(edited.category).toBe('faction');
+        expect(edited.priority).toBe(7);
     });
 });
