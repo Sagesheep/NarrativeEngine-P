@@ -15,8 +15,8 @@ import type { OpenAIMessage } from '../llm/llmService';
 // The cached prompt prefix (every message carrying cache_control: ephemeral —
 // on desktop the stable preamble + the [ESTABLISHED FACTS] divergence block) MUST
 // be byte-identical across turns whenever the on-stage cast changes. Public facts
-// (knownBy === undefined) ride in the cached block; cast-scoped facts (knownBy
-// defined) ride in the per-turn [FACTS KNOWN TO ON-STAGE CHARACTERS] world block
+// (knownBy === undefined) and facts the player knows ride in the cached block;
+// facts only NPCs know ride in the per-turn [FACTS KNOWN TO ON-STAGE CHARACTERS] world block
 // below the cache boundary. A regression here busts the prompt cache silently —
 // no other test catches it, so this is the gate.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,5 +206,28 @@ describe('Phase 6 — divergence cache-prefix stability', () => {
         expect(
             content === historyA.content || content === historyB.content
         ).toBe(true);
+    });
+});
+
+describe('player-known facts ride in the cached canon block', () => {
+    const PLAYER_TEXT = 'The PC allied with Aldric against the Guild.';
+    function buildWithPlayerFact(onStageNpcIds: string[]) {
+        const reg = makeRegister();
+        reg.entries.push(makeEntry('pl1', PLAYER_TEXT, ['player', 'npc_a']));
+        return buildPayload({
+            settings: baseSettings(), context: baseContext(), history: [], userMessage: 'What happens next?',
+            npcLedger: NPCS, divergenceRegister: reg, onStageNpcIds,
+        });
+    }
+
+    it('is cached and labelled, whether or not the NPC who shares it is on stage', () => {
+        const withA = buildWithPlayerFact(['npc_a']);
+        const withoutA = buildWithPlayerFact(['npc_b']);
+        expect(cachedPrefix(withoutA.messages)).toContain(`${PLAYER_TEXT} ⚡ (private: known only to the player character and Aldric)`);
+        expect(cachedPrefix(withA.messages)).toBe(cachedPrefix(withoutA.messages));
+    });
+
+    it('is not repeated in the on-stage block', () => {
+        expect(volatileContent(buildWithPlayerFact(['npc_a']).messages)).not.toContain(PLAYER_TEXT);
     });
 });

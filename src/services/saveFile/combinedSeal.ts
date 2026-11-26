@@ -214,7 +214,7 @@ DIVERGENCE EXTRACTION RULES:
 - Each fact is ONE SHORT SENTENCE, max 15 words. No compound sentences, no explanations.
 - sceneRef must be one of: ${sceneIds.join(', ')}
 - npcIds: list the NPC ledger IDs mentioned. If a name appears that is NOT in the ledger, put it in unrecognizedNpcNames instead.
-- knownBy: list the NPC ledger IDs of witnesses who SAW or PARTICIPATED in this event. Only include NPCs who were present when the fact happened. Omit this field for rules_lore and locations (those are broadcast knowledge). If unsure, omit knownBy.
+- knownBy: list the NPC ledger IDs of witnesses who SAW or PARTICIPATED in this event. Only include NPCs who were present when the fact happened. Omit this field for rules_lore and locations (those are broadcast knowledge). Do not list the player character: they are added automatically. If unsure, use [] and the scene's recorded witnesses are used.
 - Focus on: permanent changes, new information, relationship shifts, acquisitions, losses, oaths, regime changes.
 - Skip transient details, emotional narration, momentary states, and anything the archive would already surface.
 - For a fact with exactly one current value, you MAY add 'stateKey' using only:
@@ -259,7 +259,11 @@ export function parseCombinedSealOutput(
     raw: string,
     chapterId: string,
     sceneIds: string[],
-    npcLedger: { id: string; name: string; aliases: string }[]
+    npcLedger: { id: string; name: string; aliases: string }[],
+    /** Witness names per scene, as captured during play. A fact the model names no
+     *  knowers for falls back to its scene's witnesses (corrected by this output's
+     *  witness_corrections, when it has them). */
+    sceneWitnesses: Record<string, string[]> = {},
 ): CombinedSealResult {
     const cleaned = extractJson(raw);
     const sceneSet = new Set(sceneIds);
@@ -290,6 +294,16 @@ export function parseCombinedSealOutput(
     } else {
         summary = parseChapterSummaryOutput(raw);
     }
+
+    const witnessCorrections = extractWitnessCorrections(parsed);
+    const witnessIdsFor = (sceneRef: string): string[] => {
+        const ids: string[] = [];
+        for (const name of witnessCorrections?.[sceneRef] ?? sceneWitnesses[sceneRef] ?? []) {
+            const id = npcNameMap.get(name.trim().toLowerCase());
+            if (id && !ids.includes(id)) ids.push(id);
+        }
+        return ids;
+    };
 
     const entries: DivergenceEntry[] = [];
     if (parsed.divergences && typeof parsed.divergences === 'object') {
@@ -336,10 +350,15 @@ export function parseCombinedSealOutput(
 
                 const hasReviewFlag = stillUnrecognized.length > 0;
 
+                // Who knows it. Locations and rules/lore are broadcast (undefined). Every
+                // other fact comes from a played scene, so the player character knows it,
+                // plus the NPCs the model names — or, when it names none, the scene's
+                // witnesses. An unsure answer never makes a fact public: that put private
+                // facts and twists in the canon block every NPC reads.
                 let knownBy: string[] | undefined = undefined;
-                if (Array.isArray(rawItem.knownBy)) {
+                if (category !== 'rules_lore' && category !== 'locations') {
                     const resolvedKnown: string[] = [];
-                    for (const kb of rawItem.knownBy) {
+                    for (const kb of Array.isArray(rawItem.knownBy) ? rawItem.knownBy : []) {
                         if (typeof kb !== 'string') continue;
                         if (npcLedger.some(n => n.id === kb)) {
                             resolvedKnown.push(kb);
@@ -350,11 +369,7 @@ export function parseCombinedSealOutput(
                             }
                         }
                     }
-                    if (resolvedKnown.length > 0) knownBy = resolvedKnown;
-                }
-
-                if (category === 'rules_lore' || category === 'locations') {
-                    knownBy = undefined;
+                    knownBy = ['player', ...(resolvedKnown.length > 0 ? resolvedKnown : witnessIdsFor(sceneRef))];
                 }
 
                 const rawStateKey = rawItem.stateKey;
@@ -382,8 +397,6 @@ export function parseCombinedSealOutput(
     } else {
         divergenceParseError = true;
     }
-
-    const witnessCorrections = extractWitnessCorrections(parsed);
 
     let sceneEventMap: Record<string, SceneEvent[]> | undefined;
     let sceneEventsParseError: boolean | undefined;
@@ -540,6 +553,10 @@ async function sealOnePass(
     // after the facts; if none succeeds, this summary is still kept rather than lost
     // (the caller warns that only the facts failed).
     let summaryOnly: CombinedSealResult | null = null;
+    const sceneWitnesses: Record<string, string[]> = {};
+    for (const e of indexEntries ?? []) {
+        if (e.witnesses && e.witnesses.length > 0) sceneWitnesses[e.sceneId] = e.witnesses;
+    }
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const prompt = buildCombinedSealPrompt(scenes, chapterTitle, sceneIds, npcLedger, indexEntries, activeStateFacts, part);
         const label = attempt === 0 ? '' : ' (retry)';
@@ -551,7 +568,7 @@ async function sealOnePass(
         });
 
         const output = await callModel(prompt, maxTokens, 'chapter-seal');
-        const result = parseCombinedSealOutput(output, chapterId, sceneIds, npcLedger);
+        const result = parseCombinedSealOutput(output, chapterId, sceneIds, npcLedger, sceneWitnesses);
 
         if (result.summary && !result.divergenceParseError) {
             return result;

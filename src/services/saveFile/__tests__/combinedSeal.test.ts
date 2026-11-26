@@ -416,3 +416,48 @@ describe('sealChapterCombined — long chapters are sealed in parts, not cut', (
         expect(result.divergences.at(-1)?.supersedesFactId).toBe(firstFactId);
     });
 });
+
+describe('parseCombinedSealOutput — knownBy defaults (unsure never means public)', () => {
+    const fact = (category: string, extra: Record<string, unknown> = {}) => makeSealJson(makeValidSummaryBlock(), {
+        divergences: { [category]: [{ text: 'Something happened', sceneRef: '001', npcIds: [], unrecognizedNpcNames: [], ...extra }] },
+    });
+    const witnesses = { '001': ['Morrigan'] };
+
+    it('adds the player and keeps the NPCs the model names', () => {
+        const r = parseCombinedSealOutput(fact('npc_events', { knownBy: ['npc_1', 'Morri'] }), CHAPTER_ID, SCENE_IDS, NPC_LEDGER, witnesses);
+        expect(r.divergences[0].knownBy).toEqual(['player', 'npc_1', 'npc_2']);
+    });
+
+    it('falls back to the scene witnesses when knownBy is omitted', () => {
+        const r = parseCombinedSealOutput(fact('party_facts'), CHAPTER_ID, SCENE_IDS, NPC_LEDGER, witnesses);
+        expect(r.divergences[0].knownBy).toEqual(['player', 'npc_2']);
+    });
+
+    it('falls back to the scene witnesses when knownBy is empty or names nobody in the ledger', () => {
+        const r1 = parseCombinedSealOutput(fact('npc_events', { knownBy: [] }), CHAPTER_ID, SCENE_IDS, NPC_LEDGER, witnesses);
+        const r2 = parseCombinedSealOutput(fact('npc_events', { knownBy: ['Stranger'] }), CHAPTER_ID, SCENE_IDS, NPC_LEDGER, witnesses);
+        expect(r1.divergences[0].knownBy).toEqual(['player', 'npc_2']);
+        expect(r2.divergences[0].knownBy).toEqual(['player', 'npc_2']);
+    });
+
+    it('uses this output\'s witness corrections over the captured witnesses', () => {
+        const raw = makeSealJson(makeValidSummaryBlock(), {
+            divergences: { misc: [{ text: 'x', sceneRef: '001', npcIds: [] }] },
+            witness_corrections: { '001': ['Aldric'] },
+        });
+        const r = parseCombinedSealOutput(raw, CHAPTER_ID, SCENE_IDS, NPC_LEDGER, witnesses);
+        expect(r.divergences[0].knownBy).toEqual(['player', 'npc_1']);
+    });
+
+    it('is player-only when there are no names and no witnesses', () => {
+        const r = parseCombinedSealOutput(fact('world_state'), CHAPTER_ID, SCENE_IDS, NPC_LEDGER);
+        expect(r.divergences[0].knownBy).toEqual(['player']);
+    });
+
+    it('keeps locations and rules/lore broadcast', () => {
+        for (const cat of ['locations', 'rules_lore']) {
+            const r = parseCombinedSealOutput(fact(cat, { knownBy: ['npc_1'] }), CHAPTER_ID, SCENE_IDS, NPC_LEDGER, witnesses);
+            expect(r.divergences[0].knownBy).toBeUndefined();
+        }
+    });
+});

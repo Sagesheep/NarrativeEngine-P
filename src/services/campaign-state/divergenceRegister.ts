@@ -2,7 +2,7 @@ import type { DivergenceEntry, DivergenceRegister, DivergenceCategory, ArchiveCh
 import { countTokens } from '../infrastructure/tokenizer';
 import { toast } from '../../components/Toast';
 import { llmCall } from '../../utils/llmCall';
-import { isKnownToAnyOnStage } from './knowledgeScope';
+import { isKnownToAnyOnStage, isKnownToPlayer, parseKnownByToken } from './knowledgeScope';
 
 export const EMPTY_REGISTER: DivergenceRegister = {
     entries: [],
@@ -162,6 +162,26 @@ export function mergeLifecycleEntries(
     };
 }
 
+/** Suffix marking a fact the player character knows but that is not common knowledge,
+ *  naming the NPCs and factions who share it. Empty for broadcast facts. */
+export function privateLabel(knownBy: string[] | undefined, npcLedger: { id: string; name: string }[]): string {
+    if (knownBy === undefined) return '';
+    const others: string[] = [];
+    for (const tok of knownBy) {
+        const p = parseKnownByToken(tok);
+        if (!p || p.kind === 'player') continue;
+        const name = p.kind === 'npc' ? npcLedger.find(n => n.id === p.id)?.name : `${p.name} members`;
+        if (name && !others.includes(name)) others.push(name);
+    }
+    if (!isKnownToPlayer(knownBy)) {
+        if (knownBy.length === 0) return ' (secret)';
+        return others.length > 0 ? ` (known only to ${others.join(', ')})` : '';
+    }
+    return others.length > 0
+        ? ` (private: known only to the player character and ${others.join(', ')})`
+        : ' (private: known only to the player character)';
+}
+
 export function renderRegisterForPayload(
     register: DivergenceRegister,
     chapters?: import('../../types').ArchiveChapter[],
@@ -179,12 +199,14 @@ export function renderRegisterForPayload(
     }
 
     const activeEntries = register.entries.filter(e => {
-        // Cached-canon path (publicOnly) renders ONLY broadcast facts. Scoped facts
-        // (knownBy defined, incl. pinned ones) are withheld from the cached prefix and
-        // surfaced per-turn in the [FACTS KNOWN TO ON-STAGE CHARACTERS] world block
-        // instead. "Is knownBy defined" is a static fact property → cast-independent →
-        // cache-safe: the cached block stays byte-identical when only the cast changes.
-        if (publicOnly && e.knownBy !== undefined) return false;
+        // Cached-canon path (publicOnly) renders broadcast facts and facts the player
+        // character knows (labelled with who else knows them), so the GM never loses the
+        // PC's own history when the NPCs who shared it leave the scene. Facts only NPCs
+        // know are withheld from the cached prefix and surfaced per-turn in the
+        // [FACTS KNOWN TO ON-STAGE CHARACTERS] world block instead. Both tests are static
+        // fact properties → cast-independent → cache-safe: the cached block stays
+        // byte-identical when only the cast changes.
+        if (publicOnly && e.knownBy !== undefined && !isKnownToPlayer(e.knownBy)) return false;
         if (e.enabled === false) return false;
         if (!isFactActive(e)) return false;
         if (e.pinned) return true;
@@ -226,7 +248,7 @@ export function renderRegisterForPayload(
             const lines = catEntries.map(e => {
                 const pin = e.pinned ? ' ★' : '';
                 const manual = e.source === 'manual' ? ' ⚡' : '';
-                return `• ${e.text}${pin}${manual}`;
+                return `• ${e.text}${pin}${manual}${privateLabel(e.knownBy, npcLedger ?? [])}`;
             });
             catSections.push(`${label}:\n${lines.join('\n')}`);
         }

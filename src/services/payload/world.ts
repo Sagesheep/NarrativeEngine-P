@@ -7,7 +7,7 @@ import { minifyLoreChunk, minifyNPC } from '../turn/contextMinifier';
 import { clipLine, npcFieldLimits, NPC_FIELD_FLOORS, type NpcFieldLimits } from '../npc/npcFieldLimits';
 import { resolveTimeline, formatResolvedForContext } from '../campaign-state/timelineResolver';
 import { isFactActive, renderRegisterForPayload } from '../campaign-state/divergenceRegister';
-import { isKnownToAnyOnStage, parseKnownByToken } from '../campaign-state/knowledgeScope';
+import { isKnownToAnyOnStage, isKnownToPlayer, parseKnownByToken } from '../campaign-state/knowledgeScope';
 import { dedupElevatedScenes, type ElevatedScene } from '../archive-memory/dynamicElevation';
 import { renderSlottedRagBlock, type SlottedRagSnippet } from '../archive-memory/slottedRag';
 import { createWitnessResolver, witnessNames } from '../npc/witnessResolve';
@@ -55,7 +55,7 @@ const WORLD_ROW_LABEL: Record<WorldRow, string> = {
  * their usual order. Deterministic for a given register and cap, so the cached
  * [ESTABLISHED FACTS] block does not change between turns.
  */
-function fitPublicFacts(register: DivergenceRegister, chapters: ArchiveChapter[] | undefined, fullText: string, cap: number): string {
+function fitPublicFacts(register: DivergenceRegister, chapters: ArchiveChapter[] | undefined, fullText: string, cap: number, ledger: NPCEntry[]): string {
     if (cap <= 0) return '';
     if (countTokens(fullText) <= cap) return fullText;
     const entries = register.entries;
@@ -64,7 +64,7 @@ function fitPublicFacts(register: DivergenceRegister, chapters: ArchiveChapter[]
         .map(r => r.i);
     const render = (k: number) => {
         const keep = new Set(rank.slice(0, k));
-        return renderRegisterForPayload({ ...register, entries: entries.filter((_, i) => keep.has(i)) }, chapters, undefined, undefined, true);
+        return renderRegisterForPayload({ ...register, entries: entries.filter((_, i) => keep.has(i)) }, chapters, undefined, ledger, true);
     };
     let lo = 0;
     let hi = entries.length;
@@ -653,6 +653,7 @@ export function buildWorld(opts: {
         const scoped = divergenceRegister.entries.filter(e =>
             e.knownBy !== undefined &&
             isActive(e) &&
+            !isKnownToPlayer(e.knownBy) && // the player's facts ride in the cached canon block
             isKnownToAnyOnStage(e.knownBy, onStage, ledger)
         );
         if (scoped.length > 0) {
@@ -693,8 +694,8 @@ export function buildWorld(opts: {
     // the trimmed block stays byte-identical and the prompt cache still holds.
     const factsCap = allocation?.facts ?? allocation?.pool ?? budgetWorld;
     if (divergenceRegister && divergenceRegister.entries.length > 0) {
-        const fullText = renderRegisterForPayload(divergenceRegister, chapters, undefined, undefined, true);
-        const regText = fullText ? fitPublicFacts(divergenceRegister, chapters, fullText, factsCap) : '';
+        const fullText = renderRegisterForPayload(divergenceRegister, chapters, undefined, npcLedger ?? [], true);
+        const regText = fullText ? fitPublicFacts(divergenceRegister, chapters, fullText, factsCap, npcLedger ?? []) : '';
         const fullTokens = fullText ? countTokens(fullText) : 0;
         if (regText) {
             divergenceRegText = regText;
