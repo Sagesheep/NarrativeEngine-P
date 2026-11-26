@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { LocationImageSection } from './LocationImageSection';
+import { useAppStore } from '../../store/useAppStore';
 import { Link2, Trash2, X } from 'lucide-react';
 import type { LocationEntry, LocationConnection } from '../../types';
 import { connectionBand } from '../../services/locationParser';
@@ -155,7 +156,12 @@ export function LocationEditForm({
             <LocationImageSection
                 location={{ ...renderedForm, features: isEditing ? featuresDraft.split(',').map(s => s.trim()).filter(Boolean) : renderedForm.features }}
                 isEditing={isEditing}
-                onChange={image => setForm(prev => ({ ...prev, image }))}
+                canQuickEdit={!isEditing && !!selectedId}
+                onChange={image => {
+                    setForm(prev => ({ ...prev, image }));
+                    // View mode writes straight to the ledger, like NPC portraits.
+                    if (!isEditing && selectedId) useAppStore.getState().updateLocation(selectedId, { image });
+                }}
                 onBusyChange={setImageBusy}
             />
 

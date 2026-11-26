@@ -9,12 +9,15 @@ import { toast } from '../Toast';
 type Props = {
     location: Partial<LocationEntry>;
     isEditing: boolean;
+    /** View mode on a saved location: the buttons still work and save at once. */
+    canQuickEdit?: boolean;
     onChange: (image: string | undefined) => void;
     onBusyChange: (busy: boolean) => void;
 };
 
-export function LocationImageSection({ location, isEditing, onChange, onBusyChange }: Props) {
+export function LocationImageSection({ location, isEditing, canQuickEdit = false, onChange, onBusyChange }: Props) {
     const [busy, setBusy] = useState(false);
+    const showControls = isEditing || canQuickEdit;
     const input = useRef<HTMLInputElement>(null);
     const active = useRef(false);
     const inFlight = useRef(false);
@@ -24,7 +27,7 @@ export function LocationImageSection({ location, isEditing, onChange, onBusyChan
     }, []);
 
     const run = async (file?: File) => {
-        if (!isEditing || inFlight.current) return;
+        if (!showControls || inFlight.current) return;
         const state = useAppStore.getState();
         const campaignId = state.activeCampaignId;
         const config = state.getActiveImageEndpoint();
@@ -77,7 +80,7 @@ export function LocationImageSection({ location, isEditing, onChange, onBusyChan
             ) : (
                 <div className="flex items-center justify-center gap-2 h-28 text-text-dim text-xs"><ImageIcon size={22} /> No location picture</div>
             )}
-            {isEditing && (
+            {showControls && (
                 <div className="p-3 space-y-2">
                     <div className="flex flex-wrap gap-2">
                         <input ref={input} type="file" accept="image/*" aria-label="Upload location picture" className="hidden" onChange={event => {
@@ -92,7 +95,7 @@ export function LocationImageSection({ location, isEditing, onChange, onBusyChan
                         </button>
                         {location.image && <button type="button" disabled={busy} className={buttonClass} onClick={() => onChange(undefined)}><Trash2 size={13} /> Remove Picture</button>}
                     </div>
-                    <p className="text-[10px] text-text-dim">Generation uses the name, region, description, features, and current condition. Save to keep picture changes.</p>
+                    <p className="text-[10px] text-text-dim">Generation uses the name, region, description, features, and current condition. {isEditing ? 'Save to keep picture changes.' : 'Picture changes save immediately.'}</p>
                 </div>
             )}
         </section>

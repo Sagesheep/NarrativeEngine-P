@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LocationImageSection } from '../location-ledger/LocationImageSection';
 import { useAppStore } from '../../store/useAppStore';
 import { generateNPCPortrait } from '../../services/npc-generation/portrait';
-import { downloadImageToLocal } from '../../services/infrastructure/assetService';
+import { downloadImageToLocal, uploadImageToLocal } from '../../services/infrastructure/assetService';
 vi.mock('../../services/npc-generation/portrait', () => ({ generateNPCPortrait: vi.fn() }));
 vi.mock('../../services/infrastructure/assetService', () => ({ downloadImageToLocal: vi.fn(), uploadImageToLocal: vi.fn() }));
 describe('location picture context', () => {
@@ -21,5 +21,20 @@ describe('location picture context', () => {
         expect(actualConfig).toEqual(config);
         for (const detail of ['Old Harbor', 'Broken piers under red cliffs.', 'Northern Coast', 'Lighthouse', 'Flooded']) expect(prompt).toContain(detail);
         expect(layout).toBe('landscape');
+    });
+
+    it('uploads in view mode without Edit when quick edit is allowed', async () => {
+        vi.mocked(uploadImageToLocal).mockResolvedValue('/assets/gate.png');
+        const onChange = vi.fn();
+        render(<LocationImageSection isEditing={false} canQuickEdit location={{ id: 'gate', name: 'North Gate' }} onChange={onChange} onBusyChange={vi.fn()} />);
+        const file = new File(['x'], 'gate.png', { type: 'image/png' });
+        fireEvent.change(screen.getByLabelText('Upload location picture'), { target: { files: [file] } });
+        await waitFor(() => expect(onChange).toHaveBeenCalledWith('/assets/gate.png'));
+        expect(uploadImageToLocal).toHaveBeenCalledWith(file, 'North Gate');
+    });
+
+    it('hides picture controls in plain view mode', () => {
+        render(<LocationImageSection isEditing={false} location={{ name: 'North Gate' }} onChange={vi.fn()} onBusyChange={vi.fn()} />);
+        expect(screen.queryByRole('button', { name: /Upload Picture/ })).toBeNull();
     });
 });
