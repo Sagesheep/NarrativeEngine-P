@@ -2,6 +2,7 @@ import type { DivergenceRegister, DivergenceEntry, NPCEntry, ArchiveChapter, End
 import { llmCall } from '../../utils/llmCall';
 import { CATEGORY_LABELS } from './divergenceRegister';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 export type DedupGroup = {
     bucketLabel: string;
@@ -76,27 +77,7 @@ export async function runFactDedup(
             .map(e => `${e.id} | #${e.sceneRef} | ${e.text}`)
             .join('\n');
 
-        const prompt = `You are deduplicating campaign facts about ${bucket.label}.
-
-FACTS (id | scene | text):
-${factLines}
-
-Identify groups where multiple facts describe the SAME EVENT or SAME STATE in different words.
-
-DO NOT GROUP:
-- Different events sharing a trait ("X saved A" + "X saved B")
-- Contradictions / arc reversals ("X hates Y" + "X loves Y")
-- General + specific ("X is brave" + "X charged the dragon")
-- Related but distinct ("Bridge is dangerous" + "Bridge collapsed")
-
-GROUP:
-- Restatements of one event ("X rescued a civilian" + "X saved a bystander")
-- Same state in different words ("X has the amulet" + "X carries the amulet")
-
-Schema (do not copy example values):
-{"duplicates":[{"ids":["<fact_id>","<fact_id>"],"reason":"<one short sentence>"}]}
-
-If nothing duplicates, return {"duplicates":[]} exactly.`;
+        const prompt = renderPrompt('facts.dedupe', { subject: bucket.label, facts: factLines });
 
         let raw: string;
         try {

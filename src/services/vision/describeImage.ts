@@ -5,6 +5,7 @@ import { startUtilityCall } from '../llm/utilityCallTracker';
 import { llmFetch } from '../llm/llmFetch';
 import { PORTRAIT_ART_STYLE_OPTIONS } from '../../data/portraitStyles';
 import { buildVisionBody, type VisionImage } from './visionRequest';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 /**
  * Vision v1 — image in, text out.
@@ -55,19 +56,7 @@ const ART_STYLES = PORTRAIT_ART_STYLE_OPTIONS.map(o => o.value);
 
 export function buildDescribeInstruction(subjectName?: string): string {
     const who = subjectName?.trim() ? `The character is named ${subjectName.trim()}. ` : '';
-    return `You are a character-sheet scribe for a tabletop RPG. ${who}Look at the image and record ONLY what you can actually see.
-
-Return a single JSON object, no markdown fences and no commentary:
-
-{
-  "appearance": "3-5 sentences a game master could read aloud. Open with the most identifying details (species, presented gender, age, build), then hair, eyes, skin, clothing and carried gear, and any scars, tattoos or other distinct marks.",
-  "artStyle": "closest match from this list: ${ART_STYLES.join(' | ')}"
-}
-
-Rules:
-- Describe ONLY what is visible. Leave out anything not shown — never guess.
-- No commentary about art quality, the medium, or the image itself.
-- If the image shows no character at all, put what the image actually shows in "appearance".`;
+    return renderPrompt('character.describe-portrait', { subject: who, artStyles: ART_STYLES.join(' | ') });
 }
 
 /** Strip fences and isolate the outermost JSON object. */
@@ -176,11 +165,7 @@ export function buildCaptionInstruction(userNote?: string): string {
 
 The player said this alongside the image: "${userNote.trim().slice(0, 200)}". Let it steer what you pay attention to, but describe the image, do not answer the message.`
         : '';
-    return `Describe this image for a game master who cannot see it.
-
-Write 2-4 sentences of plain prose. Lead with what the image IS (a person, a place, a map, an object, a diagram), then the details that would matter at a tabletop: who or what is shown, notable features, mood, and any legible text or labels.
-
-Do not comment on art quality, style, or the medium. Do not speculate about anything not visible. Do not use markdown or bullet points.${note}`;
+    return renderPrompt('tools.caption-image', { playerNote: note });
 }
 
 /**

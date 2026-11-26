@@ -1,6 +1,7 @@
 import type { GameContext, CharacterIntroEntry, ChatMessage, EndpointConfig, ProviderConfig } from '../../types';
 import { llmCall } from '../../utils/llmCall';
 import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 /** The intro roll's die. Ported from mobile (`mobileApp/src/services/engine/charIntroEngine.ts`),
  *  which rolls 1–200 against a DC that starts at 196 and drops each quiet turn — the same scale
@@ -14,7 +15,6 @@ export type CharIntroResult = {
     newDC: number;
 };
 
-const LOCATION_PROMPT = `Based on the following scene, what is the party's current location? Reply with only the location name, nothing else.`;
 
 function extractLocationFromResponse(response: string): string {
     const cleaned = response.replace(/<think[\s\S]*?<\/think>/gi, '').trim();
@@ -33,7 +33,7 @@ async function resolveLocation(
     }).join('\n\n');
 
     try {
-        const prompt = `${LOCATION_PROMPT}\n\n${excerpt}`;
+        const prompt = `${renderPrompt('world.location-guess')}\n\n${excerpt}`;
         const raw = modelCall
             ? (await modelCall({ prompt, temperature: 0.1, priority: 'high', maxTokens: 60, thinkingEffort: 'off' })).content
             : provider

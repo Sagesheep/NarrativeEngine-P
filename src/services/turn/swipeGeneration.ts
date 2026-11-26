@@ -5,13 +5,14 @@ import { sendMessage } from '../chatEngine';
 import { sanitizePayloadForApi } from '../lib/payloadSanitizer';
 import { extractAndStripSceneStakes } from './sceneStakesTag';
 import { uid } from '../../utils/uid';
+import { renderPrompt } from '../prompts/promptRegistry';
+import { defaultPromptText } from '../prompts/promptCatalog';
 
 export const MAX_SWIPES = 5;
 export const SWIPE_BASE_TEMP_OFFSET = 0.1;
 
 // System line appended to swipe generations (swipes 2–5) per the contract.
-export const SWIPE_SYSTEM_LINE =
-    'Do not initiate or invent dice rolls or lore lookups; narrate only from results already in history.';
+export const SWIPE_SYSTEM_LINE = defaultPromptText('turn.swipe-line');
 
 export interface SwipeGenerationOptions {
     provider: LLMProvider | EndpointConfig | ProviderConfig;
@@ -42,12 +43,12 @@ export function generateSwipeVariant(
 
     // Build the tail system messages: the no-tools line, then optional guidance.
     const tailMessages: OpenAIMessage[] = [
-        { role: 'system', content: SWIPE_SYSTEM_LINE },
+        { role: 'system', content: renderPrompt('turn.swipe-line') },
     ];
     if (guidance && guidance.trim()) {
         tailMessages.push({
             role: 'system',
-            content: `Player guidance for this variant: ${guidance.trim()}`,
+            content: renderPrompt('turn.swipe-guidance', { guidance: guidance.trim() }),
         });
     }
 

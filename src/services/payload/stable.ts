@@ -2,6 +2,8 @@ import type { AppSettings, GameContext, LoreChunk } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
 import { DEFAULT_RULES } from '../rules/defaultRules';
 import type { TraceCollector } from './traceCollector';
+import { renderPrompt } from '../prompts/promptRegistry';
+import { defaultPromptText } from '../prompts/promptCatalog';
 
 // Thinking-mode detector. Resolves the story level in the same order as the
 // role getters (see store/slices/slotThinking.ts): the active preset's Story
@@ -35,21 +37,8 @@ export function isThinkingEnabled(settings: AppSettings): boolean {
 // so the framework works for any provider: DeepSeek emits it in `reasoning_content`,
 // Claude in `thinking` blocks, GPT-5 in `reasoning` tokens, Gemini in `thinking_config`
 // parts, and legacy non-thinking models reason silently before the narrative.
-export const SCENE_STAKES_INSTRUCTION =
-    'On the LAST line of your response, output a scene-stakes tag:\n' +
-    '[[SCENE_STAKES: calm|tense|dangerous]]\n' +
-    'Rubric: calm = no immediate threat; tense = physical OR social/political threat looming;\n' +
-    'dangerous = active harm or imminent deadly/ruinous consequences. This tag is metadata —\n' +
-    'never reference it in your prose.';
+export const SCENE_STAKES_INSTRUCTION = defaultPromptText('turn.scene-stakes-tag');
 
-const WRITER_COT = `[WRITER REASONING FRAMEWORK]
-Work through these steps in your internal reasoning before writing the narrative. Never show the steps in the narrative output. Always produce the full narrative response after your reasoning ends.
-Step 1 — Deconstruct: break the player's input into discrete intents. Judge each against the rules and MC boundaries. Impossible or implausible demands are narrated as attempts with consequences, not successes.
-Step 2 - Director Brief: if a [DIRECTOR BRIEF] block is present, honor its MANDATORY world-law or fair-adjudication corrections and any compatible SUGGESTION. It does not schedule drama or dictate every character's reaction.
-Step 3 - On-stage minds: first state the player's visible action and result without moral interpretation. For each character in [ACTIVE NPC CONTEXT], consider their current goal and emotional state, what they know and do not know (check [FACTS KNOWN TO ON-STAGE CHARACTERS]), their disposition and competence, and their relationship to the player. Then choose a proportionate response: speech, action, observation, help, challenge, humour, silence, withdrawal, or a shared crowd response. Characters may converge when the same event gives them the same reason to react; they may differ when their perspectives differ. Do not force either. A boundary produces push-back only when the concrete action actually crosses it; never infer a larger injury, hostile intent, or moral failing merely to make drama.
-Step 4 — Engine truth: honor [DICE OUTCOMES] exactly as resolved — never soften failures or upgrade successes. Check each on-stage character against their signature kit. Check [LOCATION] logistics: travel time, weather, era-appropriate technology.
-Step 5 - Beat map: draft 5-8 beats. Include every MANDATORY directive from Step 2 and the reactions that actually follow from Step 3. Give the player a playable opening - a response, consequence, piece of information, offer, challenge, or changed situation - rather than forcing a twist, argument, or lesson.
-Step 6 — Final audit: the player's action drives the scene; reactions are grounded in what each character observed and values; no unearned NPC chorus or retroactive moralisation; no cliches or purple prose. Then write the scene.`;
 
 export function buildStable(opts: {
     settings: AppSettings;
@@ -110,14 +99,14 @@ export function buildStable(opts: {
     // stores it on the swipe variant (sceneStakesTag.ts); agency reads it. Desktop never asked
     // for it — 0 tags in ~1,200 archived scenes — so the fallback classifier ran before every
     // Send. The classifier stays as the fallback for a reply that omits the tag.
-    stableParts.push(SCENE_STAKES_INSTRUCTION);
+    stableParts.push(renderPrompt('turn.scene-stakes-tag'));
 
     // Only inject when the active preset's Story slot has thinking enabled (any
     // effort level except 'off'). The Story slot's Thinking picker is the single
     // source of truth — model-name guessing is gone.
     if (isThinkingEnabled(settings)) {
-        stableParts.push("IMPORTANT: If you use a 'thinking' or 'reasoning' block (or any internal reasoning), you MUST still provide the full narrative response AFTER it ends. Never end a turn with only reasoning.");
-        stableParts.push(WRITER_COT);
+        stableParts.push(renderPrompt('turn.thinking-reminder'));
+        stableParts.push(renderPrompt('turn.writer-reasoning'));
     }
 
     const stableContent = stableParts.join('\n\n');

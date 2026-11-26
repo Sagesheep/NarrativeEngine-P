@@ -33,6 +33,7 @@ import { buildDigest, visibilityFromBand, type TickDelta } from './agencyDigest'
 import { detectTimeskip, runTimeskip } from './agencyTimeskipRun';
 import { isAgencyEligible } from './agencyLifecycle';
 import { isBlockEnabled } from '../../turn/blockEnablement';
+import { renderPrompt } from '../../prompts/promptRegistry';
 
 
 // Inlined from mobile's services/infrastructure/utilityPrompts (desktop has no equivalent).
@@ -366,14 +367,7 @@ function runTimeskipPath(
             try {
                 const narrationPrompt = joinPromptSections(
                     TTRPG_PERSONA_GM_ASSISTANT,
-                    `Write the "what you return to" beat after a time-skip of about ${weeks.toFixed(1)} weeks.`,
-                    `While the player was away, the world kept moving. Below are the off-screen developments that are now visible to the player — already decided, NOT for you to change. Weave them into a single cohesive in-fiction paragraph that lands when the player steps back into the scene: the sense that time genuinely passed and people pursued their own lives.`,
-                    `RULES:
-- 2-4 sentences, second person ("you return to find…"), present the changes as discovered, not narrated as a report.
-- Dramatize ONLY the developments listed. Do NOT invent new characters, events, deaths, or plot twists beyond them.
-- Use the characters' names exactly as given. Keep each development recognizable.
-- No game mechanics, numbers, dice, percentages, or meta language — pure fiction.
-- If the developments conflict in tone, hold them side by side; do not resolve or editorialize.`,
+                    renderPrompt('npc.timeskip-narration', { weeks: weeks.toFixed(1) }),
                     ANCHOR_BEFORE_INPUT,
                     INPUT_DELIMITER,
                     `OFF-SCREEN DEVELOPMENTS:\n${result.narration}`,

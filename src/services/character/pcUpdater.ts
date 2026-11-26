@@ -1,6 +1,7 @@
 import type { ChatMessage, NPCEntry, PlayerCharacter } from '../../types';
 import type { ModelRequest } from '../turn/hostFacade';
 import { sanitizeSignatureKit } from '../npc/signatureKit';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 export const ALLOWED_CHANGE_KEYS = new Set([
     'signatureKit',
@@ -79,66 +80,7 @@ export async function checkCharacterDrift(
         data += `SignatureKit: gear=[${k.equipment.join(', ') || 'none'}] powers=[${k.abilities.join(', ') || 'none'}]${k.element ? ` element=${k.element}` : ''}\n`;
     }
 
-    const prompt = `You are a background game state analyzer. Your job is to read the RECENT CONTEXT of an RPG session and determine if the PLAYER CHARACTER has undergone a shift in their status, appearance, faction, or signature gear/powers.
-
-OUTPUT FORMAT — a single JSON object:
-{"changes": { ...only the fields that changed... }}
-
-Allowed "changes" keys (send ONLY fields that fundamentally changed):
-  status, appearance, faction (can list multiple comma-separated factions), wants (medium/long text only — NEVER include "short"),
-  signatureKit.
-DO NOT include attributes that stayed the same. If nothing fundamental changed, "changes" is {}.
-
-**FORBIDDEN keys** in "changes" (data-model errors — the engine owns these for the PC):
-  - "personalityHex" / "traits" — written only by the player via the character sheet or quiz. NEVER send.
-  - "drives" — superseded by "wants". Never send.
-  - "affinity" / "pcRelation" / "relations" — relationship standing is engine-owned and meaningless for the PC. NEVER send.
-  - "voice", "personality", "storyRelevance", "behavioralTriggers", "hardBoundaries", "softBoundaries", "artStyle" — out of scope for this updater.
-
-SIGNATURE KIT RULES:
-  - "signatureKit" is the player character's durable loadout: {"equipment": string[], "abilities": string[], "element": string}. It keeps gear and powers CONSISTENT across the campaign.
-  - Only send it when the scene NARRATES a real change: the PC gains/loses/breaks a signature item, learns or loses a power, or is transformed. The PC merely *using* gear they already have is NOT a change — send nothing.
-  - Send ONLY the channel that changed. To update gear, send just "equipment" (the full new signature list, max 8); to update powers, send just "abilities". Never re-emit an unchanged channel.
-  - Default is NO change. Most turns have no signatureKit update.
-
-WANTS UPDATE RULES:
-  - "wants" is an object with "short" (string[]), "medium" (string[]), and "long" (string).
-  - You may ONLY revise "medium" and "long". NEVER include "short" — it is engine-managed and always preserved. If you include "short", it will be discarded.
-  - "long" is a single overarching life goal — update only if a transformative event reshaped it.
-  - "medium" is arc-level goal templates — update if the story moved to a new arc.
-
-GENERAL RULES:
-- Valid statuses: Alive, Deceased, Missing, Unknown, In Custody.
-
-EXAMPLES:
-
-GOOD — PC's signature weapon was sundered on-screen (only the gear channel; powers untouched):
-{"changes": {"signatureKit": {"equipment": ["backup dagger"]}}}
-
-GOOD — PC joined a new faction after a major story beat:
-{"changes": {"faction": "Ironspire Knights"}}
-
-GOOD — ordinary scene, nothing fundamental changed:
-{"changes": {}}
-
-BAD — sending a FORBIDDEN/engine-owned key:
-{"changes": {"personalityHex": {"boldness": +1}, "traits": ["brave"], "pcRelation": +1}}
-Corrected: drop the forbidden keys entirely. The engine owns them.
-
-BAD — re-emitting unchanged attributes (status/faction all unchanged here):
-{"changes": {"status": "Alive", "faction": "Ironspire Knights", "appearance": "tall, dark hair"}}
-Corrected: include ONLY the field that changed —
-{"changes": {"appearance": "now bears a scar across the left eye"}}
-
-[RECENT CONTEXT]
-${recentContext}
-[END CONTEXT]
-
-[CURRENT PLAYER CHARACTER STATE]
-${data}
-[END STATE]
-
-RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
+    const prompt = renderPrompt('character.pc-update', { recentContext, pcState: data });
 
     try {
         const parsed = await modelCall({ prompt, trackingLabel: 'pc-update' }) as { changes?: unknown };

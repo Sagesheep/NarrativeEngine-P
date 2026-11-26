@@ -3,6 +3,7 @@ import { chunkLoreFile } from '../lore/loreChunker';
 import { api } from '../llm/apiClient';
 import { llmCall } from '../../utils/llmCall';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 const STOP_WORDS = new Set([
     'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'has', 'her',
@@ -109,11 +110,7 @@ async function extractKeywordsViaLLM(
 ): Promise<{ primary: string[]; secondary: string[] }> {
     try {
         const preview = chunk.content.slice(0, 400).replace(/\n+/g, ' ').trim();
-        const prompt = `You are extracting trigger keywords for a tabletop RPG rule retrieval system.
-Rule section: "${chunk.header}"
-Content preview: "${preview}"
-
-List 3-5 keywords a player would type to trigger this rule, and 1-2 secondary keywords for narrowing if the primary keywords are ambiguous. Reply as JSON: { "primary": [...], "secondary": [...] }`;
+        const prompt = renderPrompt('world.rules-keywords', { section: chunk.header, preview });
 
         const raw = await llmCall(utilityEndpoint, prompt, {
             temperature: 0.1,

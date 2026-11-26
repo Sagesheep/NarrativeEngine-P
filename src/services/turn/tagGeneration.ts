@@ -2,6 +2,7 @@ import type { EndpointConfig, ProviderConfig } from '../../types';
 import type { OpenAIMessage } from '../llm/llmService';
 import { sendMessage } from '../llm/llmService';
 import { extractJson } from '../infrastructure/jsonExtract';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 /**
  * AI-powered tag population for Surprise & World engines.
@@ -24,25 +25,11 @@ export async function populateEngineTags(
         worldWhat: '"What" elements for world events — the actions taken (e.g. "declared open hostilities", "formed an unexpected alliance").',
     };
 
-    const prompt = `You are a Campaign Tag Generator. Your job is to analyze the provided WORLD LORE and CURRENT TAGS, then generate contextually appropriate tags that fit this specific campaign's theme, factions, locations, and tone.
-
-[FIELD TO GENERATE]
-${fieldDescriptions[field]}
-
-[CURRENT TAGS — Use as reference for format and style]
-${currentTags.join(', ')}
-
-[WORLD LORE — Use to make tags thematically relevant]
-${worldLore.slice(0, 6000)}
-
-RULES:
-- Generate MINIMUM 3 and MAXIMUM 12 tags.
-- Tags must be thematically appropriate for this specific campaign world.
-- Keep the same format style as the current tags (uppercase for surprise types/tones, descriptive phrases for world engine).
-- Do NOT repeat any current tags verbatim — generate NEW ones inspired by the lore.
-- RESPOND ONLY WITH A VALID JSON ARRAY OF STRINGS. No markdown, no explanation.
-
-Example output: ["TAG_ONE", "TAG_TWO", "TAG_THREE"]`;
+    const prompt = renderPrompt('world.engine-tags', {
+        field: fieldDescriptions[field],
+        currentTags: currentTags.join(', '),
+        worldLore: worldLore.slice(0, 6000),
+    });
 
     const messages: OpenAIMessage[] = [
         { role: 'user', content: prompt }

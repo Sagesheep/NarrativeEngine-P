@@ -21,6 +21,7 @@
 import type { ChatMessage, NPCEntry, TimelineEvent, EndpointConfig, ProviderConfig, ThinkingEffort } from '../../types';
 import { llmCall, UtilityTimeoutError } from '../../utils/llmCall';
 import { countTokens } from '../infrastructure/tokenizer';
+import { fillTemplate, getPromptTemplate } from '../prompts/promptRegistry';
 
 // AI_CALL_TIMEOUT_MS is the codebase's standard 180 s utility-call budget; the
 // Director reuses it (DIRECTOR_BRIEF_TIMEOUT_MS below aliases 180_000). Not
@@ -173,42 +174,6 @@ export function buildRecentEvents(
 // the player's claims gave it something to write about, so the rule now tells it to
 // write nothing about what it cannot see.
 
-const DIRECTOR_PROMPT_TEMPLATE = `You are the Continuity Director of an ongoing role-played campaign. You do not write prose or manufacture drama. You audit the last turn and issue a short brief only when the GM needs a hard-world correction or a compatible NPC-agency repair for the next turn.
-
-VERIFIED FACTS (do not re-derive; act on them):
-<watchdog_dossier>
-{dossierText}
-</watchdog_dossier>
-<previous_gm_turn>
-{lastAssistant}
-</previous_gm_turn>
-<player_input>
-{userMessage}
-</player_input>
-<active_npcs>
-{npcSummary}
-</active_npcs>
-<recent_events>
-{recentEvents}
-</recent_events>
-<world_facts>
-{worldFacts}
-</world_facts>
-
-Use the supplied context as your complete evidence. Do not invent canon, unseen actions, private knowledge, motives, injuries, or social harm. Do not turn a clever, lawful, or tactically sound player action into a moral failing merely to create friction.
-Dice outcomes in the player input are the Writer's to narrate: never turn a roll into a required result or a forced reaction. Your context is a small slice of the campaign; the Writer has its full memory. Write no directive about a person, place, item, ability, memory, or past event that the player mentions and your context does not show: the Writer judges those.
-
-Consider, in order:
-1. World-law and continuity - does the last GM turn or the player's intended action contradict an established rule, capability, location, prior event, knowledge boundary, or physical consequence? Flag only a contradiction demonstrated by the supplied context. A valid but risky action is not a violation; narrate its real limits or consequences rather than denying it outright.
-2. Fair adjudication - did the prior GM response make an NPC naive, omniscient, or able to counter without the knowledge, time, or capability established here? Correct that specific error. In deception or tactical scenes, a target may notice, test, hedge, or counter only from observable cues and their established ability; a successful feint may earn a real opening.
-3. Watchdog triage - use the dossier as an agency obligation, not a licence to force conflict. Repair a silent NPC, one-directional relationship, or stalled goal only when the repair fits the scene and does not contradict steps 1-2. Defer it when no truthful opening exists.
-4. Restraint - do not schedule disagreement, decentering, callbacks, staleness changes, twists, or emotional escalation. The Writer handles character reactions and scene momentum. If there is no evidenced correction or compatible agency repair, proceed naturally.
-
-OUTPUT exactly this, nothing else:
-WRITER BRIEF
-- [MANDATORY] <directive>   (0-2 lines)
-- [SUGGESTION] <directive>  (0-3 lines)
-Use [MANDATORY] only for a demonstrated world-law, continuity, knowledge, or fair-adjudication correction, never for a dice result or how a character should feel. Use [SUGGESTION] only for one compatible watchdog repair. Each directive is one imperative line naming specific characters. No analysis, no preamble. If nothing is needed, output "WRITER BRIEF" followed by "- [SUGGESTION] Proceed naturally."`;
 
 /** Where prompt addenda are spliced in: immediately before the output format. */
 const DIRECTOR_OUTPUT_MARKER = 'OUTPUT exactly this, nothing else:';
@@ -227,16 +192,22 @@ export function renderDirectorPrompt(input: {
     // Addenda go in BEFORE the slots are filled, so a player message that happens
     // to contain the marker cannot move them, and ahead of the output format so
     // the format keeps the last word. A function replacer keeps `$` literal.
-    const template = input.addenda
-        ? DIRECTOR_PROMPT_TEMPLATE.replace(DIRECTOR_OUTPUT_MARKER, () => `${input.addenda}\n\n${DIRECTOR_OUTPUT_MARKER}`)
-        : DIRECTOR_PROMPT_TEMPLATE;
-    return template
-        .replace('{dossierText}', input.dossierText)
-        .replace('{lastAssistant}', input.lastAssistant)
-        .replace('{userMessage}', input.userMessage)
-        .replace('{npcSummary}', input.npcSummary)
-        .replace('{recentEvents}', input.recentEvents)
-        .replace('{worldFacts}', input.worldFacts?.length ? input.worldFacts.join('\n') : '(none)');
+    // The template is the campaign's own text when it overrides this prompt
+    // (Prompt Modification); one without the marker gets the addenda at the end.
+    const base = getPromptTemplate('turn.director');
+    const template = !input.addenda
+        ? base
+        : base.includes(DIRECTOR_OUTPUT_MARKER)
+            ? base.replace(DIRECTOR_OUTPUT_MARKER, () => `${input.addenda}\n\n${DIRECTOR_OUTPUT_MARKER}`)
+            : `${base}\n\n${input.addenda}`;
+    return fillTemplate(template, {
+        dossier: input.dossierText,
+        lastGmTurn: input.lastAssistant,
+        playerInput: input.userMessage,
+        activeNpcs: input.npcSummary,
+        recentEvents: input.recentEvents,
+        worldFacts: input.worldFacts?.length ? input.worldFacts.join('\n') : '(none)',
+    });
 }
 
 // ── Output parsing ──────────────────────────────────────────────────────────

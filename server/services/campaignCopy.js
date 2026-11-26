@@ -44,7 +44,7 @@ const CLEAN_COPY_CONTEXT_FIELDS = Object.freeze([
     'surpriseConfig', 'encounterConfig', 'worldEventConfig', 'npcIntroConfig',
     'combatModeActive', 'combatConfig',
     'lootTree', 'activeLootProfileId',
-    'promptInjections', 'glossary', 'galleryUploads',
+    'promptInjections', 'promptOverrides', 'glossary', 'galleryUploads',
     'mapWorldSetting', 'travelUnit',
 ]);
 

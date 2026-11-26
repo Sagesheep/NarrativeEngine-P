@@ -13,6 +13,7 @@ import { llmCall } from '../../utils/llmCall';
 import { searchLoreByQuery } from './loreRetriever';
 import { deepArchiveScan } from '../archive-memory/deepArchiveSearch';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 export type LoreCheckInput = {
     utilityEndpoint: EndpointConfig;
@@ -131,32 +132,7 @@ export function buildRewritePrompt(args: {
     surroundingContext: string;
     fact: string;
 }): string {
-    return `You are a precise copy editor for a tabletop RPG narration. The player has highlighted a SENTENCE the GM wrote and supplied a FACT they know to be true. Your only job is to rewrite the sentence so it states the fact correctly.
-
-Rules:
-- Treat the FACT as authoritative ground truth. Do NOT question it, soften it, or check it against anything.
-- Change ONLY what is needed to make the SENTENCE consistent with the FACT.
-- Preserve the GM's tone, voice, tense, and approximate length.
-- Do NOT add new events, NPCs, places, or commitments beyond what the FACT states.
-- The SURROUNDING CONTEXT is for tone and continuity reference only — your rewrite replaces just the SENTENCE, so it must read naturally between those neighbors.
-- If the SENTENCE already matches the FACT, return it essentially unchanged.
-
-OUTPUT SCHEMA:
-{
-  "rewrite": "the rewritten sentence"
-}
-
-Respond with ONLY a single JSON object, no prose, no code fence.
-
-[SENTENCE]
-${args.selectedText}
-
-[SURROUNDING CONTEXT]
-${args.surroundingContext}
-
-[FACT]
-${args.fact}
-`;
+    return renderPrompt('tools.lore-rewrite', { sentence: args.selectedText, surrounding: args.surroundingContext, fact: args.fact });
 }
 
 function parseRewrite(raw: string, originalText: string): LoreCheckResult {
@@ -207,49 +183,15 @@ Focus your verdict on whether the concern is justified, but you may still flag o
 `;
     }
 
-    return `You are a narrative continuity auditor for a tabletop RPG campaign.
-A player has highlighted a sentence written by the GM and wants to know whether it is consistent with established lore and play history.
-
-You will receive:
-- The highlighted SENTENCE
-- The surrounding CONTEXT (sentence before and after, for tone reference only)
-- LORE evidence (canonical world facts written by the player)
-- ARCHIVE evidence (a brief summarizing past scenes from the campaign)${hasConcern ? '\n- A USER CONCERN describing why they flagged this sentence' : ''}
-
-Your job:
-1. Decide a verdict:
-   - "consistent": the sentence is supported (or at least not contradicted) by the evidence.
-   - "unsupported": the sentence makes specific factual claims that are not covered by lore or archive — possible hallucination but not a clear contradiction.
-   - "contradicts": the sentence directly contradicts at least one lore entry or archived event.${hasConcern ? '\n   If a USER CONCERN is provided, weigh it heavily in your verdict, but don\'t ignore other contradictions.' : ''}
-2. List up to 3 short issues (each one sentence). Empty list if verdict is "consistent".
-3. List the citations you relied on. Use "lore:<exact lore header>" for lore and "scene:<sceneId>" for archive references that appear in the brief. Do NOT invent citations.
-4. If verdict is "contradicts" or "unsupported", produce a SUGGESTED REWRITE that:
-   - Preserves the GM's tone and approximate length.
-   - Replaces ONLY the contradicted/fabricated facts with ones supported by the evidence.
-   - Does NOT add new events or commitments.
-   - If you cannot produce a confident rewrite from evidence, set suggestedRewrite to null.
-5. If verdict is "consistent", set suggestedRewrite to null.
-${userConcernBlock}
-Respond with ONLY a single JSON object, no prose, no code fence:
-{
-  "verdict": "consistent" | "unsupported" | "contradicts",
-  "issues": ["..."],
-  "citations": [{"ref": "lore:...", "label": "..."}, {"ref": "scene:042", "label": "..."}],
-  "suggestedRewrite": "..." | null
-}
-
-[SENTENCE]
-${args.selectedText}
-
-[SURROUNDING CONTEXT]
-${args.surroundingContext}
-
-[LORE EVIDENCE]
-${args.loreText}
-
-[ARCHIVE EVIDENCE]
-${args.archiveText}
-`;
+    return renderPrompt('tools.lore-verify', {
+        concernInput: hasConcern ? '\n- A USER CONCERN describing why they flagged this sentence' : '',
+        concernRule: hasConcern ? '\n   If a USER CONCERN is provided, weigh it heavily in your verdict, but don\'t ignore other contradictions.' : '',
+        concern: userConcernBlock,
+        sentence: args.selectedText,
+        surrounding: args.surroundingContext,
+        lore: args.loreText,
+        archive: args.archiveText,
+    });
 }
 
 function parseVerdict(raw: string, originalText: string): LoreCheckResult {

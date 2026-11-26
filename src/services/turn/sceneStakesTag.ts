@@ -2,16 +2,10 @@ import type { SceneStakes, EndpointConfig, ProviderConfig } from '../../types';
 import { llmCall } from '../../utils/llmCall';
 import { recordSceneStakesFallback } from './sceneStakesTelemetry';
 import { ENGINE_CALL_TIMEOUT_MS } from '../llm/timeouts';
+import { renderPrompt } from '../prompts/promptRegistry';
 
-// Phase 2 port: mobile used a shared infrastructure/utilityPrompts module for these constant
-// sections; desktop has no equivalent shared module. Inlined here (small + only used by this
-// helper) — a future refactor can lift them to a shared utilityPrompts module if more callers
-// need them.
-const TTRPG_PERSONA_STATE_ANALYZER = 'You are a background game state analyzer.';
-const JSON_ONLY_FOOTER = 'Respond with ONE JSON object only. No prose, no markdown fences.';
-const ANCHOR_BEFORE_INPUT = 'Now produce the JSON described above for the INPUT below.';
-const INPUT_DELIMITER = '----- INPUT -----';
-
+// The classifier's instruction sections (persona, task, JSON footer, input delimiter) live in
+// the prompt catalog as `turn.scene-stakes-classify`, so a campaign can rewrite them.
 function joinPromptSections(...sections: Array<string | null | undefined>): string {
     return sections.filter(Boolean).join('\n\n');
 }
@@ -47,15 +41,9 @@ export async function classifySceneStakes(
         timeoutMs: number;
     }) => Promise<string>,
 ): Promise<SceneStakes> {
+    // Instructions (persona through input delimiter) are the overridable prompt; the scene follows.
     const prompt = joinPromptSections(
-        TTRPG_PERSONA_STATE_ANALYZER,
-        'TASK: Classify the scene stakes as one of: calm, tense, dangerous.\n' +
-        'calm = no immediate threat; tense = physical OR social/political threat looming;\n' +
-        'dangerous = active harm or imminent deadly/ruinous consequences.',
-        JSON_ONLY_FOOTER,
-        'Output ONLY: {"stakes":"calm"} or {"stakes":"tense"} or {"stakes":"dangerous"}',
-        ANCHOR_BEFORE_INPUT,
-        INPUT_DELIMITER,
+        renderPrompt('turn.scene-stakes-classify'),
         recentScene.slice(0, 3000),
     );
 

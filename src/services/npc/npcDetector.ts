@@ -4,6 +4,7 @@ import { llmCall } from '../../utils/llmCall';
 import { extractJson } from '../chatEngine';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import TITLES from '../../data/titles.json';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 const TITLES_SET = new Set(TITLES.map(t => t.toLowerCase()));
 const NAME_CONNECTIVES = new Set(['of', 'the', 'von', 'de', 'di', 'al', 'el', 'ibn', 'bin']);
@@ -221,19 +222,7 @@ export async function validateNPCCandidates(
 
     const shortContext = narrativeContext.slice(-1000);
 
-    const prompt = `You are a strict data filter for a fantasy RPG.
-Given a short narrative context and a list of bracketed terms extracted from it, return ONLY the ones that are actual character or NPC names.
-Exclude skill checks, game mechanics, actions, meta-tags, stats, spell names, locations, and any other non-name terms.
-
-[NARRATIVE CONTEXT]
-${shortContext}
-
-[CANDIDATE NAMES TO FILTER]
-${candidates.join(', ')}
-
-Respond ONLY with a valid JSON array of strings containing the true character names. Make no other commentary.
-If none are character names, respond with [].
-Example: ["Captain Aldric", "Orin"]`;
+    const prompt = renderPrompt('npc.name-filter', { context: shortContext, candidates: candidates.join(', ') });
 
     try {
         const raw = modelCall

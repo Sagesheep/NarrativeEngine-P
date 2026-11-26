@@ -2,6 +2,7 @@ import type { ArchiveChapter, ProviderConfig, EndpointConfig } from '../../types
 import { llmCall } from '../../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import { parseChapterSummaryOutput } from '../saveFile/chapterSummary';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 // ─── Synopsis Backfill (WO-07) ───
 //
@@ -40,26 +41,11 @@ function buildSynopsisPrompt(chapter: ArchiveChapter): string {
     // says required string but runtime loads raw JSON with no validation.
     const majorEvents = (chapter.majorEvents ?? []).filter(Boolean);
     const summary = typeof chapter.summary === 'string' ? chapter.summary : '';
-    return [
-        'You are a TTRPG campaign archivist. Generate a synopsis for an already-sealed chapter.',
-        '',
-        `CHAPTER TITLE: ${chapter.title || 'Untitled'}`,
-        `CHAPTER SUMMARY: ${summary || '(no summary recorded)'}`,
-        `MAJOR EVENTS: ${majorEvents.length > 0 ? majorEvents.map(e => `- ${e}`).join('\n') : '(none recorded)'}`,
-        '',
-        'OUTPUT FORMAT — respond with a JSON object containing only these three fields:',
-        '{',
-        '    "literalTitle": "Concrete factual title, e.g. The Battle at Locust Town",',
-        '    "abstractTitle": "Thematic title, e.g. Old Wounds",',
-        '    "synopsis": "1-2 sentences, ultra-high-level, past tense, covering only this chapter"',
-        '}',
-        '',
-        'RULES:',
-        '1. Synopsis is past tense and covers ONLY this chapter — no foreshadowing, no callbacks.',
-        '2. LiteralTitle is the concrete "what literally happened" label.',
-        '3. AbstractTitle is the thematic label — what the chapter is "about" at a human level.',
-        '4. Output ONLY the JSON object — no prose, no markdown fences.',
-    ].join('\n');
+    return renderPrompt('memory.synopsis-backfill', {
+        title: chapter.title || 'Untitled',
+        summary: summary || '(no summary recorded)',
+        majorEvents: majorEvents.length > 0 ? majorEvents.map(e => `- ${e}`).join('\n') : '(none recorded)',
+    });
 }
 
 export function parseSynopsisBackfillOutput(raw: string): SynopsisBackfillResult | null {

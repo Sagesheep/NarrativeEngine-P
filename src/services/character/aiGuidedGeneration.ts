@@ -2,6 +2,7 @@ import type { EndpointConfig, ProviderConfig, CharacterCreationDraft, CreationSl
 import { sendMessage, type OpenAIMessage } from '../llm/llmService';
 import { parseInterviewLines, linesToSlotMap } from './parseInterviewLines';
 import { buildGuidedCreationLoreExcerpt, listCreationHeaders, packSelectedChunks, creationExcerptBudget } from './loreExcerptBuilder';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 /**
  * WO-A2 §2.4 + §2.7 — the LLM calls for AI-Guided creation.
@@ -140,13 +141,7 @@ export async function selectRelevantLoreHeaders(
     if (candidates.length <= HEADER_PICK_MAX) return { chunks: candidates, usedAI: false };
 
     const menu = candidates.map((c, i) => `${i + 1}. ${c.header || 'Untitled'} [${c.category}]`).join('\n');
-    const prompt = `Below are the section headers of a world's lore. Pick the ${HEADER_PICK_MAX} sections MOST useful for guiding a new player through creating their character — origin/background, factions & allegiances, power or magic systems, culture, economy, geography. Do NOT pick sections about specific individual named characters (those are NPC bios, not world-building).
-
-[SECTIONS]
-${menu}
-[END SECTIONS]
-
-Output ONLY the section numbers of your picks, comma-separated, most relevant first. At most ${HEADER_PICK_MAX} numbers. Example: 3, 1, 7, 12`;
+    const prompt = renderPrompt('character.lore-pick', { pickMax: HEADER_PICK_MAX, headers: menu });
 
     let raw: string;
     try {
@@ -185,28 +180,7 @@ function buildQuestionsPrompt(loreExcerpt: string): string {
     // display numbering is cosmetic and MUST be 1-based: absolute (2–8) numbering
     // collides with the parser's relative-first interpretation and drops slot 2.
     const stockLines = AI_SLOTS.map((s, i) => `${i + 1}) ${STOCK_QUESTIONS[s]}`).join('\n');
-    return `You are helping a player create a roleplaying character for the world below. The player may be brand new to this world and not know its places, factions, classes, or customs — so each question must teach as it asks. Reskin each question to fit the world's tone and vocabulary, keeping the SAME meaning and the SAME number. Do not add or remove questions. Do not answer them.
-
-[WORLD LORE]
-${loreExcerpt}
-[END LORE]
-
-[STOCK QUESTIONS — reskin each one for this world]
-${stockLines}
-[END STOCK]
-
-Where the lore names concrete options relevant to a question — settlements or regions (origin), factions or banners (allegiance), classes or powers (capability), speech styles or dialects (voice), and so on — fold 2 to 4 of them INTO that question as gentle examples, phrased as "for instance…" or "such as…". This orients a player who does not know the world. Hard rules for examples:
-- Draw examples ONLY from the lore above. Never invent a place, faction, class, or term the lore does not contain.
-- If the lore names no concrete options for a question, leave that question open-ended (no examples). Do not force it.
-- Examples are hints, not a menu — never tell the player they must pick from the list; they may answer freely.
-- Keep each question to ONE line and under ~500 characters total. Cap examples at 4.
-
-Output exactly 7 reskinned questions as a numbered list (1 through 7), same order, each on its own single line. Plain text only. No preamble, no explanations, no sub-bullets.
-
-1) ...
-2) ...
-...
-7) ...`;
+    return renderPrompt('character.interview-questions', { lore: loreExcerpt, questions: stockLines });
 }
 
 /**
@@ -375,32 +349,11 @@ function buildRollPrompt(
         .map(value => `- ${value}`)
         .join('\n');
 
-    return `You are helping create a new player character for the world below. The player has settled some details and left the rest for you to decide. Use your own judgment and the lore to make each decision: choose what makes this character specific and interesting, and avoid the most obvious option.
-
-[WORLD LORE]
-${loreExcerpt}
-[END LORE]
-
-[THE PLAYER'S DETAILS — fixed. Everything you invent must fit these.]
-${decided || '(none yet)'}
-[END DETAILS]
-
-${previous ? `
+    return renderPrompt('character.roll-answers', { lore: loreExcerpt, decided: decided || '(none yet)', alreadySuggested: previous ? `
 [ALREADY SUGGESTED — the player wants something different. Do not reuse these.]
 ${previous}
 [END SUGGESTED]
-` : ''}
-[QUESTIONS TO ANSWER]
-${questionLines}
-[END QUESTIONS]
-
-Rules:
-- Every place, faction, class, or power you name must come from the lore. You may invent small personal details such as a family name or a keepsake.
-- The character is a new person, not a named figure from the lore.
-- Any examples inside a question are hints, not a limit.
-- Answer in the character's facts, not as advice to the player. Keep each answer under 500 characters.
-
-Output exactly ${slots.length} answers as a numbered list (1 through ${slots.length}), same order, each on its own single line. Plain text only. No preamble, no explanations, no sub-bullets.`;
+` : '', questions: questionLines, count: slots.length });
 }
 
 /** Models sometimes bold or quote a line even when told not to. */
@@ -485,27 +438,7 @@ export async function convertInterviewAnswers(
 
     const { excerpt } = buildGuidedCreationLoreExcerpt(loreChunks, opts?.maxContextTokens);
 
-    const prompt = `You are converting a player's interview answers into clean prose for their character sheet. The world lore is below for context.
-
-[WORLD LORE]
-${excerpt || '(no lore available)'}
-[END LORE]
-
-[PLAYER ANSWERS]
-${answerLines}
-[END ANSWERS]
-
-Output a JSON object with two fields:
-{
-  "converted": { "2": "...", "3": "...", "4": "...", "5": "...", "6": "...", "7": "...", "8": "..." },
-  "clarifying": [ "at most 3 short questions on genuinely ambiguous answers", ... ]
-}
-
-Rules:
-- "converted" maps each slot number (as a string key) to a clean, world-consistent prose version of the player's answer for that slot. Polish grammar and phrasing; do not invent facts the player did not provide.
-- "clarifying" is at most 3 questions, ONLY for answers that are genuinely too vague to convert. Empty array if everything is clear enough.
-- NEVER include "personalityHex", "traits", or any field other than the slot numbers above. The engine owns those.
-- Output ONLY the JSON object. No markdown fences, no commentary.`;
+    const prompt = renderPrompt('character.answers-to-prose', { lore: excerpt || '(no lore available)', answers: answerLines });
 
     let raw: string;
     try {

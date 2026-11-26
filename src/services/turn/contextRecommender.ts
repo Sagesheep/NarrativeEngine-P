@@ -15,6 +15,7 @@ import { buildInventoryIndex, buildProfileIndex } from './contextMinifier';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import type { ModelRequest, ModelResponse } from './hostFacade';
 import { buildLoreIndexText, type LoreIndex, type LoreIndexOptions } from '../lore/loreAiIndex';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 export type RecommenderResult = {
     relevantNPCNames: string[];   // NPC names the model considers relevant
@@ -72,22 +73,6 @@ function buildPinnedChapterContext(chapters: ArchiveChapter[]): string {
     }).join('\n\n');
 }
 
-const RECOMMENDER_PROMPT = `You are a context selector for a tabletop RPG game engine. Given a conversation excerpt, a roster of NPCs, lore entries, a player inventory index, and a character profile index, determine which items are RELEVANT to the current scene.
-
-RULES:
-1. An NPC is relevant if they are: mentioned by name/alias, physically present in the scene, directly referenced, or their faction/goals are materially involved.
-2. A lore entry is relevant if: its subject matter relates to the current location, active quest, mentioned organizations, or ongoing conflict.
-3. Inventory categories: Return categories that matter this turn. Combat/trading/crafting/environmental = weapon/armor/equipped/consumable. Travel/exploration = misc. Thievery/investigation = key. Default to equipped only if nothing stands out.
-4. Profile fields: Return fields relevant this turn. Combat = hp, stats, abilities. Social = name, race, class, skills, traits. Default to name only if nothing stands out.
-5. DM-PINNED CHAPTERS are manually flagged as important by the DM. Strongly favor NPCs and lore entries mentioned in pinned chapters.
-6. Be SELECTIVE — only include truly relevant entries.
-7. Return ONLY valid JSON in exactly this format, no other text:
-
-{"npcs": ["Name1"], "lore": ["id1"], "inventoryCategories": ["equipped"], "profileFields": ["name"]}
-
-Valid inventoryCategories: equipped, weapon, armor, consumable, key, currency, misc.
-Valid profileFields: name, race, class, level, hp, mp, stats, skills, abilities, traits, notes.
-If nothing is relevant, return: {"npcs": [], "lore": [], "inventoryCategories": [], "profileFields": []}`;
 
 /**
  * Calls the utility AI endpoint to determine which NPCs and lore chunks
@@ -130,7 +115,7 @@ export async function recommendContext(
         ? `\n[DM-PINNED CHAPTERS — manually selected as relevant]\n${buildPinnedChapterContext(pinnedChapters)}\n`
         : '';
 
-    const userContent = `${RECOMMENDER_PROMPT}\n\n[NPC ROSTER — ${npcLedger.length} characters]\n${npcRoster}\n\n${loreIndexHeading(loreIndexResult)}\n${loreIndex}\n${pinnedSection}[INVENTORY INDEX]\n${inventoryIndex}\n\n[PROFILE INDEX]\n${profileIndex}\n\n[RECENT CONVERSATION]\n${conversation}\n\n${addenda ? `${addenda}\n\n` : ''}Respond with the JSON object now:`;
+    const userContent = `${renderPrompt('turn.recommender')}\n\n[NPC ROSTER — ${npcLedger.length} characters]\n${npcRoster}\n\n${loreIndexHeading(loreIndexResult)}\n${loreIndex}\n${pinnedSection}[INVENTORY INDEX]\n${inventoryIndex}\n\n[PROFILE INDEX]\n${profileIndex}\n\n[RECENT CONVERSATION]\n${conversation}\n\n${addenda ? `${addenda}\n\n` : ''}Respond with the JSON object now:`;
 
     console.log(`[ContextRecommender] Sending recommendation request...`);
 

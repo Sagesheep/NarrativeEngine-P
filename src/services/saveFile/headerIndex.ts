@@ -1,6 +1,7 @@
 import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig } from '../../types';
 import { countTokens } from '../infrastructure/tokenizer';
 import { llmCall } from '../../utils/llmCall';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 const BATCH_TOKEN_LIMIT = 100_000; // max tokens per LLM call for save engine
 
@@ -62,41 +63,10 @@ function buildHeaderIndexPrompt(recentMessages: ChatMessage[], existingHeaderInd
         .map((m) => `[${m.role.toUpperCase()}]: ${m.content}`)
         .join('\n\n');
 
-    return [
-        'You are a TTRPG session indexer. Generate NEW scene header entries for the Header Index.',
-        '',
-        'OUTPUT FORMAT — You MUST include BOTH sections with these EXACT headers:',
-        '',
-        '=====================================================================',
-        'SECTION 1 — ARC / SESSION HEADER DATABASE',
-        '=====================================================================',
-        'SESSION_ID: [ARC_SESSION_ID]',
-        'SESSION_TITLE: [title]',
-        '',
-        'SCENE_HEADERS:',
-        '  - SCENE_ID: [unique scene ID]',
-        '    HEADER: [TAG:TAG] factual header',
-        '    THREADS: [THREAD_A], [THREAD_B]',
-        '    DELTA: { Key: +Change }',
-        '',
-        '=====================================================================',
-        'SECTION 2 — PENDING LOOPS (UNRESOLVED THREADS)',
-        '=====================================================================',
-        'LOOP_ID: [THREAD_TAG] Description. (Pressure: Low|Medium|High)',
-        '',
-        'RULES:',
-        '1. For Section 1: output ONLY NEW scene headers from the recent turns',
-        '2. For Section 2: output the COMPLETE current list of unresolved threads',
-        '3. Use SCENE_ID format that follows existing patterns',
-        '4. NO prose — factual index entries only',
-        '5. Each SCENE_HEADERS entry must have SCENE_ID, HEADER, THREADS, and DELTA',
-        '',
-        'EXISTING HEADER INDEX (for reference — do NOT repeat existing SCENE_IDs):',
-        existingHeaderIndex || '[No prior index — generate fresh from turns]',
-        '',
-        'RECENT SESSION TURNS:',
+    return renderPrompt('memory.header-index', {
+        existingIndex: existingHeaderIndex || '[No prior index — generate fresh from turns]',
         turns,
-    ].join('\n');
+    });
 }
 
 function splitHeaderIndexSections(text: string): { section1: string; section2: string } {

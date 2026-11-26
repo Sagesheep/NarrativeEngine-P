@@ -3,6 +3,7 @@ import { countTokens } from '../infrastructure/tokenizer';
 import { toast } from '../../components/Toast';
 import { llmCall } from '../../utils/llmCall';
 import { isKnownToAnyOnStage, isKnownToPlayer, parseKnownByToken } from './knowledgeScope';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 export const EMPTY_REGISTER: DivergenceRegister = {
     entries: [],
@@ -445,22 +446,14 @@ export async function pruneChapterEntries(
         `[${i}] (${e.category}) ${e.text}${e.pinned ? ' [PINNED]' : ''}`
     ).join('\n');
 
-    const prompt = `You are a TTRPG campaign consistency checker. After sealing a chapter, some divergence entries may be redundant, contradicted, or no longer relevant.
-
-SEALED CHAPTER: "${chapter.title}" (${chapter.chapterId})
-CHAPTER SUMMARY: ${chapter.summary || '(no summary)'}
-UNRESOLVED THREADS: ${chapter.unresolvedThreads?.join('; ') || '(none)'}
-
-OTHER CHAPTER SUMMARIES:
-${otherChapterSummaries || '(no other chapters)'}
-
-DIVERGENCE ENTRIES FOR THIS CHAPTER:
-${entryLines}
-
-Decide which entries to KEEP (still relevant to future scenes) and which to DROP (redundant, contradicted, or no longer consequential).
-
-Reply with ONLY a JSON array of integers — the indices of entries to KEEP. Example: [0, 2, 5]
-If all entries should be kept, reply with all indices. If none matter, reply with [].`;
+    const prompt = renderPrompt('facts.prune-chapter', {
+        title: chapter.title,
+        chapterId: chapter.chapterId,
+        summary: chapter.summary || '(no summary)',
+        threads: chapter.unresolvedThreads?.join('; ') || '(none)',
+        otherChapters: otherChapterSummaries || '(no other chapters)',
+        entries: entryLines,
+    });
 
     for (let attempt = 0; attempt < 2; attempt++) {
         try {

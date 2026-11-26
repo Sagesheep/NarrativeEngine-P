@@ -23,6 +23,7 @@ import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
 import type { ModelRequest, ModelResponse } from './turn/hostFacade';
 import { guardStatPatch } from './combat/combatSheet';
+import { renderPrompt } from './prompts/promptRegistry';
 
 export type TraitScanOptions = { combatStatLock?: boolean };
 
@@ -67,49 +68,13 @@ export async function scanCharacterTraits(
         'locations', 'npc_events', 'promises_debts', 'world_state', 'party_facts', 'rules_lore', 'misc',
     ];
 
-    const prompt = [
-        'You are an AI game engine parser responsible for maintaining the player character\'s structured profile and trait list.',
-        `TASK: Review the recent chat history and the current structured profile below. Identify any updates to the character's identity, stats, or narrative traits based on the recent narrative.`,
-        `INSTRUCTIONS:
-1. IDENTITY: Update name/race/class/archetype/level only if explicitly revealed or changed in the chat. Otherwise copy through unchanged.
-2. STATS: Update only if the chat explicitly shows a level-up, injury, or stat change. Otherwise copy through.
-3. TRAITS — SUPERSESSION (CRITICAL): If a new fact contradicts an existing trait with the same \`subject\` AND the same \`category\`, you MUST:
-   - Set the existing trait's \`superseded: true\`
-   - Add a new trait with the updated fact
-   Do NOT append contradictory facts alongside old ones. Do NOT retain superseded traits as active. This is the most important instruction.
-4. TRAITS — BOUND: The \`activeTraits\` array (traits where \`superseded: false\`) must contain AT MOST ${TRAIT_CAP} entries. If adding a new trait would exceed ${TRAIT_CAP}, drop the trait with the lowest \`importance\` (set its \`superseded: true\`).
-5. TRAITS — TAGGING: Every new or updated trait must include \`eventTags\` chosen from: [${eventTagList.join(', ')}]. Tag broadly — a trait can have multiple tags. Examples:
-   - "Lives at Tellis Court" → tags: ["travel", "relationship_shift"]
-   - "Wields Frostbite, a enchanted blade" → tags: ["combat", "item_acquired"]
-   - "Owes Garrick 200 gold" → tags: ["promise", "betrayal"]
-6. TRAITS — CATEGORY: Each trait's \`category\` must be one of: [${categoryList.join(', ')}]. Use \`party_facts\` for personal attributes/scars/titles/abilities, \`locations\` for residence/travel, \`promises_debts\` for oaths/debts, \`npc_events\` for NPC relationships, \`world_state\` for broad world changes affecting the PC.
-7. TRAITS — IMPORTANCE: Assign 1-10 based on narrative weight. Combat-relevant or plot-critical facts: 7-10. Personal bonds/flavor: 4-6. Minor details: 1-3.
-8. OUTPUT: Emit ONLY a JSON object matching the CharacterProfileState shape below. No prose, no markdown fences, no explanations.`,
-        `OUTPUT SHAPE:
-{
-  "identity": { "name": "...", "race": "...", "class": "...", "archetype": "...", "level": 1 },
-  "stats": { "str": 8, "dex": 8, "con": 8, "int": 8, "wis": 8, "cha": 8 },
-  "activeTraits": [
-    {
-      "id": "any-unique-string",
-      "subject": "PC name",
-      "category": "party_facts",
-      "text": "The narrative fact, one short sentence",
-      "importance": 7,
-      "eventTags": ["combat", "discovery"],
-      "sceneEstablished": "scene-id-or-placeholder",
-      "superseded": false,
-      "source": "llm"
-    }
-  ]
-}`,
-        `If nothing changed, return the current profile as-is (with superseded flags preserved).`,
-        '',
-        '=== CURRENT CHARACTER PROFILE (JSON) ===',
-        currentProfileJson,
-        '=== RECENT CHAT HISTORY ===',
-        turns,
-    ].join('\n');
+    const prompt = renderPrompt('character.trait-scan', {
+        traitCap: TRAIT_CAP,
+        eventTags: eventTagList.join(', '),
+        categories: categoryList.join(', '),
+        profile: currentProfileJson,
+        chat: turns,
+    });
 
     try {
         const result = modelCall

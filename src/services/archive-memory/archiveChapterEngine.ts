@@ -5,6 +5,7 @@ import { llmFetch } from '../llm/llmFetch';
 import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
 
 import { CHAPTER_SCENE_SOFT_CAP } from '../../types';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 /**
  * One past the highest chapter number already used.
@@ -242,24 +243,16 @@ async function validateChapterRelevance(
     provider: EndpointConfig | ProviderConfig | undefined,
     modelCall?: (request: ModelRequest) => Promise<ModelResponse>,
 ): Promise<boolean> {
-    const prompt = [
-        'You are a TTRPG story continuity checker. Given the current situation and a chapter summary, is this chapter relevant?',
-        '',
-        'Respond with ONLY: YES or NO',
-        '',
-        'CURRENT SITUATION:',
-        userMessage.slice(0, 200), // Truncate to keep prompt small
-        '',
-        'RECENT CONTEXT:',
-        recentContext.slice(-500), // keep it small
-        '',
-        'CHAPTER SUMMARY:',
-        `Title: ${chapter.title}`,
-        `Scenes: ${chapter.sceneRange[0]}-${chapter.sceneRange[1]}`,
-        chapter.summary.slice(0, 300), // truncate to keep prompt small
-        `NPCs: ${chapter.npcs.join(', ')}`,
-        `Key events: ${chapter.majorEvents.slice(0, 3).join('; ')}`,
-    ].join('\n');
+    const prompt = renderPrompt('memory.chapter-relevance', {
+        situation: userMessage.slice(0, 200),
+        recentContext: recentContext.slice(-500),
+        title: chapter.title,
+        firstScene: chapter.sceneRange[0],
+        lastScene: chapter.sceneRange[1],
+        summary: chapter.summary.slice(0, 300),
+        npcs: chapter.npcs.join(', '),
+        events: chapter.majorEvents.slice(0, 3).join('; '),
+    });
 
     // 3s timeout per validation call — matches the outer FUNNEL_TIMEOUT_MS in turnOrchestrator
     const controller = new AbortController();

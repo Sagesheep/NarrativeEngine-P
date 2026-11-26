@@ -1,4 +1,4 @@
-import type { PromptInjection } from './llm';
+import type { PromptInjection, PromptOverride } from './llm';
 import type { GlossaryEntry } from './glossary';
 // ─── Game Context / Pipeline / Session Types ─────────────────────────────
 
@@ -221,6 +221,9 @@ export type GameContext = {
     glossary?: GlossaryEntry[];
     /** Campaign-local story prompt modifiers; omitted in older saves. */
     promptInjections?: PromptInjection[];
+    /** Prompt Modification: campaign-local replacements for built-in AI prompts,
+     *  keyed by prompt id. Absent = every prompt uses its built-in text. */
+    promptOverrides?: Record<string, PromptOverride>;
     loreRaw: string;
     rulesRaw: string;
     canonState: string;

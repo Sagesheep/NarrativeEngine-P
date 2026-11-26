@@ -5,7 +5,7 @@ import type { OneShotEventId } from '../../services/oneshot/oneShotEvents';
 // WO-screen-modernization §A-2 — `rules-mgr` is gone. Rules Manager merged
 // into System Context as the [Write | Retrieval] segmented control; the nav
 // drawer's screen map no longer carries a separate entry.
-export type ContextScreenId = 'sys' | 'world' | 'eng' | 'chpt' | 'mem' | 'glossary';
+export type ContextScreenId = 'sys' | 'world' | 'eng' | 'chpt' | 'mem' | 'glossary' | 'prompts';
 
 
 // ── Slice type ─────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
 import type { ModelRequest, ModelResponse } from './turn/hostFacade';
 import { guardHpPatch, guardMpPatch, guardStatPatch } from './combat/combatSheet';
+import { renderPrompt } from './prompts/promptRegistry';
 
 export type ProfileScanOptions = { combatStatLock?: boolean };
 
@@ -32,7 +33,7 @@ export async function scanCharacterProfile(
 
     const profileJson = JSON.stringify(currentProfile, null, 0);
 
-    const prompt = `You are an AI character profile manager for an RPG. Review the recent chat and character profile below.\nIdentify any changes to HP, MP, stats, skills, abilities, traits, name, race, class, or level.\n\n=== CURRENT PROFILE ===\n${profileJson}\n\n=== RECENT CHAT HISTORY ===\n${turns}\n\n=== INSTRUCTIONS ===\nReturn ONLY a valid JSON object containing changed fields and their new values. No other text.\nUse top-level keys matching the profile fields.\n\nTo increment/decrement a numeric value, return the NEW absolute value (not delta).\n\nExample response when HP drops by 5:\n{"hp":{"current":15,"max":20}}\n\nExample response when a new skill is gained:\n{"skills":["Stealth","Persuasion","Arcana","Lockpicking"]}\n\nExample response when nothing changes:\n{}\n\nOnly include keys that changed. Return {} if nothing changed.`;
+    const prompt = renderPrompt('character.profile-scan', { profile: profileJson, chat: turns });
 
     try {
         const result = modelCall

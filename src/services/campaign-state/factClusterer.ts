@@ -3,6 +3,7 @@ import { llmCall } from '../../utils/llmCall';
 import { countTokens } from '../infrastructure/tokenizer';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import { normalizeSubjectToken } from './knowledgeScope';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 export type ClusteringCancelled = { cancelled: boolean };
 
@@ -23,17 +24,7 @@ export async function runFactClustering(
         .map(e => `${e.id}|${e.chapterId}|${e.text.slice(0, textLimit)}`)
         .join('\n');
 
-    const prompt = `You are organizing campaign facts for a TTRPG. Group the facts below by recurring entity or theme — a specific NPC, a location, an ongoing storyline, a faction, or a concept that appears across multiple facts.
-
-FACTS (id|chapter|text):
-${factLines}
-
-RULES:
-- Each fact must appear in exactly one group.
-- Aim for 8–20 groups. Prefer specific names (e.g. "Yuki", "The Bridge District") over generic labels.
-- IMPORTANT: Include ALL ${entries.length} fact IDs across your groups — do not omit any.
-- Return ONLY valid complete JSON, no prose, no truncation:
-{"groups":[{"name":"Yuki","factIds":["id1","id2"]},{"name":"Reaper Contract","factIds":["id3"]}]}`;
+    const prompt = renderPrompt('facts.cluster', { facts: factLines, factCount: entries.length });
 
     const promptTokens = countTokens(prompt);
     const maxTokens = Math.floor(contextLimit * 0.75);

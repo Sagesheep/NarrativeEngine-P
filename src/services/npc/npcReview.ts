@@ -1,6 +1,7 @@
 import type { NPCEntry, EndpointConfig, ProviderConfig } from '../../types';
 import { llmCall } from '../../utils/llmCall';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 export type NPCReviewCandidate = {
     id: string;
@@ -74,17 +75,7 @@ export async function runNPCReview(
         const prompt = joinPromptSections(
             TTRPG_PERSONA_ARCHIVIST,
 
-            `You are auditing an NPC ledger from a tabletop RPG campaign. Some rows are NOT real, distinct named characters — they were mistakenly captured by the auto-detector. Flag rows that are clearly one of:
-- Generic roles or crowds with no proper name ("a guard", "the bartender", "townsfolk", "soldiers", "a voice")
-- Objects, locations, factions, or concepts ("the gate", "Ironwall Keep", "the prophecy")
-- Garbled fragments, pronouns, or partial text ("he", "the man who", "...")
-
-DO NOT flag anything that is or plausibly could be a specific named individual, even if minor. When unsure, leave it unflagged.
-
-Schema (do not copy example values):
-{"notNpc":[{"id":"<row_id>","reason":"<3-6 words why>"}]}
-
-If every row is a valid character, return {"notNpc":[]} exactly.`,
+            renderPrompt('npc.ledger-review'),
 
             JSON_ONLY_FOOTER,
             ANCHOR_BEFORE_INPUT,

@@ -3,6 +3,7 @@ import { llmCall } from '../../utils/llmCall';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 export type RerankCandidate = {
     id: string;
@@ -27,13 +28,12 @@ export async function rerankCandidates(
     const inputIds = new Set(candidates.map(c => c.id));
     const capped = candidates.slice(0, maxCandidates);
 
-    const prompt = `You are filtering memory candidates for relevance.
-User query: "${query}"
-
-Candidates (id → summary):
-${capped.map(c => `${c.id}: ${c.summary}`).join('\n')}
-
-Return ONLY a JSON array of the candidate ids most relevant to the query, in descending order of relevance, each id written exactly as above as a JSON string (e.g. ["${capped[0].id}"]). Max ${topN} ids. No prose, no markdown.`;
+    const prompt = renderPrompt('memory.rerank', {
+        query,
+        candidates: capped.map(c => `${c.id}: ${c.summary}`).join('\n'),
+        exampleId: capped[0].id,
+        topN,
+    });
 
     try {
         const raw = modelCall

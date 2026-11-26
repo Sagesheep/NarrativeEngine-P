@@ -15,6 +15,7 @@ import type {
     ChatMessage, CombatEvent, CombatFlourish, CombatNarrationCadence, CombatNarrationLength, CombatSession, CombatState, CombatTerrainLabels,
     CombatTile, Combatant, NPCEntry,
 } from '../../types';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 export type BeatDirectiveOptions = {
     length?: CombatNarrationLength;
@@ -28,18 +29,6 @@ export type BeatDirectiveOptions = {
     elements?: string;
 };
 
-const LOCKED_RULE = 'Locked: every listed event happens, in the listed order, with the listed result. Add no other attacks, hits, misses, wounds that would matter, deaths, falls, escapes, surrenders, arrivals or changes of position. State no numbers. Settle nothing about what happens next.';
-const FREE_RULE = 'Free, and wanted: how each blow looked, sounded and felt; what the fighters shout, mutter, taunt and curse; pain, fear, anger and bravado; the place itself, using the terrain named here; allies and enemies reacting to each other. Describe a wound only as far as the listed condition (hurt, badly hurt, down) supports.';
-const SHAPE_RULE = 'Shape: action first, then the people. Lead each moment with what was done, then the reaction of whoever it was done to and whoever saw it. Give enemies and allies lines of speech in their own voices, from the Voices notes and their character notes. Coarse language is welcome where it fits the speaker and the tone this story has already set.';
-const NON_SPEAKER_RULE = 'Creatures marked as animals or as silent in the Voices notes never speak words, curse or reason; give them sound, movement and instinct instead.';
-const PC_RULE ='The player character: describe what they do. Do not invent speech, thoughts or decisions for them.';
-const FLOURISH_RULE = 'Where the player gave their own description under an event, honour its manner and quote any speech in it, but the listed result stands even if the description claims otherwise.';
-const STAY_RULE = 'This reply is a combat beat: no one leaves this place, and you add no hidden comment or movement tag of any kind.';
-const FRESH_RULE ='Freshness: do not reuse an opening, image or insult from the earlier beats of this fight.';
-const SPOKEN_RULE = 'Lines under Spoken were said aloud in this stretch of the fight: quote them word for word where they fit; you may cut a line short but never change its meaning or put it in another mouth.';
-const TAG_RULE ='A note in square brackets after an event marks a moment to give weight to; do not repeat the note itself.';
-const OPENING_RULE = 'This is the opening of the fight: set the scene, show the sides sizing each other up, and let the first words be thrown.';
-const ENDING_RULE = 'This is the end of the fight: give the moment after, the breath, the silence or the noise, and what the survivors do with their hands, without deciding what happens next in the story.';
 
 const LENGTH_TEXT: Readonly<Record<CombatNarrationLength, string>> = {
     brief: 'Length: two to four sentences.',
@@ -56,20 +45,18 @@ export function beatDirective(opts: BeatDirectiveOptions = {}): string {
     const scale = stepped && base === 'rich'
         ? 'Aim for the upper end.'
         : 'Scale to the content: when only one or two events are listed, stay at the lower end.';
+    // Rule texts come from the prompt catalog, so a campaign can rewrite them (Prompt Modification).
+    const playerRule = renderPrompt('combat.beat-player');
     return [
-        LOCKED_RULE,
-        STAY_RULE,
-        FREE_RULE,
-        SHAPE_RULE,
+        renderPrompt('combat.beat-rules'),
         opts.stakes ?? '',
         opts.elements ?? '',
-        opts.nonSpeakers ? NON_SPEAKER_RULE : '',
-        opts.flourish ? `${PC_RULE} ${FLOURISH_RULE}` : PC_RULE,
-        opts.spoken ? SPOKEN_RULE : '',
-        FRESH_RULE,
-        TAG_RULE,
-        opts.opening ? OPENING_RULE : '',
-        opts.ending ? ENDING_RULE : '',
+        opts.nonSpeakers ? renderPrompt('combat.beat-non-speakers') : '',
+        opts.flourish ? `${playerRule} ${renderPrompt('combat.beat-flourish')}` : playerRule,
+        opts.spoken ? renderPrompt('combat.beat-spoken') : '',
+        renderPrompt('combat.beat-freshness'),
+        opts.opening ? renderPrompt('combat.beat-opening') : '',
+        opts.ending ? renderPrompt('combat.beat-ending') : '',
         `${LENGTH_TEXT[length]} ${scale}`,
     ].filter(Boolean).join('\n');
 }

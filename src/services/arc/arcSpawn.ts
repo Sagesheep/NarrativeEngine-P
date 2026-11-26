@@ -41,6 +41,7 @@ import {
     ARC_TICK_DC,
     TYPE_COOLDOWN_SEAMS,
 } from './arcConstants';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 // Desktop has no shared infrastructure/utilityPrompts module; these prompt-section
 // constants are inlined from mobile's services/infrastructure/utilityPrompts (small + only
@@ -162,30 +163,7 @@ The seed must grow out of THIS unresolved thread — what it implies, what it pr
     return joinPromptSections(
         TTRPG_PERSONA_GM_ASSISTANT,
 
-        `TASK: Author ONE story ARC — a standing condition in the world that worsens over time and will eventually demand the player's attention. Not an encounter. Not a one-scene event. A systemic pressure (economic, political, factional, social, supernatural, criminal, or environmental) that climbs a ladder from a quiet first rumble to a crisis. The arc is GROUNDED in the single anchor below — its seed grows out of that one NPC's want OR that one open thread, not out of the whole world at once.
-
-Output schema — ONE JSON object, no prose, no markdown fences:
-{
-  "title": "short debug title (not shown to the player as-is)",
-  "type":  "economic" | "political" | "factional" | "social" | "supernatural" | "criminal" | "environmental",
-  "seed":  "the ONE grounding sentence the ladder grew from (tied to the anchor)",
-  "ladder": [
-    { "label": "rung 0 — quiet, distant",          "surface": "ambient" },
-    { "label": "rung 1",                            "surface": "ambient" | "rumor" },
-    ... 5 to 12 rungs total ...
-    { "label": "the final crisis rung",            "surface": "direct" }
-  ]
-}`,
-
-        `RULES — binding:
-- SYSTEMIC + INDIRECT, NOT A STRANGER WALKING UP. The seed is a STANDING CONDITION in the world — a harvest failure, a regent's decree, a faction consolidating, a cult spreading, a syndicate cornering a market, a plague rumored in a distant port. It does NOT open with someone approaching the player at their current location. The opening hook is something the player hears about, notices in a price, or learns through rumor — never something that arrives at them.
-- WORSENS OVER TIME. Each rung is the same condition one step further along. Rung 0 is distant and quiet; the final rung is the crisis landing in the player's lap. The ladder is the arc — it must feel like ONE thread tightening, not a sequence of unrelated events.
-- GROUNDED IN THE ANCHOR ONLY. The seed grows from the single anchor (one NPC's want OR one open thread) below. Do NOT pull in the whole world. The anchor is the root; the ladder is what its consequences become.
-- EARLY RUNGS ARE QUIET. The first 1–2 rungs should be 'ambient' (a price shift, a background detail, a distant report). Middle rungs 'rumor' (a merchant mentions it, a traveler brings word). Only the last 1–2 rungs are 'direct' (it arrives in the player's scene — a riot, a lockdown, a death they witness). The crisis is EARNED by the quiet rungs beneath it.
-- TROUBLE, NOT A GIFT. The arc is a threat, pressure, complication, ticking-clock, or escalation. Never a free opportunity or a reward.
-- AVOID SUPPRESSED TYPES. The type you pick MUST NOT be one of: ${suppressedLine}. Pick a different flavor.
-- 5–12 RUNGS, NO MORE, NO LESS.
-- NO PROSE AROUND THE JSON. No markdown fences. No explanation. Just the object.`,
+        renderPrompt('world.arc-spawn', { suppressedTypes: suppressedLine }),
 
         ANCHOR_BEFORE_INPUT,
         INPUT_DELIMITER,

@@ -15,6 +15,7 @@
 import type { ArchiveBook, ArchiveChapter, EndpointConfig, ProviderConfig } from '../../types';
 import { llmCall } from '../../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 /** A book closes by itself once this many sealed chapters sit outside any book. */
 export const BOOK_AUTO_CLOSE_CHAPTERS = 10;
@@ -130,25 +131,10 @@ function chapterBlock(c: ArchiveChapter): string {
 
 export function buildBookSummaryPrompt(chapters: ArchiveChapter[], era?: string): string {
     const sorted = [...chapters].sort(byStart);
-    return [
-        'You are a TTRPG campaign archivist. Several chapters of a long campaign are being bound into one BOOK. Write the book\'s summary from the chapter summaries below.',
-        '',
-        'OUTPUT FORMAT — a single JSON object:',
-        '{',
-        '  "title": "2-5 word evocative book title",',
-        '  "summary": "150-250 words: the arc of this book as a story — where it started, the turning points, how it ended, and how the main relationships changed",',
-        '  "keywords": ["distinctive places, factions, artifacts, concepts"],',
-        '  "npcs": ["every named character who mattered in this book"],',
-        '  "majorEvents": ["8-12 plot-critical beats, oldest first"],',
-        '  "unresolvedThreads": ["hooks still open at the END of the book — leave out ones a later chapter settled"]',
-        '}',
-        '',
-        'Write for a GM who will read only this summary to recall the book. Concrete names and outcomes over mood.',
-        'Output ONLY the JSON object — no prose, no markdown fences.',
-        '',
-        era?.trim() ? `ERA: ${era.trim()}\n` : '',
-        `CHAPTERS (oldest first):\n\n${sorted.map(chapterBlock).join('\n\n')}`,
-    ].join('\n');
+    return renderPrompt('memory.book-summary', {
+        era: era?.trim() ? `ERA: ${era.trim()}\n` : '',
+        chapters: sorted.map(chapterBlock).join('\n\n'),
+    });
 }
 
 export function parseBookSummary(raw: string, chapters: ArchiveChapter[]): BookSummary | null {
@@ -197,20 +183,10 @@ export async function proposeBookBreaks(provider: Provider | undefined, chapters
     if (sorted.length === 0) return [];
     let breaks: string[] = [];
     if (provider) {
-        const prompt = [
-            'You are a TTRPG campaign archivist. A long campaign\'s chapters are being grouped into BOOKS (like the volumes of a novel series). Choose where each book ends.',
-            '',
-            'OUTPUT FORMAT — a single JSON object:',
-            '{"bookEnds":["CH07","CH15"]}',
-            '',
-            'RULES:',
-            '- End a book at a real story break: an arc resolved, a time skip, a change of setting or era, a new status quo.',
-            `- A book is 4 to ${BOOK_AUTO_CLOSE_CHAPTERS} chapters. Never more than ${BOOK_AUTO_CLOSE_CHAPTERS}.`,
-            '- The last chapter listed may stay outside a book if its arc is still running: only list a book end there if the arc clearly ended.',
-            'Output ONLY the JSON object.',
-            '',
-            `CHAPTERS (oldest first):\n${sorted.map(c => `${c.chapterId} "${c.title}": ${(typeof c.summary === 'string' ? c.summary : c.synopsis ?? '').trim().slice(0, 400)}`).join('\n')}`,
-        ].join('\n');
+        const prompt = renderPrompt('memory.book-breaks', {
+            maxChapters: BOOK_AUTO_CLOSE_CHAPTERS,
+            chapters: sorted.map(c => `${c.chapterId} "${c.title}": ${(typeof c.summary === 'string' ? c.summary : c.synopsis ?? '').trim().slice(0, 400)}`).join('\n'),
+        });
         try {
             const raw = await llmCall(provider, prompt, {
                 priority: 'low',

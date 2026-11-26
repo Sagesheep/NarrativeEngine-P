@@ -7,6 +7,7 @@ import { DIVERGENCE_CATEGORIES, CATEGORY_DEFINITIONS, coerceCategory, isFactActi
 import { uid } from '../../utils/uid';
 import { parseChapterSummaryOutput } from './chapterSummary';
 import type { ChapterSummaryOutput } from './chapterSummary';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 // ─── Combined Seal Call (summary + divergences in ONE LLM call) ───
 
@@ -119,120 +120,12 @@ ${rows}`;
         ? '"summary", "divergences", "sceneEvents", and optionally "witness_corrections"'
         : '"summary", "divergences", and "sceneEvents"';
 
-    return `You are a TTRPG campaign archivist. Perform THREE tasks in a single response:
-
-TASK 1 — Generate a structured chapter summary.
-TASK 2 — Extract established facts that would BREAK A FUTURE SCENE if the AI contradicted them.
-TASK 3 — Extract structured scene events for each scene.
-
-CHAPTER: "${chapterTitle || 'Untitled'}"${part ? `
-PART ${part.index} OF ${part.total}: this chapter is too long for one pass, so you see only some of its scenes. Summarize, and extract facts and events from, these scenes only.` : ''}
-SCENE IDs IN THIS CHAPTER: ${sceneIds.join(', ')}
-
-NPC LEDGER (resolve names to IDs):
-${npcList || '(no NPCs in ledger)'}
-
-${stateCandidatesSection}
-SCENE CONTENT:
-${sceneContent}
-${witnessAuditSection}
-
-OUTPUT FORMAT — a single JSON object with the keys ${outputKeys}.
-
-The "summary" value must be this JSON shape:
-{
-    "title": "Short evocative chapter title",
-    "literalTitle": "Concrete factual title, e.g. The Battle at Locust Town",
-    "abstractTitle": "Thematic title, e.g. Old Wounds",
-    "synopsis": "1-2 sentences, ultra-high-level, past tense, covering only this chapter",
-    "summary": "3-5 sentence narrative summary of what happened",
-    "keywords": ["keyword1", "keyword2"],
-    "npcs": ["NPC Name 1", "NPC Name 2"],
-    "majorEvents": ["Event description 1", "Event description 2"],
-    "unresolvedThreads": ["Thread 1", "Thread 2"],
-    "tone": "one of: combat-heavy, exploration, social, mystery, political, emotional, mixed",
-    "themes": ["theme1", "theme2"]
-}
-
-The "divergences" value must be an object with one key per category slot. Each value is an array of fact objects, or [] if empty. Example:
-{
-    "locations": [
-        { "text": "Eastern gate destroyed by siege", "sceneRef": "014", "npcIds": [], "knownBy": [], "unrecognizedNpcNames": [] }
-    ],
-    "npc_events": [
-        { "text": "Grak allied with the player", "sceneRef": "018", "npcIds": ["npc_42"], "knownBy": ["npc_42"], "unrecognizedNpcNames": [] }
-    ],
-    "promises_debts": [],
-    "world_state": [],
-    "party_facts": [],
-    "rules_lore": [],
-    "misc": []
-}
-
-The "sceneEvents" value must be an object mapping scene IDs to arrays of structured event objects, or {} if no scenes had meaningful events. Example:
-{
-    "014": [
-        {
-            "eventType": "item_acquired",
-            "importance": 7,
-            "text": "Tav bought a leather chestpiece for 80gp",
-            "characters": ["Tav", "Astarion"],
-            "locations": ["Baldur's Gate"],
-            "items": ["leather chestpiece", "80gp"],
-            "concepts": ["trade"],
-            "cause": "Tav needed better armor before the next dungeon",
-            "result": "Tav now wears the leather chestpiece"
-        }
-    ],
-    "015": []
-}
-
-SCENE EVENT RULES:
-- eventType MUST be one of: combat, discovery, item_acquired, item_lost, relationship_shift, travel, promise, betrayal, death, revelation, quest_milestone, other
-- importance is 1-10
-- text is one short sentence describing what happened
-- characters/locations/items/concepts are optional arrays of canonical names (use NPC names from the ledger above when possible)
-- cause/result are short plain-text causal beats (one short clause each, optional)
-- Cap at MAXIMUM 3 events per scene. Skip scenes with nothing meaningful (use [] or omit the scene key).
-- Only include scenes from this chapter's scene IDs.
-
-${witnessAuditSection ? `
+    return renderPrompt('memory.seal', { title: chapterTitle || 'Untitled', partNote: part ? `
+PART ${part.index} OF ${part.total}: this chapter is too long for one pass, so you see only some of its scenes. Summarize, and extract facts and events from, these scenes only.` : '', sceneIds: sceneIds.join(', '), npcLedger: npcList || '(no NPCs in ledger)', stateFacts: stateCandidatesSection, scenes: sceneContent, witnessAudit: witnessAuditSection, outputKeys, witnessCorrections: witnessAuditSection ? `
 WITNESS CORRECTIONS:
 If you found errors in the per-scene witness data above, include a "witness_corrections" key at the top level of the JSON:
 "witness_corrections": { "014": ["Aldric", "Borric"], "022": ["Morrigan"] }
-This maps scene IDs to the CORRECT list of NPC NAMES who were physically present in that scene. Only include scenes where you disagree with the pre-captured data.` : ''}
-
-Category definitions:
-
-${divergenceSlots}
-
-### MISC
-Definition: ${CATEGORY_DEFINITIONS.misc}
-Output: JSON array for this slot, or [] if empty.
-
-DIVERGENCE EXTRACTION RULES:
-- Each fact is ONE SHORT SENTENCE, max 15 words. No compound sentences, no explanations.
-- sceneRef must be one of: ${sceneIds.join(', ')}
-- npcIds: list the NPC ledger IDs mentioned. If a name appears that is NOT in the ledger, put it in unrecognizedNpcNames instead.
-- knownBy: list the NPC ledger IDs of witnesses who SAW or PARTICIPATED in this event. Only include NPCs who were present when the fact happened. Omit this field for rules_lore and locations (those are broadcast knowledge). Do not list the player character: they are added automatically. If unsure, use [] and the scene's recorded witnesses are used.
-- Focus on: permanent changes, new information, relationship shifts, acquisitions, losses, oaths, regime changes.
-- Skip transient details, emotional narration, momentary states, and anything the archive would already surface.
-- For a fact with exactly one current value, you MAY add 'stateKey' using only:
-  'item:<slug>:holder', 'npc:<id>:location', 'npc:<id>:status',
-  'npc:<id>:allegiance', 'place:<slug>:controller', or 'debt:<slug>:status'.
-- Events and observations MUST omit stateKey.
-- To replace a listed CURRENT STATE FACT, set 'supersedesFactId' to its ID and use
-  the exact same stateKey. Never supersede a fact not listed above.
-- If uncertain, omit both fields and emit an additive fact.
-- If a slot is empty, output [] for that slot.
-
-SUMMARY RULES:
-1. Keywords should be distinctive nouns/places/factions — not generic words
-2. NPCs should include all significant named characters who appeared or were discussed
-3. Major events are plot-critical beats only (not every combat round)
-4. Unresolved threads are open plot hooks, promises, or mysteries
-5. Title should be 2-5 words, evocative
-6. Summary should read like a campaign journal entry, not a list`;
+This maps scene IDs to the CORRECT list of NPC NAMES who were physically present in that scene. Only include scenes where you disagree with the pre-captured data.` : '', categorySlots: divergenceSlots, miscDefinition: CATEGORY_DEFINITIONS.misc });
 }
 
 function extractWitnessCorrections(parsed: object): Record<string, string[]> | undefined {
@@ -596,22 +489,11 @@ async function mergePartSummaries(
     if (parts.length === 0) return null;
     if (parts.length === 1) return parts[0];
 
-    const prompt = `You are a TTRPG campaign archivist. The chapter "${chapterTitle || 'Untitled'}" was too long to summarize at once, so it was summarized in ${parts.length} consecutive parts, in story order:
-
-${parts.map((p, i) => `--- PART ${i + 1} ---\n${JSON.stringify(p)}`).join('\n\n')}
-
-Write ONE summary of the whole chapter as a single JSON object with this shape:
-{
-    "title": "Short evocative chapter title",
-    "literalTitle": "Concrete factual title",
-    "abstractTitle": "Thematic title",
-    "synopsis": "1-2 sentences, past tense, the whole chapter",
-    "summary": "3-5 sentence narrative summary of the whole chapter",
-    "keywords": [], "npcs": [], "majorEvents": [], "unresolvedThreads": [],
-    "tone": "one of: combat-heavy, exploration, social, mystery, political, emotional, mixed",
-    "themes": []
-}
-Keep every significant NPC and major event from all parts. Drop threads a later part resolved. Output only the JSON.`;
+    const prompt = renderPrompt('memory.seal-merge', {
+        title: chapterTitle || 'Untitled',
+        partCount: parts.length,
+        parts: parts.map((p, i) => `--- PART ${i + 1} ---\n${JSON.stringify(p)}`).join('\n\n'),
+    });
 
     try {
         const merged = parseChapterSummaryOutput(await callModel(prompt, 1500, 'chapter-seal-merge'));

@@ -4,6 +4,7 @@ import { fetchArchiveScenes } from '../archiveMemory';
 import { safeSceneNum } from '../../utils/helpers';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 type DeepModelCall = (request: ModelRequest) => Promise<ModelResponse>;
 
@@ -82,21 +83,7 @@ async function scanChapters(
     const overview = buildChapterOverview(sealedChapters);
     const conversation = buildConversationExcerpt(messages, userMessage);
 
-    const prompt = [
-        'You are a narrative archaeologist for a tabletop RPG engine.',
-        'Given the current conversation and a list of sealed campaign chapters, identify ALL chapters that contain scenes relevant to the current narrative moment.',
-        'Consider: direct references, NPC involvement, unresolved plot threads, foreshadowing, location continuity, thematic connections.',
-        'Return EVERY relevant chapter — do not artificially limit the count.',
-        '',
-        '[SEALED CHAPTERS]',
-        overview,
-        '',
-        '[RECENT CONVERSATION]',
-        conversation,
-        '',
-        'Respond with ONLY valid JSON in this exact format:',
-        '{"chapters": ["CH01", "CH03", ...]}',
-    ].join('\n');
+    const prompt = renderPrompt('memory.deep-search-chapters', { chapters: overview, conversation });
 
     const rawContent = await callDeepModel(utilityEndpoint, modelCall, prompt, {
             temperature: 0.1,
@@ -132,21 +119,7 @@ async function scanScenes(
     const overview = buildSceneOverview(archiveIndex, chapterRanges, targetTokens);
     const conversation = buildConversationExcerpt(messages, userMessage);
 
-    const prompt = [
-        'You are a narrative archaeologist for a tabletop RPG engine.',
-        'Given the current conversation and scene index entries from selected chapters, identify ALL scenes that are relevant.',
-        'Consider: direct references, NPC involvement, unresolved threads, foreshadowing, location continuity, thematic connections.',
-        'Return EVERY relevant scene ID — do not artificially limit the count.',
-        '',
-        '[SCENE INDEX \u2014 selected chapters]',
-        overview,
-        '',
-        '[RECENT CONVERSATION]',
-        conversation,
-        '',
-        'Respond with ONLY valid JSON in this exact format:',
-        '{"scenes": ["042", "011", ...]}',
-    ].join('\n');
+    const prompt = renderPrompt('memory.deep-search-scenes', { scenes: overview, conversation });
 
     const rawContent = await callDeepModel(utilityEndpoint, modelCall, prompt, {
             temperature: 0.1,

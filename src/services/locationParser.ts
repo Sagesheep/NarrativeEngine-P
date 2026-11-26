@@ -20,6 +20,7 @@ import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
 import type { ModelRequest, ModelResponse } from './turn/hostFacade';
 import { DISTANCE_BANDS, type DistanceBand } from './location/distance';
+import { renderPrompt } from './prompts/promptRegistry';
 
 export type LocationScanResult = {
     ledger: LocationEntry[];            // updated ledger (features/connections merged into existing entries)
@@ -98,31 +99,11 @@ export async function scanLocation(
 
     const currentName = (currentPlaceId ? ledger.find(e => e.id === currentPlaceId)?.name : undefined) ?? 'unknown';
 
-    const prompt = `You are a location tracker for a text RPG. Determine where the player character is NOW, at the end of the recent chat below. This is state estimation, not event detection: answer from the text's current situation, not from movement verbs.
-
-=== KNOWN PLACES ===
-${buildKnownPlaces(ledger)}
-CURRENT (last known): ${currentName}
-
-=== RECENT CHAT ===
-${turns}
-
-=== INSTRUCTIONS ===
-Return ONLY a JSON object, no prose, no markdown:
-{
-  "current": {"place": "<known place name/alias | NEW place name | unclear>", "feature": "<feature name within that place, or null>"},
-  "newPlaces": [{"name": "", "broadLocation": "", "connectedTo": "<known place name>", "context": "<5-10 word quote>"}],
-  "updates": [{"place": "<known place name>", "addFeatures": [], "addConnections": ["<known place name>"], "knowledge":"unchanged", "knowledgeEvidence":""}]
-}
-
-Rules:
-- Prefer a KNOWN place over declaring a new one. Match loosely against names and aliases.
-- "unclear" if the text does not establish where the PC is. When in doubt, "unclear" — the last known place then stands.
-- current: only the established scene location. A mentioned place, quest destination, future plan, memory or dialogue is NEVER evidence of arrival. Keep the last known place unless the scene establishes actual movement or arrival.
-- newPlaces: concrete named destinations (including distant quest destinations), places the PC is AT, or established adjacent scenery. These are suggestions only and NEVER change current. Do not invent places from hypothetical stories.
-- A rumoured place becomes known ONLY when this scene gives the character reliable directions, an exact map, or direct observation. Set updates.knowledge to known and knowledgeEvidence to a brief supporting quote. Mere mentions, plans and quests do not qualify. Otherwise unchanged. Never mark visited or reveal secret places.
-- updates: only rooms/features and connections the text actually establishes for known places.
-- If nothing changed: {"current":{"place":"unclear","feature":null},"newPlaces":[],"updates":[]}`;
+    const prompt = renderPrompt('world.location-tracker', {
+        knownPlaces: buildKnownPlaces(ledger),
+        currentLocation: currentName,
+        chat: turns,
+    });
 
     try {
         const result = modelCall

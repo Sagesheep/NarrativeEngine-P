@@ -3,6 +3,7 @@ import { countTokens } from '../infrastructure/tokenizer';
 import { extractJson } from '../infrastructure/jsonExtract';
 import { llmCall } from '../../utils/llmCall';
 import { truncateScenesToBudget, CHAPTER_SUMMARY_TOKEN_BUDGET } from './shared';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 // ─── Chapter Summary Generator ───
 
@@ -33,38 +34,13 @@ function buildChapterSummaryPrompt(
     const sceneContent = truncated.map(s => `--- SCENE ${s.sceneId} ---\n${s.content}`).join('\n\n');
     const sceneRangeStr = `${chapter.sceneRange[0]} to ${chapter.sceneRange[1]}`;
 
-    return [
-        'You are a TTRPG campaign archivist. Generate a structured chapter summary.',
-        '',
-        `CHAPTER: ${chapter.title || 'Untitled'}`,
-        `SCENES: ${sceneRangeStr} (${chapter.sceneCount} scenes)`,
-        '',
-        'OUTPUT FORMAT — respond with a JSON object:',
-        '{',
-        '    "title": "Short evocative chapter title",',
-        '    "summary": "4-8 bullet points covering key events, each on its own line starting with `- `",',
-        '    "keywords": ["keyword1", "keyword2", ...],',
-        '    "npcs": ["NPC Name 1", "NPC Name 2", ...],',
-        '    "majorEvents": ["Event description 1", "Event description 2"],',
-        '    "unresolvedThreads": ["Thread 1", "Thread 2"],',
-        '    "tone": "one of: combat-heavy, exploration, social, mystery, political, emotional, mixed",',
-        '    "themes": ["theme1", "theme2"]',
-        '}',
-        '',
-        'RULES:',
-        '1. Keywords should be distinctive nouns/places/factions — not generic words',
-        '2. NPCs should include all significant named characters who appeared or were discussed',
-        '3. Major events are plot-critical beats only (not every combat round)',
-        '4. Unresolved threads are open plot hooks, promises, or mysteries',
-        '5. Title should be 2-5 words, evocative',
-        '6. Summary should read like a campaign journal entry, not a list',
-        '',
-        'HEADER INDEX REFERENCE (for thread tracking):',
-        headerIndex.slice(0, 2000), // Truncate header index if very long
-        '',
-        'SCENE CONTENT:',
-        sceneContent,
-    ].join('\n');
+    return renderPrompt('memory.chapter-summary', {
+        title: chapter.title || 'Untitled',
+        sceneRange: sceneRangeStr,
+        sceneCount: chapter.sceneCount,
+        headerIndex: headerIndex.slice(0, 2000),
+        scenes: sceneContent,
+    });
 }
 
 /**

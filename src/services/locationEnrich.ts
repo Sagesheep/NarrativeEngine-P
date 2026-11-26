@@ -22,6 +22,7 @@ import { isBlockEnabled } from './turn/blockEnablement';
 import { toast } from '../components/Toast';
 import { LOCATION_BIOMES, requestPlacementContext, sanitizePlacement } from './location/placement';
 import { DISTANCE_BANDS } from './location/distance';
+import { renderPrompt } from './prompts/promptRegistry';
 
 const MAX_FEATURES = 20;
 const MAX_CONNECTIONS = 8;
@@ -122,49 +123,15 @@ async function fetchEnrichment(
         .map(l => JSON.stringify({ id: l.id, name: l.name, coordinates: l.coordinates }))
         .join(', ') || '(none)';
 
-    const prompt = `You are filling in a location ledger entry for a text RPG. Based on the recent chat, write structured data for the place "${entry.name}".
-
-=== EXISTING PLACE DETAILS (preserve established facts) ===
-${JSON.stringify({ name: entry.name, description: entry.description, broadLocation: entry.broadLocation, features: entry.features })}
-
-=== OTHER KNOWN PLACES ===
-${knownNames}
-
-=== MAP CONTEXT ===
-${mapContext ?? 'Map unavailable. Do not invent player coordinates or explored terrain.'}
-
-=== RECENT CHAT ===
-${recent}
-
-=== INSTRUCTIONS ===
-Return ONLY a JSON object, no prose, no markdown:
-{
-  "knowledge": "rumoured",
-  "knowledgeNote": "what the character actually learned about its whereabouts, or empty string",
-  "description": "1-2 concrete sentences about this place, grounded in the chat (plausible genre-fitting texture if the chat says little)",
-  "broadLocation": "parent region/city/district, or empty string if unknown",
-  "aliases": "comma-separated alternative names actually used in the chat, or empty string",
-  "features": ["rooms or sub-areas of this place mentioned or clearly implied"],
-  "connections": [{"place":"known place id", "band":"local"}],
-  "placement": {"referencePlaceId":null, "distanceBand":null, "direction":null, "preferredBiomes":[], "biomePolicy":"required", "biomeRadius":8, "coordinates":null, "reason":"brief geographic justification"}
-}
-
-Rules:
-- knowledge is known only if the character has reliable directions, an exact map, or direct observation; otherwise rumoured. Merely hearing a destination name does not establish its exact whereabouts. Never mark visited or secret through enrichment. knowledgeNote must contain only information actually learned, not hidden world facts.
-- Only state what the chat supports or strongly implies. Empty string / empty array when unsure.
-- connections: ONLY ids or names from OTHER KNOWN PLACES. Supply the supported distance band; never infer a direct road merely because a destination was mentioned.
-- placement describes this destination, NEVER movement or arrival. Use player XY and biome plus the explored extents, terrain samples and known places in MAP CONTEXT.
-- Distance bands (map cells): ${DISTANCE_BANDS.map(band => band.id + '=' + band.minGrids + '..' + band.maxGrids).join(', ')}. Directions n/ne/e/se/s/sw/w/nw use north = decreasing y and east = increasing x.
-- First choose compatible known terrain at a narratively appropriate distance. Otherwise propose uncharted space where the engine can generate the needed biome around the point of interest. Use established description and explicit geographic facts before genre assumptions. A name alone is not terrain evidence: a tavern called The Frozen Heart may be in a desert.
-- biomePolicy: required for explicit terrain requirements; preferred for optional associations (a hunting lodge near woodland); exception only for an explicitly established unusual setting (a magically frozen castle in a desert). Do not invent magical exceptions to resolve conflicts.
-- For an exception, preferredBiomes describes the SURROUNDING terrain stated in the story, not the building material or interior. A frozen castle surrounded by desert uses desert; an explicitly icy enclave uses snow. Keep the exception in description and reason.
-- biomeRadius is the outer transition radius in cells, 3..24: small enclaves 3..5, ordinary surroundings 8, broad explicitly established regions up to 24. Never expand a place into a regional biome without evidence. Preferred terrain never requires reshaping geography.
-- preferredBiomes must use these exact ids: ${LOCATION_BIOMES.join(', ')}. Choose a short list of suitable alternatives, or [] if no special requirement.
-- Explored directional extents are bounding limits, NOT proof that the enclosed rectangle is explored. Terrain samples are illustrative, NOT exhaustive. The engine checks exact explored cells.
-- If fully explored, use suitable existing terrain; never request terrain replacement. If nothing fits, retain the biome requirement so the engine can report a conflict.
-- coordinates is optional {"x":integer,"y":integer} within 0..999. Only supply an evidence-backed coordinate or a candidate supported by map context; the engine validates distance, occupancy and terrain. Otherwise null and let the engine choose.
-- Existing saved coordinates are immutable. Omit placement for an already placed location. Return only the structured decision and a brief reason.
-- Keep description under 2 sentences.`;
+    const prompt = renderPrompt('world.location-enrich', {
+        placeName: entry.name,
+        existingDetails: JSON.stringify({ name: entry.name, description: entry.description, broadLocation: entry.broadLocation, features: entry.features }),
+        knownPlaces: knownNames,
+        mapContext: mapContext ?? 'Map unavailable. Do not invent player coordinates or explored terrain.',
+        chat: recent,
+        distanceBands: DISTANCE_BANDS.map(band => band.id + '=' + band.minGrids + '..' + band.maxGrids).join(', '),
+        biomes: LOCATION_BIOMES.join(', '),
+    });
 
     try {
         const result = await llmCall(provider, prompt, {

@@ -7,17 +7,10 @@ import { CATEGORY_LABELS, coerceCategory } from '../services/campaign-state/dive
 import { uid } from '../utils/uid';
 import { toast } from './Toast';
 import type { DivergenceCategory, DivergenceEntry } from '../types';
+import { renderPrompt } from '../services/prompts/promptRegistry';
 
 const CATEGORIES: DivergenceCategory[] = ['locations', 'npc_events', 'promises_debts', 'world_state', 'party_facts', 'rules_lore', 'misc'];
 
-const STRUCTURE_PROMPT = `You are a structured data extractor for a tabletop RPG campaign. Given a free-form description of a campaign fact, output a JSON object with exactly two fields:
-- "category": one of [locations, npc_events, promises_debts, world_state, party_facts, rules_lore, misc]
-- "fact": a concise one-line canonical statement of the fact, in the format "Subject —predicate→ Object" where appropriate.
-
-Example input: "Aldric killed the Goblin King in the Northern Wastes"
-Example output: {"category": "npc_events", "fact": "Aldric —killed→ Goblin King [location: Northern Wastes]"}
-
-Respond ONLY with the JSON object, no explanation.`;
 
 export function DivergenceReviewModal() {
     const open = useAppStore(s => s.divergenceEntryOpen);
@@ -43,7 +36,7 @@ export function DivergenceReviewModal() {
             const raw = await new Promise<string>((resolve, reject) => {
                 sendMessage(
                     provider,
-                    [{ role: 'user', content: `${STRUCTURE_PROMPT}\n\nFact: ${factText.trim()}` }],
+                    [{ role: 'user', content: `${renderPrompt('facts.structure')}\n\nFact: ${factText.trim()}` }],
                     () => {},
                     (text) => resolve(text),
                     (err) => reject(new Error(err)),

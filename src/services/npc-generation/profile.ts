@@ -9,6 +9,7 @@ import { GROUP_KEYS } from '../npc/dispositionGroups';
 import { rollHex, pickGroups, drawConsistentTraits, rollLooksTier } from '../npc/hexRoll';
 import { buildVoiceDirective } from '../npc/hexVoiceGuide';
 import { visualProfileToProse } from '../npc/retireLegacyFields';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 // NPC Generation Refit (Phase 1): propose → roll → render.
 //
@@ -197,20 +198,13 @@ async function proposeGroupsAndTraits(
         ? `EXISTING ROSTER (for contrast — propose groups that distinguish this NPC from these): ${existingLedger.map(n => n.name).join(', ')}`
         : '';
 
-    const prompt = `You are a background GM assistant. Your job is to propose a set of scene-appropriate SOCIAL archetype groups for a new NPC, plus 2 anchor personality traits. You are NOT writing the NPC's profile — only picking abstract groups + traits the engine will roll inside.
-
-SOCIAL ARCHETYPE GROUPS (pick 2–4 that plausibly appear in this scene; these are SETTING-AGNOSTIC personality templates, NOT combat roles): ${Array.from(GROUP_KEYS).join(', ')}.
-
-ANCHOR TRAITS (pick exactly 2 from this controlled vocabulary${matureMode ? ' (mature allowed)' : ' (mature tier NOT allowed)'}): ${offeredTraitNames(matureMode).join(', ')}.
-
-OUTPUT FORMAT — a single JSON object, no other text:
-{"candidateGroups": ["group1", "group2", ...], "anchorTraits": ["trait1", "trait2"]}
-
-RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.${rosterLine ? `\n\n${rosterLine}` : ''}
-
-[RECENT SCENE]
-${recentHistory}
-[END SCENE]`;
+    const prompt = renderPrompt('npc.propose-archetypes', {
+        groups: Array.from(GROUP_KEYS).join(', '),
+        matureNote: matureMode ? ' (mature allowed)' : ' (mature tier NOT allowed)',
+        traits: offeredTraitNames(matureMode).join(', '),
+        roster: rosterLine ? `\n\n${rosterLine}` : '',
+        scene: recentHistory,
+    });
 
     try {
         const { parsed } = await sendMessageAndParseJson(provider, [{ role: 'user', content: prompt }], 'NPC Propose');
@@ -258,48 +252,15 @@ function buildRenderPrompt(opts: RenderPromptOpts): string {
         ? `\nRESERVED NAMES — already used by existing characters. The profile's "name" and "aliases" must NOT collide with any of these (a shared family surname is acceptable only with an explicit in-story relation; never a first name): ${reservedNames.join(', ')}`
         : '';
 
-    return `You are a background GM assistant. Your job is to RENDER a profile for a new character whose personality skeleton has ALREADY BEEN ROLLED by the engine. You receive the rolled personality (as band-words), the archetype groups, the looks tier, and per-axis voice direction. Express these as vivid world-appropriate prose. If the character is barely mentioned, invent a plausible profile that fits the scene context AND matches the rolled skeleton.
-
-ROLLED SKELETON (engine-authored — treat as fixed truth; do NOT contradict):
-- Primary social group: ${primaryGroup}
-- Secondary social group (trajectory): ${secondaryGroup ?? 'none'}
-- Personality (band-words): ${hexBandLine}
-- Looks tier: ${looksTier}
-
-${voiceSection}OUTPUT FORMAT — respond with a JSON object matching this structure exactly:
-{
-  "name": "String (The primary name)",
-  "aliases": "String (Comma separated aliases or titles)",
-  "status": "String (Alive, Deceased, Missing, or Unknown)",
-  "faction": "String (The faction(s), group(s), or origin this NPC belongs to — can list multiple comma-separated factions if they belong to multiple organizations)",
-  "storyRelevance": "String (Why this NPC matters to the current story)",
-  "voice": "String — describe HOW this NPC speaks, DERIVED from the VOICE DIRECTION above. Sentence length, vocabulary level, verbal quirks, catchphrases, accent notes. Be specific.",
-  "appearance": "String — 3-5 sentences of physical description grounded in the RECENT CHAT HISTORY and the rolled LOOKS TIER (${looksTier}). The FIRST sentence carries the most identifying details (species, presented gender, age, build) because it is the part read every turn; then hair, eyes, skin, clothing and gear, and distinguishing marks. Quote details mentioned in prose. If the chat history does not describe them, write a minimal trope-appropriate description and mark it as inferred with prefix '[inferred] '.",
-  "personality": "String — core personality traits in plain language, CONSISTENT with the rolled band-words. What drives them? How do they treat others? What do they fear?",
-  "exampleOutput": "String — one line of in-character dialogue that DEMONSTRATES the VOICE DIRECTION (the axis extremes above). Include a brief action in brackets if needed.",
-  "behavioralTriggers": [
-    { "keyword": "String — a word or phrase that, when it appears in player input or narrative, activates this trigger", "shift": "String — a PHYSICAL or VERBAL behavioral shift (NOT an emotion). Good: 'crosses arms, answers in single syllables'. Bad: 'becomes angry'." }
-  ],
-  "hardBoundaries": ["String — something this NPC will never do. Example: 'will not betray her sister'"],
-  "softBoundaries": ["String — something this NPC dislikes but may tolerate under pressure. Example: 'dislikes being excluded from plans'"],
-  "longWant": "String — ONE long-term life ambition driving this NPC across the whole campaign, grounded in their bio/faction. Archetypes: ascend to power, become the strongest, avenge/restore, transcend/transform.",
-  "region": "String — the NPC's coarse home or current location if discernible from context (e.g. 'Ryuten', 'the academy'), else an empty string.",
-  "signatureKit": { "equipment": [up to 8 signature items this character is known for], "abilities": [up to 8 signature powers/techniques], "element": "<single affinity tag or omit>" }
-}
-
-IMPORTANT: Do NOT emit a "personalityHex" field, numeric axis values, or a "traits" array. The engine has already rolled the personality hexagon and chosen the traits; you only render flavour. Numeric personality output will be discarded.
-
-SIGNATURE KIT RULES:
-- "signatureKit" is this NPC's durable loadout — the gear and powers that should stay consistent whenever they appear. It is NOT a full inventory.
-- Only give equipment/abilities this character is actually established or strongly implied to have in the context — do not invent a full arsenal. Stay inside this world's genre and tech level. A mundane character may have an empty kit (omit "signatureKit" or send empty arrays).
-- Each entry is a short noun phrase (e.g. "Excalibur (holy longsword)", "fire magic"). Max 8 entries per array. "element" is a single optional tag (e.g. "fire").
-
-CONTROLLED TRAIT VOCABULARY — for reference only (the engine has already chosen the traits from this list): ${offeredTraitNames(matureMode).join(', ')}.
-
-NPC NAME: "${npcName}"${reservedNamesSection}
-
-RECENT CHAT HISTORY:
-${recentHistory}
-
-RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
+    return renderPrompt('npc.render-profile', {
+        primaryGroup,
+        secondaryGroup: secondaryGroup ?? 'none',
+        personality: hexBandLine,
+        looksTier,
+        voiceDirection: voiceSection,
+        traits: offeredTraitNames(matureMode).join(', '),
+        npcName,
+        reservedNames: reservedNamesSection,
+        chatHistory: recentHistory,
+    });
 }

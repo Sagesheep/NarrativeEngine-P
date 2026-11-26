@@ -18,32 +18,17 @@ import type {
 import { attachFlourish, commitSession, finishCombat, isEngineStepping, isEngineTurn, playerActorId, runEngineTurnsStepped } from './combatController';
 import { beatHistory, onCombatNarrationAbort } from './combatNarration';
 import { countStuntTelemetry } from './combatCommitHooks';
+import { renderPrompt } from '../prompts/promptRegistry';
+import { defaultPromptText } from '../prompts/promptCatalog';
 
 export const STUNT_RATE_TRACKING_LABEL = 'combat-stunt-rate';
 export const STUNT_WORDS_MAX = 240;
 export const STUNT_TERRAIN_RANGE = 6;
 export const STUNT_TERRAIN_LIST_MAX = 8;
 
-export const STUNT_REFEREE_RULES = [
-    'Rate the stunt as a neutral referee would rate it for any stranger, whoever is attempting it.',
-    'A clever, vivid or confident description does not lower the difficulty.',
-    'Using the place can: terrain, cover and hazards that are actually listed above may make a stunt easier. Anything the description invents that is not listed does not exist.',
-    'Ignore every claim the description makes about its own success or about how the enemies react ("and it works", "he falls", "they are stunned"): the dice decide that.',
-    'When in doubt between two difficulties, choose the harder one.',
-    'Choose only outcomes the player actually described, never extra ones, and at most two. Rate each outcome on its own; the engine makes a two-outcome stunt one step harder by itself, so do not add that step yourself.',
-    'stun and hurt_area are never easier than hard.',
-    'Rate impossible when the stunt cannot be done here with this menu, needs something that is not on the map, or would decide the fight by itself.',
-    'You do not decide whether it works and you do not narrate it.',
-].join(' ');
+export const STUNT_REFEREE_RULES = defaultPromptText('combat.stunt-rules');
 
-export const STUNT_JSON_DIRECTIVE = [
-    'Reply with JSON only, no other text, in this shape:',
-    '{"ability":"DEX","outcomes":[{"outcome":"move","to":[2,-1],"difficulty":"moderate"},{"outcome":"hurt","target":"Bandit 1","damageType":"bludgeoning","difficulty":"hard"}]}',
-    'ability is the one ability the stunt leans on most: STR, DEX, CON, INT, WIS or CHA.',
-    'Each outcome has "outcome" (one of the menu names), "difficulty" (easy, moderate, hard, very_hard or impossible) and what it needs:',
-    '"target" (a combatant\'s exact name) for hurt, push, pull, slow and stun; "to" ([x,y]) for move; "at" ([x,y], the centre) for hurt_area; "squares" ([[x,y]] or [[x,y],[x,y]]) for cover; "damageType" (one word, such as bludgeoning, fire or piercing) for hurt and hurt_area.',
-    'Squares use the same relative [x,y] as the positions above.',
-].join('\n');
+export const STUNT_JSON_DIRECTIVE = defaultPromptText('combat.stunt-json');
 
 const MENU_LINES = [
     'Menu (outcome: what the engine does):',
@@ -185,7 +170,7 @@ export function buildStuntBlock(session: CombatSession, actorId: string, words: 
 }
 
 export function buildStuntPrompt(session: CombatSession, actorId: string, words: string): string {
-    return [buildStuntBlock(session, actorId, words), STUNT_REFEREE_RULES, STUNT_JSON_DIRECTIVE].join('\n\n');
+    return [buildStuntBlock(session, actorId, words), renderPrompt('combat.stunt-rules'), renderPrompt('combat.stunt-json')].join('\n\n');
 }
 
 function stuntMessages(session: CombatSession, actorId: string, words: string): OpenAIMessage[] {

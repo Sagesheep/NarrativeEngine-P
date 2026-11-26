@@ -131,6 +131,15 @@ export type PromptInjection = {
     mode: 'message' | 'prefill' | 'reasoning';
 };
 
+/** Prompt Modification: a campaign's own text for one built-in prompt
+ *  (services/prompts/promptRegistry.ts). `baseHash` fingerprints the built-in
+ *  text it was written against, so the editor can say when that text changed. */
+export type PromptOverride = {
+    text: string;
+    baseHash: string;
+    updatedAt?: number;
+};
+
 export type AIPreset = {
     /** Legacy preset injections: retained only for explicit copying into a campaign. */
     promptInjections?: PromptInjection[];

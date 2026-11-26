@@ -7,6 +7,7 @@ import { applyRelationTone, isRelationTone } from '../npc/relationMeter';
 import { normalizeRelations } from '../npc/relationDedupe';
 import { readPcAffinity } from '../npc/affinityAccess';
 import type { LegacyNpcFields } from '../npc/retireLegacyFields';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 const HEX_AXES: readonly HexAxis[] = ['drive', 'diligence', 'boldness', 'warmth', 'empathy', 'composure'];
 
@@ -88,115 +89,7 @@ export async function updateExistingNPCs(
         return data;
     }).join('\n\n');
 
-    const prompt = `You are a background game state analyzer. Your job is to read the RECENT CONTEXT of an RPG session and determine if any of the provided NPCs have undergone a shift in their status, personality, wants, faction, or relevance.
-
-OUTPUT FORMAT — a single JSON object with TWO channels: "updates" (rare) and "tones" (always):
-{"updates": [ ... ], "tones": [ ... ]}
-
-CHANNEL 1 — "updates" (only when something fundamentally changed; usually empty []):
-{"updates": [{"name": "<NPC name>", "changes": { ...only the fields that changed... }}]}
-Each update MUST include "name" and only the fields that fundamentally changed. Allowed changes keys:
-  status, storyRelevance, personality (flavor text), voice, appearance,
-  wants (medium/long text only — NEVER include "short"; short is engine-managed),
-  personalityHex, traits, region, faction (can list multiple comma-separated factions), relations, behavioralTriggers, hardBoundaries, softBoundaries, signatureKit.
-DO NOT include attributes that stayed the same. If nothing fundamental changed, "updates" is [].
-"appearance" is ONE paragraph. Change it only for a visible change narrated in the context (new clothes, a fresh scar, a lost eye): send the whole paragraph back with ONLY that detail edited, every other word kept as it was.
-
-CHANNEL 2 — "tones" (MANDATORY: one entry for EVERY NPC listed below, every time):
-{"tones": [{"name": "<NPC name>", "tone": "<friendly|tense|neutral|bonding|betrayal>"}]}
-Judge how THIS scene felt for each NPC toward the player. This is your ONLY job re: relationship —
-the engine owns the actual standing; you just read the room:
-  - friendly : player was warm/helpful/pleasant (ordinary positive interaction)
-  - tense    : friction, rudeness, a slight, a minor argument
-  - neutral  : no social charge — logistics, passing by, all business (USE THIS WHEN UNSURE)
-  - bonding  : a BIG shared-adversity / deep-trust moment (fought side by side, saved their life)
-  - betrayal : player broke trust — deceived, harmed, or abandoned them in a serious way
-Most scenes are "neutral", "friendly", or "tense". Reserve "bonding"/"betrayal" for genuinely big
-moments — they move the needle hard.
-
-**FORBIDDEN keys** in "changes" (data-model errors):
-  - "drives" — superseded by "wants". Never send drives.
-  - "affinity" / "pcRelation" — the relationship standing is ENGINE-OWNED. NEVER send either; use
-    the "tones" channel instead. Any affinity/pcRelation you put in "changes" is discarded.
-
-PERSONALITY HEX DRIFT (the headline of "updates"):
-  - "personalityHex" is a DELTA MAP, not a full overwrite. Send ONLY the axes that drifted, as
-    small integers: e.g. {"personalityHex": {"boldness": +1, "composure": -1}}.
-  - Each axis delta is clamped to ±1 by the engine; a "+5" still moves only +1. Drift is rare and
-    small — only send a hex delta when the scene contains a genuinely transformative event.
-  - NEVER re-emit the full 6-axis hexagon. NEVER send absolute axis values as if setting them.
-
-RELATIONS:
-  - "relations" is a sparse NPC→character edge map (target NPC **name** → -3..+3). Shallow-merge only;
-    never wholesale replace. Add or adjust specific edges that shifted this scene. Key by the target's
-    **name** (not id) — the engine resolves name, legacy id, and alias keys to the right target.
-
-WANTS UPDATE RULES:
-  - "wants" is an object with "short" (string[]), "medium" (string[]), and "long" (string).
-  - You may ONLY revise "medium" and "long". NEVER include "short" — it is engine-managed and
-    always preserved. If you include "short", it will be discarded.
-  - "long" is a single overarching life goal — update only if a transformative event reshaped it.
-  - "medium" is arc-level goal templates — update if the story moved to a new arc.
-  - If the NPC has no "wants" yet, you MUST provide "medium" and "long".
-
-SIGNATURE KIT RULES:
-  - "signatureKit" is this NPC's durable loadout: {"equipment": string[], "abilities": string[], "element": string}. It keeps gear and powers CONSISTENT across the campaign.
-  - Only send it when the scene NARRATES a real change: the NPC gains/loses/breaks a signature item, learns or loses a power, or is transformed. An NPC merely *using* gear they already have is NOT a change — send nothing.
-  - Send ONLY the channel that changed. To update gear, send just "equipment" (the full new signature list, max 8); to update powers, send just "abilities". Never re-emit an unchanged channel.
-  - Default is NO change. Most turns have no signatureKit update.
-
-GENERAL RULES:
-- Valid statuses: Alive, Deceased, Missing, Unknown.
-- Do NOT change personality or voice unless the scene contains a genuinely transformative event for this character.
-
-EXAMPLES:
-
-GOOD — NPC who died with a transformative emotional arc:
-{"updates": [{"name": "Captain Vorin", "changes": {"status": "Deceased", "personality": "consumed by rage in final moments, betrayed and broken", "storyRelevance": "His death sparked a rebellion"}}]}
-
-GOOD — NPC whose mid/long-term ambition shifted after a major scene (only revise "wants" medium/long; NEVER include "short"):
-{"updates": [{"name": "Kael", "changes": {"wants": {"long": "seize the Ironwall garrison and rule the pass himself", "medium": ["turn the captain's lieutenants against her", "stockpile blackpowder"]}}}]}
-
-GOOD — NPC who grew bolder after a crit-success on a bold goal (hex DRIFT, delta-only):
-{"updates": [{"name": "Alden", "changes": {"personalityHex": {"boldness": +1}}}]}
-
-GOOD — ordinary scene, nothing fundamental changed, but two NPCs were on stage (note: "updates" empty, "tones" still lists EVERYONE):
-{"updates": [], "tones": [{"name": "Alden", "tone": "friendly"}, {"name": "Senna", "tone": "neutral"}]}
-
-GOOD — the player saved Kael's life in a desperate fight (a bonding moment) while snubbing Vorin:
-{"updates": [], "tones": [{"name": "Kael", "tone": "bonding"}, {"name": "Vorin", "tone": "tense"}]}
-
-BAD — re-emitting unchanged attributes (status/personality/voice/appearance all unchanged here):
-{"updates": [{"name": "Senna", "changes": {"status": "Alive", "personality": "warm and curious", "voice": "soft alto", "appearance": "tall, dark hair"}}]}
-Corrected: include ONLY the field that changed —
-{"updates": [{"name": "Senna", "changes": {"personality": "warm but watchful after the ambush"}}]}
-
-BAD — sending a FORBIDDEN/engine-owned key (drives / affinity / pcRelation):
-{"updates": [{"name": "Senna", "changes": {"drives": {"sceneWant": "investigate the tracks at dawn"}, "affinity": 65, "pcRelation": +1}}]}
-Corrected — use "wants" for ambition, and put the relationship read in the "tones" channel (NOT changes):
-{"updates": [{"name": "Senna", "changes": {"wants": {"medium": ["investigate the tracks at dawn"]}}}], "tones": [{"name": "Senna", "tone": "friendly"}]}
-
-BAD — re-emitting the full hexagon as absolute values (this is a full-overwrite attempt; the engine will clamp it to ±1 anyway, but it signals a misunderstanding):
-{"updates": [{"name": "Alden", "changes": {"personalityHex": {"drive": 2, "diligence": 1, "boldness": 3, "warmth": 0, "empathy": 1, "composure": 2}}]}
-Corrected — send ONLY the axis that drifted, as a small delta:
-{"updates": [{"name": "Alden", "changes": {"personalityHex": {"boldness": +1}}}]}
-
-GOOD — NPC's signature weapon changed on-screen (only the gear channel; powers untouched):
-{"updates": [{"name": "Rick", "changes": {"signatureKit": {"equipment": ["iron spear"]}}}]}
-
-BAD — re-emitting the unchanged kit because the NPC simply swung their existing sword:
-{"updates": [{"name": "Rick", "changes": {"signatureKit": {"equipment": ["Excalibur (holy longsword)"], "abilities": ["fire magic"]}}}]}
-Corrected: the loadout did not change — send no signatureKit at all.
-
-[RECENT CONTEXT]
-${recentContext}
-[END CONTEXT]
-
-[CURRENT NPC STATES]
-${npcDatas}
-[END STATES]
-
-RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.`;
+    const prompt = renderPrompt('npc.update', { recentContext, npcStates: npcDatas });
 
     const messages: OpenAIMessage[] = [{
         role: 'user',

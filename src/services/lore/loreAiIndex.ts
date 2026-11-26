@@ -17,6 +17,7 @@
  */
 
 import type { LoreChunk } from '../../types';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 export const LORE_SHORTLIST_SIZE = 50;
 export const DEFAULT_LORE_SHORTLIST_TOKENS = 4000;
@@ -141,21 +142,7 @@ export function buildAiIndexPrompt(batch: LoreChunk[]): string {
         return `---\nID: ${c.id}\nCATEGORY: ${c.category}\nHEADER: ${c.header}\nCONTENT: ${preview}`;
     }).join('\n');
 
-    return `You are writing index lines for a tabletop RPG lore library. Each turn, another model reads ONLY these lines (not the full entries) to decide which entries the story needs, so each line must tell it what the entry is and when it matters.
-
-For each entry write ONE line, at most 30 words, in this shape:
-<what it is, with its key names>. Relevant when: <the places, people, events or topics that should bring it up>.
-
-Use names and terms from the entry itself. Do not invent facts. No markdown.
-
-Return ONLY a JSON object mapping each ID to its line. No prose, no code fences.
-Format: {"<id>": "<line>", ...}
-
-LORE ENTRIES:
-${entries}
----
-
-Respond with the JSON object now:`;
+    return renderPrompt('world.lore-index-lines', { entries });
 }
 
 export function cleanAiSummary(raw: string): string | undefined {

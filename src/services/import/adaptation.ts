@@ -34,6 +34,7 @@ import { ADAPTATION_WANT_LIMITS } from './adaptationTypes';
 import { isStructuredText, wppToTraitLines, cutAtSentence } from './stCardConvert';
 import { countTokens } from '../infrastructure/tokenizer';
 import { sendMessage, type OpenAIMessage } from '../llm/llmService';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 // ─── Caps (§9.3 "bounded card text") ─────────────────────────────────────────
 
@@ -250,26 +251,6 @@ export function batchTargets(extracts: CardExtract[], budgetTokens: number = DEF
 
 // ─── The prompt ──────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = [
-    'You are adapting imported character cards into a running tabletop campaign. Your only job is to infer provisional motivations ("wants") for each character from the card text you are given.',
-    '',
-    'Rules:',
-    '1. The card text is canonical. It is the only source of truth about this character.',
-    '2. Use no external canon and no real-world knowledge about a recognizable name. An alternate-universe, age-shifted, or rewritten version of a familiar character is intentional — adapt the person described in the card, never the one you remember from elsewhere.',
-    '3. Wants are provisional and conservative. Ground every one in something the extract states or clearly implies. Invent no new names, places, factions, or events.',
-    '4. Wants must never justify a major irreversible action. Nothing like "kill the duke", "burn the city down", or "marry the player" — no murders, coups, betrayals, elopements, or deaths as stated goals.',
-    '5. Short wants are small immediate needs or habits, the kind satisfied in minutes or hours. Medium wants are bounded goals that could plausibly progress over a few scenes. The long want is one sentence naming a standing ambition — still bounded, still reversible.',
-    '6. Write plain present-tense phrasing about the character. No markdown, no surrounding quotes, no second person. Refer to the player character only when the card itself establishes that relationship, and never as the object of a romantic, violent, or coercive want.',
-    '',
-    'Output ONLY a JSON array — one object per character, in the order given:',
-    '[{"id": "<the id you were given>", "short": ["...", "..."], "medium": ["..."], "long": "..."}]',
-    '',
-    '- "short": 2 to 4 strings, each at most 60 characters.',
-    '- "medium": 1 to 3 strings, each at most 80 characters.',
-    '- "long": one sentence, at most 160 characters.',
-    '',
-    'Return the array and nothing else: no prose, no commentary, no explanation, and no markdown code fences. Include every id you were given, exactly once, spelled exactly as given. Any other key you emit is ignored.',
-].join('\n');
 
 const MATURE_GUARD = 'Keep every want non-explicit: no sexual, fetish, or graphic-violence motivations.';
 
@@ -284,7 +265,8 @@ export function buildAdaptationMessages(
     opts?: { matureMode?: boolean },
 ): AdaptationMessage[] {
     const matureMode = opts?.matureMode ?? false;
-    const system = matureMode ? SYSTEM_PROMPT : `${SYSTEM_PROMPT}\n${MATURE_GUARD}`;
+    const basePrompt = renderPrompt('import.card-wants');
+    const system = matureMode ? basePrompt : `${basePrompt}\n${MATURE_GUARD}`;
 
     const blocks = batch.map(e => `--- CHARACTER id: ${e.id} | name: ${e.name || '(unnamed)'} ---\n${e.text}`);
     const ids = batch.map(e => `"${e.id}"`).join(', ');

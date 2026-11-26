@@ -5,6 +5,7 @@ import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
 import { npcIdentityKeys } from './relationResolve';
 import { createWitnessResolver } from './witnessResolve';
 import { parsePresentHeader, resolvePresentNpcs } from './presentHeader';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 /**
  * Who witnessed a scene — the desktop port of mobile's witness stage
@@ -76,17 +77,7 @@ export async function witnessesFromModel(
     const candidates = mentionedNpcs(gmText, ledger);
     if (candidates.length === 0) return [];
     const roster = candidates.map(npc => `- ${npc.name}${npc.aliases ? ` (aka ${npc.aliases})` : ''}`).join('\n');
-    const prompt = `You are a TTRPG campaign archivist. Read the GM narration and decide which of the listed characters were PHYSICALLY PRESENT in the scene: there in person, able to see or hear what happened. Someone only mentioned, remembered, talked about, or heard of is NOT present.
-
-CHARACTERS NAMED IN THE SCENE:
-${roster}
-
-GM NARRATION:
-"""
-${gmText.slice(0, 4000)}
-"""
-
-Respond with a JSON array of the present characters' names exactly as listed, e.g. ["Rin Holmes"]. If none of them were present, respond with []. JSON only, no prose.`;
+    const prompt = renderPrompt('npc.witnesses', { roster, narration: gmText.slice(0, 4000) });
     try {
         const response = await modelCall({
             prompt,

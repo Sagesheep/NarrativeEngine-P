@@ -11,6 +11,7 @@ import { normalizeLocationTag, normalizeInventoryItem } from '../types';
 import { llmCall } from '../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from './llm/timeouts';
 import type { ModelRequest, ModelResponse } from './turn/hostFacade';
+import { renderPrompt } from './prompts/promptRegistry';
 
 export type InventoryOp =
     | { action: 'add'; name: string; qty: number; category?: string; keywords?: string[]; notes?: string; locationTag?: string }
@@ -39,7 +40,7 @@ export async function scanInventory(
         .map((m) => `[${m.role.toUpperCase()}]: ${m.content}`)
         .join('\n\n');
 
-    const prompt = `You are an AI inventory manager for an RPG. Review the recent chat and inventory below.\nIdentify items gained, lost, consumed, relocated/moved, equipped, or unequipped.\nItems carry a "loc" (locationTag, e.g. "inventory", "player base", "mom's house"). Default location is "inventory".\n\n=== CURRENT INVENTORY ===\n${buildInventoryJson(currentItems)}\n\n=== RECENT CHAT HISTORY ===\n${turns}\n\n=== INSTRUCTIONS ===\nReturn ONLY a valid JSON array of operations. No other text.\nEach operation is an object with an "action" field.\n\nActions:\n- add: {action:"add", name:"Torch", qty:3, category:"misc", keywords:["fire","light"], locationTag:"inventory"}\n- relocate: {action:"relocate", id:"ITEM_ID_HERE", locationTag:"player base"}\n- remove: {action:"remove", id:"ITEM_ID_HERE"}\n- update: {action:"update", id:"ITEM_ID_HERE", changes:{qty:2, locationTag:"player base"}}\n- consume: {action:"consume", id:"ITEM_ID_HERE", qty:1}\n- equip: {action:"equip", id:"ITEM_ID_HERE"}\n- unequip: {action:"unequip", id:"ITEM_ID_HERE"}\n\nIf nothing changed, return: []`;
+    const prompt = renderPrompt('character.inventory-scan', { inventory: buildInventoryJson(currentItems), chat: turns });
 
     try {
         const result = modelCall

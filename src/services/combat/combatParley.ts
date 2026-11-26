@@ -22,24 +22,20 @@ import {
     waitForCombatNarration,
 } from './combatNarration';
 import { countParleyTelemetry } from './combatCommitHooks';
+import { renderPrompt } from '../prompts/promptRegistry';
+import { defaultPromptText } from '../prompts/promptCatalog';
 
 export const PARLEY_RATE_TRACKING_LABEL = 'combat-parley-rate';
 export const PARLEY_RATE_JSON_TRACKING_LABEL = 'combat-parley-rate-json';
 export const PARLEY_WORDS_MAX = 600;
 
-export const PARLEY_RATING_INSTRUCTION = [
-    'Rate the attempt from the enemies\' point of view: their goals, their nature and how the fight is going for them.',
-    'Refusing is the default. Flattery, insistence, repetition and bare assertion do not improve a rating.',
-    'Rate easy only if the enemies are losing badly or are being offered what they actually want; rate hopeless for mindless, fanatical or cornered foes and for demands that cost them everything.',
-    'A successful surrender demand makes every enemy still standing who can speak yield, elites and bosses included, so rate it with that in mind. Enemies marked as unable to speak are not part of the exchange: do not rate for them and never choose one as the speaker.',
-    'Do not decide the outcome and do not write the reply yet.',
-].join(' ');
+export const PARLEY_RATING_INSTRUCTION = defaultPromptText('combat.parley-rating');
 
-export const PARLEY_TOOL_DIRECTIVE = 'Call the rate_parley tool once. intent is what the player character is trying to achieve: ceasefire (stop fighting), let_go (let the party leave), surrender_demand (the enemies yield), bargain (stop in exchange for something), taunt, or other. rating is hopeless, hard, even or easy. speaker is the name of the enemy combatant who answers.';
+export const PARLEY_TOOL_DIRECTIVE = defaultPromptText('combat.parley-tool');
 
-export const PARLEY_JSON_DIRECTIVE = 'Reply with JSON only, in this shape: {"intent":"ceasefire","rating":"hard","speaker":"Bandit 1"}. intent is ceasefire, let_go, surrender_demand, bargain, taunt or other. rating is hopeless, hard, even or easy. speaker is the name of the enemy combatant who answers.';
+export const PARLEY_JSON_DIRECTIVE = defaultPromptText('combat.parley-json');
 
-export const PARLEY_REPLY_DIRECTIVE = 'Write the speaker\'s reply in character, two to four sentences, in their own voice. The engine result above is decided: do not contradict it, soften it or reverse it. Do not state numbers. Do not act or speak for the player character. Do not add events: no attacks, wounds, deaths, arrivals or anyone leaving beyond what the result says.';
+export const PARLEY_REPLY_DIRECTIVE = defaultPromptText('combat.parley-reply');
 
 export const RATE_PARLEY_TOOL = {
     type: 'function' as const,
@@ -220,7 +216,7 @@ export function buildReplyBlock(session: CombatSession, record: ParleyRecord, wo
         `${pc?.name ?? 'The player character'} said: "${quote(words)}"`,
         `Speaker: ${speaker ? `${speaker.name}${speaker.look ? ` — ${speaker.look.slice(0, 120)}` : ''}` : 'the enemies'}`,
         `Engine result: ${resultFact(record, words)}`,
-        PARLEY_REPLY_DIRECTIVE,
+        renderPrompt('combat.parley-reply'),
     ].join('\n');
 }
 
@@ -230,7 +226,7 @@ function ratingMessages(session: CombatSession, words: string, attemptId: string
         settings: store.settings,
         context: store.context,
         history: beatHistory(store.messages, lineId),
-        userMessage: `${buildRatingBlock(session, words, attemptId)}\n\n${PARLEY_RATING_INSTRUCTION}\n${PARLEY_TOOL_DIRECTIVE}`,
+        userMessage: `${buildRatingBlock(session, words, attemptId)}\n\n${renderPrompt('combat.parley-rating')}\n${renderPrompt('combat.parley-tool')}`,
         condensedUpToIndex: store.condenser.condensedUpToIndex,
         npcLedger: store.npcLedger,
         archiveIndex: store.archiveIndex,
@@ -269,7 +265,7 @@ export async function rateParley(session: CombatSession, pending: PendingParley,
     const utility = store.getActiveUtilityEndpoint?.() ?? story;
     if (utility) {
         try {
-            const prompt = [buildRatingBlock(session, pending.words, pending.attemptId), PARLEY_RATING_INSTRUCTION, PARLEY_JSON_DIRECTIVE].join('\n\n');
+            const prompt = [buildRatingBlock(session, pending.words, pending.attemptId), renderPrompt('combat.parley-rating'), renderPrompt('combat.parley-json')].join('\n\n');
             const parsed = parseParleyRating(await deps.callJson(utility, prompt));
             if (parsed) return { ...parsed, source: 'json' };
         } catch (e) {

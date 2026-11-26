@@ -23,70 +23,14 @@ import {
 } from './relationshipMemoryReading';
 import { compactRelationshipMemoryEdge } from './relationshipMemoryCompaction';
 import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
+import { renderPrompt } from '../prompts/promptRegistry';
+import { defaultPromptText } from '../prompts/promptCatalog';
 
 /** The exact WO-3.5 prompt. Only the named input substitutions are made.
  *  WO-3.5: de-gendered (every NPC is no longer assumed "she" and every target "him"),
  *  and the verbatim rule moved — the model now returns scene ids and the engine
  *  renders the canonical line, so exactness is guaranteed by construction. */
-export const RELATIONSHIP_STANCE_PROMPT = `You are working out what one person is feeling and wanting at this exact moment
-of an ongoing story. You are NOT writing the scene — someone else writes the
-scene. Your only job is to decide what is TRUE inside {name} and hand it over.
-
-[WHO THEY ARE]
-{name} — {statuses}
-{name} will not, under any circumstance: {non-negotiables}
-
-[EVERY MOMENT {name} REMEMBERS OF {target}]
-{full history — one line each, weight already stamped. Do not re-rank it.}
-
-[CONTRADICTIONS FOUND IN THAT HISTORY]
-{clash pairs}
-
-[HOW {name} HAS ACTUALLY BEHAVED TOWARD {target}]
-{the recorded outcomes, aggregated}
-
-[THE ROOM, RIGHT NOW]
-{current scene context}
-
-Work in this order:
-
-1. Read the room. What kind of moment is this, and what did {target} just
-   CHOOSE to do? The room decides which memories are live — nothing else.
-
-2. Pick ONE contradiction that this room activates. Not the strongest, not the
-   most recent — the one this specific moment presses on. Name the ones you
-   rejected, one clause each. If the room presses on none of them, say so; a
-   quiet scene is allowed to be quiet.
-
-3. What does {name} want from THIS moment — not from {target} in general, not
-   from their life. From the next five minutes. Specific enough that it implies
-   behaviour.
-
-4. What are they concealing. What will they refuse. What do they believe about
-   {target} that may simply be wrong.
-
-5. Their manner comes from how they have ACTUALLY behaved toward {target} above
-   — not from a personality label. Then: how far does this room push them past
-   that baseline, measured against the worst and best moments in their own
-   history? Say WHERE THEY LAND. Do not decide whether they "break character" —
-   that is not a question with an answer. Far enough simply is the break.
-
-RULES — these are what make the output usable:
-
-- NEVER CONCLUDE. "They are conflicted: resentful but still attached" is a
-  failure. It compresses everything back into one feeling and destroys the
-  reason you were asked. Hold both halves open. Let them stay uncomfortable.
-- Cite the contradicting memories by their scene number ONLY — "#123". Do not
-  retype them, do not paraphrase them, do not explain them. The exact wording
-  is added back for you.
-- {name} is not omniscient about {target}. Anything they believe about
-  {target}'s motives is a belief, marked as one, and allowed to be wrong.
-- They never name their own contradiction aloud. It shows in what they do.
-
-Return JSON only:
-{"wants_now":"", "hiding":"", "wont":"", "in_tension":["#123","#298"],
- "believes":"", "manner":"", "strain":"", "considered":[""],
- "read_room_as":""}`;
+export const RELATIONSHIP_STANCE_PROMPT = defaultPromptText('npc.relationship-stance');
 
 export const CHEAP_TIER_RECORD_LIMIT = 5;
 
@@ -256,20 +200,21 @@ export function buildRelationshipStancePrompt(
     const history = all.map(record => record.line).join('\n');
     const clashesText = clashLines(records, context).join('\n');
     const outcomes = records.map(record => `- ${record.outcome}`).join('\n') || '- no recorded outcomes';
-    // `replaceAll`, not `replace`: the de-gendered WO-3.5 prompt names {name} 7 times and
-    // {target} 8, and a string-pattern `replace` fills only the first — which shipped a prompt
-    // whose identity header read literally "{name} — imprisoned". Function replacements are
-    // used so `$&`/`$1` appearing in scene text or a character name cannot be interpreted as a
-    // substitution pattern. The residue assertion in the tests guards both.
-    const prompt = RELATIONSHIP_STANCE_PROMPT
-        .replaceAll('{name}', () => npc.name)
-        .replaceAll('{statuses}', () => statusText(npc))
-        .replaceAll('{non-negotiables}', () => nonNegotiablesText(npc))
-        .replaceAll('{target}', () => target)
-        .replaceAll('{full history — one line each, weight already stamped. Do not re-rank it.}', () => history || '- no recorded memories')
-        .replaceAll('{clash pairs}', () => clashesText || 'none found')
-        .replaceAll('{the recorded outcomes, aggregated}', () => outcomes)
-        .replaceAll('{current scene context}', () => sceneContext);
+    // renderPrompt fills every occurrence (the de-gendered WO-3.5 prompt names {{name}} 7 times
+    // and {{target}} 8; a first-only `replace` once shipped a header reading literally
+    // "{name} — imprisoned") in one pass with literal values, so `$&`/`$1` or a placeholder
+    // inside scene text or a character name is never re-interpreted. The residue assertion in
+    // the tests guards both.
+    const prompt = renderPrompt('npc.relationship-stance', {
+        name: npc.name,
+        statuses: statusText(npc),
+        nonNegotiables: nonNegotiablesText(npc),
+        target,
+        history: history || '- no recorded memories',
+        clashes: clashesText || 'none found',
+        outcomes,
+        sceneContext,
+    });
     return {
         prompt,
         fullHistory: all,

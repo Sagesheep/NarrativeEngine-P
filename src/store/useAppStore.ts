@@ -7,6 +7,7 @@ import { createUISlice, type UISlice } from './slices/uiSlice';
 import { createMapSlice, type MapSlice } from './slices/mapSlice';
 import { createWorldLoreSlice, type WorldLoreSlice } from './slices/worldLoreSlice';
 import { createCombatSlice, type CombatSlice } from './slices/combatSlice';
+import { setPromptOverrideSource } from '../services/prompts/promptRegistry';
 
 // Re-export DEFAULT_* constants for backward compatibility
 export {
@@ -35,3 +36,6 @@ export const useAppStore = create<AppState>()((...a) => ({
     ...createWorldLoreSlice(...a),
     ...createCombatSlice(...a),
 }));
+
+// Prompt Modification: built-in prompts read the active campaign's overrides.
+setPromptOverrideSource(() => useAppStore.getState().context?.promptOverrides);

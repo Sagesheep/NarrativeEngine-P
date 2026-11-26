@@ -2,26 +2,8 @@ import type { ChatMessage, ProviderConfig, EndpointConfig } from '../../types';
 import { llmCall } from '../../utils/llmCall';
 import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
+import { renderPrompt } from '../prompts/promptRegistry';
 
-const IMPORTANCE_PROMPT = `Rate the narrative importance of the scene below on a 1-5 scale.
-
-CRITERIA:
-1 — Trivial: passing greeting, mundane travel, routine shopping, small talk
-2 — Minor: routine conversation, minor discovery, atmospheric description
-3 — Notable: meaningful dialogue, new NPC introduced, new location explored, skill check
-4 — Significant: combat encounter, major reveal, relationship shift, item acquired/lost, plot milestone
-5 — Critical: character death, betrayal, major plot twist, world-changing event, irreversible consequence
-
-RULES:
-- Output ONLY a single digit 1-5, nothing else
-- When uncertain, round DOWN (prefer lower importance)
-
-RECENT CONTEXT:
-{context}
-
-SCENE TO RATE:
-User: {userText}
-GM: {gmText}`;
 
 export async function rateImportance(
     provider: ProviderConfig | EndpointConfig | undefined,
@@ -35,10 +17,11 @@ export async function rateImportance(
         .map(m => `[${m.role.toUpperCase()}]: ${m.content.slice(0, 200)}`)
         .join('\n') ?? '';
 
-    const prompt = IMPORTANCE_PROMPT
-        .replace('{context}', contextLines)
-        .replace('{userText}', userText.slice(0, 600))
-        .replace('{gmText}', gmText.slice(0, 1200));
+    const prompt = renderPrompt('memory.importance', {
+        context: contextLines,
+        userText: userText.slice(0, 600),
+        gmText: gmText.slice(0, 1200),
+    });
 
     try {
         const raw = modelCall

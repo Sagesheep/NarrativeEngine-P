@@ -2,6 +2,7 @@ import type { LoreChunk, EndpointConfig, ProviderConfig } from '../../types';
 import { llmCall } from '../../utils/llmCall';
 import { saveLoreChunks } from '../../store/campaignStore';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
+import { renderPrompt } from '../prompts/promptRegistry';
 
 const BATCH_SIZE = 8;
 const CONTENT_PREVIEW_CHARS = 300;
@@ -14,19 +15,7 @@ function buildBatchPrompt(batch: LoreChunk[]): string {
         return `---\nID: ${c.id}\nHEADER: ${c.header}\nCONTENT: ${preview}`;
     }).join('\n');
 
-    return `You are generating trigger keywords for a tabletop RPG lore retrieval system.
-For each lore entry below, return TWO keyword sets:
-- "primary": 10-15 distinctive, high-precision trigger words that uniquely identify this entry. Include entity names, aliases, multi-word proper nouns, rare/specific nouns. AVOID generic verbs and common role words such as: visit, ask, go, members, join, order, fight, hire, travel, meet, find, talk — these cause false triggers on unrelated text.
-- "secondary": 5-10 contextual disambiguator words that, when present alongside a primary keyword, confirm this chunk is genuinely on-topic.
-
-Return ONLY a JSON object. No prose, no markdown fences.
-Format: {"chunk-id": {"primary": ["kw1", "kw2", ...], "secondary": ["kw1", ...]}, ...}
-
-LORE ENTRIES:
-${entries}
----
-
-Respond with the JSON object now:`;
+    return renderPrompt('world.lore-keywords', { entries });
 }
 
 function parseEnrichmentResponse(raw: string): Record<string, { primary: string[]; secondary: string[] }> {

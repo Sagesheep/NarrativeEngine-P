@@ -1,9 +1,11 @@
 import { InjectionQuickControls } from './injections/InjectionQuickControls';
 import { normalizeInjections } from '../services/payload/promptInjections';
+import { normalizePromptOverrides } from '../services/prompts/promptRegistry';
+import { PromptModificationTab } from './prompts/PromptModificationTab';
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import {
     Archive, BookOpen, Brain, ChevronDown, ChevronRight, Database, FileText,
-    Image as ImageIcon, MapPin, Pin, ScrollText, SlidersHorizontal, Sparkles, UserCircle, Users, Workflow,
+    FileCode, Image as ImageIcon, MapPin, Pin, ScrollText, SlidersHorizontal, Sparkles, UserCircle, Users, Workflow,
 } from './icons/narrativeIcons';
 import { useAppStore } from '../store/useAppStore';
 import type { ContextScreenId } from '../store/slices/uiSlice';
@@ -22,7 +24,7 @@ import { resolveModText } from '../services/mods/mounts/chromeRenderers';
 import { buildGallery } from '../services/gallery/galleryIndex';
 import { useTranslation } from '../i18n/useTranslation';
 
-type GroupId = 'story' | 'world' | 'play' | 'gallery' | 'injections' | 'mods';
+type GroupId = 'story' | 'world' | 'play' | 'gallery' | 'injections' | 'prompts' | 'mods';
 type NavIcon = typeof ScrollText;
 
 interface NavLeaf {
@@ -43,6 +45,7 @@ const CONTEXT_LEAVES: Record<ContextScreenId, Omit<NavLeaf, 'onSelect'>> = {
     chpt: { id: 'chpt', label: 'Chapters', icon: BookOpen },
     mem: { id: 'mem', label: 'Memory', icon: Brain },
     glossary: { id: 'glossary', label: 'Glossary', icon: BookOpen },
+    prompts: { id: 'prompts', label: 'Prompt Modification', icon: FileCode },
 };
 
 const GROUPS: Array<{ id: GroupId; label: string; icon: NavIcon }> = [
@@ -51,6 +54,7 @@ const GROUPS: Array<{ id: GroupId; label: string; icon: NavIcon }> = [
     { id: 'play', label: 'Play', icon: Sparkles },
     { id: 'gallery', label: 'Gallery', icon: ImageIcon },
     { id: 'injections', label: 'Injection Modifier', icon: SlidersHorizontal },
+    { id: 'prompts', label: 'Prompt Modification', icon: FileCode },
     { id: 'mods', label: 'Mods', icon: Workflow },
 ];
 
@@ -105,10 +109,11 @@ export function ContextNavigationDrawer() {
         [galleryMessages, galleryUploads],
     );
     const injectionCount = useAppStore(s => normalizeInjections(s.context.promptInjections).filter(item => item.enabled && item.content.trim() && item.triggers.length).length);
+    const promptOverrideCount = useAppStore(s => Object.keys(normalizePromptOverrides(s.context.promptOverrides) ?? {}).length);
     const headerEntries = useHeaderEntries();
     const { t } = useTranslation();
     const [expanded, setExpanded] = useState<Record<GroupId, boolean>>({
-        story: true, world: true, play: true, gallery: false, injections: true, mods: false,
+        story: true, world: true, play: true, gallery: false, injections: true, prompts: true, mods: false,
     });
 
     const modEntries = useMemo(
@@ -142,6 +147,10 @@ export function ContextNavigationDrawer() {
             { id: 'gallery-uploaded', label: 'Uploaded', icon: ImageIcon, badge: uploadedCount, onSelect: () => useAppStore.getState().openGallery('uploaded') },
         ],
         injections: [],
+        // Per-campaign replacements for the built-in AI prompts (services/prompts/promptCatalog.ts).
+        prompts: [
+            { id: 'prompts-edit', label: 'Edit prompts', icon: FileCode, badge: promptOverrideCount, onSelect: () => openContextScreen('prompts') },
+        ],
         mods: modEntries.map((entry) => ({
             id: entry.qualifiedId,
             label: resolveModText(entry.mod!.id, entry.entry.label, modT) ?? entry.mod!.name,
@@ -154,7 +163,9 @@ export function ContextNavigationDrawer() {
     // screen. RulesTab hosts the [Write | Retrieval] segmented control and
     // embeds RulesManagerTab for the Retrieval mode, so there is one
     // destination instead of two. `RulesTab` takes no `onOpenManager` prop.
-    const screenContent = contextScreen === 'glossary'
+    const screenContent = contextScreen === 'prompts'
+        ? <PromptModificationTab key={campaignId ?? ''} />
+        : contextScreen === 'glossary'
         ? <GlossaryTab key={`${campaignId}:${glossaryDraftName}`} initialName={glossaryDraftName} />
         : contextScreen === 'sys'
         ? <RulesTab />
@@ -181,7 +192,7 @@ export function ContextNavigationDrawer() {
                         {GROUPS.map((group) => {
                             const GroupIcon = group.icon;
                             const isExpanded = expanded[group.id];
-                            const groupBadge = group.id === 'injections' ? injectionCount : group.id === 'mods' && modCount > 0 ? modCount : undefined;
+                            const groupBadge = group.id === 'injections' ? injectionCount : group.id === 'prompts' && promptOverrideCount > 0 ? promptOverrideCount : group.id === 'mods' && modCount > 0 ? modCount : undefined;
                             return (
                                 <section key={group.id}>
                                     <button
@@ -232,6 +243,7 @@ export function ContextNavigationDrawer() {
                         || contextScreen === 'world'
                         || contextScreen === 'chpt'
                         || contextScreen === 'eng'
+                        || contextScreen === 'prompts'
                             ? 'wide'
                             : 'form'
                     }

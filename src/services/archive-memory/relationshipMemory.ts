@@ -3,84 +3,10 @@ import type { NPCEntry, PlayerCharacter, RelationshipMemoryFault, RelationshipMe
 import { RELATIONSHIP_MEMORY_IMPACTS, RELATIONSHIP_MEMORY_MOODS } from '../../types';
 import type { ModelRequest, ModelResponse } from '../turn/hostFacade';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
+import { renderPrompt } from '../prompts/promptRegistry';
+import { defaultPromptText } from '../prompts/promptCatalog';
 
-export const RELATIONSHIP_MEMORY_PROMPT = `You are recording what happened between people in one scene of an ongoing story —
-as each of them would remember it, not as a narrator would summarise it.
-
-[SCENE]
-{committed scene text}
-
-[PRESENT]
-{names; mark the player character}
-
-Emit one record per DIRECTED pair that something actually passed through.
-A record is one person's memory OF another. The same moment is often
-triumphant for one of them and humbling for the other — record each side
-separately when both are present.
-
-If nothing passed between two people, emit nothing for that pair. Being in
-the same room is not a memory. Most pairs in most scenes produce nothing,
-and emitting nothing is the correct answer, not a failure.
-
-For each record:
-
-mood — the emotional register. Exactly one of:
-  tender         intimacy, care, closeness
-  companionable  easy, warm, ordinary — friendship, not intimacy
-  triumphant     victory, pride, vindication
-  humbling       defeat, shame, being seen at your lowest
-  hostile        anger, violence, open confrontation
-  fraught        tension without open conflict — suspicion, things unsaid
-  grave          grief, loss, solemnity
-  logistical     nothing emotional passed — business, travel, information
-
-impact — how much this will weigh on them. Answer the tests, in order:
-  passing        they would never think of this again
-  remembered     they would bring this up
-  formative      it changed how they read the other person
-  carried        they will carry this for the rest of their life
-
-  Most moments are \`passing\`. That is not a flat scene — ordinary life is
-  mostly passing, and a story where everything is formative has no shape.
-  Reach past \`remembered\` only when the test is plainly met.
-
-  \`carried\` also requires you to name what they carry, in one short clause.
-  If you cannot finish that sentence, it is not carried — say \`formative\`.
-
-event — what the OTHER person did, or what happened to them. Fifteen words or
-  fewer. This is the part both people in the room would agree on. "put a hand
-  on her head", "burned the supply train", "paid him so he would NOT go to the
-  docks". Concrete and visual, with the specifics (who, where, how much) — a
-  later writer has only this line to work from. Keep negations and conditions
-  exactly as the scene has them.
-
-outcome — what THIS person VISIBLY did in response. Fifteen words or fewer. What
-  an observer saw, never what they felt inside. "went silent and left", not
-  "felt betrayed".
-
-Write event, outcome and carried in the same language as the scene, and keep
-names exactly as the scene spells them. Only the JSON keys, mood and impact
-stay in English.
-
-  event and outcome are two different facts. Do not put the reaction in
-  \`event\`, and do not restate the event in \`outcome\`.
-
-GOOD: {"subject":"Edelgard","target":"Byleth","mood":"humbling",
-       "impact":"carried","carried":"that he chose which of her students lived",
-       "event":"spared some of her students, killed others",
-       "outcome":"asked him to be quick"}
-GOOD: {"subject":"Edelgard","target":"Byleth","mood":"tender",
-       "impact":"formative","event":"put a hand on her head",
-       "outcome":"went red and said nothing"}
-BAD:  {"subject":"Edelgard","target":"Byleth","mood":"hostile",
-       "impact":"formative","event":"she felt humiliated",
-       "outcome":"felt her world collapse"}
-      — \`event\` holds a feeling instead of the other person's action, \`outcome\`
-        describes an interior state no observer could see, and the moment is
-        plainly \`carried\` but no clause was offered.
-
-Return JSON only:
-{"records":[ ... ]}`;
+export const RELATIONSHIP_MEMORY_PROMPT = defaultPromptText('memory.relationship');
 
 export type RelationshipMemoryParticipants = {
     presentNames: string[];
@@ -160,9 +86,7 @@ export function buildRelationshipMemoryPrompt(
         const isPc = pcAliases.some(alias => alias.toLowerCase() === name.toLowerCase());
         return isPc ? name + ' (player character)' : name;
     }).join(', ');
-    return RELATIONSHIP_MEMORY_PROMPT
-        .replace('{committed scene text}', sceneText)
-        .replace('{names; mark the player character}', present);
+    return renderPrompt('memory.relationship', { sceneText, present });
 }
 
 export function normaliseRelationshipMemoryRecords(
