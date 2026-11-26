@@ -109,8 +109,21 @@ echo Node %NODE_VERSION% detected - OK.
 echo.
 
 REM ===== Main flow =====
+REM Only run npm install when dependencies changed since the last
+REM good install (or Node was upgraded), so normal starts stay fast.
+node scripts\check-install.mjs
+if not errorlevel 1 goto :deps_ok
 echo Installing dependencies...
 call npm install
+if errorlevel 1 goto :deps_done
+node scripts\check-install.mjs stamp
+goto :deps_done
+
+:deps_ok
+echo Dependencies up to date - OK.
+
+:deps_done
+echo.
 
 REM ===== Build the local engine package if its output is missing =====
 REM The app imports @narrative/engine from packages/engine, whose
