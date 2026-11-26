@@ -9,6 +9,7 @@ import { applyLocale, detectLocale, isLocaleCode } from '../../i18n';
 import { getBuiltinTokenCap } from '../../services/payload/contributions/builtins';
 import { migratePresetSlotThinking } from './slotThinking';
 import { normalizeLoreDepth } from '../../services/lore/loreBudget';
+import { DEFAULT_LORE_SHORTLIST_TOKENS, normalizeLoreShortlistTokens } from '../../services/lore/loreAiIndex';
 import { normalizeContextAllocation } from '../../services/payload/contextAllocation';
 import { READING_DEFAULTS, clampReadingSize, normalizeReadingFont, normalizeReadingLeading, normalizeReadingWidth, normalizeReadingAlign, normalizeStoryTextColors } from '../../components/chat/readingPrefs';
 
@@ -111,6 +112,9 @@ export const defaultSettings: AppSettings = {
     enableArchivePlanner: false,
     retrievalAlgorithm: 'idf-rrf',
     loreDepth: 'balanced',
+    aiLoreIndex: false,
+    aiLoreShortlist: false,
+    aiLoreShortlistTokens: DEFAULT_LORE_SHORTLIST_TOKENS,
     archiveRecallDepth: 'standard',
     sceneRecallBudget: DEFAULT_SCENE_RECALL_BUDGET,
     uiScale: 1.0,
@@ -452,6 +456,9 @@ export function migrateSettings(data: Record<string, unknown>): AppSettings {
         enableArchivePlanner: (raw.enableArchivePlanner as boolean) ?? false,
         retrievalAlgorithm: (raw.retrievalAlgorithm as 'classic' | 'idf-rrf') ?? 'idf-rrf',
         loreDepth: normalizeLoreDepth(raw.loreDepth),
+        aiLoreIndex: (raw.aiLoreIndex as boolean) ?? false,
+        aiLoreShortlist: (raw.aiLoreShortlist as boolean) ?? false,
+        aiLoreShortlistTokens: normalizeLoreShortlistTokens(raw.aiLoreShortlistTokens),
         archiveRecallDepth: (raw.archiveRecallDepth as 'lean' | 'standard' | 'deep') ?? 'standard',
         sceneRecallBudget: normalizeSceneRecallBudget(raw.sceneRecallBudget),
         contextAllocation: normalizeContextAllocation(raw.contextAllocation),

@@ -195,6 +195,12 @@ export type AppSettings = {
     enableArchivePlanner?: boolean;
     retrievalAlgorithm?: 'classic' | 'idf-rrf';
     loreDepth?: 'lean' | 'balanced' | 'deep';  // lore RAG ceiling as a share of contextLimit + relevance-floor leniency; default 'balanced' (services/lore/loreBudget.ts)
+    /** Lore page: the Context Recommender reads AI-written index lines (`LoreChunk.aiSummary`) instead of the heuristic summary. Default false. */
+    aiLoreIndex?: boolean;
+    /** Lore page: when the recommender's lore index is over `aiLoreShortlistTokens`, send only the top 50 keyword matches. Default false. */
+    aiLoreShortlist?: boolean;
+    /** Token size of the lore index above which the shortlist applies. Default 4000. */
+    aiLoreShortlistTokens?: number;
     /** Tokens past scenes may use per turn: any whole number from 500, default 3000, capped at contextLimit when used. See archive-memory/recallBudget.ts. */
     sceneRecallBudget?: number;
     /** Context Allocation screen: custom share of `contextLimit` per prompt part, as a percentage

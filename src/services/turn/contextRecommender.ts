@@ -14,6 +14,7 @@ import { AI_CALL_TIMEOUT_MS } from '../llm/timeouts';
 import { buildInventoryIndex, buildProfileIndex } from './contextMinifier';
 import { extractJsonRobust } from '../infrastructure/jsonExtract';
 import type { ModelRequest, ModelResponse } from './hostFacade';
+import { buildLoreIndexText, type LoreIndex, type LoreIndexOptions } from '../lore/loreAiIndex';
 
 export type RecommenderResult = {
     relevantNPCNames: string[];   // NPC names the model considers relevant
@@ -38,18 +39,11 @@ function buildNPCRoster(ledger: NPCEntry[]): string {
     }).join('\n');
 }
 
-/**
- * Build a compact lore index from chunks.
- * Sends id + category + header + summary for relevance judgment.
- */
-function buildLoreIndex(chunks: LoreChunk[]): string {
-    if (chunks.length === 0) return 'No lore chunks available.';
-    return chunks
-        .filter(c => !c.alwaysInclude) // alwaysInclude chunks don't need recommendation
-        .map(c => {
-            const sum = c.summary ? ` — ${c.summary}` : '';
-            return `- ID:${c.id} | ${c.category} | ${c.header}${sum}`;
-        }).join('\n');
+/** The lore index header: entry count, and when shortlisted, that it is a keyword shortlist. */
+function loreIndexHeading(index: LoreIndex): string {
+    return index.shortlisted
+        ? `[LORE INDEX — ${index.listed} of ${index.total} entries, the best keyword matches for this turn]`
+        : `[LORE INDEX — ${index.total} entries]`;
 }
 
 /**
@@ -119,9 +113,15 @@ export async function recommendContext(
     // Rendered helper-injection cards (`renderHelperInjections('recommender', …)`). Placed
     // after the indexes and conversation, before the closing JSON instruction.
     addenda = '',
+    // Lore tab switches: AI-written index lines, and the shortlist for a large index (lore/loreAiIndex.ts).
+    loreIndexOptions: LoreIndexOptions = {},
 ): Promise<RecommenderResult> {
     const npcRoster = buildNPCRoster(npcLedger);
-    const loreIndex = buildLoreIndex(loreChunks);
+    const loreIndexResult = buildLoreIndexText(loreChunks, loreIndexOptions);
+    const loreIndex = loreIndexResult.text;
+    if (loreIndexResult.shortlisted) {
+        console.log(`[ContextRecommender] Lore index shortlisted: ${loreIndexResult.listed} of ${loreIndexResult.total} entries.`);
+    }
     const conversation = buildConversationExcerpt(messages, userMessage);
     const inventoryIndex = buildInventoryIndex(inventoryItems || []);
     const profileIndex = buildProfileIndex(characterProfile || { name: '', race: '', class: '', level: 1, hp: { current: 20, max: 20 }, stats: {}, skills: [], abilities: [], traits: [], notes: '' });
@@ -130,7 +130,7 @@ export async function recommendContext(
         ? `\n[DM-PINNED CHAPTERS — manually selected as relevant]\n${buildPinnedChapterContext(pinnedChapters)}\n`
         : '';
 
-    const userContent = `${RECOMMENDER_PROMPT}\n\n[NPC ROSTER — ${npcLedger.length} characters]\n${npcRoster}\n\n[LORE INDEX — ${loreChunks.filter(c => !c.alwaysInclude).length} entries]\n${loreIndex}\n${pinnedSection}[INVENTORY INDEX]\n${inventoryIndex}\n\n[PROFILE INDEX]\n${profileIndex}\n\n[RECENT CONVERSATION]\n${conversation}\n\n${addenda ? `${addenda}\n\n` : ''}Respond with the JSON object now:`;
+    const userContent = `${RECOMMENDER_PROMPT}\n\n[NPC ROSTER — ${npcLedger.length} characters]\n${npcRoster}\n\n${loreIndexHeading(loreIndexResult)}\n${loreIndex}\n${pinnedSection}[INVENTORY INDEX]\n${inventoryIndex}\n\n[PROFILE INDEX]\n${profileIndex}\n\n[RECENT CONVERSATION]\n${conversation}\n\n${addenda ? `${addenda}\n\n` : ''}Respond with the JSON object now:`;
 
     console.log(`[ContextRecommender] Sending recommendation request...`);
 

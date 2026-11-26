@@ -9,6 +9,8 @@ import { createWorldCard } from '../../services/lore/worldCard';
 import { uid } from '../../utils/uid';
 import { NewLoreEntryForm } from './NewLoreEntryForm';
 import { LoreEntryEditor } from './LoreEntryEditor';
+import { LoreAiIndexPanel } from './LoreAiIndexPanel';
+import { hasFreshAiSummary } from '../../services/lore/loreAiIndex';
 
 export function LoreTab() {
     const loreChunks = useAppStore((s) => s.loreChunks);
@@ -179,6 +181,14 @@ export function LoreTab() {
                     {confirmDeleteId === chunk.id ? 'Confirm?' : <Trash2 size={9} />}
                 </button>
             </div>
+
+            {chunk.aiSummary && (
+                <p className="mb-2 text-[11px] text-text-dim leading-snug" title="AI index line: what the Context Recommender reads for this entry when the AI index is on">
+                    <span className="uppercase tracking-wider text-[8px] font-bold text-terminal/80 mr-1">AI index</span>
+                    {chunk.aiSummary}
+                    {!hasFreshAiSummary(chunk) && <span className="ml-1 text-warning">(outdated: entry edited)</span>}
+                </p>
+            )}
 
             {/* WO-12.3b — Inline content preview body. Shown when toggled open.
                 Renders the raw chunk.content verbatim in a scrollable monospace
@@ -355,6 +365,7 @@ export function LoreTab() {
                 )}
             </div>
 
+            {campaignId && loreChunks.length > 0 && <LoreAiIndexPanel key={`ai-index-${campaignId}`} campaignId={campaignId} />}
             {campaignId && <WorldCardPanel key={campaignId}
                 getExportCard={loreChunks.length ? () => createWorldCard(campaignName, loreChunks) : null}
                 importLabel="Add lore to this campaign"

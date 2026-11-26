@@ -31,6 +31,12 @@ export type LoreChunk = {
     parentSection?: string;
     priority: number;
     summary?: string;
+    /** One-line AI-written index entry (what the entry covers, when it matters). The Context
+     *  Recommender reads it in place of `summary` when the AI index is on (lore/loreAiIndex.ts). */
+    aiSummary?: string;
+    /** Hash of header + content when `aiSummary` was written. A mismatch means the entry was
+     *  edited since, so the line is stale and the recommender falls back to `summary`. */
+    aiSummaryHash?: string;
     group?: string;
     groupWeight?: number;
 };

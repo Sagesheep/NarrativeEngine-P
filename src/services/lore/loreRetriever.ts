@@ -171,52 +171,29 @@ function retrieveRelevantLoreClassic(
     return results;
 }
 
-// ─── IDF+RRF algorithm ────────────────────────────────────────────────────
-function retrieveRelevantLoreIdfRrf(
+// ─── Keyword ranking (IDF pass) ───────────────────────────────────────────
+const DEFAULT_SCAN_DEPTH = 2;
+
+// Field labels (`type`, `aliases`, `appearance`…) were extracted as keywords on most
+// structured chunks; they carry no meaning and match ordinary text. Ignore them.
+const keywordsOf = (c: LoreChunk) => (c.triggerKeywords ?? []).filter(kw => !isFieldLabelKeyword(kw));
+
+function rankLoreByKeywordsWith(
     chunks: LoreChunk[],
-    userMessage: string,
-    tokenBudget: number,
-    recentMessages: ChatMessage[],
-    semanticCandidateIds: string[] | undefined,
-    recommendedIds: string[] | undefined,
-    topN: number,
-): LoreChunk[] {
-    const results: LoreChunk[] = [];
-    const includedSet = new Set<string>();
-    let usedTokens = 0;
-
-    for (const chunk of chunks) {
-        if (chunk.disabled) continue;
-        if (chunk.alwaysInclude || chunk.ragMode === 'always') {
-            results.push(chunk);
-            includedSet.add(chunk.id);
-            usedTokens += chunk.tokens;
-        }
-    }
-
-    const history = recentMessages;
-    const defaultDepth = 2;
-
-    const getScanText = makeScanTextGetter(history, userMessage);
-    getScanText(defaultDepth);
-
-    // Field labels (`type`, `aliases`, `appearance`…) were extracted as keywords on most
-    // structured chunks; they carry no meaning and match ordinary text. Ignore them.
-    const keywordsOf = (c: LoreChunk) => (c.triggerKeywords ?? []).filter(kw => !isFieldLabelKeyword(kw));
+    getScanText: (depth: number) => string,
+    semanticSet: Set<string>,
+    skip: Set<string>,
+): string[] {
     const idf = computeIdf(chunks.map(keywordsOf));
-    const chunkById = new Map(chunks.map(c => [c.id, c]));
-    const semanticSet = new Set(semanticCandidateIds ?? []);
-
-    // Pass 1: keyword ranking (IDF-weighted)
     const keywordScored: { chunk: LoreChunk; score: number }[] = [];
 
     for (const chunk of chunks) {
         if (chunk.disabled) continue;
-        if (includedSet.has(chunk.id)) continue;
+        if (skip.has(chunk.id)) continue;
 
         const isKeywordMode = chunk.ragMode !== 'vector';
 
-        const depth = chunk.scanDepth || defaultDepth;
+        const depth = chunk.scanDepth || DEFAULT_SCAN_DEPTH;
         const scanText = getScanText(depth);
         const keywords = keywordsOf(chunk);
 
@@ -258,7 +235,45 @@ function retrieveRelevantLoreIdfRrf(
     }
 
     keywordScored.sort((a, b) => b.score - a.score);
-    const keywordRanked = keywordScored.map(s => s.chunk.id);
+    return keywordScored.map(s => s.chunk.id);
+}
+
+/**
+ * Lore ids that match the message and recent history by keyword, best first: the same IDF
+ * scoring as lore selection's first pass. Shortlists the Context Recommender's lore index
+ * when it is too large (loreAiIndex.ts). Disabled entries are left out.
+ */
+export function rankLoreByKeywords(chunks: LoreChunk[], userMessage: string, recentMessages: ChatMessage[]): string[] {
+    return rankLoreByKeywordsWith(chunks, makeScanTextGetter(recentMessages, userMessage), new Set(), new Set());
+}
+
+// ─── IDF+RRF algorithm ────────────────────────────────────────────────────
+function retrieveRelevantLoreIdfRrf(
+    chunks: LoreChunk[],
+    userMessage: string,
+    tokenBudget: number,
+    recentMessages: ChatMessage[],
+    semanticCandidateIds: string[] | undefined,
+    recommendedIds: string[] | undefined,
+    topN: number,
+): LoreChunk[] {
+    const results: LoreChunk[] = [];
+    const includedSet = new Set<string>();
+    let usedTokens = 0;
+
+    for (const chunk of chunks) {
+        if (chunk.disabled) continue;
+        if (chunk.alwaysInclude || chunk.ragMode === 'always') {
+            results.push(chunk);
+            includedSet.add(chunk.id);
+            usedTokens += chunk.tokens;
+        }
+    }
+
+    const chunkById = new Map(chunks.map(c => [c.id, c]));
+
+    // Pass 1: keyword ranking (IDF-weighted)
+    const keywordRanked = rankLoreByKeywordsWith(chunks, makeScanTextGetter(recentMessages, userMessage), new Set(semanticCandidateIds ?? []), includedSet);
 
     // Pass 2: embedding ranking (already cosine-ranked)
     const embeddingRanked = (semanticCandidateIds ?? []).filter(id => {

@@ -4,6 +4,9 @@ import { recommendContext } from '../turn/contextRecommender';
 import { isBlockEnabled } from '../turn/blockEnablement';
 import { renderHelperInjections } from '../turn/promptAddenda';
 import { hasHostModelRole, type HostFacade } from '../turn/hostFacade';
+import { normalizeLoreShortlistTokens } from '../lore/loreAiIndex';
+import { rankLoreByKeywords } from '../lore/loreRetriever';
+import { countTokens } from '../infrastructure/tokenizer';
 
 export type RecommenderResult = {
     recommendedNPCNames: string[] | undefined;
@@ -65,6 +68,12 @@ export async function gatherRecommender(
             // Block View's explicit toggles, so a toggle read through it would do nothing.
             isBlockEnabled('recommenderThinking', config?.aiTier ?? state.settings.aiTier, config?.moduleEnabled ?? state.settings.moduleEnabled),
             renderHelperInjections('recommender', context.promptInjections),
+            {
+                useAiSummaries: !!state.settings.aiLoreIndex,
+                shortlistTokenLimit: state.settings.aiLoreShortlist ? normalizeLoreShortlistTokens(state.settings.aiLoreShortlistTokens) : undefined,
+                rankIds: () => rankLoreByKeywords(loreChunks, finalInput, messages),
+                countTokens,
+            },
         );
         const { relevantNPCNames: recommendedNPCNames, inventoryCategories, profileFields, relevantLoreIds } = result;
         console.log(`[ContextGatherer] Recommender returned: ${recommendedNPCNames?.length || 0} NPCs, ${result.relevantLoreIds.length} lore, ${inventoryCategories?.length || 0} inv cats, ${profileFields?.length || 0} profile fields`);
