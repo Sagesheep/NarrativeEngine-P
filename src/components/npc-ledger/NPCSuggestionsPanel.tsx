@@ -138,4 +138,4 @@ export function NPCSuggestionsPanel({ suggestions }: Props) {
             )}
         </div>
     );
-}
+}
