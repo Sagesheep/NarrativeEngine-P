@@ -46,7 +46,7 @@ export const READING_ALIGNS: { value: ReadingAlign; label: string }[] = [
 const MESSAGE_RAIL_GUTTER_PX = 44;
 
 export const READING_SIZE_MIN = 13;
-export const READING_SIZE_MAX = 24;
+export const READING_SIZE_MAX = 36;
 
 export const READING_DEFAULTS = {
     readingFont: 'serif' as ReadingFont,

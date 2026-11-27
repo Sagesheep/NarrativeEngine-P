@@ -39,6 +39,7 @@ export function NPCEditForm({
     const storeChapters = useAppStore(s => s.chapters);
 
     const [traitSearch, setTraitSearch] = useState('');
+    const [traitListOpen, setTraitListOpen] = useState(false);
     const [relationTargetId, setRelationTargetId] = useState('');
     const npcLedger = useAppStore(s => s.npcLedger);
     const playerCharacter = useAppStore(s => s.playerCharacter);
@@ -528,18 +529,20 @@ export function NPCEditForm({
                                     type="text"
                                     value={traitSearch}
                                     onChange={e => setTraitSearch(e.target.value)}
+                                    onFocus={() => setTraitListOpen(true)}
+                                    onBlur={() => setTraitListOpen(false)}
                                     placeholder="Search traits..."
                                     className="w-full bg-surface border border-border rounded pl-7 pr-3 py-1.5 text-[12px] text-text-primary placeholder:text-text-dim/50 focus:outline-none focus:border-terminal"
                                 />
-                                {traitSearch && filteredTraitOptions.length > 0 && (
-                                    <div data-motion="popover" className="absolute z-20 left-0 right-0 mt-1 bg-void border border-border rounded max-h-32 overflow-y-auto shadow-lg">
+                                {(traitListOpen || traitSearch) && filteredTraitOptions.some(t => !(form.traits || []).includes(t)) && (
+                                    <div data-motion="popover" className="absolute z-20 left-0 right-0 mt-1 bg-void border border-border rounded max-h-48 overflow-y-auto shadow-lg">
                                         {filteredTraitOptions
                                             .filter(t => !(form.traits || []).includes(t))
-                                            .slice(0, 10)
                                             .map(t => (
                                                 <button
                                                     key={t}
                                                     type="button"
+                                                    onMouseDown={e => e.preventDefault()}
                                                     onClick={() => {
                                                         setForm({ ...form, traits: [...(form.traits || []), t] });
                                                         setTraitSearch('');

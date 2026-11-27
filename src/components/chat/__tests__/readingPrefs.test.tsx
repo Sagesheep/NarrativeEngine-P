@@ -37,7 +37,7 @@ describe('readingStyleVars', () => {
 
     it('clamps size to the supported range', () => {
         expect(clampReadingSize(4)).toBe(13);
-        expect(clampReadingSize(99)).toBe(24);
+        expect(clampReadingSize(99)).toBe(36);
         expect(clampReadingSize(16.6)).toBe(17);
     });
 });
@@ -52,7 +52,7 @@ describe('migrateSettings — reading settings', () => {
         const out = migrateSettings({
             settings: { providers: [], presets: [], readingFont: 'sans', readingSize: 40, readingLeading: 'tight', readingWidth: 'nope', readingAlign: 'sideways' },
         });
-        expect(out).toMatchObject({ readingFont: 'sans', readingSize: 24, readingLeading: 'tight', readingWidth: 'standard', readingAlign: 'center' });
+        expect(out).toMatchObject({ readingFont: 'sans', readingSize: 36, readingLeading: 'tight', readingWidth: 'standard', readingAlign: 'center' });
     });
 });
 
