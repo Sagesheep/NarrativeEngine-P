@@ -941,34 +941,64 @@ function projectConstraint(constraint, positions, pins, worldSeed) {
     }
 }
 
+/** Places closer than this many grids push each other apart in `runLayout`. */
+const REPULSION_RADIUS = 5.5;
+
 function runLayout(locations, pins, constraints, fieldClauses, worldSeed, origin) {
     const positions = initialPositions(locations, pins, fieldClauses, worldSeed, origin);
     const iterations = Math.min(900, 520 + (locations.length * 12));
+    // The pair loop below runs n²/2 times per iteration, for hundreds of
+    // iterations, and `relaxDistanceConstraints` reruns the whole layout once
+    // per violated constraint. On a large map that was tens of seconds on the
+    // main thread every time a place was added. It works on flat arrays
+    // instead of Map lookups and rejects far pairs by squared distance first;
+    // every sum is still taken in the same order, so the layout is
+    // bit-identical to the plain Map version.
+    const count = locations.length;
+    const pinned = locations.map(location => pins.has(location.id));
+    const xs = new Float64Array(count);
+    const ys = new Float64Array(count);
+    const pushX = new Float64Array(count);
+    const pushY = new Float64Array(count);
+    const repulsionSquared = REPULSION_RADIUS * REPULSION_RADIUS;
     for (let iteration = 0; iteration < iterations; iteration += 1) {
-        const deltas = new Map(locations.map(location => [location.id, { x: 0, y: 0 }]));
-        for (let leftIndex = 0; leftIndex < locations.length; leftIndex += 1) {
-            const left = locations[leftIndex];
-            const leftPosition = positions.get(left.id);
+        for (let index = 0; index < count; index += 1) {
+            const position = positions.get(locations[index].id);
+            xs[index] = position.x;
+            ys[index] = position.y;
+        }
+        pushX.fill(0);
+        pushY.fill(0);
+        for (let leftIndex = 0; leftIndex < count; leftIndex += 1) {
+            const leftX = xs[leftIndex];
+            const leftY = ys[leftIndex];
+            const leftPinned = pinned[leftIndex];
             // The centring pull follows the origin too, or the layout drifts
             // back toward an ocean centre over the iterations.
-            if (!pins.has(left.id)) {
-                addDelta(deltas, left.id,
-                    (origin.x - leftPosition.x) * 0.00035,
-                    (origin.y - leftPosition.y) * 0.00035);
+            if (!leftPinned) {
+                pushX[leftIndex] += (origin.x - leftX) * 0.00035;
+                pushY[leftIndex] += (origin.y - leftY) * 0.00035;
             }
-            for (let rightIndex = leftIndex + 1; rightIndex < locations.length; rightIndex += 1) {
-                const right = locations[rightIndex];
-                const rightPosition = positions.get(right.id);
-                const dx = rightPosition.x - leftPosition.x;
-                const dy = rightPosition.y - leftPosition.y;
-                const length = vectorLength(dx, dy);
-                if (length >= 5.5) continue;
-                const unit = length > 0.000001 ? { x: dx / length, y: dy / length } : deterministicUnit(worldSeed, left.id, right.id);
-                const amount = (5.5 - length) * 0.055;
-                if (!pins.has(left.id)) addDelta(deltas, left.id, -unit.x * amount, -unit.y * amount);
-                if (!pins.has(right.id)) addDelta(deltas, right.id, unit.x * amount, unit.y * amount);
+            for (let rightIndex = leftIndex + 1; rightIndex < count; rightIndex += 1) {
+                const dx = xs[rightIndex] - leftX;
+                const dy = ys[rightIndex] - leftY;
+                const squared = (dx * dx) + (dy * dy);
+                if (squared >= repulsionSquared) continue;
+                const length = Math.sqrt(squared);
+                if (length >= REPULSION_RADIUS) continue;
+                const unit = length > 0.000001 ? { x: dx / length, y: dy / length } : deterministicUnit(worldSeed, locations[leftIndex].id, locations[rightIndex].id);
+                const amount = (REPULSION_RADIUS - length) * 0.055;
+                if (!leftPinned) {
+                    pushX[leftIndex] += -unit.x * amount;
+                    pushY[leftIndex] += -unit.y * amount;
+                }
+                if (!pinned[rightIndex]) {
+                    pushX[rightIndex] += unit.x * amount;
+                    pushY[rightIndex] += unit.y * amount;
+                }
             }
         }
+        const deltas = new Map(locations.map((location, index) => [location.id, { x: pushX[index], y: pushY[index] }]));
         for (const constraint of constraints) applyConstraintDelta(constraint, positions, pins, deltas, worldSeed);
 
         for (const location of locations) {

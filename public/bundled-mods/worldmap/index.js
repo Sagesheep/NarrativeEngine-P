@@ -1135,7 +1135,9 @@ export async function solveAndPersist(ctx) {
         ?? baseline.anchors.find(anchor => anchor.locationId === fresh.data.location?.currentPlaceId);
     const placedLedger = resolvePlacements(sourceLedger, { anchors: baseline.anchors, player, store: terrainChunkStore,
         explored: explorationByCampaign.get(campaignId), generated: generatedByCampaign.get(campaignId), hardened, bands: DISTANCE_BANDS });
-    const result = solve(placedLedger);
+    // Placement usually changes nothing; the layout of an unchanged ledger is
+    // the baseline we already have, so don't pay for a second full solve.
+    const result = placedLedger === sourceLedger ? baseline : solve(placedLedger);
     result.transects.push(...terrainTransects(placedLedger));
     for (const entry of placedLedger) if (entry.placementIssue) result.report.warnings.push({
         kind: 'placement-conflict', locationId: entry.id, locationName: entry.name, message: entry.placementIssue });
@@ -1149,7 +1151,11 @@ export async function solveAndPersist(ctx) {
     result.anchors = fixedSiteAnchors(result, sites.values(), placedLedger);
     const records = markCurrentVisited(reconcilePlaceRecords(placedLedger, result.anchors, sites.values()), fresh.data.location?.currentPlaceId, player);
     await syncMovedSites(confirm, campaignId, records, terrainChunkStore);
-    if (records !== liveLedger && confirm.write?.setLocationLedger) await confirm.write.setLocationLedger(records);
+    // `records` is `sourceLedger` itself when placement, reconciling and
+    // visit marking changed nothing, and `sourceLedger` already matches the
+    // live ledger (checked above). Writing it back anyway fired a `location`
+    // change, which queued yet another full solve for no change at all.
+    if (records !== sourceLedger && confirm.write?.setLocationLedger) await confirm.write.setLocationLedger(records);
     await confirm.table.write('anchors', result.anchors);
     publishResult(campaignId, result, settings);
     const destinationStore = ensureChunkStore(campaignId, settings, buildWarpField(result.transects), hardened);
@@ -1209,8 +1215,24 @@ function enqueue(ctx, task) {
     return solveQueue;
 }
 
+// Solves queued for a campaign that have not started yet. `solveAndPersist`
+// reads the live ledger when it starts, so one waiting solve already covers
+// every request made before it runs. Adding one place fires several requests
+// at once (the ledger change, the enrichment's placement context, the
+// placement release); each used to run its own full solve, back to back, on
+// the main thread.
+const waitingSolves = new Map();
+
 function queueSolve(ctx) {
-    return enqueue(ctx, () => solveAndPersist(ctx));
+    const key = ctx?.data?.campaignId ?? null;
+    const waiting = waitingSolves.get(key);
+    if (waiting) return waiting;
+    const queued = enqueue(ctx, () => {
+        if (waitingSolves.get(key) === queued) waitingSolves.delete(key);
+        return solveAndPersist(ctx);
+    });
+    waitingSolves.set(key, queued);
+    return queued;
 }
 
 
