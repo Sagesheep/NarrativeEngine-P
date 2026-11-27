@@ -10,6 +10,26 @@ import { useAppStore } from '../../store/useAppStore';
 
 const EMPTY_GLOSSARY: GlossaryEntry[] = [];
 
+/**
+ * A line like `[**Marlow**]: "Brant."` has the shape of a Markdown link
+ * reference definition, which the parser consumes and never renders, so the
+ * line vanished. Story text never means one: escape the opening bracket so the
+ * line renders as text. Lines inside fenced code blocks are left alone.
+ */
+export function escapeLinkDefinitions(text: string): string {
+    let fence: string | null = null;
+    return text.split('\n').map(line => {
+        const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+        if (open) {
+            if (!fence) fence = open[1];
+            else if (open[1][0] === fence[0] && open[1].length >= fence.length) fence = null;
+            return line;
+        }
+        if (fence) return line;
+        return line.replace(/^((?: {0,3}>)*[ \t]{0,3})\[(?=[^\]]*\]:)/, '$1\\[');
+    }).join('\n');
+}
+
 /** Shared, display-only name matching; stored story text is never rewritten. */
 export function MessageMarkdown({ content }: { content: string }) {
     const npcLedger = useAppStore(s => s.npcLedger);
@@ -38,5 +58,5 @@ export function MessageMarkdown({ content }: { content: string }) {
             return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
         },
     }), [lookup]);
-    return <ReactMarkdown remarkPlugins={plugins} components={components}>{content.replace(/<!--\s*MOVEMENT\b[\s\S]*?(?:-->|$)/gi, '')}</ReactMarkdown>;
+    return <ReactMarkdown remarkPlugins={plugins} components={components}>{escapeLinkDefinitions(content.replace(/<!--\s*MOVEMENT\b[\s\S]*?(?:-->|$)/gi, ''))}</ReactMarkdown>;
 }
